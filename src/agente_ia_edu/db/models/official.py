@@ -279,10 +279,12 @@ class BookletQuestion(Base):
             "position",
             name="uq_booklet_questions_booklet_position",
         ),
-        UniqueConstraint(
+        Index(
+            "ix_booklet_questions_booklet_official_number_not_null",
             "exam_booklet_id",
             "official_number",
-            name="uq_booklet_questions_booklet_official_number",
+            unique=True,
+            postgresql_where=text("official_number IS NOT NULL"),
         ),
         CheckConstraint("position > 0", name="ck_booklet_questions_position_positive"),
         CheckConstraint(
