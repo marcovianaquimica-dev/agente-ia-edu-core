@@ -236,6 +236,10 @@ class DifficultyEstimate(Base):
             unique=True,
             postgresql_where=text("status = 'active'"),
         ),
+        Index(
+            "ix_difficulty_estimates_question_version_id",
+            "question_version_id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
