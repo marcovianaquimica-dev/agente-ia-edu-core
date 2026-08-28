@@ -42,13 +42,12 @@ class QuestionRepository:
     async def list_official(self, *, offset: int, limit: int, institution_code: str | None = None, exam_code: str | None = None, year: int | None = None, content: str | None = None) -> list[Question]:
         query = select(Question).options(
             selectinload(Question.versions).selectinload(QuestionVersion.options),
-            selectinload(Question.versions).selectinload(QuestionVersion.booklet_questions).options(
-                joinedload(QuestionVersion.booklet_questions)
-                .joinedload(BookletQuestion.exam_booklet)
-                .joinedload(ExamBooklet.exam_application)
-                .joinedload(ExamApplication.exam)
-                .joinedload(Exam.institution),
-            ),
+            selectinload(Question.versions)
+            .selectinload(QuestionVersion.booklet_questions)
+            .joinedload(BookletQuestion.exam_booklet)
+            .joinedload(ExamBooklet.exam_application)
+            .joinedload(ExamApplication.exam)
+            .joinedload(Exam.institution),
         )
         query = self._list_query(query)
         query = self._apply_filters(query, institution_code, exam_code, year, content)
@@ -62,13 +61,12 @@ class QuestionRepository:
             .where(Question.id == question_id)
             .options(
                 selectinload(Question.versions).selectinload(QuestionVersion.options),
-                selectinload(Question.versions).selectinload(QuestionVersion.booklet_questions).options(
-                    joinedload(QuestionVersion.booklet_questions)
-                    .joinedload(BookletQuestion.exam_booklet)
-                    .joinedload(ExamBooklet.exam_application)
-                    .joinedload(ExamApplication.exam)
-                    .joinedload(Exam.institution),
-                ),
+                selectinload(Question.versions)
+                .selectinload(QuestionVersion.booklet_questions)
+                .joinedload(BookletQuestion.exam_booklet)
+                .joinedload(ExamBooklet.exam_application)
+                .joinedload(ExamApplication.exam)
+                .joinedload(Exam.institution),
             )
         )
         question = await self.session.scalar(query)
