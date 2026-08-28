@@ -11,6 +11,12 @@ from .official import (
     QuestionVersion,
     SourceDocument,
 )
+from .pedagogical import (
+    DifficultyEstimate,
+    QuestionClassification,
+    Taxonomy,
+    TaxonomyNode,
+)
 
 __all__ = [
     "AnswerKeyEntry",
@@ -24,4 +30,8 @@ __all__ = [
     "QuestionOption",
     "QuestionVersion",
     "SourceDocument",
+    "DifficultyEstimate",
+    "QuestionClassification",
+    "Taxonomy",
+    "TaxonomyNode",
 ]
