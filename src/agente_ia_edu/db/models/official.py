@@ -198,6 +198,7 @@ class QuestionVersion(Base):
             unique=True,
             postgresql_where=text("version_kind = 'official_original'"),
         ),
+        Index("ix_question_versions_content_hash", "content_hash"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
