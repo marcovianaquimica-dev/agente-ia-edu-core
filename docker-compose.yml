@@ -1,19 +1,26 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
     container_name: agente-ia-edu-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      N8N_DB: ${N8N_DB}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.36.7@sha256:14c4285bc3034dc5b51034aea393711d27053588e460722bce523453a626f23c
     container_name: agente-ia-edu-n8n
     restart: unless-stopped
     ports:
@@ -30,7 +37,8 @@ services:
       N8N_PROTOCOL: http
       GENERIC_TIMEZONE: America/Fortaleza
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - n8n_data:/home/node/.n8n
 
