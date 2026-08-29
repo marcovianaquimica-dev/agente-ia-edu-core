@@ -16,10 +16,10 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base
+from ..types import JSONBCompatible
 from .official import QuestionVersion
 
 
@@ -121,7 +121,7 @@ class AssessmentSelectionRequest(Base):
     selection_type: Mapped[str] = mapped_column(String(20), nullable=False)
     original_prompt: Mapped[str | None] = mapped_column(Text)
     requested_count: Mapped[int | None] = mapped_column(Integer)
-    criteria_: Mapped[dict[str, Any] | None] = mapped_column("criteria", JSONB)
+    criteria_: Mapped[dict[str, Any] | None] = mapped_column("criteria", JSONBCompatible)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

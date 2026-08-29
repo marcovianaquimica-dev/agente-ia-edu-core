@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 
 from fastapi import Request
 
+from agente_ia_edu.db.session import create_session_factory
 from agente_ia_edu.identity import (
     ExternalIdentityContext,
     ExternalIdentityProvider,
@@ -147,6 +148,22 @@ async def get_current_identity(request: Request) -> ExternalIdentityContext:
     
     context = await provider.resolve(request_obj)
     return context
+
+
+async def get_session_factory():
+    """Get database session factory for dependency injection.
+    
+    This dependency provides an async session factory that can be used
+    to create database sessions within endpoint handlers.
+    
+    Usage in endpoints:
+        @router.get("/resource")
+        async def get_resource(session_factory=Depends(get_session_factory)):
+            async with session_factory() as session:
+                # Use session for queries
+    """
+    return create_session_factory()
+
 
 
 __all__ = [

@@ -21,10 +21,10 @@ from sqlalchemy import (
     and_,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base
+from ..types import JSONBCompatible
 from .official import QuestionVersion
 
 
@@ -40,7 +40,7 @@ class Taxonomy(Base):
     version: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -82,7 +82,7 @@ class TaxonomyNode(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     node_type: Mapped[str] = mapped_column(String(30), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -178,7 +178,7 @@ class QuestionClassification(Base):
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by: Mapped[str | None] = mapped_column(String(255))
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     question_version: Mapped[QuestionVersion] = relationship()
     taxonomy: Mapped[Taxonomy] = relationship(back_populates="classifications")
@@ -265,7 +265,7 @@ class DifficultyEstimate(Base):
         Uuid,
         ForeignKey("difficulty_estimates.id", ondelete="RESTRICT"),
     )
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     question_version: Mapped[QuestionVersion] = relationship()
     supersedes: Mapped[DifficultyEstimate | None] = relationship(

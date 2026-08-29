@@ -17,10 +17,10 @@ from sqlalchemy import (
     Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base
+from ..types import JSONBCompatible
 
 
 class Institution(Base):
@@ -34,7 +34,7 @@ class Institution(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     website_url: Mapped[str | None] = mapped_column(String(2048))
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     exams: Mapped[list[Exam]] = relationship(back_populates="institution")
 
@@ -88,7 +88,7 @@ class ExamApplication(Base):
     day: Mapped[int | None] = mapped_column(Integer)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     official_identifier: Mapped[str | None] = mapped_column(String(255))
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     exam: Mapped[Exam] = relationship(back_populates="applications")
     booklets: Mapped[list[ExamBooklet]] = relationship(back_populates="exam_application")
@@ -118,7 +118,7 @@ class ExamBooklet(Base):
     language: Mapped[str | None] = mapped_column(String(20))
     booklet_type: Mapped[str | None] = mapped_column(String(50))
     official_identifier: Mapped[str | None] = mapped_column(String(255))
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     exam_application: Mapped[ExamApplication] = relationship(back_populates="booklets")
     source_documents: Mapped[list[SourceDocument]] = relationship(
@@ -156,7 +156,7 @@ class SourceDocument(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     extraction_method: Mapped[str | None] = mapped_column(String(100))
     extractor_version: Mapped[str | None] = mapped_column(String(100))
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     __table_args__ = (
         Index("ix_source_documents_content_hash", "content_hash"),
@@ -215,6 +215,9 @@ class QuestionVersion(Base):
     canonical_text: Mapped[str] = mapped_column(Text, nullable=False)
     statement: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    recommended_difficulty: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # EASY, MEDIUM, HARD; null = not yet classified
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
@@ -222,7 +225,7 @@ class QuestionVersion(Base):
     created_by_id: Mapped[str | None] = mapped_column(String(255))
     change_reason: Mapped[str | None] = mapped_column(Text)
     is_immutable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     question: Mapped[Question] = relationship(back_populates="versions")
     parent_version: Mapped[QuestionVersion | None] = relationship(
@@ -264,7 +267,7 @@ class QuestionOption(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     is_valid_option: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     question_version: Mapped[QuestionVersion] = relationship(back_populates="options")
     answer_key_entries: Mapped[list[AnswerKeyEntry]] = relationship(
@@ -311,7 +314,7 @@ class BookletQuestion(Base):
     extraction_method: Mapped[str | None] = mapped_column(String(100))
     extractor_version: Mapped[str | None] = mapped_column(String(100))
     evidence_uri: Mapped[str | None] = mapped_column(String(2048))
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     exam_booklet: Mapped[ExamBooklet] = relationship(back_populates="booklet_questions")
     question_version: Mapped[QuestionVersion] = relationship(
@@ -345,7 +348,7 @@ class AnswerKeyRevision(Base):
     )
     is_official: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     source_document: Mapped[SourceDocument] = relationship(
         back_populates="answer_key_revisions"

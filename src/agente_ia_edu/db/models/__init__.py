@@ -26,6 +26,12 @@ from .assessments import (
     AssessmentSelectionRequest,
     AssessmentVersion,
 )
+from .learning_path import (
+    LearningHistory,
+    StudentContentMastery,
+    PracticeSession,
+    PracticeQuestionSelection,
+)
 
 __all__ = [
     "AnswerKeyEntry",
@@ -50,4 +56,8 @@ __all__ = [
     "AssessmentPublication",
     "AssessmentSelectionRequest",
     "AssessmentVersion",
+    "LearningHistory",
+    "StudentContentMastery",
+    "PracticeSession",
+    "PracticeQuestionSelection",
 ]
