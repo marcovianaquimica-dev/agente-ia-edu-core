@@ -17,6 +17,15 @@ from .pedagogical import (
     Taxonomy,
     TaxonomyNode,
 )
+from .assessments import (
+    Assessment,
+    AssessmentAnswer,
+    AssessmentAttempt,
+    AssessmentItem,
+    AssessmentPublication,
+    AssessmentSelectionRequest,
+    AssessmentVersion,
+)
 
 __all__ = [
     "AnswerKeyEntry",
@@ -34,4 +43,11 @@ __all__ = [
     "QuestionClassification",
     "Taxonomy",
     "TaxonomyNode",
+    "Assessment",
+    "AssessmentAnswer",
+    "AssessmentAttempt",
+    "AssessmentItem",
+    "AssessmentPublication",
+    "AssessmentSelectionRequest",
+    "AssessmentVersion",
 ]
