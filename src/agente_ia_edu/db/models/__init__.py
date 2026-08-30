@@ -59,6 +59,9 @@ from .recommendations import (
     PedagogicalRecommendation,
     VideoInteractionEvent,
 )
+from .discovery import (
+    ExternalVideoCandidate,
+)
 
 __all__ = [
     "AnswerKeyEntry",
@@ -107,4 +110,5 @@ __all__ = [
     "PedagogicalContext",
     "PedagogicalRecommendation",
     "VideoInteractionEvent",
+    "ExternalVideoCandidate",
 ]

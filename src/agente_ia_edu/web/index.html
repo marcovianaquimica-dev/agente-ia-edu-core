@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENTE IA EDU — Portal do Aluno</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">🎓</div>
+        <div class="brand-text">AGENTE IA <span>EDU</span></div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="icon">🏠</span> Início
+        </button>
+        <button class="nav-item" data-view="learning-path">
+          <span class="icon">🎯</span> Minha Trilha
+        </button>
+        <button class="nav-item" data-view="practice">
+          <span class="icon">✏️</span> Praticar
+        </button>
+        <button class="nav-item" data-view="materials">
+          <span class="icon">📚</span> Materiais
+        </button>
+        <button class="nav-item" data-view="videos">
+          <span class="icon">🎥</span> Vídeos
+        </button>
+        <button class="nav-item" data-view="evolution">
+          <span class="icon">📈</span> Minha Evolução
+        </button>
+        <button class="nav-item" data-view="essay">
+          <span class="icon">📝</span> Redação
+        </button>
+        <button class="nav-item" data-view="profile">
+          <span class="icon">👤</span> Meu Perfil
+        </button>
+      </nav>
+
+      <div class="user-badge">
+        <div class="user-avatar">A</div>
+        <div class="user-info">
+          <span class="user-name" id="user-display-name">Aluno Piloto</span>
+          <span class="user-role">Ensino Médio</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Header Bar -->
+      <header class="top-header">
+        <div class="page-title-box">
+          <h1 id="page-title">Dashboard Principal</h1>
+          <p id="page-subtitle" class="subtitle">Acompanhe sua orientação pedagógica personalizada</p>
+        </div>
+
+        <!-- Period Filter -->
+        <div class="header-actions">
+          <div class="period-selector">
+            <span class="filter-label">📅 Período:</span>
+            <select id="time-period-select" class="select-input">
+              <option value="academic_year" selected>Ano Letivo Vigente</option>
+              <option value="bimester">Bimestre Atual</option>
+              <option value="semester">Semestre</option>
+              <option value="last_30_days">Últimos 30 Dias</option>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <!-- Dynamic Views Container -->
+      <div id="views-container">
+        <!-- 1. DASHBOARD VIEW -->
+        <section id="view-dashboard" class="view-panel active">
+          <!-- Welcome / Empty State Banner -->
+          <div id="welcome-banner" class="card banner-card">
+            <div class="banner-content">
+              <span class="badge badge-accent">Orientação do Dia</span>
+              <h2 id="welcome-msg-text">Carregando orientação...</h2>
+              <p id="welcome-msg-sub">Analisando seu histórico e contextualização do professor...</p>
+            </div>
+          </div>
+
+          <!-- Summary Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon bg-blue">📊</div>
+              <div class="stat-data">
+                <span class="stat-value" id="stat-avg">0.0%</span>
+                <span class="stat-label">Média Geral</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-green">🏆</div>
+              <div class="stat-data">
+                <span class="stat-value" id="stat-mastered">0</span>
+                <span class="stat-label">Conteúdos Dominados</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-purple">✏️</div>
+              <div class="stat-data">
+                <span class="stat-value" id="stat-questions">0</span>
+                <span class="stat-label">Questões Respondidas</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-orange">🔥</div>
+              <div class="stat-data">
+                <span class="stat-value" id="stat-streak">1 dia</span>
+                <span class="stat-label">Sequência Ativa</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Recommendation Section ("O QUE VOCÊ DEVE ESTUDAR AGORA") -->
+          <div class="card active-rec-card">
+            <div class="card-header">
+              <h3>🎯 O Que Você Deve Estudar Agora</h3>
+              <span class="badge badge-primary" id="rec-context-tag">Contexto do Professor</span>
+            </div>
+            <div class="rec-body" id="rec-content-body">
+              <div class="rec-main">
+                <h2 id="rec-target-title">Diluição de Soluções</h2>
+                <div class="mastery-inline">
+                  <span>Domínio Atual:</span>
+                  <div class="progress-bar-wrap">
+                    <div class="progress-bar-fill" id="rec-mastery-bar" style="width: 38%;"></div>
+                  </div>
+                  <strong id="rec-mastery-text">38%</strong>
+                </div>
+                <p id="rec-reason-text" class="rec-explanation">
+                  Seu professor trabalhou este conteúdo recentemente em sala e seu domínio atual requer reforço.
+                </p>
+
+                <!-- Steps Pipeline -->
+                <div class="steps-flow" id="rec-steps-flow">
+                  <div class="step-item active">
+                    <div class="step-num">1</div>
+                    <div class="step-info">
+                      <strong>Apostila Teórica</strong>
+                      <span>Material Teórico</span>
+                    </div>
+                  </div>
+                  <div class="step-item">
+                    <div class="step-num">2</div>
+                    <div class="step-info">
+                      <strong>Assistir Vídeo</strong>
+                      <span>Videoaula</span>
+                    </div>
+                  </div>
+                  <div class="step-item">
+                    <div class="step-num">3</div>
+                    <div class="step-info">
+                      <strong>Praticar EASY</strong>
+                      <span>Questões</span>
+                    </div>
+                  </div>
+                  <div class="step-item">
+                    <div class="step-num">4</div>
+                    <div class="step-info">
+                      <strong>Reavaliar</strong>
+                      <span>Maestria</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rec-actions">
+                  <button class="btn btn-primary" id="btn-start-path">🚀 COMEÇAR TRILHA</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Plan Grid (Plano de Ação) -->
+          <div class="card action-plan-card">
+            <div class="card-header">
+              <h3>📋 Seu Plano de Ação por Conteúdo</h3>
+            </div>
+            <div class="action-plan-grid">
+              <div class="plan-column column-danger">
+                <div class="column-header">
+                  <span class="dot danger"></span>
+                  <h4>🔴 Precisa Melhorar (< 50%)</h4>
+                </div>
+                <div class="plan-list" id="plan-list-danger">
+                  <p class="empty-text">Nenhum conteúdo nesta faixa</p>
+                </div>
+              </div>
+
+              <div class="plan-column column-warning">
+                <div class="column-header">
+                  <span class="dot warning"></span>
+                  <h4>🟡 Em Desenvolvimento (50-69%)</h4>
+                </div>
+                <div class="plan-list" id="plan-list-warning">
+                  <p class="empty-text">Nenhum conteúdo nesta faixa</p>
+                </div>
+              </div>
+
+              <div class="plan-column column-success">
+                <div class="column-header">
+                  <span class="dot success"></span>
+                  <h4>🟢 Domínio Consolidado (>= 70%)</h4>
+                </div>
+                <div class="plan-list" id="plan-list-success">
+                  <p class="empty-text">Nenhum conteúdo nesta faixa</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. MINHA TRILHA VIEW -->
+        <section id="view-learning-path" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🎯 Sua Trilha de Aprendizagem Adaptativa</h3>
+            </div>
+            <div id="path-view-content" class="path-view-body">
+              <p>Carregando etapas da trilha...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. PRATICAR VIEW -->
+        <section id="view-practice" class="view-panel">
+          <div class="card practice-box">
+            <div class="card-header">
+              <h3>✏️ Praticar Questões</h3>
+            </div>
+            <div id="practice-interactive-area" class="practice-body">
+              <div class="practice-starter">
+                <h4>Iniciar Nova Sessão de Prática</h4>
+                <p>Selecione um conteúdo ou deixe o sistema escolher com base no seu Plano de Ação.</p>
+                <button class="btn btn-primary" id="btn-create-practice-session">⚡ Iniciar Treino Personalizado</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. MATERIAIS VIEW -->
+        <section id="view-materials" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📚 Materiais e Apostilas Recomendados</h3>
+            </div>
+            <div id="materials-list-container" class="resource-grid">
+              <p>Carregando materiais teóricos...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. VÍDEOS VIEW -->
+        <section id="view-videos" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🎥 Videoaulas Recomendadas</h3>
+            </div>
+            <div id="videos-list-container" class="video-player-container">
+              <p>Carregando recomendações de vídeo...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. MINHA EVOLUÇÃO VIEW -->
+        <section id="view-evolution" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📈 Histórico e Evolução do Aluno</h3>
+            </div>
+            <div id="evolution-stats-container" class="evolution-body">
+              <p>Carregando métricas de evolução...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. REDAÇÃO VIEW (PLACEHOLDER) -->
+        <section id="view-essay" class="view-panel">
+          <div class="card essay-placeholder-card">
+            <div class="essay-icon">📝</div>
+            <h2>Módulo REDAÇÃO IA</h2>
+            <p>Em breve você poderá praticar suas redações no padrão ENEM e receber correção instantânea com inteligência artificial.</p>
+            <span class="badge badge-accent">Próximo Lançamento</span>
+          </div>
+        </section>
+
+        <!-- 8. MEU PERFIL VIEW -->
+        <section id="view-profile" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>👤 Meu Perfil de Aprendizagem</h3>
+            </div>
+            <div class="profile-details">
+              <p><strong>Identidade Externa:</strong> <span id="profile-id">student:alice</span></p>
+              <p><strong>Série:</strong> 3ª Série — Ensino Médio</p>
+              <p><strong>Escola:</strong> Escola Piloto Partner</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
