@@ -18,6 +18,7 @@ from agente_ia_edu.db.models import (
     PedagogicalRecommendation,
     QuestionVersion,
     StudentContentMastery,
+    VideoInteractionEvent,
 )
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.learning_path_policies import DifficultyLevel
@@ -739,9 +740,9 @@ class RecommendationEngine:
 
 
 class ResourceTrackingService:
-    """Contract for tracking student interactions with educational resources (future telemetry preparation)."""
+    """Service for tracking student interactions and feedback on educational resources."""
 
-    VALID_ACTIONS = {"OPENED", "STARTED", "COMPLETED", "FEEDBACK"}
+    VALID_ACTIONS = {"OPENED", "STARTED", "PROGRESS", "COMPLETED", "FEEDBACK"}
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -753,13 +754,61 @@ class ResourceTrackingService:
         resource_id: uuid.UUID,
         action_type: str,
         recommendation_id: uuid.UUID | None = None,
+        content_node_id: uuid.UUID | None = None,
         progress_percentage: float | None = None,
+        feedback_type: str | None = None,
+        feedback_reason: str | None = None,
+        event_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Record an interaction event without breaking when analytics backend is added later."""
+        """Record an interaction event, validating progress bounds and persisting to video_interaction_events."""
         action = action_type.upper()
         if action not in self.VALID_ACTIONS:
             raise ValueError(f"Invalid interaction action_type: {action_type}")
+
+        if progress_percentage is not None:
+            prog_val = float(progress_percentage)
+            if prog_val < 0.0 or prog_val > 100.0:
+                raise ValueError(f"Progress percentage must be between 0 and 100, got: {progress_percentage}")
+            if prog_val == 100.0 and action not in ("COMPLETED", "FEEDBACK"):
+                action = "COMPLETED"
+        else:
+            prog_val = None
+
+        # Idempotency check via event_id
+        if event_id:
+            stmt_evt = select(VideoInteractionEvent).where(VideoInteractionEvent.event_id == event_id)
+            res_evt = await self.session.execute(stmt_evt)
+            existing_evt = res_evt.scalar_one_or_none()
+            if existing_evt:
+                return {
+                    "id": str(existing_evt.id),
+                    "recorded": True,
+                    "idempotent": True,
+                    "student_id": existing_evt.student_id,
+                    "resource_id": str(existing_evt.resource_id),
+                    "action_type": existing_evt.event_type,
+                    "progress_percentage": float(existing_evt.progress_percentage) if existing_evt.progress_percentage is not None else None,
+                    "feedback_type": existing_evt.feedback_type,
+                    "feedback_reason": existing_evt.feedback_reason,
+                    "event_id": existing_evt.event_id,
+                    "timestamp": existing_evt.created_at.isoformat(),
+                }
+
+        # Create persistent DB record
+        evt = VideoInteractionEvent(
+            student_id=student_id,
+            resource_id=resource_id,
+            recommendation_id=recommendation_id,
+            content_node_id=content_node_id,
+            event_type=action,
+            progress_percentage=Decimal(str(prog_val)) if prog_val is not None else None,
+            feedback_type=feedback_type.upper() if feedback_type else None,
+            feedback_reason=feedback_reason.upper() if feedback_reason else None,
+            event_id=event_id,
+            metadata_=metadata,
+        )
+        self.session.add(evt)
 
         if recommendation_id:
             rec = await self.session.get(PedagogicalRecommendation, recommendation_id)
@@ -769,17 +818,27 @@ class ResourceTrackingService:
                 interactions.append({
                     "action": action,
                     "resource_id": str(resource_id),
-                    "progress": progress_percentage,
+                    "progress": prog_val,
+                    "feedback_type": feedback_type,
+                    "feedback_reason": feedback_reason,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
                 rec.metadata_ = dict(rec_meta)
-                await self.session.flush()
+
+        await self.session.commit()
+        await self.session.refresh(evt)
 
         return {
+            "id": str(evt.id),
             "recorded": True,
-            "student_id": student_id,
-            "resource_id": str(resource_id),
-            "action_type": action,
-            "progress_percentage": progress_percentage,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "idempotent": False,
+            "student_id": evt.student_id,
+            "resource_id": str(evt.resource_id),
+            "action_type": evt.event_type,
+            "progress_percentage": float(evt.progress_percentage) if evt.progress_percentage is not None else None,
+            "feedback_type": evt.feedback_type,
+            "feedback_reason": evt.feedback_reason,
+            "event_id": evt.event_id,
+            "timestamp": evt.created_at.isoformat(),
         }
+

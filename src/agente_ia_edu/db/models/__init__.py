@@ -57,6 +57,7 @@ from .ingestion import (
 from .recommendations import (
     PedagogicalContext,
     PedagogicalRecommendation,
+    VideoInteractionEvent,
 )
 
 __all__ = [
@@ -105,4 +106,5 @@ __all__ = [
     "IngestionAsset",
     "PedagogicalContext",
     "PedagogicalRecommendation",
+    "VideoInteractionEvent",
 ]

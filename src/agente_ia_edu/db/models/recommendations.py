@@ -141,3 +141,66 @@ class PedagogicalRecommendation(Base):
     content_node: Mapped["CatalogNode"] = relationship("CatalogNode", foreign_keys=[content_node_id])
     resource: Mapped[Optional["EducationalResource"]] = relationship("EducationalResource", foreign_keys=[resource_id])
     question_version: Mapped[Optional["QuestionVersion"]] = relationship("QuestionVersion", foreign_keys=[question_version_id])
+
+
+class VideoInteractionEvent(Base):
+    """
+    Rastreamento relacional e estruturado das interações do aluno com vídeos.
+
+    Tipos de evento: OPENED, STARTED, PROGRESS, COMPLETED, FEEDBACK
+    """
+
+    __tablename__ = "video_interaction_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('OPENED', 'STARTED', 'PROGRESS', 'COMPLETED', 'FEEDBACK')",
+            name="ck_video_interaction_events_type",
+        ),
+        CheckConstraint(
+            "progress_percentage IS NULL OR (progress_percentage >= 0 AND progress_percentage <= 100)",
+            name="ck_video_interaction_events_progress",
+        ),
+        CheckConstraint(
+            "feedback_type IS NULL OR feedback_type IN ('LIKED', 'DISLIKED')",
+            name="ck_video_interaction_events_feedback_type",
+        ),
+        CheckConstraint(
+            "feedback_reason IS NULL OR feedback_reason IN "
+            "('TOO_FAST', 'TOO_SLOW', 'TOO_BASIC', 'TOO_ADVANCED', 'NOT_CLEAR', "
+            "'TOO_MUCH_THEORY', 'NEEDS_EXAMPLES', 'NEEDS_QUESTIONS', 'OTHER')",
+            name="ck_video_interaction_events_feedback_reason",
+        ),
+        Index("ix_video_interaction_events_student_id", "student_id"),
+        Index("ix_video_interaction_events_resource_id", "resource_id"),
+        Index("ix_video_interaction_events_event_type", "event_type"),
+        Index("ix_video_interaction_events_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    student_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    resource_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("educational_resources.id", ondelete="RESTRICT"), nullable=False
+    )
+    recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("pedagogical_recommendations.id", ondelete="RESTRICT")
+    )
+    content_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("catalog_nodes.id", ondelete="RESTRICT")
+    )
+
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    progress_percentage: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    feedback_type: Mapped[str | None] = mapped_column(String(20))
+    feedback_reason: Mapped[str | None] = mapped_column(String(50))
+    event_id: Mapped[str | None] = mapped_column(String(128), unique=True)
+
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    resource: Mapped["EducationalResource"] = relationship("EducationalResource", foreign_keys=[resource_id])
+    recommendation: Mapped[Optional["PedagogicalRecommendation"]] = relationship("PedagogicalRecommendation", foreign_keys=[recommendation_id])
+    content_node: Mapped[Optional["CatalogNode"]] = relationship("CatalogNode", foreign_keys=[content_node_id])
