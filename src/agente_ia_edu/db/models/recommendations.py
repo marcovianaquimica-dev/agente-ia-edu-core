@@ -74,6 +74,8 @@ class PedagogicalContext(Base):
         default=lambda: datetime.now(timezone.utc),
     )
 
+    content_node: Mapped["CatalogNode"] = relationship("CatalogNode", foreign_keys=[content_node_id])
+
 
 class PedagogicalRecommendation(Base):
     """
@@ -135,3 +137,7 @@ class PedagogicalRecommendation(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+    content_node: Mapped["CatalogNode"] = relationship("CatalogNode", foreign_keys=[content_node_id])
+    resource: Mapped[Optional["EducationalResource"]] = relationship("EducationalResource", foreign_keys=[resource_id])
+    question_version: Mapped[Optional["QuestionVersion"]] = relationship("QuestionVersion", foreign_keys=[question_version_id])

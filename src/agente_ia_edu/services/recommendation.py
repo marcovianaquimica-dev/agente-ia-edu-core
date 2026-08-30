@@ -70,6 +70,70 @@ class RecommendationPriorityPolicy:
             return DifficultyLevel.HARD.value
 
 
+@dataclass
+class ResourceRecommendationPolicy:
+    """Deterministic policy for scoring and ranking educational resources for a student."""
+
+    direct_node_boost: float = 30.0          # Directly linked to target content node
+    institutional_boost: float = 25.0        # Owned by student's school/institution
+    author_boost: float = 20.0               # Authored material / teacher material
+    level_match_boost: float = 15.0          # Resource link level matches recommended level
+    repetition_penalty: float = -40.0        # Recently recommended resource
+
+    role_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "THEORY": 10.0,
+            "EXPLANATION": 8.0,
+            "REVIEW": 5.0,
+            "VIDEO": 5.0,
+            "PRACTICE": 3.0,
+            "REFERENCE": 2.0,
+        }
+    )
+
+    def rank_resources(
+        self,
+        resources: list[dict[str, Any]],
+        *,
+        target_node_id: uuid.UUID | None = None,
+        target_difficulty: str | None = None,
+        requester_institution_id: str | None = None,
+        recent_resource_ids: set[uuid.UUID] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Rank candidate resources deterministically by priority score."""
+        recent_resource_ids = recent_resource_ids or set()
+        scored = []
+
+        for r in resources:
+            score = 0.0
+            res_id = uuid.UUID(r["resource_id"])
+
+            if target_node_id and r.get("content_node_id") == str(target_node_id):
+                score += self.direct_node_boost
+
+            if requester_institution_id and r.get("owner_external_id") == requester_institution_id:
+                score += self.institutional_boost
+
+            if r.get("origin_type") in ("AUTHOR", "SCHOOL"):
+                score += self.author_boost
+
+            if target_difficulty and r.get("recommended_level") == target_difficulty:
+                score += self.level_match_boost
+
+            role = (r.get("pedagogical_role") or "").upper()
+            score += self.role_weights.get(role, 2.0)
+
+            if res_id in recent_resource_ids:
+                score += self.repetition_penalty
+
+            item = dict(r)
+            item["resource_score"] = score
+            scored.append(item)
+
+        scored.sort(key=lambda x: x["resource_score"], reverse=True)
+        return scored
+
+
 class RecommendationEngine:
     """Engine that generates auditably explained, deterministic recommendations for students."""
 
@@ -78,10 +142,12 @@ class RecommendationEngine:
         session: AsyncSession,
         knowledge_service: KnowledgeService,
         policy: RecommendationPriorityPolicy | None = None,
+        resource_policy: ResourceRecommendationPolicy | None = None,
     ):
         self.session = session
         self.knowledge_service = knowledge_service
         self.policy = policy or RecommendationPriorityPolicy()
+        self.resource_policy = resource_policy or ResourceRecommendationPolicy()
 
     async def record_pedagogical_context(
         self,
@@ -210,6 +276,182 @@ class RecommendationEngine:
             await self.session.refresh(rec)
 
         return saved_recs
+
+    async def resolve_recommendation(
+        self,
+        recommendation: PedagogicalRecommendation,
+        *,
+        requester_institution_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolves real educational resources and practice questions for a recommendation.
+
+        Handles edge cases deterministically:
+        - Content without materials: has_material = False, primary_resource = None (returns questions if available)
+        - Content without questions: has_questions = False, practice_questions = [] (returns material if available)
+        - Content without any resource: status = "NO_RESOURCE_AVAILABLE", has_material = False, has_questions = False
+        - Video resources: prepares VideoResourceDetail payload without external API calls
+        """
+        node = await self.session.get(CatalogNode, recommendation.content_node_id)
+        content_name = node.name if node else "Conteúdo"
+        rec_diff = recommendation.recommended_difficulty
+
+        # 1. Fetch & Rank Educational Resources via Knowledge Layer & ResourceRecommendationPolicy
+        resources = await self.knowledge_service.find_resources_by_content(
+            content_name,
+            requester_institution_id=requester_institution_id or recommendation.institution_id,
+        )
+
+        ranked_resources = self.resource_policy.rank_resources(
+            resources,
+            target_node_id=recommendation.content_node_id,
+            target_difficulty=rec_diff,
+            requester_institution_id=requester_institution_id or recommendation.institution_id,
+        )
+
+        primary_resource = None
+        has_material = False
+
+        if recommendation.resource_id:
+            stmt = (
+                select(EducationalResource)
+                .where(EducationalResource.id == recommendation.resource_id)
+                .options(selectinload(EducationalResource.video_detail))
+            )
+            res_res = await self.session.execute(stmt)
+            res_obj = res_res.scalar_one_or_none()
+
+            if res_obj and self.knowledge_service._is_resource_visible(res_obj, requester_institution_id or recommendation.institution_id):
+                primary_resource = {
+                    "resource_id": str(res_obj.id),
+                    "title": res_obj.title,
+                    "description": res_obj.description,
+                    "resource_type": res_obj.resource_type,
+                    "origin_type": res_obj.origin_type,
+                    "owner_external_id": res_obj.owner_external_id,
+                    "visibility_scope": res_obj.visibility_scope,
+                    "source_url": res_obj.source_url,
+                    "video_detail": {
+                        "platform": res_obj.video_detail.platform,
+                        "external_video_id": res_obj.video_detail.external_video_id,
+                        "duration_seconds": res_obj.video_detail.duration_seconds,
+                    } if res_obj.video_detail else None,
+                }
+                has_material = True
+
+        if not primary_resource and ranked_resources:
+            target = ranked_resources[0]
+            stmt = (
+                select(EducationalResource)
+                .where(EducationalResource.id == uuid.UUID(target["resource_id"]))
+                .options(selectinload(EducationalResource.video_detail))
+            )
+            res_res = await self.session.execute(stmt)
+            res_obj = res_res.scalar_one_or_none()
+
+            if res_obj:
+                primary_resource = {
+                    "resource_id": str(res_obj.id),
+                    "title": res_obj.title,
+                    "description": res_obj.description,
+                    "resource_type": res_obj.resource_type,
+                    "origin_type": res_obj.origin_type,
+                    "owner_external_id": res_obj.owner_external_id,
+                    "visibility_scope": res_obj.visibility_scope,
+                    "source_url": res_obj.source_url,
+                    "pedagogical_role": target.get("pedagogical_role"),
+                    "video_detail": {
+                        "platform": res_obj.video_detail.platform,
+                        "external_video_id": res_obj.video_detail.external_video_id,
+                        "duration_seconds": res_obj.video_detail.duration_seconds,
+                    } if res_obj.video_detail else None,
+                }
+                has_material = True
+                recommendation.resource_id = res_obj.id
+
+        # 2. Fetch Practice Questions via Knowledge Layer
+        candidate_questions = await self.knowledge_service.find_questions_by_content(
+            content_name,
+            difficulty=rec_diff,
+        )
+
+        from agente_ia_edu.repositories.learning_path import QuestionSelectionRepository
+        q_repo = QuestionSelectionRepository(self.session)
+        recent_qv_ids = await q_repo.recently_answered_version_ids(
+            recommendation.student_id,
+            content_node_id=recommendation.content_node_id,
+        )
+
+        practice_questions = []
+        for q in candidate_questions:
+            qv_id = uuid.UUID(q["question_version_id"])
+            if qv_id not in recent_qv_ids:
+                practice_questions.append(q)
+
+        if not practice_questions and candidate_questions:
+            practice_questions = candidate_questions
+
+        has_questions = len(practice_questions) > 0
+        if practice_questions and not recommendation.question_version_id:
+            recommendation.question_version_id = uuid.UUID(practice_questions[0]["question_version_id"])
+
+        # 3. Determine status and reason adjustments for edge cases
+        status = "OK"
+        reason = recommendation.reason
+
+        if not has_material and not has_questions:
+            status = "NO_RESOURCE_AVAILABLE"
+            reason = f"Nenhum recurso pedagógico (material ou questões) disponível para {content_name} no momento."
+        elif not has_material and recommendation.recommendation_type in ("STUDY_MATERIAL", "REVIEW_PREREQUISITE"):
+            reason += " (Nota: Não há material de estudo disponível para este conteúdo no momento, focando em prática de questões)."
+        elif not has_questions and recommendation.recommendation_type in ("PRACTICE", "REVIEW"):
+            reason += " (Nota: Não há questões de prática disponíveis para este nível no momento, focando em revisão de material)."
+
+        await self.session.flush()
+
+        return {
+            "recommendation_id": str(recommendation.id),
+            "student_id": recommendation.student_id,
+            "institution_id": recommendation.institution_id,
+            "classroom_id": recommendation.classroom_id,
+            "content_node_id": str(recommendation.content_node_id),
+            "content_name": content_name,
+            "recommendation_type": recommendation.recommendation_type,
+            "recommended_difficulty": rec_diff,
+            "priority_score": float(recommendation.priority_score),
+            "context_source": recommendation.context_source,
+            "mastery_score": float(recommendation.mastery_score_at_recommendation) if recommendation.mastery_score_at_recommendation is not None else None,
+            "reason": reason,
+            "has_material": has_material,
+            "has_questions": has_questions,
+            "status": status,
+            "primary_resource": primary_resource,
+            "practice_questions": practice_questions,
+            "created_at": recommendation.created_at,
+        }
+
+    async def generate_and_resolve_recommendations(
+        self,
+        *,
+        student_id: str,
+        institution_id: str | None = None,
+        classroom_id: str | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Generates recommendations and resolves real resources and practice questions for each."""
+        recs = await self.generate_recommendations(
+            student_id=student_id,
+            institution_id=institution_id,
+            classroom_id=classroom_id,
+            limit=limit,
+        )
+        resolved_list = []
+        for rec in recs:
+            resolved = await self.resolve_recommendation(
+                rec,
+                requester_institution_id=institution_id,
+            )
+            resolved_list.append(resolved)
+        return resolved_list
 
     # -------------------------------------------------------------------------
     # PRIVATE HELPER METHODS
@@ -494,3 +736,50 @@ class RecommendationEngine:
         res = await self.session.execute(stmt)
         m = res.scalar_one_or_none()
         return float(m.mastery_score) if m else 0.0
+
+
+class ResourceTrackingService:
+    """Contract for tracking student interactions with educational resources (future telemetry preparation)."""
+
+    VALID_ACTIONS = {"OPENED", "STARTED", "COMPLETED", "FEEDBACK"}
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def record_interaction(
+        self,
+        *,
+        student_id: str,
+        resource_id: uuid.UUID,
+        action_type: str,
+        recommendation_id: uuid.UUID | None = None,
+        progress_percentage: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record an interaction event without breaking when analytics backend is added later."""
+        action = action_type.upper()
+        if action not in self.VALID_ACTIONS:
+            raise ValueError(f"Invalid interaction action_type: {action_type}")
+
+        if recommendation_id:
+            rec = await self.session.get(PedagogicalRecommendation, recommendation_id)
+            if rec:
+                rec_meta = rec.metadata_ or {}
+                interactions = rec_meta.setdefault("interactions", [])
+                interactions.append({
+                    "action": action,
+                    "resource_id": str(resource_id),
+                    "progress": progress_percentage,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                rec.metadata_ = dict(rec_meta)
+                await self.session.flush()
+
+        return {
+            "recorded": True,
+            "student_id": student_id,
+            "resource_id": str(resource_id),
+            "action_type": action,
+            "progress_percentage": progress_percentage,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
