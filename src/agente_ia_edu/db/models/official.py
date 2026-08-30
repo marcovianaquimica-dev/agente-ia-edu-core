@@ -239,6 +239,12 @@ class QuestionVersion(Base):
     booklet_questions: Mapped[list[BookletQuestion]] = relationship(
         back_populates="question_version"
     )
+    pedagogical_classifications: Mapped[list["PedagogicalClassification"]] = relationship(
+        "PedagogicalClassification", back_populates="question_version"
+    )
+    ingestion_questions: Mapped[list["IngestionQuestion"]] = relationship(
+        "IngestionQuestion", back_populates="question_version"
+    )
 
 
 class QuestionOption(Base):

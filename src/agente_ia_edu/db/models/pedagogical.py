@@ -207,6 +207,63 @@ class QuestionClassification(Base):
     )
 
 
+class PedagogicalClassification(Base):
+    __tablename__ = "pedagogical_classifications"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('CLASSIFIED', 'NEEDS_REVIEW', 'DRAFT')",
+            name="ck_pedagogical_classifications_status",
+        ),
+        CheckConstraint(
+            "classification_confidence IS NULL OR classification_confidence BETWEEN 0 AND 1",
+            name="ck_pedagogical_classifications_confidence_range",
+        ),
+        CheckConstraint(
+            "difficulty_confidence IS NULL OR difficulty_confidence BETWEEN 0 AND 1",
+            name="ck_pedagogical_classifications_difficulty_confidence_range",
+        ),
+        Index(
+            "ix_pedagogical_classifications_question_version_id",
+            "question_version_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    question_version_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("question_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    discipline: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(String(255), nullable=False)
+    subcontent: Mapped[str] = mapped_column(String(255), nullable=False)
+    difficulty: Mapped[str] = mapped_column(String(30), nullable=False)
+    classification_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    difficulty_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    reasoning_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    prerequisites: Mapped[list[str]] = mapped_column(JSONBCompatible, default=list)
+    keywords: Mapped[list[str]] = mapped_column(JSONBCompatible, default=list)
+    competencies: Mapped[list[str]] = mapped_column(JSONBCompatible, default=list)
+    skills: Mapped[list[str]] = mapped_column(JSONBCompatible, default=list)
+    model_name: Mapped[str | None] = mapped_column(String(255))
+    model_version: Mapped[str | None] = mapped_column(String(100))
+    prompt_version: Mapped[str | None] = mapped_column(String(100))
+    provider_name: Mapped[str | None] = mapped_column(String(100))
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    total_tokens: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="ai")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
+
+    question_version: Mapped[QuestionVersion] = relationship()
+
+
 class DifficultyEstimate(Base):
     __tablename__ = "difficulty_estimates"
     __table_args__ = (

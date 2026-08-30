@@ -13,6 +13,7 @@ from .official import (
 )
 from .pedagogical import (
     DifficultyEstimate,
+    PedagogicalClassification,
     QuestionClassification,
     Taxonomy,
     TaxonomyNode,
@@ -45,6 +46,17 @@ from .catalog import (
     TheoryMaterialVersion,
     MaterialSection,
     MaterialExercise,
+)
+from .ingestion import (
+    IngestionDocument,
+    IngestionRun,
+    IngestionSection,
+    IngestionQuestion,
+    IngestionAsset,
+)
+from .recommendations import (
+    PedagogicalContext,
+    PedagogicalRecommendation,
 )
 
 __all__ = [
@@ -86,4 +98,11 @@ __all__ = [
     "TheoryMaterialVersion",
     "MaterialSection",
     "MaterialExercise",
+    "IngestionDocument",
+    "IngestionRun",
+    "IngestionSection",
+    "IngestionQuestion",
+    "IngestionAsset",
+    "PedagogicalContext",
+    "PedagogicalRecommendation",
 ]

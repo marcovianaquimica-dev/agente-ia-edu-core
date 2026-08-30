@@ -300,6 +300,9 @@ class ContentResourceLink(Base):
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
+    content_node: Mapped[CatalogNode] = relationship(foreign_keys=[content_node_id])
+    resource: Mapped[EducationalResource] = relationship(foreign_keys=[resource_id])
+
 
 class ContentQuestionLink(Base):
     """
@@ -327,6 +330,9 @@ class ContentQuestionLink(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+
+    content_node: Mapped[CatalogNode] = relationship(foreign_keys=[content_node_id])
+    question_version: Mapped["QuestionVersion"] = relationship("QuestionVersion", foreign_keys=[question_version_id])
 
 
 class ResourceQuestionLink(Base):
