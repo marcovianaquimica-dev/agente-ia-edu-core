@@ -32,6 +32,20 @@ from .learning_path import (
     PracticeSession,
     PracticeQuestionSelection,
 )
+from .catalog import (
+    CatalogNode,
+    EducationalResource,
+    ResourceAccessGrant,
+    VideoResourceDetail,
+    BookResourceDetail,
+    ContentResourceLink,
+    ContentQuestionLink,
+    ResourceQuestionLink,
+    TheoryMaterial,
+    TheoryMaterialVersion,
+    MaterialSection,
+    MaterialExercise,
+)
 
 __all__ = [
     "AnswerKeyEntry",
@@ -60,4 +74,16 @@ __all__ = [
     "StudentContentMastery",
     "PracticeSession",
     "PracticeQuestionSelection",
+    "CatalogNode",
+    "EducationalResource",
+    "ResourceAccessGrant",
+    "VideoResourceDetail",
+    "BookResourceDetail",
+    "ContentResourceLink",
+    "ContentQuestionLink",
+    "ResourceQuestionLink",
+    "TheoryMaterial",
+    "TheoryMaterialVersion",
+    "MaterialSection",
+    "MaterialExercise",
 ]

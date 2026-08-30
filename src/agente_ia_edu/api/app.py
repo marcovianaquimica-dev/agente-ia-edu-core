@@ -5,6 +5,7 @@ from .routes.attempts import router as attempts_router
 from .routes.health import router as health_router
 from .routes.questions import router as questions_router
 from .routes.learning_path import practice_router
+from .routes.catalog import catalog_router
 
 
 def create_app() -> FastAPI:
@@ -14,6 +15,7 @@ def create_app() -> FastAPI:
     app.include_router(assessments_router)
     app.include_router(attempts_router)
     app.include_router(practice_router)
+    app.include_router(catalog_router)
     return app
 
 
