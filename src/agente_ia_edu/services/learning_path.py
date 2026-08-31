@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from ..db.models import (
     StudentContentMastery,
@@ -41,6 +42,15 @@ def _as_uuid(value: Optional[UuidLike]) -> Optional[uuid.UUID]:
     if isinstance(value, uuid.UUID):
         return value
     return uuid.UUID(str(value))
+
+
+def _as_difficulty_level(value: Optional[Union[DifficultyLevel, str]]) -> DifficultyLevel:
+    """Normalize a difficulty input to the canonical DifficultyLevel enum."""
+    if value is None:
+        return DifficultyLevel.EASY
+    if isinstance(value, DifficultyLevel):
+        return value
+    return DifficultyLevel(str(value).upper())
 
 
 class ContentMasteryService:
@@ -262,7 +272,7 @@ class PracticeSessionService:
         external_identity_id: str,
         content_node_id: Optional[UuidLike] = None,
         requested_question_count: int = 10,
-        recommended_difficulty: Optional[DifficultyLevel] = None,
+        recommended_difficulty: Optional[Union[DifficultyLevel, str]] = None,
         recommendation_reason: Optional[str] = None,
     ) -> PracticeSession:
         """
@@ -271,13 +281,12 @@ class PracticeSessionService:
         If content_node_id is not provided, it will be recommended later
         based on lowest mastery.
         """
-        if not recommended_difficulty:
-            recommended_difficulty = DifficultyLevel.EASY
+        difficulty = _as_difficulty_level(recommended_difficulty)
 
         practice_session = PracticeSession(
             external_identity_id=external_identity_id,
             content_node_id=_as_uuid(content_node_id),
-            recommended_difficulty=recommended_difficulty.value,
+            recommended_difficulty=difficulty.value,
             requested_question_count=requested_question_count,
             status="active",
             recommendation_reason=recommendation_reason,
@@ -295,6 +304,85 @@ class PracticeSessionService:
         practice_session.status = "completed"
         practice_session.completed_at = datetime.now(timezone.utc)
         await session.flush()
+
+    async def complete_session(
+        self,
+        session: AsyncSession,
+        practice_session: PracticeSession,
+        external_identity_id: Optional[str] = None,
+    ) -> PracticeSession:
+        """Complete a practice session and update mastery/history for answered questions."""
+        from sqlalchemy import select
+
+        if external_identity_id is None:
+            external_identity_id = practice_session.external_identity_id
+
+        result = await session.execute(
+            select(PracticeQuestionSelection).where(
+                PracticeQuestionSelection.practice_session_id == practice_session.id,
+            )
+        )
+        selections = list(result.scalars().all())
+
+        for selection in selections:
+            if selection.answered_at is None:
+                continue
+
+            if selection.is_correct is None:
+                if selection.selected_option_id is None:
+                    continue
+
+                from ..repositories.questions import resolve_official_correct_option_id
+
+                correct_option_id = await resolve_official_correct_option_id(
+                    session, selection.question_version_id
+                )
+                if correct_option_id is None:
+                    continue
+
+                selection.is_correct = selection.selected_option_id == correct_option_id
+                selection.points_awarded = 1.0 if selection.is_correct else 0.0
+            elif selection.points_awarded is None and selection.selected_option_id is not None:
+                selection.points_awarded = 1.0 if selection.is_correct else 0.0
+
+        await session.flush()
+
+        if practice_session.content_node_id and external_identity_id:
+            mastery_service = ContentMasteryService()
+            mastery = await mastery_service.get_or_create_mastery(
+                session,
+                external_identity_id,
+                practice_session.content_node_id,
+            )
+            history_service = LearningHistoryService()
+
+            for selection in selections:
+                if selection.answered_at is None or selection.is_correct is None:
+                    continue
+                await history_service.record_history(
+                    session,
+                    external_identity_id,
+                    ActivityType.INDIVIDUAL_PRACTICE,
+                    selection.question_version_id,
+                    DifficultyLevel(selection.difficulty_level),
+                    is_correct=selection.is_correct,
+                    selected_option_id=selection.selected_option_id,
+                    response_text=selection.response_text,
+                    points_awarded=selection.points_awarded,
+                    response_time_ms=selection.response_time_ms,
+                    content_node_id=practice_session.content_node_id,
+                    practice_session_id=practice_session.id,
+                    practice_question_selection_id=selection.id,
+                )
+                await mastery_service.update_mastery_after_response(
+                    session,
+                    mastery,
+                    selection.is_correct,
+                )
+
+        await self.mark_completed(session, practice_session)
+        await session.commit()
+        return practice_session
 
     async def mark_abandoned(
         self,
@@ -327,7 +415,7 @@ class QuestionSelectionService:
         session: AsyncSession,
         external_identity_id: str,
         content_node_id: Optional[UuidLike],
-        difficulty_level: DifficultyLevel,
+        difficulty_level: Union[DifficultyLevel, str],
         requested_question_count: int,
     ) -> list[QuestionVersion]:
         """
@@ -346,6 +434,7 @@ class QuestionSelectionService:
 
         Never duplicates a question_version_id within the same result.
         """
+        difficulty = _as_difficulty_level(difficulty_level)
         content_node_id = _as_uuid(content_node_id)
         if content_node_id is None or requested_question_count <= 0:
             return []
@@ -353,7 +442,7 @@ class QuestionSelectionService:
         repo = self._repository(session)
 
         candidates = await repo.list_candidate_versions(
-            content_node_id, difficulty_level.value
+            content_node_id, difficulty.value
         )
         if not candidates:
             # Fall back: ignore difficulty filter rather than yield nothing.
@@ -381,25 +470,28 @@ class QuestionSelectionService:
         session: AsyncSession,
         practice_session: PracticeSession,
         external_identity_id: str,
-        difficulty_level: DifficultyLevel,
+        difficulty_level: Union[DifficultyLevel, str],
     ) -> list[PracticeQuestionSelection]:
         """Select questions and persist them as PracticeQuestionSelection rows."""
+        difficulty = _as_difficulty_level(difficulty_level)
         versions = await self.select_for_session(
             session,
             external_identity_id,
             practice_session.content_node_id,
-            difficulty_level,
+            difficulty,
             practice_session.requested_question_count,
         )
 
+        set_committed_value(practice_session, "question_selections", [])
         selections: list[PracticeQuestionSelection] = []
         for position, version in enumerate(versions, start=1):
             selection = PracticeQuestionSelection(
                 practice_session_id=practice_session.id,
                 question_version_id=version.id,
-                difficulty_level=difficulty_level.value,
+                difficulty_level=difficulty.value,
                 position=position,
             )
+            practice_session.question_selections.append(selection)
             session.add(selection)
             selections.append(selection)
 

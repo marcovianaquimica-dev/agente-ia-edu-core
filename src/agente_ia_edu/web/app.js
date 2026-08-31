@@ -18,13 +18,51 @@ document.addEventListener('DOMContentLoaded', () => {
   const pageTitle = document.getElementById('page-title');
   const pageSubtitle = document.getElementById('page-subtitle');
   const timePeriodSelect = document.getElementById('time-period-select');
+  const sidebar = document.getElementById('sidebar-nav');
+  const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+  const mobileMenuToggle = document.querySelector('.mobile-menu-toggle');
+
+  function setSidebarOpen(isOpen) {
+    if (!sidebar) return;
+
+    sidebar.classList.toggle('is-open', isOpen);
+    if (sidebarBackdrop) {
+      sidebarBackdrop.classList.toggle('is-visible', isOpen);
+      sidebarBackdrop.setAttribute('aria-hidden', String(!isOpen));
+    }
+    if (mobileMenuToggle) {
+      mobileMenuToggle.setAttribute('aria-expanded', String(isOpen));
+    }
+    document.body.classList.toggle('sidebar-open', isOpen && window.innerWidth < 768);
+  }
+
+  if (mobileMenuToggle) {
+    mobileMenuToggle.addEventListener('click', () => {
+      const isOpen = !sidebar?.classList.contains('is-open');
+      setSidebarOpen(isOpen);
+    });
+  }
+
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', () => setSidebarOpen(false));
+  }
 
   // Navigation Click Handlers
   navItems.forEach(item => {
     item.addEventListener('click', () => {
       const targetView = item.getAttribute('data-view');
+      if (window.innerWidth < 768) {
+        setSidebarOpen(false);
+      }
       switchView(targetView);
     });
+  });
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth >= 768) {
+      setSidebarOpen(false);
+      document.body.classList.remove('sidebar-open');
+    }
   });
 
   // Time Period Filter Handler
@@ -56,6 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update Titles
     const titleMap = {
       'dashboard': { title: 'Dashboard Principal', sub: 'Acompanhe sua orientação pedagógica personalizada' },
+      'diagnostic': { title: 'Diagnóstico Inicial de Aprendizagem', sub: 'Sondagem adaptativa para estimar seu mapa de domínio' },
       'learning-path': { title: 'Minha Trilha de Aprendizagem', sub: 'Sua jornada adaptativa passo a passo' },
       'practice': { title: 'Praticar Questões', sub: 'Treinamento adaptativo focado na sua evolução' },
       'materials': { title: 'Materiais Teóricos', sub: 'Apostilas, PDFs e resumos organizados' },
@@ -72,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Trigger View Loaders
     if (viewName === 'dashboard') loadDashboardData();
+    if (viewName === 'diagnostic') initDiagnosticView();
     if (viewName === 'learning-path') loadLearningPathData();
     if (viewName === 'evolution') loadEvolutionData();
     if (viewName === 'materials') loadMaterialsView();
@@ -292,6 +332,139 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
     `;
+  }
+
+  // 1B. Diagnostic Interactive View
+  function initDiagnosticView() {
+    const btnStart = document.getElementById('btn-start-diagnostic');
+    if (btnStart) {
+      btnStart.onclick = startDiagnosticSession;
+    }
+  }
+
+  async function startDiagnosticSession() {
+    const area = document.getElementById('diagnostic-interactive-area');
+    area.innerHTML = '<p class="empty-text">Iniciando sondagem adaptativa e buscando primeira questão...</p>';
+
+    try {
+      const res = await fetch('/api/v1/student/diagnostic/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-External-User-Id': state.studentId
+        },
+        body: JSON.stringify({ discipline: 'Química', diagnostic_version: 'v1' })
+      });
+      if (!res.ok) throw new Error('Falha ao iniciar diagnóstico');
+      const diagData = await res.json();
+
+      if (diagData.next_question) {
+        renderDiagnosticQuestion(diagData.diagnostic_id, diagData.next_question);
+      } else {
+        fetchDiagnosticResult(diagData.diagnostic_id);
+      }
+    } catch (err) {
+      area.innerHTML = `
+        <div class="empty-text">
+          <p>Não há questões disponíveis para o diagnóstico inicial no momento.</p>
+          <button class="btn btn-secondary" style="margin-top:10px;" onclick="location.reload()">Voltar</button>
+        </div>
+      `;
+    }
+  }
+
+  function renderDiagnosticQuestion(diagnosticId, question) {
+    const area = document.getElementById('diagnostic-interactive-area');
+    area.innerHTML = `
+      <div class="practice-question-box">
+        <div class="card-header">
+          <span class="badge badge-primary">Sondagem Adaptativa — Questão ${question.position}</span>
+          <span class="badge badge-accent">Nível ${question.difficulty_level}</span>
+        </div>
+        <div class="question-text">${question.canonical_text}</div>
+        <div class="options-list">
+          ${(question.options || []).map(opt => `
+            <div class="option-item" onclick="selectDiagnosticOption(this, '${opt.id}')">
+              <span class="option-key">${opt.option_key}</span>
+              <span class="option-text">${opt.text}</span>
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn btn-primary" id="btn-submit-diag-answer" disabled onclick="submitDiagnosticAnswer('${diagnosticId}', '${question.selection_id}')">Confirmar Resposta</button>
+      </div>
+    `;
+  }
+
+  window.selectDiagnosticOption = function(element, optionId) {
+    document.querySelectorAll('#diagnostic-interactive-area .option-item').forEach(el => el.classList.remove('selected'));
+    element.classList.add('selected');
+    element.setAttribute('data-selected-id', optionId);
+    document.getElementById('btn-submit-diag-answer').removeAttribute('disabled');
+  };
+
+  window.submitDiagnosticAnswer = async function(diagnosticId, selectionId) {
+    const selectedEl = document.querySelector('#diagnostic-interactive-area .option-item.selected');
+    if (!selectedEl) return;
+    const optionId = selectedEl.getAttribute('data-selected-id');
+
+    try {
+      const res = await fetch(`/api/v1/student/diagnostic/${diagnosticId}/questions/${selectionId}/answer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-External-User-Id': state.studentId
+        },
+        body: JSON.stringify({ selected_option_id: optionId })
+      });
+      if (!res.ok) throw new Error('Falha ao enviar resposta');
+      const data = await res.json();
+
+      if (data.is_complete || !data.next_question) {
+        fetchDiagnosticResult(diagnosticId);
+      } else {
+        renderDiagnosticQuestion(diagnosticId, data.next_question);
+      }
+    } catch (err) {
+      alert('Erro ao registrar resposta do diagnóstico.');
+    }
+  };
+
+  async function fetchDiagnosticResult(diagnosticId) {
+    const area = document.getElementById('diagnostic-interactive-area');
+    try {
+      const res = await fetch(`/api/v1/student/diagnostic/${diagnosticId}/result`, {
+        headers: { 'X-External-User-Id': state.studentId }
+      });
+      if (!res.ok) throw new Error('Falha ao obter resultado do diagnóstico');
+      const result = await res.json();
+
+      area.innerHTML = `
+        <div class="practice-starter" style="text-align:left; padding:10px;">
+          <h3>🎉 Diagnóstico Concluído com Sucesso!</h3>
+          <p class="rec-explanation" style="margin-bottom:16px;">
+            Sua sondagem adaptativa foi finalizada (${result.total_correct} acertos em ${result.total_questions_asked} questões).
+            Confiança da estimativa: <strong>${Math.round(result.overall_confidence * 100)}%</strong>.
+          </p>
+
+          <h4 style="margin-bottom:10px;">🗺️ Seu Mapa Inicial de Domínio</h4>
+          <div class="plan-list" style="margin-bottom:20px;">
+            ${(result.mastery_map || []).map(m => `
+              <div class="plan-item">
+                <strong>${m.content_name}</strong>
+                <span class="${m.estimated_mastery < 50 ? 'text-danger' : (m.estimated_mastery < 70 ? 'text-warning' : 'text-success')}">${m.estimated_mastery}% (${m.recommended_difficulty})</span>
+              </div>
+            `).join('')}
+          </div>
+
+          <div style="margin-top:20px;">
+            <button class="btn btn-primary" onclick="switchView('dashboard')">🚀 IR PARA O DASHBOARD PRINCIPAL</button>
+          </div>
+        </div>
+      `;
+      loadDashboardData();
+    } catch (err) {
+      area.innerHTML = '<p class="empty-text">Diagnóstico finalizado. Acesse o Dashboard para visualizar seu mapa de domínio.</p>';
+    }
   }
 
   // Helper Utilities

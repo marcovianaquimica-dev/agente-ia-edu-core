@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENTE IA EDU — Portal da Coordenação</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="teacher.css">
+  <link rel="stylesheet" href="coordination.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">🏛️</div>
+        <div class="brand-text">AGENTE IA <span>EDU</span></div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="icon">🏠</span> Dashboard
+        </button>
+        <button class="nav-item" data-view="hierarchy">
+          <span class="icon">🌴</span> Hierarquia
+        </button>
+        <button class="nav-item" data-view="classrooms">
+          <span class="icon">🏫</span> Turmas
+        </button>
+        <button class="nav-item" data-view="teachers">
+          <span class="icon">👩‍🏫</span> Professores
+        </button>
+        <button class="nav-item" data-view="students">
+          <span class="icon">👨‍🎓</span> Alunos
+        </button>
+        <button class="nav-item" data-view="contents">
+          <span class="icon">📚</span> Conteúdos
+        </button>
+        <button class="nav-item" data-view="contexts">
+          <span class="icon">📝</span> Contexto Pedagógico
+        </button>
+        <button class="nav-item" data-view="action-plan">
+          <span class="icon">🎯</span> Plano de Ação
+        </button>
+        <button class="nav-item" data-view="reports">
+          <span class="icon">📤</span> Relatórios
+        </button>
+        <button class="nav-item" data-view="profile">
+          <span class="icon">👤</span> Meu Perfil
+        </button>
+      </nav>
+
+      <div class="user-badge">
+        <div class="user-avatar">C</div>
+        <div class="user-info">
+          <span class="user-name" id="coord-display-name">Coord. Ana Silva</span>
+          <span class="user-role">Coordenação Pedagógica</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Header Bar & Enchained Filters -->
+      <header class="top-header">
+        <div class="page-title-box">
+          <h1 id="page-title">Dashboard da Coordenação</h1>
+          <p id="page-subtitle" class="subtitle">Gestão pedagógica gerencial, turmas e direcionamento de professores</p>
+        </div>
+
+        <div class="header-actions">
+          <div class="filters-bar">
+            <div class="filter-group">
+              <span class="filter-label">🆔 Coordenador:</span>
+              <input type="text" id="filter-coord-id" class="text-input" value="user:coord_a" placeholder="user:coord_a">
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">🏫 Turma:</span>
+              <select id="filter-coord-classroom-select" class="select-input">
+                <option value="" selected>Todas as Turmas</option>
+                <option value="TURMA_3A">Turma 3A</option>
+                <option value="TURMA_3B">Turma 3B</option>
+              </select>
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">📅 Período:</span>
+              <select id="filter-coord-period-select" class="select-input">
+                <option value="academic_year" selected>Ano Letivo 2026</option>
+                <option value="bimester">Bimestre Atual</option>
+                <option value="semester">Semestre</option>
+                <option value="last_30_days">Últimos 30 Dias</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Alert Box -->
+      <div id="alert-box" class="alert-banner" style="display:none;"></div>
+
+      <!-- Dynamic Views Container -->
+      <div id="views-container">
+
+        <!-- 1. DASHBOARD VIEW -->
+        <section id="view-dashboard" class="view-panel active">
+          <!-- Summary Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon bg-blue">👨‍🎓</div>
+              <div class="stat-data">
+                <span class="stat-value" id="coord-stat-students">0</span>
+                <span class="stat-label">Total de Alunos</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-purple">👩‍🏫</div>
+              <div class="stat-data">
+                <span class="stat-value" id="coord-stat-teachers">0</span>
+                <span class="stat-label">Professores no Escopo</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-green">🏫</div>
+              <div class="stat-data">
+                <span class="stat-value" id="coord-stat-classrooms">0</span>
+                <span class="stat-label">Turmas Ativas</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-orange">📊</div>
+              <div class="stat-data">
+                <span class="stat-value" id="coord-stat-avg">0.0%</span>
+                <span class="stat-label">Média Geral de Domínio</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Performance Distribution -->
+          <div class="card">
+            <div class="card-header">
+              <h3>📊 Distribuição de Desempenho no Escopo</h3>
+            </div>
+            <div class="distribution-grid">
+              <div class="dist-card dist-danger">
+                <span class="dist-title">🔴 Precisa de Atenção (&lt; 50%)</span>
+                <strong id="coord-dist-danger">0 aluno(s) (0%)</strong>
+                <p>Alunos em nível crítico necessitando de intervenção urgente</p>
+              </div>
+              <div class="dist-card dist-warning">
+                <span class="dist-title">🟡 Em Desenvolvimento (50%–69%)</span>
+                <strong id="coord-dist-warning">0 aluno(s) (0%)</strong>
+                <p>Alunos em desenvolvimento intermediário</p>
+              </div>
+              <div class="dist-card dist-success">
+                <span class="dist-title">🟢 Consolidado (&ge; 70%)</span>
+                <strong id="coord-dist-success">0 aluno(s) (0%)</strong>
+                <p>Alunos com domínio satisfatório</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Classrooms Needing Attention -->
+          <div class="card">
+            <div class="card-header">
+              <h3>🚨 Turmas que Precisam de Atenção (&lt; 70% Domínio Médio)</h3>
+            </div>
+            <div id="coord-classrooms-attention-list" class="recent-lessons-list">
+              <p class="empty-text">Nenhuma turma em nível crítico no momento.</p>
+            </div>
+          </div>
+
+          <!-- Strengths and Improvements Grid -->
+          <div class="two-col-grid">
+            <div class="card">
+              <div class="card-header">
+                <h3>🟢 Pontos Fortes no Escopo</h3>
+              </div>
+              <div id="coord-strengths-list" class="items-list">
+                <p class="empty-text">Nenhum ponto forte identificado ainda.</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h3>🔴 Pontos de Melhoria Prioritários</h3>
+              </div>
+              <div id="coord-improvements-list" class="items-list">
+                <p class="empty-text">Nenhum ponto de melhoria prioritário.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Plan (Plano de Ação da Coordenação) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>🎯 Plano de Ação Gerencial</h3>
+            </div>
+            <div id="coord-action-plan-container" class="action-plan-container">
+              <p class="empty-text">Carregando plano de ação gerencial...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. HIERARQUIA ACADÊMICA VIEW -->
+        <section id="view-hierarchy" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🌴 Drill-Down Acadêmico (Escola &rarr; Unidade &rarr; Segmento &rarr; Série &rarr; Turma)</h3>
+            </div>
+            <div id="coord-hierarchy-tree" class="hierarchy-tree-body">
+              <p class="empty-text">Carregando estrutura acadêmica...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. MINHAS TURMAS & COMPARATIVO VIEW -->
+        <section id="view-classrooms" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📊 Comparativo entre Turmas no Escopo</h3>
+            </div>
+            <div id="coord-comparison-table-container">
+              <p class="empty-text">Carregando comparativo entre turmas...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. VISÃO DE PROFESSORES VIEW -->
+        <section id="view-teachers" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>👩‍🏫 Acompanhamento e Supervisão de Professores</h3>
+            </div>
+            <div id="coord-teachers-list-container" class="teachers-grid">
+              <p class="empty-text">Carregando lista de professores...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. CONSULTA DE ALUNOS VIEW -->
+        <section id="view-students" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>👨‍git Alunos na Coordenação</h3>
+            </div>
+            <div class="search-box-row">
+              <input type="text" id="coord-search-student-input" class="text-input search-input" placeholder="Pesquisar aluno no escopo da coordenação por nome ou ID...">
+              <button class="btn btn-primary" id="btn-coord-search-students">🔍 Pesquisar</button>
+            </div>
+            <div id="coord-search-results-container"></div>
+          </div>
+
+          <div id="coord-student-profile-container" class="card" style="display:none;">
+            <div class="card-header">
+              <h3 id="coord-student-profile-title">Ficha Individual do Aluno</h3>
+            </div>
+            <div id="coord-student-profile-body"></div>
+          </div>
+        </section>
+
+        <!-- 6. CONTEÚDOS VIEW -->
+        <section id="view-contents" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📚 Desempenho por Conteúdo no Escopo</h3>
+            </div>
+            <div id="coord-contents-container">
+              <p class="empty-text">Carregando lista de conteúdos...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. CONTEXTO PEDAGÓGICO VIEW -->
+        <section id="view-contexts" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📝 Orientações e Contexto Pedagógico Ativo</h3>
+              <button class="btn btn-primary" id="btn-open-context-modal">➕ Registrar Orientação da Coordenação</button>
+            </div>
+            <div id="coord-contexts-list-container">
+              <p class="empty-text">Carregando contextos pedagógicos...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 8. PLANO DE AÇÃO VIEW -->
+        <section id="view-action-plan" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🎯 Plano de Ação Completo da Coordenação</h3>
+            </div>
+            <div id="coord-full-action-plan-container">
+              <p class="empty-text">Carregando plano de ação...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 9. RELATÓRIOS VIEW -->
+        <section id="view-reports" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📤 Exportação de Relatórios Gerenciais da Coordenação</h3>
+            </div>
+            <div class="reports-form-box">
+              <div class="form-row">
+                <label>Turma (Opcional):</label>
+                <select id="coord-report-classroom-select" class="select-input">
+                  <option value="" selected>Geral do Escopo / Escola</option>
+                  <option value="TURMA_3A">Turma 3A</option>
+                  <option value="TURMA_3B">Turma 3B</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Formato:</label>
+                <select id="coord-report-format-select" class="select-input">
+                  <option value="pdf" selected>Relatório Executivo PDF</option>
+                  <option value="xlsx">Planilha de Dados XLSX</option>
+                </select>
+              </div>
+              <div style="margin-top:16px;">
+                <button class="btn btn-primary" id="btn-coord-generate-report">📄 Gerar Relatório</button>
+              </div>
+            </div>
+            <div id="coord-report-preview-container" style="margin-top:20px;"></div>
+          </div>
+        </section>
+
+        <!-- 10. MEU PERFIL VIEW -->
+        <section id="view-profile" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>👤 Perfil e Escopo da Coordenação</h3>
+            </div>
+            <div class="profile-info-box">
+              <p><strong>Identificador:</strong> <span id="coord-profile-id">user:coord_a</span></p>
+              <p><strong>Função:</strong> Coordenador Pedagógico / Direção</p>
+              <p><strong>Escola:</strong> Escola Piloto de Testes (SCH_A)</p>
+              <p><strong>Escopo de Atuação:</strong> Escola Toda (SCHOOL)</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Registrar Orientação da Coordenação -->
+  <div id="modal-new-context" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📝 Registrar Orientação da Coordenação</h3>
+        <button class="modal-close" id="btn-close-context-modal">&times;</button>
+      </div>
+      <form id="form-new-context" class="modal-body">
+        <div class="form-group">
+          <label>Fonte *</label>
+          <select id="ctx-form-source" class="select-input" required>
+            <option value="COORDINATION" selected>Coordenação Pedagógica</option>
+            <option value="SCHOOL_PLAN">Planejamento da Escola</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Conteúdo Pedagógico *</label>
+          <select id="ctx-form-content" class="select-input" required>
+            <option value="" disabled selected>Carregando conteúdos...</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Turma Alvo (Opcional - deixe vazio para toda a escola)</label>
+          <select id="ctx-form-classroom" class="select-input">
+            <option value="" selected>Toda a Escola / Série</option>
+            <option value="TURMA_3A">Turma 3A</option>
+            <option value="TURMA_3B">Turma 3B</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Título da Orientação *</label>
+          <input type="text" id="ctx-form-title" class="text-input" placeholder="ex: Reforço Intensivo para Simulado" required>
+        </div>
+
+        <div class="form-group">
+          <label>Descrição / Instrução Pedagógica</label>
+          <textarea id="ctx-form-desc" class="textarea-input" rows="3" placeholder="Aos professores e alunos: focar na revisão prática de diluição..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-context">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Orientação</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="coordination.js"></script>
+</body>
+</html>

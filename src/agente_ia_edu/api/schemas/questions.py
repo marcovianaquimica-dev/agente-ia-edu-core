@@ -128,5 +128,25 @@ class QuestionQuery(BaseModel):
     pisa: str | None = None
 
 
+class QuestionAuthoringRequest(BaseModel):
+    statement: str
+    options: list[str]
+    correct_option: str
+    author_type: str = "TEACHER"
+    subject: str | None = None
+    metadata: dict[str, str] | None = None
+
+
+class QuestionReviewRequest(BaseModel):
+    action: str = Field(default="submit")
+    reason: str | None = None
+
+
+class QuestionAuthoringResponse(BaseModel):
+    question_id: UUID
+    version_id: UUID
+    status: str
+
+
 class QuestionResponseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")

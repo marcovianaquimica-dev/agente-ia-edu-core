@@ -247,9 +247,12 @@ class PracticeSession(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # Relationships
+    # Relationships: eager loading avoids lazy SQLAlchemy queries in async contexts
     question_selections: Mapped[list[PracticeQuestionSelection]] = relationship(
-        back_populates="practice_session"
+        back_populates="practice_session",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="PracticeQuestionSelection.position",
     )
 
 
@@ -322,5 +325,8 @@ class PracticeQuestionSelection(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # Relationships
-    practice_session: Mapped[PracticeSession] = relationship(back_populates="question_selections")
+    # Relationships: eager loading avoids lazy SQLAlchemy queries in async contexts
+    practice_session: Mapped[PracticeSession] = relationship(
+        back_populates="question_selections",
+        lazy="selectin",
+    )

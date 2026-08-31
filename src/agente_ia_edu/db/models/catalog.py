@@ -383,6 +383,9 @@ class TheoryMaterial(Base):
     primary_content_node_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("catalog_nodes.id", ondelete="RESTRICT")
     )
+    school_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("schools.id", ondelete="RESTRICT"), nullable=True
+    )
     created_by_external_identity: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
@@ -411,7 +414,7 @@ class TheoryMaterialVersion(Base):
             name="uq_theory_material_versions_material_version_number",
         ),
         CheckConstraint(
-            "status IN ('draft', 'published', 'archived')",
+            "status IN ('DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED', 'ARCHIVED')",
             name="ck_theory_material_versions_status",
         ),
         CheckConstraint("version_number > 0", name="ck_theory_material_versions_version_positive"),
@@ -422,7 +425,7 @@ class TheoryMaterialVersion(Base):
         Uuid, ForeignKey("theory_materials.id", ondelete="RESTRICT"), nullable=False
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
 
     # Set only when published: materializes this version as a generic
     # resource so it can be linked to content(s) like any other resource.
@@ -432,6 +435,7 @@ class TheoryMaterialVersion(Base):
 
     introduction: Mapped[str | None] = mapped_column(Text)
     summary: Mapped[str | None] = mapped_column(Text)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     created_by_external_identity: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(

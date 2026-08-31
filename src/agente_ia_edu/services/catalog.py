@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
+    AdminAuditLog,
     CatalogNode,
     ContentQuestionLink,
     ContentResourceLink,
@@ -200,17 +202,60 @@ class ContentQuestionLinkService:
 class TheoryMaterialService:
     """
     Manages authored theory materials: creation, versioning, sections,
-    exercises, and publication.
-
-    A published version is immutable: sections/exercises can no longer be
-    added or changed once published_at is set.
+    exercises, review, approval, rejection, publication and archiving.
     """
+
+    _ALLOWED_EDIT_STATUSES = {"DRAFT", "REJECTED"}
+    _REVIEWABLE_STATUSES = {"DRAFT", "REJECTED"}
+    _APPROVABLE_STATUSES = {"PENDING_REVIEW"}
+    _PUBLISHABLE_STATUSES = {"APPROVED"}
 
     def __init__(self, repository: Optional[TheoryMaterialRepository] = None):
         self._repository_override = repository
 
     def _repository(self, session: AsyncSession) -> TheoryMaterialRepository:
         return self._repository_override or TheoryMaterialRepository(session)
+
+    @staticmethod
+    def _normalize_status(value: Optional[str]) -> str:
+        return (value or "").upper()
+
+    async def _get_version(self, session: AsyncSession, material_version_id: UUID) -> TheoryMaterialVersion:
+        version = await session.get(TheoryMaterialVersion, material_version_id)
+        if version is None:
+            raise ValueError("Material version does not exist")
+        return version
+
+    async def _log_material_event(
+        self,
+        session: AsyncSession,
+        *,
+        material_id: UUID,
+        actor_external_id: Optional[str],
+        version_id: Optional[UUID] = None,
+        from_status: Optional[str] = None,
+        to_status: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        school_id: Optional[UUID] = None,
+        event_type: str = "MATERIAL_EVENT",
+    ) -> AdminAuditLog:
+        audit = AdminAuditLog(
+            performed_by_external_id=actor_external_id or "system",
+            action=event_type,
+            entity_type="THEORY_MATERIAL",
+            entity_id=str(material_id),
+            school_id=school_id,
+            metadata_={
+                **(metadata or {}),
+                "material_id": str(material_id),
+                **({"version_id": str(version_id)} if version_id is not None else {}),
+                **({"from_status": from_status} if from_status is not None else {}),
+                **({"to_status": to_status} if to_status is not None else {}),
+            },
+        )
+        session.add(audit)
+        await session.flush()
+        return audit
 
     async def create_material(
         self,
@@ -219,14 +264,34 @@ class TheoryMaterialService:
         title: str,
         created_by_external_identity: Optional[str] = None,
         primary_content_node_id: Optional[UUID] = None,
+        school_id: Optional[UUID] = None,
     ) -> TheoryMaterial:
         material = TheoryMaterial(
             title=title,
             created_by_external_identity=created_by_external_identity,
             primary_content_node_id=primary_content_node_id,
+            school_id=school_id,
         )
         session.add(material)
         await session.flush()
+
+        version = await self.create_version(
+            session,
+            material_id=material.id,
+            created_by_external_identity=created_by_external_identity,
+            introduction=None,
+            summary=None,
+        )
+        await self._log_material_event(
+            session,
+            material_id=material.id,
+            actor_external_id=created_by_external_identity,
+            version_id=version.id,
+            to_status="DRAFT",
+            school_id=school_id,
+            event_type="MATERIAL_CREATED",
+            metadata={"version_number": version.version_number, "status": "DRAFT"},
+        )
         return material
 
     async def create_version(
@@ -245,13 +310,130 @@ class TheoryMaterialService:
         version = TheoryMaterialVersion(
             material_id=material_id,
             version_number=next_number,
-            status="draft",
+            status="DRAFT",
             introduction=introduction,
             summary=summary,
             created_by_external_identity=created_by_external_identity,
         )
         session.add(version)
         await session.flush()
+
+        material = await session.get(TheoryMaterial, material_id)
+        if material is not None:
+            await self._log_material_event(
+                session,
+                material_id=material_id,
+                school_id=material.school_id,
+                event_type="MATERIAL_VERSION_CREATED",
+                actor_external_id=created_by_external_identity,
+                version_id=version.id,
+                from_status=None,
+                to_status="DRAFT",
+                metadata={
+                    "version_number": version.version_number,
+                    "previous_version_number": latest.version_number if latest else None,
+                },
+            )
+        return version
+
+    async def submit_for_review(
+        self,
+        session: AsyncSession,
+        *,
+        material_version_id: UUID,
+    ) -> TheoryMaterialVersion:
+        version = await self._get_version(session, material_version_id)
+        status = self._normalize_status(version.status)
+        if status not in self._REVIEWABLE_STATUSES:
+            raise ValueError("Only draft or rejected materials can be submitted for review.")
+        previous_status = version.status
+        version.status = "PENDING_REVIEW"
+        await session.flush()
+
+        material = await session.get(TheoryMaterial, version.material_id)
+        if material is not None:
+            await self._log_material_event(
+                session,
+                material_id=material.id,
+                school_id=material.school_id,
+                event_type="MATERIAL_SUBMITTED_FOR_REVIEW",
+                actor_external_id=version.created_by_external_identity,
+                version_id=version.id,
+                from_status=previous_status,
+                to_status="PENDING_REVIEW",
+                metadata={"version_number": version.version_number},
+            )
+        return version
+
+    async def approve_version(
+        self,
+        session: AsyncSession,
+        *,
+        material_version_id: UUID,
+    ) -> TheoryMaterialVersion:
+        version = await self._get_version(session, material_version_id)
+        status = self._normalize_status(version.status)
+        if status not in self._APPROVABLE_STATUSES:
+            raise ValueError("Only materials under review can be approved.")
+        previous_status = version.status
+        version.status = "APPROVED"
+        await session.flush()
+
+        material = await session.get(TheoryMaterial, version.material_id)
+        if material is not None:
+            await self._log_material_event(
+                session,
+                material_id=material.id,
+                school_id=material.school_id,
+                event_type="MATERIAL_APPROVED",
+                actor_external_id=version.created_by_external_identity,
+                version_id=version.id,
+                from_status=previous_status,
+                to_status="APPROVED",
+                metadata={"version_number": version.version_number},
+            )
+        return version
+
+    async def reject_version(
+        self,
+        session: AsyncSession,
+        *,
+        material_version_id: UUID,
+        reason: Optional[str] = None,
+    ) -> TheoryMaterialVersion:
+        version = await self._get_version(session, material_version_id)
+        status = self._normalize_status(version.status)
+        if status not in self._APPROVABLE_STATUSES:
+            raise ValueError("Only materials under review can be rejected.")
+
+        previous_status = version.status
+        version.status = "REJECTED"
+        metadata = dict(version.metadata_ or {})
+        if reason:
+            metadata["rejection_reason"] = reason
+            metadata["rejected_at"] = datetime.now(timezone.utc).isoformat()
+        elif "rejection_reason" in metadata:
+            metadata.pop("rejection_reason", None)
+            metadata.pop("rejected_at", None)
+        version.metadata_ = metadata or None
+        await session.flush()
+
+        material = await session.get(TheoryMaterial, version.material_id)
+        if material is not None:
+            await self._log_material_event(
+                session,
+                material_id=material.id,
+                school_id=material.school_id,
+                event_type="MATERIAL_REJECTED",
+                actor_external_id=version.created_by_external_identity,
+                version_id=version.id,
+                from_status=previous_status,
+                to_status="REJECTED",
+                metadata={
+                    "version_number": version.version_number,
+                    "rejection_reason": reason,
+                },
+            )
         return version
 
     async def add_section(
@@ -265,11 +447,9 @@ class TheoryMaterialService:
         body: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> MaterialSection:
-        version = await session.get(TheoryMaterialVersion, material_version_id)
-        if version is None:
-            raise ValueError("Material version does not exist")
-        if version.status == "published":
-            raise ValueError("Cannot modify a published material version")
+        version = await self._get_version(session, material_version_id)
+        if self._normalize_status(version.status) not in self._ALLOWED_EDIT_STATUSES:
+            raise ValueError("Only draft or rejected material versions can be edited.")
 
         section = MaterialSection(
             material_version_id=material_version_id,
@@ -297,11 +477,9 @@ class TheoryMaterialService:
         points: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> MaterialExercise:
-        version = await session.get(TheoryMaterialVersion, material_version_id)
-        if version is None:
-            raise ValueError("Material version does not exist")
-        if version.status == "published":
-            raise ValueError("Cannot modify a published material version")
+        version = await self._get_version(session, material_version_id)
+        if self._normalize_status(version.status) not in self._ALLOWED_EDIT_STATUSES:
+            raise ValueError("Only draft or rejected material versions can be edited.")
         if source_type == "EXISTING_QUESTION" and question_version_id is None:
             raise ValueError("question_version_id is required for EXISTING_QUESTION exercises")
 
@@ -327,35 +505,159 @@ class TheoryMaterialService:
         material_version_id: UUID,
         owner_external_id: Optional[str] = None,
         visibility_scope: str = "PRIVATE",
+        origin_type: Optional[str] = None,
     ) -> TheoryMaterialVersion:
+        """Publish an approved material as a generic resource.
+
+        Reuses the existing EducationalResource representation instead of creating a
+        separate publication abstraction. The same version is idempotent: repeated
+        publication calls return the same published resource and do not create a
+        duplicate resource record.
         """
-        Publish a version: materializes it as an EducationalResource
-        (resource_type=THEORY_MATERIAL) and freezes it (immutable).
-        """
-        version = await session.get(TheoryMaterialVersion, material_version_id)
-        if version is None:
-            raise ValueError("Material version does not exist")
-        if version.status == "published":
+        version = await self._get_version(session, material_version_id)
+        status = self._normalize_status(version.status)
+        if status == "PUBLISHED":
+            if version.resource_id is not None:
+                return version
             raise ValueError("Material version is already published")
+        if status not in self._PUBLISHABLE_STATUSES:
+            raise ValueError("Only approved materials can be published.")
 
         material = await session.get(TheoryMaterial, version.material_id)
+        if material is None:
+            raise ValueError("Material does not exist")
+
+        effective_visibility = (visibility_scope or "PRIVATE").upper()
+        resource_owner = owner_external_id or version.created_by_external_identity
+        if material.school_id is not None:
+            resource_owner = str(material.school_id)
+            effective_origin = (origin_type or "SCHOOL").upper()
+            if effective_visibility == "PRIVATE":
+                effective_visibility = "SCHOOL"
+        else:
+            effective_origin = (origin_type or ("AUTHOR" if resource_owner else "PLATFORM")).upper()
+            if effective_origin == "PLATFORM":
+                effective_visibility = "PUBLIC"
+
+        existing_resource = None
+        if version.resource_id is not None:
+            existing_resource = await session.get(EducationalResource, version.resource_id)
+
+        if existing_resource is None:
+            existing_resource = await session.execute(
+                select(EducationalResource)
+                .where(
+                    EducationalResource.resource_type == "THEORY_MATERIAL",
+                    EducationalResource.title == material.title,
+                    EducationalResource.owner_external_id == resource_owner,
+                    EducationalResource.origin_type == effective_origin,
+                )
+                .order_by(EducationalResource.created_at.desc())
+                .limit(1)
+            )
+            existing_resource = existing_resource.scalar_one_or_none()
+
+        if existing_resource is not None:
+            version.resource_id = existing_resource.id
+            version.status = "PUBLISHED"
+            version.published_at = datetime.now(timezone.utc)
+            if existing_resource.metadata_ is None:
+                existing_resource.metadata_ = {}
+            existing_resource.metadata_["material_id"] = str(material.id)
+            existing_resource.metadata_["material_version_id"] = str(version.id)
+            existing_resource.visibility_scope = effective_visibility
+            existing_resource.origin_type = effective_origin
+            existing_resource.owner_external_id = resource_owner
+            existing_resource.created_by_external_identity = version.created_by_external_identity
+            existing_resource.status = "active"
+            await session.flush()
+            await self._log_material_event(
+                session,
+                material_id=material.id,
+                school_id=material.school_id,
+                event_type="MATERIAL_PUBLISHED",
+                actor_external_id=version.created_by_external_identity,
+                version_id=version.id,
+                from_status="APPROVED",
+                to_status="PUBLISHED",
+                metadata={
+                    "version_number": version.version_number,
+                    "resource_id": str(existing_resource.id),
+                    "origin_type": effective_origin,
+                    "visibility_scope": effective_visibility,
+                },
+            )
+            return version
 
         resource = EducationalResource(
             title=material.title,
+            description=version.summary or version.introduction,
             resource_type="THEORY_MATERIAL",
-            origin_type="AUTHOR",
-            owner_external_id=owner_external_id or version.created_by_external_identity,
-            visibility_scope=visibility_scope,
+            origin_type=effective_origin,
+            owner_external_id=resource_owner,
+            visibility_scope=effective_visibility,
             status="active",
             created_by_external_identity=version.created_by_external_identity,
+            metadata_={
+                "material_id": str(material.id),
+                "material_version_id": str(version.id),
+                "school_id": str(material.school_id) if material.school_id is not None else None,
+            },
         )
         session.add(resource)
         await session.flush()
 
         version.resource_id = resource.id
-        version.status = "published"
+        version.status = "PUBLISHED"
         version.published_at = datetime.now(timezone.utc)
         await session.flush()
+        await self._log_material_event(
+            session,
+            material_id=material.id,
+            school_id=material.school_id,
+            event_type="MATERIAL_PUBLISHED",
+            actor_external_id=version.created_by_external_identity,
+            version_id=version.id,
+            from_status="APPROVED",
+            to_status="PUBLISHED",
+            metadata={
+                "version_number": version.version_number,
+                "resource_id": str(resource.id),
+                "origin_type": effective_origin,
+                "visibility_scope": effective_visibility,
+            },
+        )
+        return version
+
+    async def archive_version(
+        self,
+        session: AsyncSession,
+        *,
+        material_version_id: UUID,
+    ) -> TheoryMaterialVersion:
+        version = await self._get_version(session, material_version_id)
+        status = self._normalize_status(version.status)
+        if status == "ARCHIVED":
+            raise ValueError("Material version is already archived")
+        if status not in {"DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "PUBLISHED"}:
+            raise ValueError("This material version cannot be archived in its current state.")
+        previous_status = version.status
+        version.status = "ARCHIVED"
+        await session.flush()
+
+        material = await session.get(TheoryMaterial, version.material_id)
+        if material is not None:
+            await self._log_material_event(
+                session,
+                material_id=material.id,
+                school_id=material.school_id,
+                event_type="MATERIAL_ARCHIVED",
+                actor_external_id=version.created_by_external_identity,
+                version_id=version.id,
+                from_status=previous_status,
+                to_status="ARCHIVED",
+                metadata={"version_number": version.version_number},
+            )
         return version
 
 

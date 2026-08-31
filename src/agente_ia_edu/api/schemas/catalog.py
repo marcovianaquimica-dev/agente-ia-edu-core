@@ -184,3 +184,10 @@ class TheoryMaterialDetailResponse(BaseModel):
 
     material: TheoryMaterialResponse
     versions: list[TheoryMaterialVersionResponse]
+
+
+class MaterialReviewRequest(BaseModel):
+    """Request payload for material review actions."""
+
+    action: str = Field(..., description="submit, approve, reject, publish, archive")
+    reason: Optional[str] = None

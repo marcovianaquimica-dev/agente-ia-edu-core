@@ -8,9 +8,14 @@ recommendation or mastery logic lives here - see Learning Path for that.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from sqlalchemy import asc, desc, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..dependencies import get_current_identity, get_session_factory
+from ..schemas.admin import AdminAuditLogResponse
 from ..schemas.catalog import (
     CatalogNodeCreateRequest,
     CatalogNodeResponse,
@@ -20,6 +25,7 @@ from ..schemas.catalog import (
     ContentResourcesResponse,
     EducationalResourceCreateRequest,
     EducationalResourceResponse,
+    MaterialReviewRequest,
     TheoryMaterialCreateRequest,
     TheoryMaterialDetailResponse,
     TheoryMaterialResponse,
@@ -27,11 +33,18 @@ from ..schemas.catalog import (
     TheoryMaterialVersionResponse,
 )
 from ...identity import ExternalIdentityContext
+from ...db.models import (
+    AdminAuditLog,
+    EducationalResource,
+    TheoryMaterial as TheoryMaterialModel,
+    TheoryMaterial,
+)
 from ...repositories.catalog import (
     CatalogNodeRepository,
     EducationalResourceRepository,
     TheoryMaterialRepository,
 )
+from ...services.authorization import AuthorizationService
 from ...services.catalog import (
     CatalogNodeService,
     ContentCatalogQueryService,
@@ -39,6 +52,7 @@ from ...services.catalog import (
     EducationalResourceService,
     TheoryMaterialService,
 )
+from ...services.knowledge import KnowledgeService
 
 catalog_router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
 
@@ -121,6 +135,45 @@ def _version_to_response(version) -> TheoryMaterialVersionResponse:
         updated_at=version.updated_at,
         published_at=version.published_at,
     )
+
+
+async def _require_material_access(
+    identity: ExternalIdentityContext,
+    session: AsyncSession,
+    material: TheoryMaterialModel,
+    *,
+    require_edit_role: bool = True,
+) -> None:
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity, school_id=material.school_id)
+
+    role_check = await authz.require_role(
+        context,
+        "TEACHER",
+        "COORDINATOR",
+        "DIRECTOR",
+        "PLATFORM_ADMIN",
+    )
+    if not role_check.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Material access requires a teacher, coordinator, director, or platform admin role.",
+        )
+
+    if material.school_id is not None:
+        school_check = await authz.require_school_access(context, material.school_id)
+        if not school_check.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="User does not have access to this material's school context.",
+            )
+
+    if require_edit_role and material.school_id is None and material.created_by_external_identity is not None:
+        if identity.external_user_id != material.created_by_external_identity:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the material creator can manage an unscoped material.",
+            )
 
 
 # ============================================================================
@@ -267,21 +320,122 @@ async def create_resource(
 @catalog_router.get(
     "/resources",
     response_model=list[EducationalResourceResponse],
-    summary="List educational resources, optionally filtered by type",
+    summary="List only visible educational resources for the authenticated user",
 )
 async def list_resources(
+    q: str | None = None,
     resource_type: str | None = None,
+    visibility_scope: str | None = None,
+    origin_type: str | None = None,
+    owner_external_id: str | None = None,
+    content_node_id: UUID | None = None,
+    school_id: UUID | None = None,
+    sort: str = Query(default="created_at", pattern="^(title|created_at|updated_at|status)$"),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> list[EducationalResourceResponse]:
     async with session_factory() as session:
-        repo = EducationalResourceRepository(session)
-        if resource_type:
-            resources = await repo.list_by_type(resource_type)
-        else:
-            resources = []
-            for a_type in _ALL_RESOURCE_TYPES:
-                resources.extend(await repo.list_by_type(a_type))
-        return [_resource_to_response(r) for r in resources]
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        school_context_id = str(context.school_id) if context.school_id is not None else None
+
+        if school_id is not None and school_context_id is not None:
+            if str(school_id) != school_context_id:
+                return []
+        elif school_id is not None and school_context_id is None:
+            return []
+
+        sort_map = {
+            "title": EducationalResource.title,
+            "created_at": EducationalResource.created_at,
+            "updated_at": EducationalResource.updated_at,
+            "status": EducationalResource.status,
+        }
+        sort_column = sort_map.get(sort)
+        if sort_column is None:
+            raise HTTPException(status_code=400, detail="Invalid sort field.")
+
+        order_func = desc if order.lower() == "desc" else asc
+        stmt = (
+            select(EducationalResource)
+            .options(selectinload(EducationalResource.access_grants))
+            .where(EducationalResource.status == "active")
+        )
+
+        if content_node_id is not None:
+            stmt = stmt.where(
+                EducationalResource.id.in_(
+                    select(ContentResourceLink.resource_id).where(ContentResourceLink.content_node_id == content_node_id)
+                )
+            )
+
+        result = await session.execute(stmt.order_by(order_func(sort_column)).offset(offset).limit(limit))
+        resources = list(result.scalars().all())
+
+        visible: list[EducationalResource] = []
+        for resource in resources:
+            if q:
+                needle = q.strip().lower()
+                haystack = " ".join(
+                    [
+                        resource.title or "",
+                        resource.description or "",
+                        resource.author or "",
+                        resource.origin_type or "",
+                        resource.visibility_scope or "",
+                    ]
+                ).lower()
+                if needle not in haystack:
+                    continue
+
+            if resource_type and resource.resource_type.upper() != resource_type.upper():
+                continue
+            if visibility_scope and resource.visibility_scope.upper() != visibility_scope.upper():
+                continue
+            if origin_type and resource.origin_type.upper() != origin_type.upper():
+                continue
+            if owner_external_id and resource.owner_external_id != owner_external_id:
+                continue
+            if school_id and resource.owner_external_id != str(school_id):
+                continue
+            if not KnowledgeService._is_resource_visible(resource, school_context_id):
+                continue
+            visible.append(resource)
+
+        return [_resource_to_response(r) for r in visible]
+
+
+@catalog_router.get(
+    "/resources/{resource_id}",
+    response_model=EducationalResourceResponse,
+    summary="Get a single visible educational resource by id",
+)
+async def get_resource_detail(
+    resource_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EducationalResourceResponse:
+    async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        resource = (
+            await session.execute(
+                select(EducationalResource)
+                .options(selectinload(EducationalResource.access_grants))
+                .where(EducationalResource.id == resource_id)
+            )
+        ).scalar_one_or_none()
+        if resource is None:
+            raise HTTPException(status_code=404, detail="Resource not found")
+        if resource.status != "active":
+            raise HTTPException(status_code=403, detail="Resource is not available for consumption")
+        school_context_id = str(context.school_id) if context.school_id is not None else None
+        if not KnowledgeService._is_resource_visible(resource, school_context_id):
+            raise HTTPException(status_code=403, detail="Resource is not visible to this user")
+        return _resource_to_response(resource)
 
 
 # ============================================================================
@@ -343,6 +497,63 @@ async def get_resources_for_content(
 # ============================================================================
 
 
+@catalog_router.get(
+    "/materials",
+    response_model=list[TheoryMaterialResponse],
+    summary="List authored theory materials with minimal filtering",
+)
+async def list_materials(
+    status: str | None = Query(default=None),
+    author_id: str | None = Query(default=None),
+    material_id: UUID | None = Query(default=None),
+    version_id: UUID | None = Query(default=None),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[TheoryMaterialResponse]:
+    async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        role_check = await authz.require_role(
+            context,
+            "TEACHER",
+            "COORDINATOR",
+            "DIRECTOR",
+            "PLATFORM_ADMIN",
+        )
+        if not role_check.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Material listing requires a teacher, coordinator, director, or platform admin role.",
+            )
+
+        result = await session.execute(select(TheoryMaterial).order_by(TheoryMaterial.created_at.desc()))
+        materials = list(result.scalars().all())
+        repo = TheoryMaterialRepository(session)
+
+        filtered: list[TheoryMaterial] = []
+        for material in materials:
+            if material_id is not None and material.id != material_id:
+                continue
+            if author_id is not None and (material.created_by_external_identity or "") != author_id:
+                continue
+            if version_id is not None:
+                version = await repo.get_version(version_id)
+                if version is None or version.material_id != material.id:
+                    continue
+            if status is not None:
+                versions = await repo.list_versions(material.id)
+                if not any(v.status.upper() == status.upper() for v in versions):
+                    continue
+            if material.school_id is not None:
+                if context.school_id is None or str(context.school_id) != str(material.school_id):
+                    continue
+            elif material.created_by_external_identity is not None and identity.external_user_id != material.created_by_external_identity:
+                continue
+            filtered.append(material)
+
+        return [_material_to_response(material) for material in filtered]
+
+
 @catalog_router.post(
     "/materials",
     status_code=201,
@@ -355,12 +566,21 @@ async def create_material(
     session_factory=Depends(get_session_factory),
 ) -> TheoryMaterialResponse:
     async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        role_check = await authz.require_role(context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+        if not role_check.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Material workflow actions require a teacher, coordinator, director, or platform admin role.",
+            )
         service = TheoryMaterialService()
         material = await service.create_material(
             session,
             title=request.title,
             created_by_external_identity=identity.external_user_id,
             primary_content_node_id=request.primary_content_node_id,
+            school_id=context.school_id,
         )
         await session.commit()
         return _material_to_response(material)
@@ -383,6 +603,7 @@ async def create_material_version(
         material = await repo.get_by_id(material_id)
         if material is None:
             raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
 
         service = TheoryMaterialService()
         version = await service.create_version(
@@ -396,6 +617,166 @@ async def create_material_version(
         return _version_to_response(version)
 
 
+@catalog_router.post(
+    "/materials/{material_id}/review",
+    response_model=TheoryMaterialVersionResponse,
+    summary="Submit, approve, reject, publish or archive a material version",
+)
+async def review_material(
+    material_id: UUID,
+    request: MaterialReviewRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> TheoryMaterialVersionResponse:
+    async with session_factory() as session:
+        repo = TheoryMaterialRepository(session)
+        material = await repo.get_by_id(material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
+
+        version = await repo.get_latest_version(material_id)
+        if version is None:
+            raise HTTPException(status_code=404, detail="Material has no versions")
+
+        service = TheoryMaterialService()
+        action = request.action.lower()
+        try:
+            if action == "submit":
+                version = await service.submit_for_review(session, material_version_id=version.id)
+            elif action == "approve":
+                version = await service.approve_version(session, material_version_id=version.id)
+            elif action == "reject":
+                version = await service.reject_version(session, material_version_id=version.id, reason=request.reason)
+            elif action == "publish":
+                version = await service.publish_version(session, material_version_id=version.id)
+            elif action == "archive":
+                version = await service.archive_version(session, material_version_id=version.id)
+            else:
+                raise ValueError("Unsupported action.")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await session.commit()
+        return _version_to_response(version)
+
+
+@catalog_router.post(
+    "/materials/{material_id}/approve",
+    response_model=TheoryMaterialVersionResponse,
+    summary="Approve the latest version of a material",
+)
+async def approve_material(
+    material_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> TheoryMaterialVersionResponse:
+    async with session_factory() as session:
+        repo = TheoryMaterialRepository(session)
+        material = await repo.get_by_id(material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
+
+        version = await repo.get_latest_version(material_id)
+        if version is None:
+            raise HTTPException(status_code=404, detail="Material has no versions")
+        service = TheoryMaterialService()
+        try:
+            version = await service.approve_version(session, material_version_id=version.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await session.commit()
+        return _version_to_response(version)
+
+
+@catalog_router.post(
+    "/materials/{material_id}/reject",
+    response_model=TheoryMaterialVersionResponse,
+    summary="Reject the latest version of a material",
+)
+async def reject_material(
+    material_id: UUID,
+    reason: str | None = None,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> TheoryMaterialVersionResponse:
+    async with session_factory() as session:
+        repo = TheoryMaterialRepository(session)
+        material = await repo.get_by_id(material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
+
+        version = await repo.get_latest_version(material_id)
+        if version is None:
+            raise HTTPException(status_code=404, detail="Material has no versions")
+        service = TheoryMaterialService()
+        try:
+            version = await service.reject_version(session, material_version_id=version.id, reason=reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await session.commit()
+        return _version_to_response(version)
+
+
+@catalog_router.post(
+    "/materials/{material_id}/publish",
+    response_model=TheoryMaterialVersionResponse,
+    summary="Publish the latest approved version of a material",
+)
+async def publish_material(
+    material_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> TheoryMaterialVersionResponse:
+    async with session_factory() as session:
+        repo = TheoryMaterialRepository(session)
+        material = await repo.get_by_id(material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
+
+        version = await repo.get_latest_version(material_id)
+        if version is None:
+            raise HTTPException(status_code=404, detail="Material has no versions")
+        service = TheoryMaterialService()
+        try:
+            version = await service.publish_version(session, material_version_id=version.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await session.commit()
+        return _version_to_response(version)
+
+
+@catalog_router.post(
+    "/materials/{material_id}/archive",
+    response_model=TheoryMaterialVersionResponse,
+    summary="Archive the latest version of a material",
+)
+async def archive_material(
+    material_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> TheoryMaterialVersionResponse:
+    async with session_factory() as session:
+        repo = TheoryMaterialRepository(session)
+        material = await repo.get_by_id(material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
+
+        version = await repo.get_latest_version(material_id)
+        if version is None:
+            raise HTTPException(status_code=404, detail="Material has no versions")
+        service = TheoryMaterialService()
+        try:
+            version = await service.archive_version(session, material_version_id=version.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await session.commit()
+        return _version_to_response(version)
+
+
 @catalog_router.get(
     "/materials/{material_id}",
     response_model=TheoryMaterialDetailResponse,
@@ -403,6 +784,7 @@ async def create_material_version(
 )
 async def get_material(
     material_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> TheoryMaterialDetailResponse:
     async with session_factory() as session:
@@ -410,9 +792,52 @@ async def get_material(
         material = await repo.get_by_id(material_id)
         if material is None:
             raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
 
         versions = await repo.list_versions(material_id)
         return TheoryMaterialDetailResponse(
             material=_material_to_response(material),
             versions=[_version_to_response(v) for v in versions],
         )
+
+
+@catalog_router.get(
+    "/materials/{material_id}/history",
+    response_model=list[AdminAuditLogResponse],
+    summary="Get material editorial audit history",
+)
+async def get_material_history(
+    material_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[AdminAuditLogResponse]:
+    async with session_factory() as session:
+        repo = TheoryMaterialRepository(session)
+        material = await repo.get_by_id(material_id)
+        if material is None:
+            raise HTTPException(status_code=404, detail="Material not found")
+        await _require_material_access(identity, session, material)
+
+        stmt = (
+            select(AdminAuditLog)
+            .where(
+                AdminAuditLog.entity_type == "THEORY_MATERIAL",
+                AdminAuditLog.entity_id == str(material_id),
+            )
+            .order_by(desc(AdminAuditLog.created_at))
+        )
+        result = await session.execute(stmt)
+        logs = list(result.scalars().all())
+        return [
+            AdminAuditLogResponse(
+                id=log.id,
+                performed_by_external_id=log.performed_by_external_id,
+                action=log.action,
+                entity_type=log.entity_type,
+                entity_id=log.entity_id,
+                school_id=log.school_id,
+                metadata=log.metadata_,
+                created_at=log.created_at,
+            )
+            for log in logs
+        ]

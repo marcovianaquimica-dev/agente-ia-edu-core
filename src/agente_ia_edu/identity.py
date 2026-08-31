@@ -17,6 +17,18 @@ from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True, slots=True)
+class PlatformUserIdentity:
+    """A platform identity record for a real person/account."""
+
+    id: str
+    external_identity_id: str
+    email: str | None = None
+    display_name: str | None = None
+    status: str = "ACTIVE"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class ExternalIdentityRequest:
     """Authenticated identity request as received from a host platform.
 
@@ -53,6 +65,27 @@ class ExternalIdentityContext:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class AuthenticatedUserContext:
+    """Resolved access context for the authenticated platform user.
+
+    This separates the person/account from their effective role, tenant scope and
+    modules. It allows independent students to exist without a required school
+    while preserving school-based access for teachers, coordinators and admins.
+    """
+
+    user_id: str
+    external_identity_id: str
+    role: str
+    school_id: str | None = None
+    scope_type: str = "PLATFORM"
+    scope_external_id: str | None = None
+    modules: tuple[str, ...] = ()
+    is_active: bool = True
+    is_platform_admin: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 @runtime_checkable
 class ExternalIdentityProvider(Protocol):
     """Resolve an authenticated host identity into AGENTE IA EDU identifiers."""
@@ -61,8 +94,19 @@ class ExternalIdentityProvider(Protocol):
         """Return a provider-neutral identity context without persisting credentials."""
 
 
+@runtime_checkable
+class AuthenticationProvider(Protocol):
+    """Authenticate and resolve an application-level access context."""
+
+    async def authenticate(self, request: ExternalIdentityRequest) -> ExternalIdentityContext:
+        """Validate the request and return the normalized identity."""
+
+
 __all__ = [
+    "AuthenticatedUserContext",
+    "AuthenticationProvider",
     "ExternalIdentityContext",
     "ExternalIdentityProvider",
     "ExternalIdentityRequest",
+    "PlatformUserIdentity",
 ]

@@ -10,8 +10,10 @@
 </head>
 <body>
   <div class="app-layout">
+    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
     <!-- Sidebar Navigation -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar-nav" aria-label="Menu principal do aluno">
       <div class="brand">
         <div class="brand-logo">🎓</div>
         <div class="brand-text">AGENTE IA <span>EDU</span></div>
@@ -20,6 +22,9 @@
       <nav class="nav-menu">
         <button class="nav-item active" data-view="dashboard">
           <span class="icon">🏠</span> Início
+        </button>
+        <button class="nav-item" data-view="diagnostic">
+          <span class="icon">🩺</span> Diagnóstico Inicial
         </button>
         <button class="nav-item" data-view="learning-path">
           <span class="icon">🎯</span> Minha Trilha
@@ -57,10 +62,17 @@
     <main class="main-content">
       <!-- Header Bar -->
       <header class="top-header">
-        <div class="page-title-box">
-          <h1 id="page-title">Dashboard Principal</h1>
-          <p id="page-subtitle" class="subtitle">Acompanhe sua orientação pedagógica personalizada</p>
+        <div class="mobile-header-row">
+          <button class="mobile-menu-toggle" type="button" aria-label="Abrir menu" aria-controls="sidebar-nav" aria-expanded="false">
+            ☰
+          </button>
+
+          <div class="page-title-box">
+            <h1 id="page-title">Dashboard Principal</h1>
+          </div>
         </div>
+
+        <p id="page-subtitle" class="subtitle">Acompanhe sua orientação pedagógica personalizada</p>
 
         <!-- Period Filter -->
         <div class="header-actions">
@@ -214,6 +226,26 @@
                 <div class="plan-list" id="plan-list-success">
                   <p class="empty-text">Nenhum conteúdo nesta faixa</p>
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 1B. DIAGNÓSTICO INICIAL VIEW -->
+        <section id="view-diagnostic" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🩺 Diagnóstico Inicial de Aprendizagem</h3>
+              <span class="badge badge-accent">Sondagem Adaptativa</span>
+            </div>
+            <div id="diagnostic-interactive-area">
+              <div class="practice-starter" style="text-align:center; padding:30px 10px;">
+                <div style="font-size:48px; margin-bottom:12px;">🔍</div>
+                <h2>Vamos descobrir o que você já sabe!</h2>
+                <p style="margin:10px auto 20px auto; max-width:500px; color:var(--text-muted);">
+                  Responda a algumas questões rápidas e adaptativas para construirmos seu Mapa Inicial de Domínio.
+                </p>
+                <button class="btn btn-primary" id="btn-start-diagnostic">🚀 COMEÇAR DIAGNÓSTICO</button>
               </div>
             </div>
           </div>

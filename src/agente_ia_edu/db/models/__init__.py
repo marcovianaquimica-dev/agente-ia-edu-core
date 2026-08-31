@@ -62,6 +62,19 @@ from .recommendations import (
 from .discovery import (
     ExternalVideoCandidate,
 )
+from .admin import (
+    AdminAuditLog,
+    School,
+    SchoolModule,
+    UserSchoolLink,
+)
+from .teaching_context import (
+    TeachingLesson,
+)
+from .diagnostic import (
+    DiagnosticQuestionSelection,
+    InitialDiagnostic,
+)
 
 __all__ = [
     "AnswerKeyEntry",
@@ -111,4 +124,11 @@ __all__ = [
     "PedagogicalRecommendation",
     "VideoInteractionEvent",
     "ExternalVideoCandidate",
+    "School",
+    "SchoolModule",
+    "UserSchoolLink",
+    "AdminAuditLog",
+    "TeachingLesson",
+    "InitialDiagnostic",
+    "DiagnosticQuestionSelection",
 ]

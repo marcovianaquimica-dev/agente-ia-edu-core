@@ -8,14 +8,16 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
-from fastapi import Request
+from fastapi import Depends, HTTPException, Request
 
 from agente_ia_edu.db.session import create_session_factory
 from agente_ia_edu.identity import (
+    AuthenticatedUserContext,
     ExternalIdentityContext,
     ExternalIdentityProvider,
     ExternalIdentityRequest,
 )
+from agente_ia_edu.services.authorization import AuthorizationService
 
 
 class TestExternalIdentityProvider:
@@ -165,10 +167,26 @@ async def get_session_factory():
     return create_session_factory()
 
 
+async def get_current_authenticated_context(
+    request: Request,
+    session_factory=Depends(get_session_factory),
+) -> AuthenticatedUserContext:
+    """Resolve the effective access context for the authenticated user.
+
+    This is the compatibility layer that converts the existing external identity
+    protocol into the richer platform access context used for multi-tenant auth.
+    """
+    identity = await get_current_identity(request)
+    async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        return context
+
 
 __all__ = [
     "TestExternalIdentityProvider",
+    "get_current_authenticated_context",
+    "get_current_identity",
     "get_identity_provider",
     "set_identity_provider",
-    "get_current_identity",
 ]

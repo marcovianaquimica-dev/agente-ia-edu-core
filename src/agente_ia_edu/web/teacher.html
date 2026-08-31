@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENTE IA EDU — Portal do Professor e Coordenação</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="teacher.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">🎓</div>
+        <div class="brand-text">AGENTE IA <span>EDU</span></div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="icon">🏠</span> Início
+        </button>
+        <button class="nav-item" data-view="classrooms">
+          <span class="icon">🏫</span> Minhas Turmas
+        </button>
+        <button class="nav-item" data-view="contents">
+          <span class="icon">📚</span> Conteúdos
+        </button>
+        <button class="nav-item" data-view="students">
+          <span class="icon">👨‍🎓</span> Alunos
+        </button>
+        <button class="nav-item" data-view="lessons">
+          <span class="icon">📝</span> Aulas
+        </button>
+        <button class="nav-item" data-view="performance">
+          <span class="icon">📊</span> Desempenho
+        </button>
+        <button class="nav-item" data-view="action-plan">
+          <span class="icon">🎯</span> Plano de Ação
+        </button>
+        <button class="nav-item" data-view="reports">
+          <span class="icon">📤</span> Relatórios
+        </button>
+        <button class="nav-item" data-view="profile">
+          <span class="icon">👤</span> Meu Perfil
+        </button>
+      </nav>
+
+      <div class="user-badge">
+        <div class="user-avatar">P</div>
+        <div class="user-info">
+          <span class="user-name" id="teacher-display-name">Prof. Mendes</span>
+          <span class="user-role">Professor / Coordenação</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Header Bar & Filters -->
+      <header class="top-header">
+        <div class="page-title-box">
+          <h1 id="page-title">Dashboard do Professor</h1>
+          <p id="page-subtitle" class="subtitle">Acompanhamento pedagógico e orientação para turmas</p>
+        </div>
+
+        <div class="header-actions">
+          <div class="filters-bar">
+            <div class="filter-group">
+              <span class="filter-label">🆔 Usuário:</span>
+              <input type="text" id="filter-teacher-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes">
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">🏫 Turma:</span>
+              <select id="filter-classroom-select" class="select-input">
+                <option value="" selected>Todas as Turmas</option>
+                <option value="TURMA_3A">Turma 3A</option>
+                <option value="TURMA_3B">Turma 3B</option>
+              </select>
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">📅 Período:</span>
+              <select id="filter-period-select" class="select-input">
+                <option value="academic_year" selected>Ano Letivo 2026</option>
+                <option value="bimester">Bimestre Atual</option>
+                <option value="semester">Semestre</option>
+                <option value="last_30_days">Últimos 30 Dias</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Global Alert / Status Box -->
+      <div id="alert-box" class="alert-banner" style="display:none;"></div>
+
+      <!-- Dynamic Views Container -->
+      <div id="views-container">
+
+        <!-- 1. DASHBOARD VIEW -->
+        <section id="view-dashboard" class="view-panel active">
+          <!-- Summary Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon bg-blue">👨‍🎓</div>
+              <div class="stat-data">
+                <span class="stat-value" id="dash-stat-students">0 (0 Ativos)</span>
+                <span class="stat-label">Alunos na Turma</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-purple">📊</div>
+              <div class="stat-data">
+                <span class="stat-value" id="dash-stat-avg">0.0%</span>
+                <span class="stat-label">Média Geral da Turma</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-red">⚠️</div>
+              <div class="stat-data">
+                <span class="stat-value" id="dash-stat-struggling">0 (0%)</span>
+                <span class="stat-label">Alunos em Atenção (&lt; 50%)</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-green">📝</div>
+              <div class="stat-data">
+                <span class="stat-value" id="dash-stat-lessons">0 Aulas</span>
+                <span class="stat-label">Aulas Recentes (14d)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Class Mastery Distribution (Desempenho da Turma) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>📊 Desempenho da Turma por Faixa de Domínio</h3>
+            </div>
+            <div class="distribution-grid">
+              <div class="dist-card dist-danger">
+                <span class="dist-title">🔴 Precisa de Atenção (&lt; 50%)</span>
+                <strong id="dist-count-danger">0 aluno(s) (0%)</strong>
+                <p>Necessitam de revisão conceitual e prática fácil</p>
+              </div>
+              <div class="dist-card dist-warning">
+                <span class="dist-title">🟡 Em Desenvolvimento (50%–69%)</span>
+                <strong id="dist-count-warning">0 aluno(s) (0%)</strong>
+                <p>Necessitam de exercícios de fixação intermediários</p>
+              </div>
+              <div class="dist-card dist-success">
+                <span class="dist-title">🟢 Consolidado (&ge; 70%)</span>
+                <strong id="dist-count-success">0 aluno(s) (0%)</strong>
+                <p>Domínio satisfatório do conteúdo</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Strengths and Improvements Grid -->
+          <div class="two-col-grid">
+            <div class="card">
+              <div class="card-header">
+                <h3>🟢 Pontos Fortes da Turma</h3>
+              </div>
+              <div id="dash-strengths-list" class="items-list">
+                <p class="empty-text">Nenhum ponto forte identificado ainda.</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h3>🔴 Pontos de Melhoria Prioritários</h3>
+              </div>
+              <div id="dash-improvements-list" class="items-list">
+                <p class="empty-text">Nenhum ponto de melhoria prioritário.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Taught Contents (Últimos 14 Dias) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>📝 Conteúdos Ensinados Recentemente (Últimos 14 Dias)</h3>
+            </div>
+            <div id="dash-recent-lessons-container" class="recent-lessons-list">
+              <p class="empty-text">Nenhuma aula registrada nos últimos 14 dias.</p>
+            </div>
+          </div>
+
+          <!-- Action Plan (Plano de Ação) -->
+          <div class="card">
+            <div class="card-header">
+              <h3>🎯 Plano de Ação Recomendado para a Turma</h3>
+            </div>
+            <div id="dash-action-plan-container" class="action-plan-container">
+              <p class="empty-text">Nenhum plano de ação gerado.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. MINHAS TURMAS VIEW -->
+        <section id="view-classrooms" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🏫 Minhas Turmas Autorizadas</h3>
+            </div>
+            <div id="classrooms-grid-container" class="classrooms-grid">
+              <p class="empty-text">Carregando turmas do professor...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. DETALHE DA TURMA VIEW -->
+        <section id="view-classroom-detail" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3 id="cls-detail-title">3º A — Ensino Médio (Ano Letivo 2026)</h3>
+              <button class="btn btn-secondary" id="btn-export-cls-report">📤 Exportar Relatório (PDF/XLSX)</button>
+            </div>
+            <div id="cls-detail-body" class="cls-detail-content">
+              <p class="empty-text">Selecione uma turma em "Minhas Turmas" para visualizar os detalhes.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. ALUNOS & PESQUISA VIEW -->
+        <section id="view-students" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>👨‍🎓 Pesquisa e Consulta Individual de Alunos</h3>
+            </div>
+            <div class="search-box-row">
+              <input type="text" id="search-student-input" class="text-input search-input" placeholder="Pesquisar aluno por nome ou ID (ex: alice)...">
+              <button class="btn btn-primary" id="btn-search-students">🔍 Pesquisar</button>
+            </div>
+            <div id="search-results-container" class="search-results-list"></div>
+          </div>
+
+          <!-- Student Individual Profile Container -->
+          <div id="student-profile-container" class="card" style="display:none;">
+            <div class="card-header">
+              <h3 id="student-profile-title">Perfil do Aluno</h3>
+            </div>
+            <div id="student-profile-body"></div>
+          </div>
+        </section>
+
+        <!-- 5. AULAS VIEW -->
+        <section id="view-lessons" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📝 Registro e Histórico de Aulas</h3>
+              <button class="btn btn-primary" id="btn-open-new-lesson-modal">➕ Registrar Nova Aula</button>
+            </div>
+            <div id="lessons-table-container">
+              <p class="empty-text">Carregando aulas registradas...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. DESEMPENHO / CONTEÚDOS VIEW -->
+        <section id="view-contents" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📊 Análise Detalhada de Domínio por Conteúdo</h3>
+            </div>
+            <div id="contents-breakdown-container">
+              <p class="empty-text">Carregando métricas por conteúdo...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. PLANO DE AÇÃO VIEW -->
+        <section id="view-action-plan" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>🎯 Plano de Ação Completo da Turma</h3>
+            </div>
+            <div id="full-action-plan-container">
+              <p class="empty-text">Carregando plano de ação...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 8. RELATÓRIOS VIEW -->
+        <section id="view-reports" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📤 Exportação de Relatórios Pedagógicos</h3>
+            </div>
+            <div class="reports-form-box">
+              <div class="form-row">
+                <label>Turma:</label>
+                <select id="report-classroom-select" class="select-input">
+                  <option value="TURMA_3A">Turma 3A</option>
+                  <option value="TURMA_3B">Turma 3B</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Formato:</label>
+                <select id="report-format-select" class="select-input">
+                  <option value="pdf" selected>Relatório Executivo PDF</option>
+                  <option value="xlsx">Planilha de Dados XLSX</option>
+                </select>
+              </div>
+              <div style="margin-top:16px;">
+                <button class="btn btn-primary" id="btn-generate-report">📄 Gerar Relatório</button>
+              </div>
+            </div>
+            <div id="report-preview-container" style="margin-top:20px;"></div>
+          </div>
+        </section>
+
+        <!-- 9. MEU PERFIL VIEW -->
+        <section id="view-profile" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>👤 Meu Perfil e Escopo Autorizado</h3>
+            </div>
+            <div class="profile-info-box">
+              <p><strong>Identificador:</strong> <span id="prof-profile-id">user:prof_mendes</span></p>
+              <p><strong>Função:</strong> Professor / Coordenador</p>
+              <p><strong>Escola:</strong> Escola Piloto de Testes (SCH_A)</p>
+              <p><strong>Turmas Autorizadas:</strong> TURMA_3A, TURMA_3B</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Registrar Nova Aula -->
+  <div id="modal-new-lesson" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📝 Registrar Nova Aula</h3>
+        <button class="modal-close" id="btn-close-lesson-modal">&times;</button>
+      </div>
+      <form id="form-new-lesson" class="modal-body">
+        <div class="form-group">
+          <label>Turma *</label>
+          <select id="lesson-form-classroom" class="select-input" required>
+            <option value="TURMA_3A">Turma 3A</option>
+            <option value="TURMA_3B">Turma 3B</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Conteúdo Pedagógico *</label>
+          <select id="lesson-form-content" class="select-input" required>
+            <option value="" disabled selected>Carregando conteúdos...</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Data da Aula *</label>
+          <input type="date" id="lesson-form-date" class="text-input" required>
+        </div>
+
+        <div class="form-group">
+          <label>Duração (Minutos)</label>
+          <input type="number" id="lesson-form-duration" class="text-input" value="50" min="1" max="300">
+        </div>
+
+        <div class="form-group">
+          <label>Título da Aula</label>
+          <input type="text" id="lesson-form-title" class="text-input" placeholder="ex: Aula Prática de Diluição">
+        </div>
+
+        <div class="form-group">
+          <label>Observação / Resumo</label>
+          <textarea id="lesson-form-obs" class="textarea-input" rows="3" placeholder="Resumo dos conceitos e exercícios trabalhados..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-lesson">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar e Sincronizar Trilha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="teacher.js"></script>
+</body>
+</html>
