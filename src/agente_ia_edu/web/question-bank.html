@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENTE IA EDU — Banco de Questões (Professor)</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="question-bank.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <main class="content-area qb-page">
+      <header class="page-header">
+        <div>
+          <h1 id="page-title">Banco de Questões</h1>
+          <p id="page-subtitle" class="page-subtitle">Pesquise, filtre, visualize e selecione questões oficiais do ENEM.</p>
+        </div>
+        <div class="qb-view-switch" role="tablist" aria-label="Alternar visão">
+          <button class="btn btn-secondary qb-tab active" data-qb-view="bank" role="tab" aria-selected="true">Banco de Questões</button>
+          <button class="btn btn-secondary qb-tab" data-qb-view="selection" role="tab" aria-selected="false">
+            Minha Seleção <span class="qb-count-badge" id="qb-selection-count" aria-live="polite">Questões selecionadas: 0</span>
+          </button>
+          <button class="btn btn-secondary qb-tab" data-qb-view="list" role="tab" aria-selected="false">Configurar Lista</button>
+          <button class="btn btn-secondary qb-tab" data-qb-view="mylists" role="tab" aria-selected="false">Minhas Listas</button>
+        </div>
+      </header>
+
+      <div id="qb-alert" class="alert-box" hidden role="status"></div>
+
+      <!-- ================= BANK VIEW ================= -->
+      <section id="qb-view-bank" class="qb-view">
+        <form id="qb-search-form" class="qb-search card" autocomplete="off">
+          <div class="qb-search-row">
+            <label class="qb-field qb-field-grow">
+              <span>Busca (número, texto ou conteúdo)</span>
+              <input type="search" id="qb-search-text" placeholder="Ex.: 130, logaritmo, MATH-ALGEBRA-FUNCTIONS" />
+            </label>
+            <button type="submit" class="btn btn-primary" id="qb-search-submit">Buscar</button>
+          </div>
+
+          <div class="qb-filters-primary">
+            <label class="qb-field"><span>Ano</span>
+              <select id="qb-filter-year"><option value="">Todos</option></select></label>
+            <label class="qb-field"><span>Dia</span>
+              <select id="qb-filter-day"><option value="">Todos</option><option value="1">Dia 1</option><option value="2">Dia 2</option></select></label>
+            <label class="qb-field"><span>Área</span>
+              <select id="qb-filter-area">
+                <option value="">Todas</option>
+                <option value="LC">Linguagens</option>
+                <option value="CH">Ciências Humanas</option>
+                <option value="CN">Ciências da Natureza</option>
+                <option value="MT">Matemática</option>
+              </select></label>
+            <label class="qb-field"><span>Disciplina</span>
+              <select id="qb-filter-discipline">
+                <option value="">Todas</option>
+                <option value="PHYSICS">Física</option>
+                <option value="CHEMISTRY">Química</option>
+                <option value="BIOLOGY">Biologia</option>
+                <option value="MATH">Matemática</option>
+              </select></label>
+            <label class="qb-field"><span>Conteúdo</span>
+              <input type="text" id="qb-filter-content" placeholder="código curriculum-v2" /></label>
+            <label class="qb-field"><span>Subconteúdo</span>
+              <input type="text" id="qb-filter-subcontent" placeholder="código curriculum-v2" /></label>
+            <label class="qb-field"><span>Status</span>
+              <select id="qb-filter-status">
+                <option value="">Todos</option>
+                <option value="ANY_CLASSIFIED">Classificadas</option>
+                <option value="UNCLASSIFIED">Não classificadas</option>
+                <option value="CLASSIFIED">Classificação firme</option>
+                <option value="NEEDS_REVIEW">Em revisão</option>
+                <option value="FORCED_CLOSURE">Fechamento forçado</option>
+              </select></label>
+            <label class="qb-field"><span>Dificuldade</span>
+              <select id="qb-filter-difficulty">
+                <option value="">Todas</option><option value="EASY">Fácil</option>
+                <option value="MEDIUM">Média</option><option value="HARD">Difícil</option>
+              </select></label>
+            <label class="qb-field"><span>Origem</span>
+              <select id="qb-filter-source">
+                <option value="">Todas</option><option value="rule">Determinística</option>
+                <option value="ai">IA</option><option value="human">Humana</option><option value="hybrid">Híbrida</option>
+              </select></label>
+          </div>
+
+          <details class="qb-filters-advanced">
+            <summary>Filtros avançados</summary>
+            <div class="qb-filters-advanced-grid">
+              <label class="qb-field"><span>Modo de classificação</span>
+                <input type="text" id="qb-filter-mode" placeholder="ex.: FORCED_CLOSURE" /></label>
+              <label class="qb-checkbox"><input type="checkbox" id="qb-filter-provisional" /> Somente provisórias</label>
+              <label class="qb-checkbox"><input type="checkbox" id="qb-filter-visual" /> Somente com dependência visual</label>
+              <label class="qb-checkbox"><input type="checkbox" id="qb-filter-protected" /> Somente questões protegidas</label>
+            </div>
+          </details>
+
+          <div class="qb-search-actions">
+            <button type="button" class="btn btn-secondary" id="qb-clear-filters">Limpar filtros</button>
+          </div>
+        </form>
+
+        <div id="qb-list-status" class="qb-list-status" aria-live="polite"></div>
+        <div id="qb-list" class="qb-list"></div>
+
+        <nav class="qb-pagination" id="qb-pagination" aria-label="Paginação">
+          <button class="btn btn-secondary" id="qb-page-prev" type="button">← Anterior</button>
+          <span id="qb-page-label" class="qb-page-label">Página 1</span>
+          <button class="btn btn-secondary" id="qb-page-next" type="button">Próxima →</button>
+        </nav>
+      </section>
+
+      <!-- ================= SELECTION REVIEW VIEW ================= -->
+      <section id="qb-view-selection" class="qb-view" hidden>
+        <div class="card qb-selection-panel">
+          <div class="card-header">
+            <h3>Minha Seleção</h3>
+            <button class="btn btn-secondary" id="qb-selection-clear" type="button">Limpar seleção</button>
+          </div>
+          <p class="qb-selection-hint">Arraste para reordenar, ou use os controles ↑ ↓. A ordem final é exatamente a da lista abaixo.</p>
+          <ol id="qb-selection-list" class="qb-selection-list"></ol>
+          <div id="qb-selection-empty" class="empty-text" hidden>Nenhuma questão selecionada ainda.</div>
+          <div class="qb-selection-actions">
+            <button class="btn btn-secondary" id="qb-selection-back" type="button">← Voltar ao Banco</button>
+            <button class="btn btn-secondary" id="qb-selection-finalize" type="button">Obter seleção ordenada</button>
+            <button class="btn btn-primary" id="qb-selection-configure" type="button">Configurar Lista →</button>
+          </div>
+          <pre id="qb-selection-output" class="qb-selection-output" hidden></pre>
+        </div>
+      </section>
+
+      <!-- ================= LIST GENERATOR WIZARD ================= -->
+      <section id="qb-view-list" class="qb-view" hidden>
+        <ol class="qb-wizard-steps" id="qb-wizard-steps">
+          <li data-step="config">1. Configurar Lista</li>
+          <li data-step="review">2. Revisar Questões</li>
+          <li data-step="answerkey">3. Configurar Gabarito</li>
+          <li data-step="preview">4. Pré-visualizar</li>
+          <li data-step="finalize">5. Finalizar</li>
+        </ol>
+        <div id="qb-list-alert" class="alert-box" hidden role="status"></div>
+
+        <!-- step: config -->
+        <div class="card qb-wizard-panel" data-wstep="config">
+          <h3>Configurar Lista</h3>
+          <label class="qb-field qb-field-grow"><span>Título da lista *</span>
+            <input type="text" id="qb-list-title" maxlength="200" placeholder="Ex.: Lista de exercícios — Funções" /></label>
+          <label class="qb-field qb-field-grow"><span>Instruções (opcional)</span>
+            <textarea id="qb-list-instructions" rows="3" maxlength="4000" placeholder="Instruções para os alunos…"></textarea></label>
+          <label class="qb-field"><span>Tipo de atividade</span>
+            <select id="qb-list-mode"><option value="EXERCISE_LIST">Lista de exercícios</option></select></label>
+          <p class="qb-list-hint" id="qb-list-mode-note">Simulado, Prova, Tarefa, Diagnóstico e Prática individual serão adicionados em fases futuras.</p>
+          <p class="qb-list-hint">Questões selecionadas: <strong id="qb-list-count">0</strong></p>
+          <div class="qb-wizard-actions">
+            <button class="btn btn-secondary" id="qb-list-back-selection" type="button">← Voltar à seleção</button>
+            <button class="btn btn-primary" id="qb-list-to-review" type="button">Revisar Questões →</button>
+          </div>
+        </div>
+
+        <!-- step: review -->
+        <div class="card qb-wizard-panel" data-wstep="review" hidden>
+          <h3>Revisar Questões</h3>
+          <p class="qb-list-hint">Reordene (arraste ou ↑ ↓), remova, ou volte ao Banco para adicionar outra questão. A ordem final é exatamente esta.</p>
+          <ol id="qb-review-list" class="qb-selection-list"></ol>
+          <div class="qb-wizard-actions">
+            <button class="btn btn-secondary" id="qb-review-back-bank" type="button">← Voltar ao Banco (adicionar questão)</button>
+            <button class="btn btn-secondary" id="qb-review-back-config" type="button">← Configuração</button>
+            <button class="btn btn-primary" id="qb-review-to-answerkey" type="button">Configurar Gabarito →</button>
+          </div>
+        </div>
+
+        <!-- step: answerkey -->
+        <div class="card qb-wizard-panel" data-wstep="answerkey" hidden>
+          <h3>Configurar Gabarito / Resolução</h3>
+          <fieldset class="qb-answerkey-options">
+            <legend>Apresentação</legend>
+            <label class="qb-radio"><input type="radio" name="qb-ak" value="NONE" checked /> Sem gabarito / resolução</label>
+            <label class="qb-radio"><input type="radio" name="qb-ak" value="KEY_AT_END" /> Gabarito ao final</label>
+            <label class="qb-radio"><input type="radio" name="qb-ak" value="KEY_AND_RESOLUTION_AT_END" /> Gabarito + resolução ao final</label>
+          </fieldset>
+          <fieldset class="qb-answerkey-options" id="qb-resolution-style" hidden>
+            <legend>Estilo da resolução</legend>
+            <label class="qb-radio"><input type="radio" name="qb-res" value="SUMMARY" checked /> Resolução resumida</label>
+            <label class="qb-radio"><input type="radio" name="qb-res" value="STEP_BY_STEP" /> Resolução passo a passo</label>
+            <p class="qb-list-hint" id="qb-resolution-note"></p>
+          </fieldset>
+          <div class="qb-wizard-actions">
+            <button class="btn btn-secondary" id="qb-answerkey-back" type="button">← Revisar Questões</button>
+            <button class="btn btn-primary" id="qb-answerkey-to-preview" type="button">Pré-visualizar →</button>
+          </div>
+        </div>
+
+        <!-- step: preview -->
+        <div class="card qb-wizard-panel" data-wstep="preview" hidden>
+          <h3>Pré-visualização</h3>
+          <div id="qb-list-preview" class="qb-list-preview"></div>
+          <div class="qb-wizard-actions">
+            <button class="btn btn-secondary" id="qb-preview-back-answerkey" type="button">← Configurar Gabarito</button>
+            <button class="btn btn-secondary" id="qb-preview-edit" type="button">Editar lista</button>
+            <button class="btn btn-primary" id="qb-preview-to-finalize" type="button">Finalizar →</button>
+          </div>
+        </div>
+
+        <!-- step: finalize -->
+        <div class="card qb-wizard-panel" data-wstep="finalize" hidden>
+          <h3>Revisão final</h3>
+          <div id="qb-finalize-summary" class="qb-finalize-summary"></div>
+          <div class="qb-wizard-actions">
+            <button class="btn btn-secondary" id="qb-finalize-edit" type="button">Editar lista</button>
+            <button class="btn btn-secondary" id="qb-finalize-back-selection" type="button">Voltar à seleção</button>
+            <button class="btn btn-secondary" id="qb-finalize-save-draft" type="button">Salvar rascunho</button>
+            <button class="btn btn-primary" id="qb-finalize-confirm" type="button">Finalizar lista</button>
+          </div>
+          <div id="qb-finalize-saved" class="qb-finalize-saved" hidden></div>
+        </div>
+      </section>
+
+      <!-- ================= MINHAS LISTAS ================= -->
+      <section id="qb-view-mylists" class="qb-view" hidden>
+        <div class="card qb-mylists-panel">
+          <div class="card-header"><h3>Minhas Listas</h3></div>
+          <form id="qb-mylists-filters" class="qb-mylists-filters">
+            <label class="qb-field qb-field-grow"><span>Buscar por título</span>
+              <input type="search" id="qb-mylists-q" placeholder="Ex.: Funções" /></label>
+            <label class="qb-field"><span>Status</span>
+              <select id="qb-mylists-status"><option value="">Todos</option><option value="draft">Rascunho</option><option value="published">Finalizada</option></select></label>
+            <label class="qb-field"><span>Ordenar por</span>
+              <select id="qb-mylists-order"><option value="created_at">Data</option><option value="title">Título</option></select></label>
+            <label class="qb-field"><span>Direção</span>
+              <select id="qb-mylists-dir"><option value="desc">↓</option><option value="asc">↑</option></select></label>
+          </form>
+          <div id="qb-mylists-list" class="qb-mylists-list"></div>
+        </div>
+      </section>
+
+      <!-- ================= PHASE 16: DISTRIBUIR ATIVIDADE ================= -->
+      <div id="qb-dist" class="qb-preview-backdrop" hidden>
+        <div class="qb-preview-dialog card" role="dialog" aria-modal="true" aria-labelledby="qb-dist-title">
+          <div class="card-header">
+            <h3 id="qb-dist-title">Distribuir atividade</h3>
+            <button class="qb-preview-close" id="qb-dist-close" aria-label="Fechar">×</button>
+          </div>
+          <ol id="qb-dist-steps" class="qb-wizard-steps">
+            <li data-dstep="recipients" class="active">1. Destinatários</li>
+            <li data-dstep="period">2. Período</li>
+            <li data-dstep="review">3. Revisão</li>
+            <li data-dstep="done">4. Publicação</li>
+          </ol>
+          <div id="qb-dist-alert" class="alert-box" hidden></div>
+
+          <div class="qb-dist-panel" data-dstep="recipients">
+            <p class="qb-dist-list-name">Lista: <strong id="qb-dist-list-name"></strong></p>
+            <fieldset class="qb-field">
+              <legend>Enviar para</legend>
+              <label><input type="radio" name="qb-dist-target" value="CLASS" checked /> Uma turma</label>
+              <label><input type="radio" name="qb-dist-target" value="STUDENT" /> Um aluno específico</label>
+            </fieldset>
+            <label class="qb-field"><span id="qb-dist-target-label">Identificador da turma</span>
+              <input type="text" id="qb-dist-target-id" placeholder="Ex.: turma-9A" /></label>
+            <p class="qb-dist-hint">A distribuição referencia o alvo institucional; os alunos não são copiados para a lista.</p>
+            <div class="qb-wizard-actions">
+              <button class="btn btn-primary" type="button" id="qb-dist-to-period">Continuar</button>
+            </div>
+          </div>
+
+          <div class="qb-dist-panel" data-dstep="period" hidden>
+            <label class="qb-field"><span>Disponível a partir de (opcional)</span>
+              <input type="datetime-local" id="qb-dist-available-from" /></label>
+            <label class="qb-field"><span>Prazo (opcional)</span>
+              <input type="datetime-local" id="qb-dist-due-at" /></label>
+            <p class="qb-dist-hint">Sem data de início, a atividade fica disponível imediatamente. Após o prazo, novas execuções ficam encerradas.</p>
+            <div class="qb-wizard-actions">
+              <button class="btn btn-secondary" type="button" id="qb-dist-back-recipients">Voltar</button>
+              <button class="btn btn-primary" type="button" id="qb-dist-to-review">Continuar</button>
+            </div>
+          </div>
+
+          <div class="qb-dist-panel" data-dstep="review" hidden>
+            <div id="qb-dist-review" class="qb-finalize-summary"></div>
+            <div class="qb-wizard-actions">
+              <button class="btn btn-secondary" type="button" id="qb-dist-back-period">Voltar</button>
+              <button class="btn btn-primary" type="button" id="qb-dist-confirm">Publicar distribuição</button>
+            </div>
+          </div>
+
+          <div class="qb-dist-panel" data-dstep="done" hidden>
+            <div id="qb-dist-done" class="qb-finalize-saved"></div>
+            <div class="qb-wizard-actions">
+              <button class="btn btn-primary" type="button" id="qb-dist-finish">Concluir</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= PREVIEW DIALOG ================= -->
+      <div id="qb-preview" class="qb-preview-backdrop" hidden>
+        <div class="qb-preview-dialog card" role="dialog" aria-modal="true" aria-labelledby="qb-preview-title">
+          <div class="card-header">
+            <h3 id="qb-preview-title">Questão</h3>
+            <button class="qb-preview-close" id="qb-preview-close" aria-label="Fechar visualização">×</button>
+          </div>
+          <div id="qb-preview-body" class="qb-preview-body"></div>
+          <div class="qb-preview-actions">
+            <button class="btn btn-secondary" id="qb-preview-replace" type="button">Substituir questão</button>
+            <button class="btn btn-primary" id="qb-preview-toggle-select" type="button">Selecionar questão</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="question-bank.js"></script>
+</body>
+</html>

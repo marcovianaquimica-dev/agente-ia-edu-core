@@ -23,6 +23,9 @@
         <button class="nav-item active" data-view="dashboard">
           <span class="icon">🏠</span> Início
         </button>
+        <button class="nav-item" data-view="study-session">
+          <span class="icon">⏱️</span> Momento de Aprendizado
+        </button>
         <button class="nav-item" data-view="diagnostic">
           <span class="icon">🩺</span> Diagnóstico Inicial
         </button>
@@ -31,6 +34,15 @@
         </button>
         <button class="nav-item" data-view="practice">
           <span class="icon">✏️</span> Praticar
+        </button>
+        <button class="nav-item" data-view="activities">
+          <span class="icon">📋</span> Atividades
+        </button>
+        <button class="nav-item" data-view="domain">
+          <span class="icon">🧭</span> Meu Domínio
+        </button>
+        <button class="nav-item" data-view="study-path">
+          <span class="icon">🪜</span> Trilha de Estudos
         </button>
         <button class="nav-item" data-view="materials">
           <span class="icon">📚</span> Materiais
@@ -233,20 +245,16 @@
 
         <!-- 1B. DIAGNÓSTICO INICIAL VIEW -->
         <section id="view-diagnostic" class="view-panel">
-          <div class="card">
-            <div class="card-header">
-              <h3>🩺 Diagnóstico Inicial de Aprendizagem</h3>
-              <span class="badge badge-accent">Sondagem Adaptativa</span>
-            </div>
-            <div id="diagnostic-interactive-area">
-              <div class="practice-starter" style="text-align:center; padding:30px 10px;">
-                <div style="font-size:48px; margin-bottom:12px;">🔍</div>
-                <h2>Vamos descobrir o que você já sabe!</h2>
-                <p style="margin:10px auto 20px auto; max-width:500px; color:var(--text-muted);">
-                  Responda a algumas questões rápidas e adaptativas para construirmos seu Mapa Inicial de Domínio.
-                </p>
-                <button class="btn btn-primary" id="btn-start-diagnostic">🚀 COMEÇAR DIAGNÓSTICO</button>
+          <div id="diagnostic-interactive-area" class="diagnostic-shell" aria-live="polite">
+            <div class="diagnostic-intro">
+              <span class="eyebrow">Seu ponto de partida</span>
+              <h2>Vamos conhecer como você aprende.</h2>
+              <p>Antes de começar, vamos entender seus objetivos e descobrir o que você já domina.</p>
+              <div class="reassurance-list">
+                <span>Sem nota</span><span>Sem pressão</span><span>No seu ritmo</span>
               </div>
+              <button class="btn btn-primary diagnostic-cta" id="btn-start-diagnostic" type="button">Começar diagnóstico</button>
+              <p class="diagnostic-footnote">Geralmente leva de 10 a 15 minutos. Não é uma prova.</p>
             </div>
           </div>
         </section>
@@ -279,6 +287,261 @@
           </div>
         </section>
 
+        <!-- 3b. ATIVIDADES VIEW (PHASE 16 lista/entrada + PHASE 17 player de execução) -->
+        <section id="view-activities" class="view-panel">
+          <div id="activities-list-card" class="card">
+            <div class="card-header">
+              <h3>📋 Atividades disponíveis</h3>
+            </div>
+            <p class="activities-intro">Atividades que seus professores distribuíram para você ou para a sua turma.</p>
+            <div id="activities-list-container" class="activities-list">
+              <p>Carregando atividades…</p>
+            </div>
+          </div>
+
+          <div id="activity-entry-screen" class="card activity-entry" hidden>
+            <div class="card-header">
+              <h3 id="activity-entry-title">Atividade</h3>
+              <button class="btn btn-secondary" type="button" id="activity-entry-back">← Voltar</button>
+            </div>
+            <div id="activity-entry-body" class="activity-entry-body"></div>
+          </div>
+
+          <!-- PHASE 17 — Player do aluno -->
+          <div id="activity-player" class="card activity-player" hidden
+               data-state="LOADING" aria-live="polite">
+            <div class="activity-player-topbar">
+              <button class="btn btn-secondary" type="button" id="player-exit">← Sair</button>
+              <span class="activity-player-title" id="player-title">Atividade</span>
+              <span class="activity-player-progress" id="player-progress">Questão 1/1</span>
+              <span class="activity-player-save" id="player-save-status" role="status" aria-live="polite"></span>
+            </div>
+
+            <div class="activity-player-stage" id="player-stage">
+              <p class="activity-player-statement" id="player-statement"></p>
+              <form class="activity-player-options" id="player-options" role="radiogroup"
+                    aria-label="Alternativas da questão"></form>
+            </div>
+
+            <nav class="activity-player-nav" id="player-nav" aria-label="Navegação entre questões"></nav>
+
+            <div class="activity-player-controls">
+              <button class="btn btn-secondary" type="button" id="player-prev">← Anterior</button>
+              <span class="activity-player-counter" id="player-counter"></span>
+              <button class="btn btn-secondary" type="button" id="player-next">Próxima →</button>
+              <button class="btn btn-primary" type="button" id="player-finish">Finalizar atividade</button>
+            </div>
+
+            <div class="activity-player-banner" id="player-banner" hidden></div>
+          </div>
+
+          <!-- confirmation / result dialog -->
+          <div id="player-dialog" class="activity-player-dialog-backdrop" hidden>
+            <div class="card activity-player-dialog" role="dialog" aria-modal="true"
+                 aria-labelledby="player-dialog-title">
+              <h3 id="player-dialog-title">Finalizar atividade</h3>
+              <div id="player-dialog-body"></div>
+              <div class="activity-player-dialog-actions" id="player-dialog-actions"></div>
+            </div>
+          </div>
+
+          <!-- PHASE 18 — Tela de Resultado (somente após conclusão + correção) -->
+          <div id="activity-result" class="card activity-result" hidden aria-live="polite">
+            <div class="activity-result-head">
+              <h3 id="activity-result-title">Atividade finalizada</h3>
+              <span class="activity-result-practice-badge" id="activity-result-practice-badge" hidden>Prática</span>
+              <p class="activity-result-sub">Você concluiu esta atividade.</p>
+            </div>
+            <div class="activity-result-summary" id="activity-result-summary"></div>
+            <p class="activity-result-note">
+              O aproveitamento é apenas <strong>acertos ÷ questões</strong> — não é nota, TRI ou ranking.
+            </p>
+            <p class="activity-result-note is-practice" id="activity-result-practice-note" hidden>
+              Este resultado faz parte do seu estudo e não é uma nota escolar.
+            </p>
+            <div class="activity-result-actions">
+              <button class="btn btn-secondary" type="button" id="result-toggle-questions">Ver questões</button>
+              <button class="btn btn-secondary" type="button" id="result-toggle-analysis">Ver desempenho pedagógico</button>
+              <button class="btn btn-primary" type="button" id="result-back">Voltar para Atividades</button>
+            </div>
+            <div class="activity-result-questions" id="activity-result-questions" hidden></div>
+
+            <!-- PHASE 19 — Desempenho pedagógico (medição determinística; sem nota/ranking) -->
+            <section class="activity-analysis" id="activity-analysis" hidden aria-label="Desempenho pedagógico">
+              <h4>Desempenho pedagógico</h4>
+              <p class="activity-analysis-note" id="activity-analysis-note"></p>
+              <div class="activity-analysis-block" id="analysis-overview"></div>
+              <div class="activity-analysis-block" id="analysis-by-discipline"></div>
+              <div class="activity-analysis-block" id="analysis-by-content"></div>
+              <div class="activity-analysis-block" id="analysis-strengths"></div>
+              <div class="activity-analysis-block" id="analysis-improvements"></div>
+            </section>
+          </div>
+        </section>
+
+        <!-- 3c. MEU DOMÍNIO VIEW (PHASE 20 — mapa de domínio curricular, derivado) -->
+        <section id="view-domain" class="view-panel">
+          <div class="card">
+            <div class="card-header"><h3>🧭 Meu Domínio</h3></div>
+            <p class="domain-intro">
+              O que suas atividades já mostram por conteúdo do currículo. É <strong>evidência observada</strong>
+              (acertos ÷ questões respondidas) — não é nota, ranking nem comparação com outros alunos.
+            </p>
+            <div class="domain-actions">
+              <button class="btn btn-secondary" type="button" id="domain-refresh">Recalcular</button>
+            </div>
+            <div id="domain-summary" class="domain-summary"></div>
+            <div id="domain-body" class="domain-body"><p>Carregando…</p></div>
+          </div>
+          <div id="domain-detail" class="card domain-detail" hidden>
+            <div class="card-header">
+              <h3 id="domain-detail-title">Conteúdo</h3>
+              <button class="btn btn-secondary" type="button" id="domain-detail-back">← Voltar</button>
+            </div>
+            <div id="domain-detail-body"></div>
+          </div>
+        </section>
+
+        <!-- PHASE 24 — MOMENTO DE APRENDIZADO (orquestração: Domínio → Trilha → Prática → Player → Resultado) -->
+        <section id="view-study-session" class="view-panel">
+          <div class="card ss-card">
+            <div id="ss-loading"><p>Carregando…</p></div>
+
+            <div id="ss-prompt" hidden>
+              <h2 id="ss-greeting">Vamos para um momento de aprendizado.</h2>
+              <p class="ss-sub">Quanto tempo você tem disponível hoje?</p>
+              <div class="ss-time-grid" id="ss-time-grid">
+                <button type="button" class="ss-time-btn" data-min="15">15 min</button>
+                <button type="button" class="ss-time-btn" data-min="30">30 min</button>
+                <button type="button" class="ss-time-btn" data-min="45">45 min</button>
+                <button type="button" class="ss-time-btn" data-min="60">1 h</button>
+                <button type="button" class="ss-time-btn" data-min="90">1h30</button>
+                <button type="button" class="ss-time-btn" data-min="120">2 h</button>
+                <button type="button" class="ss-time-btn" data-min="150">2h30</button>
+                <button type="button" class="ss-time-btn" data-min="180">3 h</button>
+                <button type="button" class="ss-time-btn" id="ss-time-other" data-min="">Outro</button>
+              </div>
+              <div id="ss-time-custom" class="ss-time-custom" hidden>
+                <label for="ss-time-input">Quantos minutos? (5 a 600)</label>
+                <input id="ss-time-input" class="text-input" type="number" min="5" max="600" step="5">
+              </div>
+              <button type="button" class="btn btn-link" id="ss-no-timer">Não quero definir um tempo</button>
+              <p id="ss-prompt-msg" class="ss-msg" hidden></p>
+              <button type="button" class="btn btn-primary" id="ss-start-plan" disabled>Montar meu momento de aprendizado</button>
+            </div>
+
+            <div id="ss-scheduled" hidden>
+              <h2>Seu momento de aprendizado de hoje</h2>
+              <p id="ss-scheduled-text" class="ss-sub"></p>
+              <button type="button" class="btn btn-primary" id="ss-scheduled-start">Ver meu momento de aprendizado</button>
+            </div>
+
+            <div id="ss-preview" hidden>
+              <h2>Momento de Aprendizado</h2>
+              <p id="ss-preview-sub" class="ss-sub"></p>
+              <div id="ss-preview-blocks" class="ss-preview-blocks"></div>
+              <p id="ss-preview-time" class="ss-preview-time"></p>
+              <p id="ss-preview-notes" class="ss-notes"></p>
+              <button type="button" class="btn btn-primary" id="ss-begin">Iniciar momento de aprendizado</button>
+            </div>
+
+            <div id="ss-running" hidden>
+              <div class="ss-progress-head">
+                <span id="ss-progress-label"></span>
+                <div class="ss-progress-bar"><div id="ss-progress-fill" class="ss-progress-fill"></div></div>
+              </div>
+              <div id="ss-now-card" class="ss-block-card ss-now"></div>
+              <div id="ss-next-card" class="ss-block-card ss-next"></div>
+              <p id="ss-running-msg" class="ss-msg" hidden></p>
+            </div>
+
+            <div id="ss-done" hidden>
+              <h2>Momento de aprendizado concluído! 🎉</h2>
+              <p id="ss-done-summary" class="ss-sub"></p>
+              <button type="button" class="btn btn-primary" id="ss-done-back">Voltar ao início</button>
+            </div>
+
+            <div id="ss-error" hidden>
+              <p class="empty-text" id="ss-error-text">Não foi possível carregar seu momento de aprendizado.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3d. TRILHA DE ESTUDOS VIEW (PHASE 21 — decisão pedagógica derivada) -->
+        <section id="view-study-path" class="view-panel">
+          <div class="card">
+            <div class="card-header"><h3>🪜 Trilha de Estudos</h3></div>
+            <p class="path-transparency" id="path-transparency">
+              Esta trilha é baseada no seu desempenho e nos pré-requisitos dos conteúdos.
+              É uma orientação de estudo, não uma nota. Sem ranking nem comparação com outros alunos.
+            </p>
+            <p class="path-provisional-note" id="path-provisional-note" hidden></p>
+            <div id="path-summary" class="path-summary"></div>
+            <div id="path-body" class="path-body"><p>Carregando…</p></div>
+            <div id="path-mastered" class="path-mastered"></div>
+
+            <!-- PHASE 22 — atalho direto: disciplina → conteúdo → quantidade -->
+            <div id="path-direct-practice" class="path-direct-practice" hidden>
+              <h4>Praticar um conteúdo específico</h4>
+              <p class="path-direct-hint">
+                Escolha um conteúdo que você já estudou para uma prática rápida.
+                É estudo — não gera nota.
+              </p>
+              <div class="path-direct-row">
+                <label>Disciplina
+                  <select id="pdp-discipline"></select>
+                </label>
+                <label>Conteúdo
+                  <select id="pdp-content"></select>
+                </label>
+                <label>Quantas questões?
+                  <select id="pdp-count">
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                  </select>
+                </label>
+                <button class="btn btn-primary" type="button" id="pdp-start">Começar prática</button>
+              </div>
+              <p class="path-direct-msg" id="pdp-msg" hidden></p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3e. MATERIAL PLAYER (PHASE 25 — aberto contextualmente pela Trilha ou
+             pelo Momento de Aprendizado; não faz parte do menu principal) -->
+        <section id="view-material-reader" class="view-panel">
+          <div class="card mr-card">
+            <div class="mr-header">
+              <button type="button" class="btn btn-link" id="mr-back">← Voltar</button>
+              <div class="mr-header-text">
+                <h2 id="mr-title">Carregando…</h2>
+                <p id="mr-subtitle" class="ss-sub"></p>
+              </div>
+            </div>
+            <div id="mr-loading"><p>Carregando material…</p></div>
+            <div id="mr-error" hidden><p class="empty-text" id="mr-error-text"></p></div>
+            <div id="mr-body" hidden>
+              <div class="mr-progress-head">
+                <span id="mr-progress-label"></span>
+                <div class="ss-progress-bar"><div id="mr-progress-fill" class="ss-progress-fill"></div></div>
+              </div>
+              <nav class="mr-section-nav" id="mr-section-nav" aria-label="Seções do material"></nav>
+              <article class="mr-section-content" id="mr-section-content"></article>
+              <div class="mr-nav-actions">
+                <button type="button" class="btn btn-secondary" id="mr-prev">‹ Anterior</button>
+                <button type="button" class="btn btn-primary" id="mr-next">Próxima ›</button>
+              </div>
+              <div class="mr-practice-box" id="mr-practice-box" hidden>
+                <p>Pratique o que você estudou.</p>
+                <button type="button" class="btn btn-primary" id="mr-practice-btn">Pratique o que você estudou</button>
+                <p class="ss-msg" id="mr-practice-msg" hidden></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- 4. MATERIAIS VIEW -->
         <section id="view-materials" class="view-panel">
           <div class="card">
@@ -305,14 +568,11 @@
 
         <!-- 6. MINHA EVOLUÇÃO VIEW -->
         <section id="view-evolution" class="view-panel">
-          <div class="card">
-            <div class="card-header">
-              <h3>📈 Histórico e Evolução do Aluno</h3>
-            </div>
-            <div id="evolution-stats-container" class="evolution-body">
-              <p>Carregando métricas de evolução...</p>
-            </div>
+          <div class="evolution-intro">
+            <span class="evolution-kicker">Aprendizado em movimento</span>
+            <h2>Veja o que você já domina e descubra qual é o melhor próximo passo.</h2>
           </div>
+          <div id="evolution-stats-container" class="evolution-body" aria-live="polite"></div>
         </section>
 
         <!-- 7. REDAÇÃO VIEW (PLACEHOLDER) -->
@@ -342,6 +602,7 @@
     </main>
   </div>
 
+  <script src="evolution.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

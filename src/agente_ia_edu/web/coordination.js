@@ -74,8 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
       'students': { title: 'Consulta de Alunos na Coordenação', sub: 'Ficha individual e histórico de desempenho no escopo' },
       'contents': { title: 'Desempenho por Conteúdo no Escopo', sub: 'Domínio médio e contagem de alunos críticos por conteúdo' },
       'contexts': { title: 'Contexto Pedagógico e Orientações', sub: 'Registro de diretrizes da coordenação e acompanhamento de aulas' },
+      'materials': { title: 'Materiais Publicados no Escopo', sub: 'Materiais teóricos autorados, no escopo de atuação da coordenação' },
       'action-plan': { title: 'Plano de Ação Gerencial', sub: 'Ações prioritárias para elevar o domínio nas turmas' },
       'reports': { title: 'Relatórios Gerenciais', sub: 'Exportação executiva de relatórios pedagógicos em PDF e XLSX' },
+      'study-sessions': { title: 'Momento de Aprendizado', sub: 'Programe a sessão de estudo de uma turma ou de um aluno' },
       'profile': { title: 'Meu Perfil', sub: 'Escopo de atuação e credenciais da Coordenação' },
     };
 
@@ -95,8 +97,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.currentView === 'students') initCoordinationStudentSearch();
     if (state.currentView === 'contents') loadCoordinationContents();
     if (state.currentView === 'contexts') loadCoordinationContexts();
+    if (state.currentView === 'materials') loadCoordinationMaterials();
     if (state.currentView === 'action-plan') loadCoordinationActionPlan();
     if (state.currentView === 'reports') initCoordinationReportsView();
+    if (state.currentView === 'study-sessions') initStudySessionsView();
   }
 
   // 1. DASHBOARD LOADER
@@ -577,6 +581,56 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // PHASE 25 — MATERIALS (read-only; reuses GET /api/v1/catalog/materials,
+  // already authorized for COORDINATOR + already school-scoped server-side -
+  // no parallel authorization rule is introduced here).
+  function coordEsc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  async function loadCoordinationMaterials() {
+    const container = document.getElementById('coord-materials-container');
+    try {
+      const res = await fetch('/api/v1/catalog/materials', {
+        headers: { 'Authorization': `Bearer ${state.coordinatorId}` }
+      });
+      if (res.status === 403) {
+        container.innerHTML = '<p class="empty-text">Você não possui permissão para ver materiais deste escopo.</p>';
+        return;
+      }
+      if (!res.ok) throw new Error('Erro ao carregar materiais');
+      const materials = await res.json();
+      if (!materials.length) {
+        container.innerHTML = '<p class="empty-text">Nenhum material encontrado no seu escopo.</p>';
+        return;
+      }
+      container.innerHTML = `
+        <div class="plan-list">
+          ${materials.map((m) => `
+            <div class="plan-item">
+              <div>
+                <strong>${coordEsc(m.title)}</strong>
+                <p style="font-size:12px; color:#64748b;">
+                  ${coordEsc(m.material_kind || 'Material')} · ${coordEsc(m.latest_version_status || 'DRAFT')}
+                  · v${m.latest_version_number ?? '—'}
+                  · ${m.section_count} seção(ões) · ${m.block_count} bloco(s) · ${m.question_count} exercício(s)
+                  ${m.primary_content_code ? ` · ${coordEsc(m.primary_content_code)}` : ''}
+                </p>
+              </div>
+              <span class="${m.latest_version_status === 'PUBLISHED' ? 'text-success' : 'text-danger'}">
+                ${coordEsc(m.curriculum_status)}
+              </span>
+            </div>
+          `).join('')}
+        </div>`;
+    } catch (err) {
+      console.warn('Coordination Materials error:', err);
+      container.innerHTML = '<p class="empty-text">Não foi possível carregar os materiais agora.</p>';
+    }
+  }
+
   // 8. ACTION PLAN
   function loadCoordinationActionPlan() {
     const container = document.getElementById('coord-full-action-plan-container');
@@ -668,6 +722,169 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('coord-stat-classrooms').textContent = '0';
     document.getElementById('coord-stat-avg').textContent = '0.0%';
   }
+
+  // ===================================================================
+  // PHASE 24 — "Momento de Aprendizado" scheduling (Coordenação).
+  // Reuses /api/v1/coordination/study-sessions (TeachingContextService scope
+  // authz, no parallel authorization). The plan itself is generated server-side
+  // by StudySessionPlanner from the Domain Map + Adaptive Learning Path -
+  // nothing is decided here. Zero IA.
+  // ===================================================================
+  const cs = { contents: [], breaks: [] };
+
+  function csHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.coordinatorId}` };
+  }
+  function csEsc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function csFmtMin(total) {
+    const m = Math.max(0, Math.round(total || 0));
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60), r = m % 60;
+    return r ? `${h}h${String(r).padStart(2, '0')}` : `${h} h`;
+  }
+  function csMsg(text, ok) {
+    const el = document.getElementById('cs-msg');
+    if (!text) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false; el.textContent = text;
+    el.style.color = ok ? '#1a7f37' : '#b3261e';
+  }
+
+  function csUpdateSummary() {
+    const start = document.getElementById('cs-start').value;
+    const end = document.getElementById('cs-end').value;
+    const summary = document.getElementById('cs-summary');
+    if (!start || !end) { summary.textContent = ''; return; }
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    const total = (eh * 60 + em) - (sh * 60 + sm);
+    const breakMin = cs.breaks.reduce((a, b) => a + b.duration_minutes, 0);
+    if (!(total > 0)) { summary.innerHTML = '<span class="cs-summary-bad">Horário inválido — o fim deve ser depois do início.</span>'; return; }
+    summary.innerHTML = `Tempo total: <strong>${csFmtMin(total)}</strong> · `
+      + `Intervalos: <strong>${csFmtMin(breakMin)}</strong> · `
+      + `Tempo efetivo: <strong>${csFmtMin(Math.max(0, total - breakMin))}</strong>`;
+  }
+
+  function csRenderContents() {
+    document.getElementById('cs-contents-list').innerHTML = cs.contents.length
+      ? cs.contents.map((c, i) => `<span class="cs-chip">${csEsc(c)}
+          <button type="button" class="cs-chip-remove" data-i="${i}" aria-label="Remover ${csEsc(c)}">×</button></span>`).join('')
+      : '<span class="empty-text">Nenhum — a plataforma decide o conteúdo.</span>';
+  }
+  function csRenderBreaks() {
+    document.getElementById('cs-breaks-list').innerHTML = cs.breaks.length
+      ? cs.breaks.map((b, i) => `<span class="cs-chip">☕ ${b.duration_minutes} min
+          <button type="button" class="cs-chip-remove" data-i="${i}" aria-label="Remover intervalo">×</button></span>`).join('')
+      : '<span class="empty-text">Nenhum intervalo.</span>';
+  }
+
+  function initStudySessionsView() {
+    cs.contents = []; cs.breaks = [];
+    csRenderContents(); csRenderBreaks(); csUpdateSummary(); csMsg('');
+    const dateInput = document.getElementById('cs-date');
+    if (!dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+    loadStudySessionsList();
+  }
+
+  async function loadStudySessionsList() {
+    const date = document.getElementById('cs-date').value;
+    const list = document.getElementById('cs-list');
+    if (!date) { list.innerHTML = '<p class="empty-text">Selecione uma data.</p>'; return; }
+    list.innerHTML = '<p class="empty-text">Carregando…</p>';
+    try {
+      const res = await fetch(
+        `/api/v1/coordination/study-sessions?school_id=${state.schoolId}&session_date=${date}`,
+        { headers: csHeaders() });
+      if (!res.ok) { list.innerHTML = '<p class="empty-text">Não foi possível carregar os momentos programados.</p>'; return; }
+      const data = await res.json();
+      if (!data.sessions.length) { list.innerHTML = '<p class="empty-text">Nenhum momento programado para esta data.</p>'; return; }
+      list.innerHTML = `<table class="cs-table">
+        <thead><tr><th>Aluno</th><th>Status</th><th>Tempo efetivo</th><th>Blocos</th></tr></thead>
+        <tbody>${data.sessions.map((s) => `<tr>
+          <td>${csEsc(s.student_external_id)}</td><td>${csEsc(s.status)}</td>
+          <td>${csFmtMin(s.effective_study_minutes)}</td><td>${s.blocks_done}/${s.blocks_total}</td>
+        </tr>`).join('')}</tbody></table>`;
+    } catch (err) {
+      list.innerHTML = '<p class="empty-text">Falha de conexão.</p>';
+    }
+  }
+
+  (function wireStudySessions() {
+    const form = document.getElementById('cs-form');
+    if (!form) return;
+    document.getElementById('cs-target-type').addEventListener('change', (e) => {
+      document.getElementById('cs-target-id-label').textContent =
+        e.target.value === 'STUDENT' ? 'ID do aluno' : 'ID da turma';
+    });
+    document.getElementById('cs-start').addEventListener('input', csUpdateSummary);
+    document.getElementById('cs-end').addEventListener('input', csUpdateSummary);
+    document.getElementById('cs-add-content').addEventListener('click', () => {
+      const input = document.getElementById('cs-content-input');
+      const v = input.value.trim();
+      if (v && !cs.contents.includes(v)) { cs.contents.push(v); csRenderContents(); }
+      input.value = '';
+    });
+    document.getElementById('cs-contents-list').addEventListener('click', (e) => {
+      const b = e.target.closest('.cs-chip-remove');
+      if (!b) return;
+      cs.contents.splice(Number(b.dataset.i), 1);
+      csRenderContents();
+    });
+    document.getElementById('cs-add-break').addEventListener('click', () => {
+      const input = document.getElementById('cs-break-input');
+      const m = Number(input.value);
+      if (m > 0) { cs.breaks.push({ duration_minutes: m }); csRenderBreaks(); csUpdateSummary(); }
+    });
+    document.getElementById('cs-breaks-list').addEventListener('click', (e) => {
+      const b = e.target.closest('.cs-chip-remove');
+      if (!b) return;
+      cs.breaks.splice(Number(b.dataset.i), 1);
+      csRenderBreaks(); csUpdateSummary();
+    });
+    document.getElementById('cs-date').addEventListener('change', loadStudySessionsList);
+    document.getElementById('cs-refresh').addEventListener('click', loadStudySessionsList);
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      csMsg('');
+      const date = document.getElementById('cs-date').value;
+      const start = document.getElementById('cs-start').value;
+      const end = document.getElementById('cs-end').value;
+      const targetType = document.getElementById('cs-target-type').value;
+      const targetId = document.getElementById('cs-target-id').value.trim();
+      if (!date || !start || !end || !targetId) {
+        csMsg('Preencha destinatário, data e horário.');
+        return;
+      }
+      const payload = {
+        school_id: state.schoolId, target_type: targetType, target_id: targetId,
+        session_date: date, start_at: `${date}T${start}:00Z`, end_at: `${date}T${end}:00Z`,
+        content_codes: cs.contents.length ? cs.contents : null,
+        breaks: cs.breaks.length ? cs.breaks : null,
+      };
+      const btn = document.getElementById('cs-publish');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/coordination/study-sessions', {
+          method: 'POST', headers: csHeaders(), body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        btn.disabled = false;
+        if (!res.ok) {
+          const d = data.detail || {};
+          csMsg((typeof d === 'string' ? d : d.message) || 'Não foi possível publicar.');
+          return;
+        }
+        csMsg(`Publicado para ${data.created_or_updated} aluno(s).`, true);
+        loadStudySessionsList();
+      } catch (err) {
+        btn.disabled = false;
+        csMsg('Falha de conexão ao publicar.');
+      }
+    });
+  })();
 
   // Initial Load
   loadCoordinationDashboard();

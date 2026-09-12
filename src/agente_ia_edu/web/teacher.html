@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AGENTE IA EDU — Portal do Professor e Coordenação</title>
+  <!-- The teacher portal is served at /teacher but its static assets are mounted
+       at /teacher/assets/ - resolve every relative asset there. API calls are
+       absolute (/api/v1/...) and unaffected. -->
+  <base href="/teacher/assets/">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,12 +17,13 @@
   <div class="app-layout">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
+      <button class="mobile-drawer-close" id="teacher-mobile-menu-close" aria-label="Fechar menu">×</button>
       <div class="brand">
         <div class="brand-logo">🎓</div>
         <div class="brand-text">AGENTE IA <span>EDU</span></div>
       </div>
 
-      <nav class="nav-menu">
+      <nav class="nav-menu" id="teacher-navigation">
         <button class="nav-item active" data-view="dashboard">
           <span class="icon">🏠</span> Início
         </button>
@@ -33,6 +38,15 @@
         </button>
         <button class="nav-item" data-view="lessons">
           <span class="icon">📝</span> Aulas
+        </button>
+        <button class="nav-item" data-view="materials">
+          <span class="icon">📋</span> Listas e Avaliações
+        </button>
+        <button class="nav-item" data-view="theory-materials">
+          <span class="icon">📖</span> Meus Materiais
+        </button>
+        <button class="nav-item" data-view="material-ingestion">
+          <span class="icon">📥</span> Importar Material
         </button>
         <button class="nav-item" data-view="performance">
           <span class="icon">📊</span> Desempenho
@@ -56,14 +70,18 @@
         </div>
       </div>
     </aside>
+    <div class="sidebar-backdrop" id="teacher-sidebar-backdrop" aria-hidden="true"></div>
 
     <!-- Main Content Area -->
     <main class="main-content">
       <!-- Header Bar & Filters -->
       <header class="top-header">
-        <div class="page-title-box">
-          <h1 id="page-title">Dashboard do Professor</h1>
-          <p id="page-subtitle" class="subtitle">Acompanhamento pedagógico e orientação para turmas</p>
+        <div class="mobile-header-row">
+          <button class="mobile-menu-toggle" id="teacher-mobile-menu-toggle" aria-label="Abrir menu" aria-expanded="false" aria-controls="teacher-navigation">☰</button>
+          <div class="page-title-box">
+            <h1 id="page-title">Dashboard do Professor</h1>
+            <p id="page-subtitle" class="subtitle">Acompanhamento pedagógico e orientação para turmas</p>
+          </div>
         </div>
 
         <div class="header-actions">
@@ -284,6 +302,415 @@
             </div>
           </div>
         </section>
+
+        <!-- 8. RELATÓRIOS VIEW -->
+        <section id="view-materials" class="view-panel">
+          <div class="material-toolbar">
+            <div>
+              <h2>Minhas Listas</h2>
+              <p class="empty-text">Rascunhos prontos para revisar e continuar.</p>
+            </div>
+            <button class="btn btn-primary" id="btn-new-material">+ Nova Lista</button>
+          </div>
+          <div id="materials-list" class="materials-list"></div>
+
+          <section id="material-builder" class="material-builder" hidden>
+            <div class="material-toolbar">
+              <div>
+                <h2 id="material-builder-title">Nova Lista</h2>
+                <p id="material-builder-status" class="empty-text"></p>
+              </div>
+              <button class="btn btn-secondary" id="btn-close-material">Voltar para listas</button>
+            </div>
+            <div id="material-config" class="material-config">
+              <div class="form-group"><label for="material-title">Titulo</label><input id="material-title" class="text-input" value="Lista de Exercícios"></div>
+              <div class="curriculum-path"><div class="form-group"><label for="material-discipline">Disciplina</label><select id="material-discipline" class="select-input"></select></div><div class="form-group"><label for="material-area">Área</label><select id="material-area" class="select-input" disabled></select></div><div class="form-group"><label for="material-content">Conteúdo</label><select id="material-content" class="select-input" disabled></select></div><div class="form-group"><label for="material-subcontent">Subconteúdo</label><select id="material-subcontent" class="select-input" disabled></select></div></div>
+              <div class="form-group"><label for="material-quantity">Quantidade</label><input id="material-quantity" type="number" min="1" class="text-input" value="20"></div>
+              <div class="difficulty-fields">
+                <div class="form-group"><label for="material-easy">Fáceis</label><input id="material-easy" type="number" min="0" class="text-input" value="8"></div>
+                <div class="form-group"><label for="material-medium">Médias</label><input id="material-medium" type="number" min="0" class="text-input" value="8"></div>
+                <div class="form-group"><label for="material-hard">Difíceis</label><input id="material-hard" type="number" min="0" class="text-input" value="4"></div>
+              </div>
+              <p id="material-total" class="material-total"></p>
+              <button class="btn btn-primary" id="btn-create-material">Criar rascunho e selecionar questões</button>
+            </div>
+            <div id="material-workspace" hidden>
+              <div class="material-columns">
+                <section>
+                  <h3>Questões disponíveis</h3>
+                  <div class="candidate-filters" id="material-difficulty-filters"><button data-difficulty="">Todas</button><button data-difficulty="EASY">Fáceis</button><button data-difficulty="MEDIUM">Médias</button><button data-difficulty="HARD">Difíceis</button></div>
+                  <p id="material-availability" class="empty-text"></p>
+                  <div id="material-candidates" class="question-stack"></div>
+                </section>
+                <section>
+                  <h3>Minha Lista <span id="material-item-count"></span></h3>
+                  <p id="material-selection-summary" class="empty-text"></p>
+                  <div id="material-items" class="question-stack"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <!-- PHASE 23 — MEUS MATERIAIS (materiais teóricos autorais, versionáveis) -->
+        <section id="view-theory-materials" class="view-panel">
+          <div class="material-toolbar">
+            <div>
+              <h2>Meus Materiais</h2>
+              <p class="empty-text">Livros, apostilas, capítulos e conteúdos autorais — estruturados e versionáveis. O arquivo PDF/DOCX é a fonte, não o conteúdo final.</p>
+            </div>
+            <button class="btn btn-primary" id="tm-new-btn" type="button">+ Novo material</button>
+          </div>
+
+          <form id="tm-new-form" class="tm-form" hidden>
+            <div class="form-group"><label for="tm-title">Título</label><input id="tm-title" class="text-input" maxlength="500" required></div>
+            <div class="form-group"><label for="tm-description">Descrição</label><textarea id="tm-description" class="text-input" rows="2"></textarea></div>
+            <div class="curriculum-path">
+              <div class="form-group"><label for="tm-discipline">Disciplina</label><select id="tm-discipline" class="select-input"></select></div>
+              <div class="form-group"><label for="tm-content">Conteúdo</label><select id="tm-content" class="select-input" disabled></select></div>
+            </div>
+            <div class="tm-form-row">
+              <div class="form-group"><label for="tm-kind">Tipo</label>
+                <select id="tm-kind" class="select-input">
+                  <option value="BOOK">Livro</option>
+                  <option value="WORKBOOK" selected>Apostila</option>
+                  <option value="CHAPTER">Capítulo</option>
+                  <option value="SUMMARY">Resumo</option>
+                  <option value="COMPLEMENTARY">Material complementar</option>
+                  <option value="SUPPORT">Material de apoio</option>
+                  <option value="OTHER">Outro</option>
+                </select>
+              </div>
+              <div class="form-group"><label for="tm-source">Origem</label>
+                <select id="tm-source" class="select-input">
+                  <option value="TEACHER" selected>Professor</option>
+                  <option value="SCHOOL">Escola</option>
+                  <option value="PLATFORM">Plataforma</option>
+                  <option value="OFFICIAL">Oficial</option>
+                  <option value="LICENSED">Licenciado</option>
+                  <option value="IMPORTED">Importado</option>
+                </select>
+              </div>
+              <div class="form-group"><label for="tm-visibility">Visibilidade</label>
+                <select id="tm-visibility" class="select-input">
+                  <option value="PRIVATE" selected>Privado</option>
+                  <option value="SCHOOL">Escola</option>
+                  <option value="CLASS">Turma</option>
+                  <option value="STUDENT">Aluno</option>
+                  <option value="PUBLIC">Público</option>
+                </select>
+              </div>
+            </div>
+            <div class="tm-form-actions">
+              <button class="btn btn-primary" type="submit" id="tm-save-btn">Salvar como rascunho</button>
+              <button class="btn btn-secondary" type="button" id="tm-cancel-btn">Cancelar</button>
+            </div>
+            <p id="tm-form-msg" class="tm-msg" hidden></p>
+          </form>
+
+          <div id="tm-list" class="tm-list"><p class="empty-text">Carregando…</p></div>
+
+          <section id="tm-detail" class="tm-detail" hidden>
+            <div class="material-toolbar">
+              <div>
+                <h2 id="tm-detail-title">Material</h2>
+                <p id="tm-detail-meta" class="empty-text"></p>
+              </div>
+              <button class="btn btn-secondary" type="button" id="tm-detail-back">Voltar para materiais</button>
+            </div>
+            <div class="tm-detail-grid">
+              <div>
+                <h3>Conteúdos relacionados</h3>
+                <div id="tm-sections" class="tm-sections"></div>
+              </div>
+              <div>
+                <h3>Questões relacionadas <span id="tm-question-count"></span></h3>
+                <div id="tm-questions" class="tm-questions"></div>
+                <div class="tm-add-question">
+                  <input id="tm-q-search" class="text-input" placeholder="content_code (ex.: MATH-ALGEBRA-FUNCTIONS)">
+                  <button class="btn btn-secondary" type="button" id="tm-q-search-btn">Buscar questões</button>
+                </div>
+                <div id="tm-q-candidates" class="tm-q-candidates"></div>
+                <p id="tm-detail-msg" class="tm-msg" hidden></p>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <!-- PHASE 26 — IMPORTAR MATERIAL (Authorial Material Ingestion Engine) -->
+        <section id="view-material-ingestion" class="view-panel">
+          <div class="material-toolbar">
+            <div>
+              <h2>Importar Material</h2>
+              <p class="empty-text">Envie um arquivo (PDF, DOCX, TXT ou MD) do seu material autoral. A ingestão extrai e estrutura o conteúdo, mas NÃO publica automaticamente — você revisa, classifica e aprova antes.</p>
+            </div>
+          </div>
+
+          <form id="mi-upload-form" class="tm-form">
+            <div class="form-group">
+              <label for="mi-file">Arquivo (PDF, DOCX, TXT, MD — até 25MB)</label>
+              <input id="mi-file" type="file" accept=".pdf,.docx,.txt,.md" required>
+            </div>
+            <div class="tm-form-actions">
+              <button class="btn btn-primary" type="submit" id="mi-upload-btn">Importar</button>
+            </div>
+            <p id="mi-upload-msg" class="tm-msg" hidden></p>
+          </form>
+
+          <h3>Materiais em ingestão</h3>
+          <div id="mi-list" class="tm-list"><p class="empty-text">Carregando…</p></div>
+
+          <section id="mi-detail" class="tm-detail" hidden>
+            <div class="material-toolbar">
+              <div>
+                <h2 id="mi-detail-title">Ingestão</h2>
+                <p id="mi-detail-meta" class="empty-text"></p>
+              </div>
+              <button class="btn btn-secondary" type="button" id="mi-detail-back">Voltar</button>
+            </div>
+
+            <div class="tm-detail-grid">
+              <div>
+                <h3>Classificação curricular (curriculum-v2)</h3>
+                <p id="mi-classification-state" class="empty-text"></p>
+                <div class="form-group"><label for="mi-discipline">discipline_code</label><input id="mi-discipline" class="text-input"></div>
+                <div class="form-group"><label for="mi-area">area_code</label><input id="mi-area" class="text-input"></div>
+                <div class="form-group"><label for="mi-content">content_code</label><input id="mi-content" class="text-input"></div>
+                <div class="form-group"><label for="mi-subcontents">subcontent_codes (separados por vírgula)</label><input id="mi-subcontents" class="text-input"></div>
+                <div class="form-group"><label for="mi-notes">Notas da revisão</label><textarea id="mi-notes" class="text-input" rows="2"></textarea></div>
+                <button class="btn btn-secondary" type="button" id="mi-save-classification">Salvar classificação</button>
+                <p id="mi-classification-msg" class="tm-msg" hidden></p>
+              </div>
+              <div>
+                <h3>Estrutura detectada</h3>
+                <p id="mi-structure-issues" class="tm-msg" hidden></p>
+                <div id="mi-sections" class="tm-sections"></div>
+                <h3>Exercícios detectados <span id="mi-exercise-count"></span></h3>
+                <div id="mi-exercises" class="tm-questions"></div>
+              </div>
+            </div>
+
+            <div class="tm-form-actions">
+              <button class="btn btn-primary" type="button" id="mi-approve-btn">Aprovar</button>
+              <button class="btn btn-primary" type="button" id="mi-publish-btn">Publicar</button>
+              <button class="btn btn-secondary" type="button" id="mi-reject-btn">Rejeitar</button>
+            </div>
+            <p id="mi-action-msg" class="tm-msg" hidden></p>
+
+            <!-- PHASE 27 — QUESTION EXTRACTION ENGINE (robust, per-question review) -->
+            <div class="tm-detail-grid" style="margin-top:24px; border-top:1px solid var(--border,#e2e6ee); padding-top:16px;">
+              <div style="grid-column: 1 / -1;">
+                <h3>📐 Extração Robusta de Questões</h3>
+                <p class="empty-text">Detecta cada questão individualmente (múltipla escolha, discursiva, com imagem/gráfico), preserva o texto original e nunca publica automaticamente.</p>
+                <div class="tm-form-row">
+                  <div class="form-group"><label for="qe-expected-count">Total esperado de questões (opcional)</label><input id="qe-expected-count" class="text-input" type="number" min="1"></div>
+                  <button class="btn btn-primary" type="button" id="qe-run-btn">Extrair questões</button>
+                </div>
+                <p id="qe-run-msg" class="tm-msg" hidden></p>
+                <div id="qe-summary" class="empty-text"></div>
+                <div id="qe-questions" class="tm-questions"></div>
+              </div>
+            </div>
+
+            <!-- PHASE 29 — REVIEW QUEUE: everything a professor still needs
+                 to look at, deterministically prioritised (spec s4/s5). -->
+            <div class="tm-detail-grid" style="margin-top:24px; border-top:1px solid var(--border,#e2e6ee); padding-top:16px;">
+              <div style="grid-column: 1 / -1;">
+                <h3>🗂️ Fila de Revisão</h3>
+                <p class="empty-text">Revise apenas o que a engine não conseguiu resolver sozinha. Nada é aprovado ou publicado automaticamente.</p>
+
+                <div id="rq-progress-wrap">
+                  <p id="rq-progress-label" class="empty-text"></p>
+                  <div class="rq-progress-bar"><div id="rq-progress-fill" class="rq-progress-fill"></div></div>
+                  <p id="rq-progress-counts" class="empty-text"></p>
+                </div>
+
+                <div class="tm-form-row" id="rq-filters">
+                  <div class="form-group"><label for="rq-filter-status">Status</label>
+                    <select id="rq-filter-status" class="text-input">
+                      <option value="">Todos pendentes</option>
+                      <option value="REVIEW_REQUIRED">Review required</option>
+                      <option value="IN_REVIEW">Em revisão</option>
+                      <option value="VALIDATED">Validadas</option>
+                      <option value="DUPLICATE_REVIEW">Suspeita de duplicata</option>
+                    </select>
+                  </div>
+                  <div class="form-group"><label for="rq-filter-reason">Motivo</label>
+                    <select id="rq-filter-reason" class="text-input">
+                      <option value="">Todos</option>
+                      <option value="UNASSIGNED_ASSET">Imagem não associada</option>
+                      <option value="ORPHAN_TEXT">Texto órfão</option>
+                      <option value="LOW_CONFIDENCE">Confiança baixa</option>
+                      <option value="COLUMN_AMBIGUITY">Ambiguidade de colunas</option>
+                      <option value="BROKEN_READING_ORDER">Ordem de leitura quebrada</option>
+                      <option value="CROSS_PAGE_AMBIGUITY">Ambiguidade entre páginas</option>
+                      <option value="MISSING_OPTION">Alternativa ausente</option>
+                      <option value="SEQUENCE_ANOMALY">Anomalia de sequência</option>
+                      <option value="FORMULA_AMBIGUITY">Ambiguidade em fórmula</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-secondary" type="button" id="rq-refresh-btn">Atualizar fila</button>
+                </div>
+
+                <div class="tm-table-wrap" style="overflow-x:auto;">
+                  <table class="tm-table" id="rq-table">
+                    <thead><tr><th>#</th><th>Documento</th><th>Página</th><th>Confidence</th><th>Prioridade</th><th>Problema</th><th></th></tr></thead>
+                    <tbody id="rq-table-body"></tbody>
+                  </table>
+                </div>
+                <p class="empty-text" id="rq-empty" hidden>Nenhuma questão na fila com os filtros atuais.</p>
+              </div>
+            </div>
+
+            <!-- PHASE 29 — TELA DE REVISÃO: PDF original + questão editável lado a lado -->
+            <div id="rv-panel" class="tm-detail-grid" style="margin-top:16px; border-top:1px dashed var(--border,#e2e6ee); padding-top:12px;" hidden>
+              <div>
+                <h4 style="margin:0 0 6px;">PDF original — <span id="rv-page-label"></span></h4>
+                <div class="tm-form-actions" style="margin-bottom:6px;">
+                  <button class="btn btn-link" type="button" id="rv-prev-page">← Página anterior</button>
+                  <button class="btn btn-link" type="button" id="rv-next-page">Próxima página →</button>
+                </div>
+                <img id="rv-page-img" style="max-width:100%; border:1px solid var(--border,#e2e6ee);" alt="Página do PDF de origem da questão em revisão">
+              </div>
+              <div>
+                <h4 style="margin:0 0 6px;">Questão <span id="rv-question-number"></span></h4>
+                <p class="empty-text" id="rv-meta"></p>
+                <p class="empty-text" id="rv-reasons"></p>
+
+                <div id="rv-orphan-banner" class="tm-msg" hidden>
+                  <p id="rv-orphan-text"></p>
+                  <div class="tm-form-actions">
+                    <button class="btn btn-secondary" type="button" id="rv-orphan-add">Adicionar à questão</button>
+                    <button class="btn btn-link" type="button" id="rv-orphan-ignore">Ignorar</button>
+                  </div>
+                </div>
+
+                <div id="rv-assets-banner" class="tm-msg" hidden>
+                  <p>Imagem encontrada no documento, mas não associada automaticamente.</p>
+                  <div id="rv-assets-list"></div>
+                </div>
+
+                <div class="form-group">
+                  <label for="rv-statement">Enunciado</label>
+                  <textarea id="rv-statement" class="textarea-input" rows="6"></textarea>
+                </div>
+                <div id="rv-options"></div>
+                <button class="btn btn-link" type="button" id="rv-add-option">+ Adicionar alternativa</button>
+
+                <div class="form-group">
+                  <label for="rv-notes">Observações internas</label>
+                  <textarea id="rv-notes" class="textarea-input" rows="2"></textarea>
+                </div>
+                <p id="rv-validation-msg" class="text-danger" hidden></p>
+                <p id="rv-msg" class="tm-msg" hidden></p>
+
+                <div class="tm-form-actions">
+                  <button class="btn btn-primary" type="button" id="rv-approve-btn">✓ Aprovar questão</button>
+                  <button class="btn btn-secondary" type="button" id="rv-save-continue-btn">Salvar e continuar</button>
+                  <button class="btn btn-link" type="button" id="rv-save-exit-btn">Salvar e sair</button>
+                  <button class="btn btn-link" type="button" id="rv-reject-btn">Rejeitar</button>
+                </div>
+
+                <div id="rv-reject-panel" hidden>
+                  <div class="form-group"><label for="rv-reject-reason">Motivo da rejeição</label>
+                    <select id="rv-reject-reason" class="text-input">
+                      <option value="DUPLICATE">Duplicada</option>
+                      <option value="CORRUPTED_SOURCE">Fonte corrompida</option>
+                      <option value="INCOMPLETE_SOURCE">Fonte incompleta</option>
+                      <option value="NOT_A_QUESTION">Não é uma questão</option>
+                      <option value="UNUSABLE_CONTENT">Conteúdo inutilizável</option>
+                      <option value="OTHER">Outro</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-secondary" type="button" id="rv-reject-confirm-btn">Confirmar rejeição</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- PHASE 30 — CLASSIFICAÇÃO PEDAGÓGICA (somente questões já publicadas) -->
+            <div class="tm-detail-grid" style="margin-top:24px; border-top:1px solid var(--border,#e2e6ee); padding-top:16px;">
+              <div style="grid-column: 1 / -1;">
+                <h3>🎓 Classificação Pedagógica</h3>
+                <p class="empty-text">Classifica questões já publicadas no Banco de Questões usando o currículo existente. Nunca cria conteúdo novo; ambiguidade vai para revisão humana.</p>
+                <div class="tm-form-actions">
+                  <button class="btn btn-secondary" type="button" id="pc-load-btn">Carregar questões publicadas</button>
+                  <button class="btn btn-primary" type="button" id="pc-batch-btn">Classificar todas</button>
+                </div>
+                <p id="pc-msg" class="tm-msg" hidden></p>
+                <div class="tm-table-wrap" style="overflow-x:auto;">
+                  <table class="tm-table" id="pc-table">
+                    <thead><tr><th>#</th><th>Disciplina</th><th>Conteúdo</th><th>Subconteúdo</th><th>Dificuldade</th><th>Confidence</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="pc-table-body"></tbody>
+                  </table>
+                </div>
+                <p class="empty-text" id="pc-empty" hidden>Nenhuma questão publicada carregada ainda.</p>
+
+                <!-- painel de detalhe/edição de uma classificação -->
+                <div id="pc-detail" style="margin-top:14px; border-top:1px dashed var(--border,#e2e6ee); padding-top:12px;" hidden>
+                  <h4 style="margin:0 0 6px;">Questão <span id="pc-detail-number"></span></h4>
+                  <p class="empty-text" id="pc-detail-meta"></p>
+                  <p id="pc-needs-review-banner" class="text-danger" hidden>Esta classificação precisa de revisão.</p>
+                  <p class="empty-text" id="pc-detail-reason"></p>
+
+                  <div class="tm-form-row">
+                    <div class="form-group"><label for="pc-discipline">Disciplina</label><select id="pc-discipline" class="text-input"></select></div>
+                    <div class="form-group"><label for="pc-area">Área</label><select id="pc-area" class="text-input"></select></div>
+                    <div class="form-group"><label for="pc-content">Conteúdo</label><select id="pc-content" class="text-input"></select></div>
+                  </div>
+                  <div class="tm-form-row">
+                    <div class="form-group"><label for="pc-subcontent">Subconteúdo</label><select id="pc-subcontent" class="text-input"><option value="">(nenhum)</option></select></div>
+                    <div class="form-group"><label for="pc-difficulty">Dificuldade</label>
+                      <select id="pc-difficulty" class="text-input">
+                        <option value="EASY">Fácil</option>
+                        <option value="MEDIUM">Média</option>
+                        <option value="HARD">Difícil</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-group"><label for="pc-edit-reason">Motivo da edição</label>
+                    <textarea id="pc-edit-reason" class="textarea-input" rows="2" placeholder="Ex.: Questão pede concentração final, não diluição."></textarea>
+                  </div>
+                  <p id="pc-detail-msg" class="tm-msg" hidden></p>
+                  <div class="tm-form-actions">
+                    <button class="btn btn-secondary" type="button" id="pc-save-manual-btn">Editar classificação</button>
+                    <button class="btn btn-primary" type="button" id="pc-approve-btn">Aprovar</button>
+                    <button class="btn btn-link" type="button" id="pc-reclassify-btn">Solicitar reclassificação (IA)</button>
+                    <button class="btn btn-link" type="button" id="pc-history-btn">Ver histórico</button>
+                  </div>
+                  <div id="pc-history" hidden></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PHASE 29 — PUBLICAÇÃO: APPROVED != PUBLISHED (spec s18) -->
+            <div class="tm-detail-grid" style="margin-top:24px; border-top:1px solid var(--border,#e2e6ee); padding-top:16px;">
+              <div style="grid-column: 1 / -1;">
+                <h3>📤 Publicar no Banco de Questões</h3>
+                <p class="empty-text">Somente questões APPROVED são publicadas. Nada é publicado automaticamente.</p>
+                <button class="btn btn-secondary" type="button" id="pub-summary-btn">Ver resumo</button>
+                <div id="pub-summary" class="empty-text"></div>
+                <button class="btn btn-primary" type="button" id="pub-publish-btn" hidden>Publicar questões aprovadas</button>
+                <p id="pub-msg" class="tm-msg" hidden></p>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <div id="question-modification-modal" class="modal-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="question-modification-title">
+          <section class="modal-card modification-modal">
+            <div class="modal-header"><h2 id="question-modification-title">Como você quer modificar esta questão?</h2><button class="modal-close" id="btn-close-modification" aria-label="Fechar modificador">×</button></div>
+            <div id="modification-request">
+              <div class="modification-options" id="modification-options">
+                <button data-modification="MAKE_EASIER">Deixar mais fácil</button><button data-modification="MAKE_HARDER">Deixar mais difícil</button><button data-modification="REDUCE_TEXT">Reduzir o texto</button><button data-modification="SIMPLIFY_LANGUAGE">Simplificar a linguagem</button><button data-modification="INCREASE_CONTEXT">Aumentar a contextualização</button><button data-modification="ADAPT_ENEM_STYLE">Adaptar ao estilo ENEM</button><button data-modification="IMPROVE_OPTIONS">Melhorar as alternativas</button><button data-modification="CUSTOM">Outro</button>
+              </div>
+              <div id="custom-modification-field" class="form-group" hidden><label for="custom-modification-instruction">Descreva como você quer modificar a questão.</label><textarea id="custom-modification-instruction" class="textarea-input" rows="4"></textarea></div>
+              <p id="modification-error" class="text-danger" hidden></p>
+              <div class="modal-footer"><button class="btn btn-primary" id="btn-generate-proposal" disabled>Gerar proposta</button><button class="btn btn-secondary" id="btn-cancel-modification">Cancelar</button></div>
+            </div>
+            <div id="modification-loading" hidden><p>Preparando uma nova versão...</p></div>
+            <div id="modification-comparison" hidden><div class="comparison-grid"><section><h3>Versão original</h3><div id="modification-original"></div></section><section><h3>Versão modificada</h3><div id="modification-proposed"></div></section></div><p id="modification-apply-error" class="text-danger" hidden></p><div class="modal-footer"><button class="btn btn-primary" id="btn-accept-proposal">Aceitar alteração</button><button class="btn btn-secondary" id="btn-refine-proposal">Fazer outra modificação</button><button class="btn btn-secondary" id="btn-cancel-proposal">Cancelar</button></div></div>
+          </section>
+        </div>
 
         <!-- 8. RELATÓRIOS VIEW -->
         <section id="view-reports" class="view-panel">

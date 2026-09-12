@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AGENTE IA EDU — Portal da Coordenação</title>
+  <!-- served at /coordination but its static assets are mounted at
+       /coordination/assets/ - resolve every relative asset there. -->
+  <base href="/coordination/assets/">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="stylesheet" href="coordination.css">
@@ -40,6 +43,12 @@
         </button>
         <button class="nav-item" data-view="contexts">
           <span class="icon">📝</span> Contexto Pedagógico
+        </button>
+        <button class="nav-item" data-view="materials">
+          <span class="icon">📘</span> Materiais
+        </button>
+        <button class="nav-item" data-view="study-sessions">
+          <span class="icon">⏱️</span> Momento de Aprendizado
         </button>
         <button class="nav-item" data-view="action-plan">
           <span class="icon">🎯</span> Plano de Ação
@@ -284,6 +293,87 @@
             <div id="coord-contexts-list-container">
               <p class="empty-text">Carregando contextos pedagógicos...</p>
             </div>
+          </div>
+        </section>
+
+        <!-- PHASE 25 — MATERIAIS (leitura, dentro do escopo da coordenação;
+             reusa GET /api/v1/catalog/materials, já autorizado para COORDINATOR) -->
+        <section id="view-materials" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>📘 Materiais Publicados no Escopo</h3>
+            </div>
+            <div id="coord-materials-container">
+              <p class="empty-text">Carregando materiais...</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- PHASE 24 — MOMENTO DE APRENDIZADO (agendamento pela Coordenação) -->
+        <section id="view-study-sessions" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>⏱️ Novo Momento de Aprendizado</h3>
+            </div>
+            <form id="cs-form" class="cs-form">
+              <div class="form-group">
+                <label for="cs-target-type">Destinatários</label>
+                <select id="cs-target-type" class="select-input">
+                  <option value="CLASSROOM">Turma</option>
+                  <option value="STUDENT">Aluno</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="cs-target-id" id="cs-target-id-label">ID da turma</label>
+                <input id="cs-target-id" class="text-input" placeholder="ex.: turma-1A">
+              </div>
+              <div class="form-group">
+                <label for="cs-date">Data</label>
+                <input id="cs-date" type="date" class="text-input">
+              </div>
+              <div class="cs-time-row">
+                <div class="form-group">
+                  <label for="cs-start">Início</label>
+                  <input id="cs-start" type="time" class="text-input" value="14:00">
+                </div>
+                <span class="cs-time-arrow">→</span>
+                <div class="form-group">
+                  <label for="cs-end">Fim</label>
+                  <input id="cs-end" type="time" class="text-input" value="17:00">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Conteúdos <span class="empty-text">(opcional — em branco, a plataforma decide)</span></label>
+                <div id="cs-contents-list" class="cs-chip-list"></div>
+                <div class="cs-inline-add">
+                  <input id="cs-content-input" class="text-input" placeholder="content_code, ex.: CHEMISTRY-SOLUTIONS">
+                  <button type="button" class="btn btn-secondary" id="cs-add-content">+ Adicionar conteúdo</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Intervalos</label>
+                <div id="cs-breaks-list" class="cs-chip-list"></div>
+                <div class="cs-inline-add">
+                  <input id="cs-break-input" type="number" class="text-input" min="1" max="120" value="10" style="max-width:120px;">
+                  <span class="empty-text">min</span>
+                  <button type="button" class="btn btn-secondary" id="cs-add-break">+ Adicionar intervalo</button>
+                </div>
+              </div>
+
+              <div id="cs-summary" class="cs-summary"></div>
+              <p id="cs-msg" class="cs-msg" hidden></p>
+              <button type="submit" class="btn btn-primary" id="cs-publish">Publicar</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Momentos programados</h3>
+              <button class="btn btn-secondary" type="button" id="cs-refresh">Atualizar</button>
+            </div>
+            <div id="cs-list" class="cs-list"><p class="empty-text">Selecione uma data para ver os momentos programados.</p></div>
           </div>
         </section>
 

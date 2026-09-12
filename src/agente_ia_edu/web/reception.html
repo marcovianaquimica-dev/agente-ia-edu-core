@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atendimento | AGENTE IA EDU</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/reception/assets/reception.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/reception" aria-label="Atendimento AGENTE IA EDU">
+      <span class="brand-mark">AE</span>
+      <span><strong>AGENTE IA EDU</strong><small>Secretaria e atendimento</small></span>
+    </a>
+    <nav aria-label="Navegação principal">
+      <button class="nav-button active" data-view="dashboard">Atendimentos</button>
+      <button class="nav-button" data-view="new">Novo atendimento</button>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="presence-dot"></span>
+      <span id="session-label">Contexto não conectado</span>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">Portal operacional</span>
+        <h1 id="page-title">Atendimentos recentes</h1>
+      </div>
+      <button class="icon-button" id="open-session" type="button" title="Configurar sessão" aria-label="Configurar sessão">⚙</button>
+    </header>
+
+    <div id="notice" class="notice" role="status" hidden></div>
+
+    <section id="session-panel" class="session-panel" hidden>
+      <form id="session-form">
+        <label>Token de acesso da atendente<input id="staff-token" type="password" required autocomplete="off"></label>
+        <label>Identificador da escola<input id="school-id" type="text" required placeholder="UUID da escola"></label>
+        <button class="button primary" type="submit">Conectar contexto</button>
+      </form>
+    </section>
+
+    <section class="view active" id="view-dashboard">
+      <div class="toolbar">
+        <label class="search-field"><span>⌕</span><input id="search" type="search" placeholder="Buscar por nome, telefone ou e-mail"></label>
+        <button class="button primary" type="button" data-open-new><span>＋</span>Novo atendimento</button>
+      </div>
+      <div class="status-legend" aria-label="Status possíveis">
+        <span>Pré-cadastro</span><span>Diagnóstico liberado</span><span>Em andamento</span><span>Concluído</span><span>Devolutiva</span><span>Conversão</span>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Candidato</th><th>Contato</th><th>Etapa</th><th>Atualizado</th><th></th></tr></thead>
+          <tbody id="candidate-list"><tr><td colspan="5" class="empty">Conecte um contexto escolar para consultar atendimentos.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="view" id="view-new">
+      <form id="candidate-form" class="candidate-form">
+        <div class="form-intro"><span class="step-number">01</span><div><h2>Dados do candidato</h2><p>Registro anterior à matrícula e ao vínculo anual.</p></div></div>
+        <div class="form-grid">
+          <label class="wide">Nome completo<input name="full_name" required maxlength="255"></label>
+          <label>Nome preferido<input name="preferred_name" maxlength="255"></label>
+          <label>Data de nascimento<input name="birth_date" type="date"></label>
+          <label class="wide">Responsável<input name="guardian_name" maxlength="255"></label>
+          <label>Telefone<input name="phone" type="tel" required maxlength="30"></label>
+          <label>E-mail<input name="email" type="email" required maxlength="255"></label>
+        </div>
+        <div class="form-intro second"><span class="step-number">02</span><div><h2>Contexto acadêmico</h2><p>Referências da unidade para o diagnóstico.</p></div></div>
+        <div class="form-grid">
+          <label>Ano letivo<input name="academic_year" inputmode="numeric" required pattern="[0-9]{4}" maxlength="4"></label>
+          <label>Unidade<input name="unit_id" required maxlength="255"></label>
+          <label>Segmento<input name="segment_id" required maxlength="255"></label>
+          <label>Série<input name="grade_level" required maxlength="255"></label>
+          <label class="wide">Turma, se definida<input name="classroom_id" maxlength="255"></label>
+        </div>
+        <div class="form-actions"><button class="button quiet" type="button" data-view-dashboard>Cancelar</button><button class="button primary" type="submit">Salvar pré-cadastro</button></div>
+      </form>
+    </section>
+
+    <section class="view" id="view-detail">
+      <button class="back-button" type="button" data-view-dashboard>← Voltar aos atendimentos</button>
+      <div id="candidate-detail"></div>
+    </section>
+  </main>
+  <script src="/reception/assets/reception.js"></script>
+</body>
+</html>

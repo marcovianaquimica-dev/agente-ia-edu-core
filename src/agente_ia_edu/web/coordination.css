@@ -59,3 +59,24 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* PHASE 24 — Momento de Aprendizado (agendamento) */
+.cs-form { display: grid; gap: 14px; max-width: 640px; }
+.cs-time-row { display: flex; align-items: flex-end; gap: 10px; }
+.cs-time-arrow { padding-bottom: 10px; font-size: 1.1rem; color: #667; }
+.cs-chip-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; min-height: 20px; }
+.cs-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #eef2ff; color: #33417a; font-size: 0.85rem; }
+.cs-chip-remove { background: none; border: none; color: #33417a; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; }
+.cs-inline-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cs-inline-add .text-input { flex: 1; min-width: 140px; }
+.cs-summary { padding: 10px 14px; border-radius: 8px; background: #f5f7fb; font-size: 0.9rem; }
+.cs-summary-bad { color: #b3261e; }
+.cs-msg { font-size: 0.85rem; color: #b3261e; }
+.cs-list { overflow-x: auto; }
+.cs-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.cs-table th, .cs-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
+@media (max-width: 768px) {
+  .cs-time-row { flex-direction: column; align-items: stretch; }
+  .cs-time-arrow { display: none; }
+  .cs-inline-add { flex-direction: column; align-items: stretch; }
+}
