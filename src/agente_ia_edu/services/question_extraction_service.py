@@ -123,7 +123,7 @@ class QuestionExtractionService:
         started_by: str,
         school_id: UUID | None,
         expected_question_count: int | None = None,
-        use_column_detection: bool = False,
+        use_column_detection: bool = True,
     ) -> tuple[QuestionExtractionRun, bool]:
         """Returns (run, created). created=False -> an identical-engine-
         version run for this document already exists; it is returned

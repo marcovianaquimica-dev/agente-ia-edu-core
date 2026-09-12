@@ -42,6 +42,17 @@ _COLUMN_GAP_THRESHOLD = 30.0
 _MIN_LINES_PER_COLUMN = 3
 _MIN_Y_OVERLAP_RATIO = 0.3
 
+# A genuine wrapped-prose column uses most of its own width on most lines.
+# A short item-marker list ("I.", "II.", "III." ...) sitting beside
+# unrelated content produces a band that LOOKS like a column geometrically
+# (one consistent x0, spans most of the page vertically) but is not one -
+# reordering it column-major destroys the per-row marker/content pairing
+# (found on a real UECE exam). A line under this fraction of its own
+# side's widest line counts as "narrow"; a side made mostly of narrow
+# lines is a marker column, not prose.
+_NARROW_LINE_WIDTH_RATIO = 0.25
+_MAX_NARROW_LINE_FRACTION = 0.35
+
 # PHASE 28 s9 - repeated_page_artifact_detection: a line sitting in the top/
 # bottom margin band, with IDENTICAL text, on this many or more DISTINCT
 # pages is a header/footer/running-title, never real question content.
@@ -198,6 +209,14 @@ def detect_two_column_layout(
     span = max(left_y[1], right_y[1]) - min(left_y[0], right_y[0])
     if span <= 0 or (overlap / span) < _MIN_Y_OVERLAP_RATIO:
         return None
+    for side in (left, right):
+        widths = [ln.x1 - ln.x0 for ln in side]
+        max_w = max(widths)
+        if max_w <= 0:
+            return None
+        narrow_fraction = sum(1 for w in widths if w < _NARROW_LINE_WIDTH_RATIO * max_w) / len(widths)
+        if narrow_fraction > _MAX_NARROW_LINE_FRACTION:
+            return None
     return split_x
 
 

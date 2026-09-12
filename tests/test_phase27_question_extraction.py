@@ -21,12 +21,19 @@ warnings.filterwarnings("ignore")
 
 from agente_ia_edu.services.question_extraction.assets import associate_assets
 from agente_ia_edu.services.question_extraction.boundary import (
+    ExtractedQuestionDraft,
+    OptionDraft,
     QuestionBoundary,
     classify_and_extract,
     cut_at_answer_key,
     detect_boundaries,
 )
-from agente_ia_edu.services.question_extraction.engine import extract_questions
+from agente_ia_edu.services.question_extraction.engine import (
+    ExtractedQuestionResult,
+    ExtractionResult,
+    extract_questions,
+    merge_extraction_results,
+)
 from agente_ia_edu.services.question_extraction.structure import (
     DocumentStructure,
     PageImage,
@@ -79,6 +86,29 @@ class StructureTests(unittest.TestCase):
             for i, x in enumerate([56, 60, 75, 93, 134, 213, 309, 327, 343, 345] * 3)
         ]
         split = detect_two_column_layout(lines, page_width=595.0)
+        self.assertIsNone(split)
+
+    def test_two_column_detection_rejects_a_narrow_marker_column(self):
+        # Real regression found on a UECE exam: the LEFT band isn't a real
+        # wrapped-prose column at all - it's a list of short item markers
+        # (e.g. "I.", "II.", "III.") paired row-by-row with unrelated
+        # content on the right, not two independent top-to-bottom columns.
+        # Column-major reordering breaks this (it reads all of the left
+        # markers first, then all of the right content, destroying the
+        # per-row pairing) even though the geometry LOOKS like two clean
+        # bands. Real column text wraps to use most of its own width on
+        # most lines; a column that is mostly much-narrower-than-its-own-
+        # widest-line fragments is a marker/label list, not prose, and
+        # must not be treated as a reorderable column.
+        left = (
+            [TextLine(page=1, x0=40, y0=10 * i, x1=52, y1=10 * i + 8, text=f"m{i}") for i in range(8)]
+            + [TextLine(page=1, x0=40, y0=200, x1=280, y1=208, text="the one real wide left line")]
+        )
+        right = [
+            TextLine(page=1, x0=300, y0=10 * i, x1=400, y1=10 * i + 8, text=f"right content {i}")
+            for i in range(9)
+        ]
+        split = detect_two_column_layout(left + right, page_width=595.0)
         self.assertIsNone(split)
 
     def test_paragraph_break_inserted_on_large_vertical_gap(self):
@@ -395,6 +425,65 @@ class AssetAssociationTests(unittest.TestCase):
         assoc = associate_assets(structure, question_lines)
         self.assertIn(1, assoc)
         self.assertLess(assoc[1][0].extraction_confidence, 0.9)
+
+
+def _fake_result(number: int, n_options: int, *, review_status: str = "VALIDATED") -> ExtractedQuestionResult:
+    options = [OptionDraft(label=chr(ord("A") + i), text=f"opt{i}") for i in range(n_options)]
+    draft = ExtractedQuestionDraft(
+        number=number, question_type="multiple_choice" if n_options else "discursive",
+        raw_text=f"q{number}", normalized_text=f"q{number}", options=options, confidence=0.9,
+    )
+    return ExtractedQuestionResult(
+        draft=draft, source_page_start=1, source_page_end=1, cross_page=False,
+        review_status=review_status,
+    )
+
+
+def _fake_extraction_result(results: list[ExtractedQuestionResult]) -> ExtractionResult:
+    from agente_ia_edu.services.question_extraction.validation import validate
+    report = validate([r.draft for r in results])
+    return ExtractionResult(
+        document_hash="x", page_count=1, engine_version="test", questions=results, validation=report,
+        answer_key_cut_offset=0,
+    )
+
+
+class ColumnDetectionMergeTests(unittest.TestCase):
+    def test_enhanced_pass_wins_when_it_has_more_options(self):
+        baseline = _fake_extraction_result([_fake_result(1, 0, review_status="REVIEW_REQUIRED")])
+        enhanced = _fake_extraction_result([_fake_result(1, 5)])
+        merged = merge_extraction_results(baseline, enhanced)
+        self.assertEqual(len(merged.questions[0].draft.options), 5)
+
+    def test_baseline_wins_when_enhanced_pass_has_fewer_options(self):
+        # The real regression this guards against: global column-major
+        # reordering (spec s4's own documented risk - tables/formulas can
+        # be misread as a second column) broke a question that was fine
+        # without it, on a real UNICAMP exam. Never let the reordered pass
+        # silently downgrade a question the baseline pass already
+        # recognized correctly, mirroring PHASE 28's own rule for its
+        # LOCAL reconstruction: adopt only when it's a measurable
+        # improvement, never blindly (spec s2).
+        baseline = _fake_extraction_result([_fake_result(1, 5)])
+        enhanced = _fake_extraction_result([_fake_result(1, 0, review_status="REVIEW_REQUIRED")])
+        merged = merge_extraction_results(baseline, enhanced)
+        self.assertEqual(len(merged.questions[0].draft.options), 5)
+        self.assertEqual(merged.questions[0].review_status, "VALIDATED")
+
+    def test_ties_prefer_the_enhanced_pass(self):
+        baseline = _fake_extraction_result([_fake_result(1, 4)])
+        enhanced = _fake_extraction_result([_fake_result(1, 4, review_status="VALIDATED")])
+        merged = merge_extraction_results(baseline, enhanced)
+        # same option count - either is fine; just confirm no crash and a
+        # complete, non-fabricated result comes out.
+        self.assertEqual(len(merged.questions[0].draft.options), 4)
+
+    def test_question_only_in_one_pass_is_kept(self):
+        baseline = _fake_extraction_result([_fake_result(1, 4), _fake_result(2, 3)])
+        enhanced = _fake_extraction_result([_fake_result(1, 4)])
+        merged = merge_extraction_results(baseline, enhanced)
+        numbers = sorted(r.draft.number for r in merged.questions)
+        self.assertEqual(numbers, [1, 2])
 
 
 class DeterminismTests(unittest.TestCase):

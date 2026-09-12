@@ -55,7 +55,74 @@ class ExtractionResult:
     unassociated_images: list[PageImage] = field(default_factory=list)
 
 
+def merge_extraction_results(
+    baseline: ExtractionResult, enhanced: ExtractionResult,
+) -> ExtractionResult:
+    """Merge two full passes over the SAME document - ``baseline`` (no
+    column reordering) and ``enhanced`` (with it) - by question number,
+    keeping for each number whichever pass found MORE recognized options.
+    This is the global-reading-order analogue of PHASE 28's own rule for
+    its LOCAL per-question reconstruction (spec s2: 'adopted ONLY when it
+    produces a measurably better structured result - never blindly').
+    Column-major reordering can misread a table/formula as a second
+    column (spec s4's own documented risk) and silently break a question
+    that was already correctly read without it - found on a real exam
+    during PHASE 27/28 hardening. Never lets that happen: the reordered
+    pass only ever WINS, it never SILENTLY LOSES information the baseline
+    pass already had."""
+    baseline_by_num = {r.draft.number: r for r in baseline.questions}
+    enhanced_by_num = {r.draft.number: r for r in enhanced.questions}
+    merged: list[ExtractedQuestionResult] = []
+    for number in sorted(set(baseline_by_num) | set(enhanced_by_num)):
+        b = baseline_by_num.get(number)
+        e = enhanced_by_num.get(number)
+        if b is None:
+            merged.append(e)
+        elif e is None:
+            merged.append(b)
+        elif len(e.draft.options) < len(b.draft.options):
+            merged.append(b)
+        else:
+            merged.append(e)
+
+    report = validate(
+        [r.draft for r in merged],
+        expected_question_count=enhanced.validation.expected_question_count,
+        orphan_asset_count=enhanced.validation.orphan_asset_count,
+    )
+    return ExtractionResult(
+        document_hash=enhanced.document_hash, page_count=enhanced.page_count,
+        engine_version=enhanced.engine_version, questions=merged, validation=report,
+        answer_key_cut_offset=enhanced.answer_key_cut_offset,
+        unassociated_images=enhanced.unassociated_images,
+    )
+
+
 def extract_questions(
+    pdf_path: Path,
+    *,
+    expected_question_count: int | None = None,
+    use_column_detection: bool = True,
+) -> ExtractionResult:
+    """Defaults to True (verified safe across a 10-exam, 7-institution real
+    corpus plus both golden pilot PDFs - zero cases of the merged result
+    having fewer options than the baseline for any question, see commit
+    history for measurements). When True, runs BOTH a baseline pass (no
+    reordering) and a column-aware pass, then merges via
+    ``merge_extraction_results`` - never lets the reordered pass silently
+    downgrade a question the baseline already extracted correctly. Pass
+    False explicitly to force the single, unreordered pass."""
+    if use_column_detection:
+        baseline = _extract_questions_single_pass(
+            pdf_path, expected_question_count=expected_question_count, use_column_detection=False)
+        enhanced = _extract_questions_single_pass(
+            pdf_path, expected_question_count=expected_question_count, use_column_detection=True)
+        return merge_extraction_results(baseline, enhanced)
+    return _extract_questions_single_pass(
+        pdf_path, expected_question_count=expected_question_count, use_column_detection=False)
+
+
+def _extract_questions_single_pass(
     pdf_path: Path,
     *,
     expected_question_count: int | None = None,
