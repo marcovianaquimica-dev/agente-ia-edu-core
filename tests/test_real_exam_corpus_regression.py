@@ -64,13 +64,13 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("2025_PV_impresso_D1_CD1.pdf", min_boundaries=90, min_validated=71)
 
     def test_enem_2025_dia2(self):
-        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=87)
+        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=88)
 
     def test_unicamp_2024(self):
-        self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=51)
+        self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=59)
 
     def test_uece_cev_2025(self):
-        self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=68)
+        self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=75)
 
     def test_ita_2024(self):
         # VALIDATED floor dropped by 1 (was 41) when GARBLED_ENCODING
@@ -79,7 +79,24 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # story) that used to slip through as VALIDATED; it now correctly
         # routes to REVIEW_REQUIRED. A lower VALIDATED count from THAT
         # check is a correctness improvement, not a regression.
-        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=40)
+        #
+        # Dropped by 1 again (was 40) when _MIN_GAP_CANDIDATE_CLUSTER_SIZE
+        # landed (structure.py, fixing a real FUVEST page - see that
+        # module's own docstring): page 16 of THIS booklet is genuinely
+        # single-column (five questions' options laid out as full-width
+        # rows, never two independent side-by-side columns), but used to
+        # be wrongly classified as multi-column anyway, because one
+        # question's small per-option fraction-fragment clusters happened
+        # to produce a gap that passed every check. Reordering a
+        # genuinely single-column page is exactly the "far worse than not
+        # reordering at all" risk this whole module exists to avoid - it
+        # happened to not corrupt any OTHER question on that page, but
+        # only by luck, and it happened to give Question 43 a paragraph-
+        # break artifact its real geometry does not have (a WORD-style
+        # marker with no other confidence signal). No longer reordering
+        # that page is the more correct, safer behaviour in general, even
+        # though it costs this one question's lucky accidental boost.
+        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=39)
 
     def test_uerj(self):
         # The real regression this guards: "Questão" glued to its number
@@ -102,7 +119,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # to also "detect" ~8 fake questions numbered from atomic numbers
         # (37, 39, 40, 41, 44, 49, 50, 53), jumbling the whole document's
         # real 1..33 sequence in the process. 33 is the real count.
-        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=24)
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=27)
 
     def test_fuvest_2024_caderno_x(self):
         # Was the motivating case for a THIRD marker convention support -
@@ -128,4 +145,4 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # instead of being silently VALIDATED with garbage embedded in
         # otherwise-real content - a correctness improvement, not a
         # regression.
-        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=82)
+        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=83)

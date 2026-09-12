@@ -69,6 +69,22 @@ _MIN_Y_OVERLAP_RATIO = 0.3
 _X0_CLUSTER_TOLERANCE = 5.0
 _MIN_X0_CLUSTER_OCCURRENCES = 2
 
+# A cluster this small is never itself a candidate COLUMN BOUNDARY, even
+# though it is real, legitimate content once a side has already been
+# decided (found on a real FUVEST exam: an inline image caption - "(1)",
+# "(2)", "(3)", labelling three stacked photos referenced by the LEFT
+# question's own "Observe as imagens:" - sits at an x-position between two
+# real questions, only 3 short lines. Both ways of splitting around it
+# pass every other structural check equally well, an ambiguity no other
+# signal here safely resolves - so it must never be allowed to split gap
+# search into two contenders in the first place). Every confirmed-bad tiny
+# cluster measured so far (this caption, a 2-line "Note e adote:" aside, a
+# 2-line compact answer sub-grid) has 3 or fewer lines; every real
+# column - including a real embedded table's own sub-columns - has been
+# measured with 6 or more. Set with margin below the latter and above the
+# former.
+_MIN_GAP_CANDIDATE_CLUSTER_SIZE = 4
+
 # A genuine wrapped-prose column uses most of its own width on most lines.
 # A short item-marker list ("I.", "II.", "III." ...) sitting beside
 # unrelated content produces a band that LOOKS like a column geometrically
@@ -352,6 +368,19 @@ def _recurring_lines(page_lines: list[TextLine]) -> list[TextLine]:
     ]
 
 
+def _large_clusters(lines: list[TextLine], min_size: int) -> list[TextLine]:
+    """Lines belonging to an x0 cluster (bucketed the same way as
+    ``_recurring_lines``) with at least ``min_size`` members - the lines
+    substantial enough to plausibly DEFINE a column boundary, as opposed
+    to a small aside or inline caption that is real content once a side
+    has been decided, but must never itself split gap search into
+    contenders (see ``_MIN_GAP_CANDIDATE_CLUSTER_SIZE``'s own docstring)."""
+    buckets: dict[float, list[TextLine]] = {}
+    for ln in lines:
+        buckets.setdefault(round(ln.x0 / _X0_CLUSTER_TOLERANCE), []).append(ln)
+    return [ln for group in buckets.values() if len(group) >= min_size for ln in group]
+
+
 def detect_two_column_layout(
     page_lines: list[TextLine], *, page_width: float | None = None,
 ) -> float | None:
@@ -383,7 +412,13 @@ def detect_two_column_layout(
     # meant to fix) - so only apply the recurring-x0 filter when acting at
     # real page scope.
     recurring = _recurring_lines(page_lines) if page_width else page_lines
-    xs = sorted(ln.x0 for ln in recurring)
+    # Same page-level-only scoping as the recurring-x0 filter above, and
+    # for the same reason: at local (per-question) scope a genuine column
+    # can legitimately be evidenced by as few as 2-3 lines, so only a
+    # page-level call restricts gap-search candidates to substantial
+    # clusters (see _MIN_GAP_CANDIDATE_CLUSTER_SIZE's own docstring).
+    gap_search_lines = _large_clusters(recurring, _MIN_GAP_CANDIDATE_CLUSTER_SIZE) if page_width else recurring
+    xs = sorted(ln.x0 for ln in gap_search_lines)
     if len(xs) < 2:
         return None
     gaps = [(xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2) for i in range(1, len(xs))]

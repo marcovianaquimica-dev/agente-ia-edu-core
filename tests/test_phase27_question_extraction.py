@@ -266,6 +266,41 @@ class StructureTests(unittest.TestCase):
         self.assertIsNotNone(split)
         self.assertTrue(34 < split < 312)
 
+    def test_two_column_detection_assigns_a_tiny_inline_caption_to_its_own_column(self):
+        # Real regression found on a real FUVEST exam page: the left
+        # question ("Observe as imagens:") capions three stacked photos
+        # inline with bare "(1)", "(2)", "(3)" labels - only 3 short
+        # lines, sitting at an x-position BETWEEN the two real columns
+        # (the photos are indented past the left column's own text
+        # margin). This tiny cluster is close enough to genuinely
+        # competing width that BOTH ways of splitting around it pass
+        # every other structural check (vertical span, narrow-line
+        # fraction) equally well, which the corpus regression suite
+        # confirmed is not safely resolved by preferring whichever
+        # candidate fewer lines straddle either - both candidates here are
+        # already clean. A cluster this small (fewer lines than any real
+        # per-question column has ever been measured to have) is never
+        # itself a candidate column boundary - it must never split gap
+        # search into two contenders in the first place; the real gutter
+        # is the single gap around it, and it lands as ordinary content on
+        # whichever side its x-position naturally falls before that gap.
+        left = (
+            [TextLine(page=1, x0=34, y0=15 * i, x1=34 + 250, y1=15 * i + 8, text=f"left content {i}")
+             for i in range(20)]
+        )
+        caption = [
+            TextLine(page=1, x0=153, y0=315.2, x1=153 + 13, y1=323.2, text="(1)"),
+            TextLine(page=1, x0=153, y0=475.2, x1=153 + 13, y1=483.2, text="(2)"),
+            TextLine(page=1, x0=153, y0=635.2, x1=153 + 13, y1=643.2, text="(3)"),
+        ]
+        right = (
+            [TextLine(page=1, x0=312, y0=15 * i, x1=312 + 250, y1=15 * i + 8, text=f"right content {i}")
+             for i in range(40)]
+        )
+        split = detect_two_column_layout(left + caption + right, page_width=595.0)
+        self.assertIsNotNone(split)
+        self.assertTrue(153 < split < 312)
+
     def test_two_column_detection_rejects_a_compact_two_column_answer_grid(self):
         # Real regression found on a real ITA exam page: a SINGLE question's
         # five multiple-choice options (A-E) are laid out as a compact
