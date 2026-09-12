@@ -163,6 +163,15 @@ class Phase30ClassificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.review_reason, "INVALID_AI_OUTPUT")
         # never silently discarded - the question still has a persisted row
         self.assertIsNotNone(outcome.classification.id)
+        # the validator raises a rich, secret-free diagnostic_output (fields,
+        # primary codes, candidate count/ranks, confidence, etc) alongside
+        # the short message - it must survive into persisted metadata, or
+        # every future INVALID_AI_OUTPUT requires an expensive live re-call
+        # against the real provider just to see what the AI actually sent.
+        diagnostic = outcome.classification.metadata_.get("diagnostic_output")
+        self.assertIsNotNone(diagnostic)
+        self.assertIn("primary_codes", diagnostic)
+        self.assertEqual(diagnostic["primary_codes"]["content_code"], "CHEMISTRY-INVENTED-NONEXISTENT")
 
     # -- 5/6/7. disciplina/content/subcontent incompatíveis ------------------
     async def test_ai_returning_valid_codes_from_incompatible_hierarchy_is_rejected(self):

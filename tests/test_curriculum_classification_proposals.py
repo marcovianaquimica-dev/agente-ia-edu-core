@@ -173,6 +173,38 @@ class CurriculumClassificationProposalTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(record.metadata_["gap_type"], "MISSING_SUBCONTENT")
             self.assertEqual(record.metadata_["review_reason"], "TAXONOMY_GRANULARITY_GAP")
 
+    async def test_visual_dependency_may_outrank_a_declared_taxonomy_gap(self):
+        # Real regression found running PHASE 30 against a real OpenAI-backed
+        # provider: the AI reported gap_type=MISSING_SUBCONTENT (a real
+        # taxonomy granularity gap - the catalog stops one level short) AND
+        # visual_dependency=true (a figure it cannot reliably read) on the
+        # SAME question, declaring review_reason=VISUAL_DEPENDENCY. That is
+        # exactly the system's OWN priority order - derive_review_reason
+        # already puts visual_dependency ahead of any catalog/gap reason
+        # (checked BEFORE catalog_gap) - so the AI naming that same, higher-
+        # priority reason cannot be "incompatible" with a set gap_type. The
+        # contract wrongly demanded review_reason be exactly the gap-type's
+        # own mapped reason (or null), rejecting a self-consistent response.
+        async with self.factory() as session:
+            version = await self._proposal_fixture(session)
+            response = ClassificationFakeProvider().response
+            response.update({
+                "selected_candidate_rank": 3,
+                "subcontent_code": None,
+                "candidate_classifications": [{"discipline_code": "CHEMISTRY", "area_code": "CHEMISTRY-PHYSICAL", "content_code": "CHEMISTRY-SOLUTIONS", "subcontent_code": None, "rank": 3, "rationale": "Soluções é o nível mais específico disponível."}],
+                "catalog_gap": True,
+                "gap_type": "MISSING_SUBCONTENT",
+                "taxonomy_coverage_evidence": ["O catálogo termina em concentração e diluição."],
+                "review_reason": "VISUAL_DEPENDENCY",
+                "visual_dependency": True,
+                "confidence": "LOW",
+                "status": "NEEDS_REVIEW",
+            })
+            record = await ClassificationProposalService(session).propose_with_provider(version.id, ClassificationFakeProvider(response), classifier_version="contract-v1", taxonomy_version="reference-v1", prompt_version="contract-p1")
+            self.assertEqual(record.status, "NEEDS_REVIEW")
+            self.assertEqual(record.metadata_["gap_type"], "MISSING_SUBCONTENT")
+            self.assertEqual(record.metadata_["review_reason"], "VISUAL_DEPENDENCY")
+
     async def test_catalog_gap_and_visual_dependency_require_review(self):
         async with self.factory() as session:
             version = await self._proposal_fixture(session)
@@ -228,6 +260,35 @@ class CurriculumClassificationProposalTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(record.metadata_["review_reason"], "CATALOG_GAP")
             self.assertIsNone(record.metadata_["selected_candidate_rank"])
             self.assertEqual(record.metadata_["primary_content_code"], None)
+
+    async def test_ai_may_reject_every_recovered_candidate_without_statement_evidence(self):
+        # Same real-world scenario as the test above (lexically-noisy recovered
+        # candidates, real catalog gap), but here the AI - correctly - has
+        # nothing to quote from the statement: it isn't justifying a selected
+        # path, it's explaining an absence via `taxonomy_coverage_evidence`
+        # (free text), which is exactly what that field exists for. Requiring
+        # a literal `evidence` quote from the statement in this situation
+        # would force the AI to fabricate a quote just to satisfy the schema.
+        async with self.factory() as session:
+            version = await self._proposal_fixture(session)  # recovers real DILUTION candidates
+            response = ClassificationFakeProvider().response
+            response.update({
+                "selected_candidate_rank": None,
+                "discipline_code": None, "area_code": None, "content_code": None,
+                "subcontent_code": None, "candidate_classifications": [], "catalog_gap": True,
+                "gap_type": "NO_COMPATIBLE_NODE",
+                "taxonomy_coverage_evidence": ["Os candidatos recuperados são de Química; o texto é de literatura."],
+                "review_reason": "CATALOG_GAP", "visual_dependency": False,
+                "status": "NEEDS_REVIEW",
+                "evidence": [],
+            })
+            record = await ClassificationProposalService(session).propose_with_provider(
+                version.id, ClassificationFakeProvider(response),
+                classifier_version="contract-v1", taxonomy_version="reference-v1", prompt_version="contract-p1",
+            )
+            self.assertEqual(record.status, "NEEDS_REVIEW")
+            self.assertEqual(record.metadata_["review_reason"], "CATALOG_GAP")
+            self.assertIsNone(record.metadata_["selected_candidate_rank"])
 
     async def test_invented_candidate_and_invalid_rank_are_rejected(self):
         async with self.factory() as session:

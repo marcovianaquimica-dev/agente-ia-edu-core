@@ -973,7 +973,7 @@ class ClassificationProposalService:
         if bool(output["catalog_gap"]) != (gap_type is not None):
             raise self._validation_error("Catalog gap and gap type are incompatible", output, input_hash)
         no_candidate_catalog_gap = (
-            not recovered_candidates
+            selected_candidate is None
             and output["catalog_gap"]
             and gap_type == "NO_COMPATIBLE_NODE"
             and not candidates
@@ -994,7 +994,14 @@ class ClassificationProposalService:
                 if gap_type == "NO_COMPATIBLE_NODE"
                 else "TAXONOMY_GRANULARITY_GAP"
             )
-            if declared_review_reason not in {None, expected_reason}:
+            # derive_review_reason's own priority order (below) already puts
+            # visual_dependency ahead of any catalog/gap reason - the AI
+            # naming that same, higher-priority reason is self-consistent,
+            # not incompatible, whenever visual_dependency is genuinely set.
+            acceptable_reasons = {None, expected_reason}
+            if output["visual_dependency"]:
+                acceptable_reasons.add("VISUAL_DEPENDENCY")
+            if declared_review_reason not in acceptable_reasons:
                 raise self._validation_error("Gap type and review reason are incompatible", output, input_hash)
             if output["status"] != "NEEDS_REVIEW":
                 raise self._validation_error("Gap type requires NEEDS_REVIEW status", output, input_hash)

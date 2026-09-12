@@ -34,6 +34,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -202,7 +203,8 @@ class AuthorialQuestionClassificationService:
                 ai_calls=1, cache_hit=False, error=str(exc))
         except ValueError as exc:
             record = await self._persist_failure(
-                question_version_id, reason="INVALID_AI_OUTPUT", detail=str(exc), actor=actor)
+                question_version_id, reason="INVALID_AI_OUTPUT", detail=str(exc), actor=actor,
+                diagnostic_output=getattr(exc, "diagnostic_output", None))
             return ClassificationOutcome(
                 classification=record, status="NEEDS_REVIEW", review_reason="INVALID_AI_OUTPUT",
                 ai_calls=1, cache_hit=False, error=str(exc))
@@ -228,11 +230,18 @@ class AuthorialQuestionClassificationService:
 
     async def _persist_failure(
         self, question_version_id: UUID, *, reason: str, detail: str, actor: str,
+        diagnostic_output: dict[str, Any] | None = None,
     ) -> PedagogicalClassification:
         """spec s16/s41 - a provider failure or an AI response this engine's
         own validation rejected NEVER crashes the system and NEVER invents a
         classification: the question is still made visible (NEEDS_REVIEW),
         with the exact reason, rather than silently disappearing."""
+        metadata: dict[str, Any] = {
+            "taxonomy_version": TAXONOMY_VERSION, "review_reason": reason,
+            "error_detail": detail[:2000], "classification_mode": "STANDARD",
+        }
+        if diagnostic_output is not None:
+            metadata["diagnostic_output"] = diagnostic_output
         record = PedagogicalClassification(
             question_version_id=question_version_id, discipline="", content="", subcontent="",
             difficulty=UNKNOWN_DIFFICULTY, classification_confidence=None, difficulty_confidence=None,
@@ -240,10 +249,7 @@ class AuthorialQuestionClassificationService:
             model_name=None, model_version=CLASSIFIER_VERSION, prompt_version=PROMPT_VERSION, provider_name=None,
             input_tokens=None, output_tokens=None, total_tokens=None,
             status="NEEDS_REVIEW", source="ai", lifecycle="ACTIVE",
-            metadata_={
-                "taxonomy_version": TAXONOMY_VERSION, "review_reason": reason,
-                "error_detail": detail[:2000], "classification_mode": "STANDARD",
-            },
+            metadata_=metadata,
         )
         self.session.add(record)
         await self.session.commit()
