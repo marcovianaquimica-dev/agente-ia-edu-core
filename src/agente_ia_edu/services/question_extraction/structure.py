@@ -43,6 +43,22 @@ _COLUMN_GAP_THRESHOLD = 30.0
 _MIN_LINES_PER_COLUMN = 3
 _MIN_Y_OVERLAP_RATIO = 0.3
 
+# A real column is made of MANY lines sharing close x0s. A ONE-OFF line at
+# some x-position (a source citation under a graph, a running page banner)
+# is not a column - but if left in the gap search on equal footing with
+# real columns, a lone line sitting between two genuine column clusters
+# splits the one true gutter into two smaller, comparably-wide gaps and
+# the "single dominant gap" test below rejects the page outright (found on
+# a real FUVEST page: two independent side-by-side questions, each a
+# dense column, plus a single-line citation caption sitting almost exactly
+# between them). x0s are bucketed at this tolerance and a bucket must
+# recur at least this many times to count as a real column edge; grouping
+# absorbs ordinary indentation variance (a wrapped continuation line vs.
+# its own marker) without merging two genuinely different columns, whose
+# gutter is always much wider than this.
+_X0_CLUSTER_TOLERANCE = 5.0
+_MIN_X0_CLUSTER_OCCURRENCES = 2
+
 # A genuine wrapped-prose column uses most of its own width on most lines.
 # A short item-marker list ("I.", "II.", "III." ...) sitting beside
 # unrelated content produces a band that LOOKS like a column geometrically
@@ -268,6 +284,21 @@ def _file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+def _recurring_lines(page_lines: list[TextLine]) -> list[TextLine]:
+    """The lines whose x-position (bucketed at ``_X0_CLUSTER_TOLERANCE``)
+    recurs at least ``_MIN_X0_CLUSTER_OCCURRENCES`` times - i.e. the lines
+    that plausibly belong to a real column, as opposed to a one-off caption
+    or banner line (see the constants' own docstring above)."""
+    buckets: dict[float, int] = {}
+    for ln in page_lines:
+        bucket = round(ln.x0 / _X0_CLUSTER_TOLERANCE)
+        buckets[bucket] = buckets.get(bucket, 0) + 1
+    return [
+        ln for ln in page_lines
+        if buckets[round(ln.x0 / _X0_CLUSTER_TOLERANCE)] >= _MIN_X0_CLUSTER_OCCURRENCES
+    ]
+
+
 def detect_two_column_layout(
     page_lines: list[TextLine], *, page_width: float | None = None,
 ) -> float | None:
@@ -284,7 +315,24 @@ def detect_two_column_layout(
       middle, not a margin artifact)."""
     if len(page_lines) < 2 * _MIN_LINES_PER_COLUMN:
         return None
-    xs = sorted(ln.x0 for ln in page_lines)
+    # The "one-off line corrupts the gap search" failure mode (see the
+    # constants' own docstring) is a PAGE-level phenomenon - a stray
+    # citation caption or running footer only exists at page scope. This
+    # same function is also called by ``reconstruction.py`` on just the
+    # ~5-40 lines of ONE question, with no ``page_width`` (its own
+    # existing signal for "this is a local, not a page-level, call" - see
+    # the edge-proximity check below, which is skipped the same way for
+    # the same reason). At that small a scope a genuine local column can
+    # legitimately be evidenced by as few as 2-3 lines, and requiring
+    # recurrence there does more harm than good (regression measured on a
+    # real ITA exam: filtering singleton x0s changed which LOCAL splits
+    # reconstruction.py finds, not just the page-level cases this was
+    # meant to fix) - so only apply the recurring-x0 filter when acting at
+    # real page scope.
+    recurring = _recurring_lines(page_lines) if page_width else page_lines
+    xs = sorted(ln.x0 for ln in recurring)
+    if len(xs) < 2:
+        return None
     gaps = [(xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2) for i in range(1, len(xs))]
     gaps.sort(reverse=True)
     if not gaps or gaps[0][0] < _COLUMN_GAP_THRESHOLD:
@@ -301,8 +349,20 @@ def detect_two_column_layout(
     right = [ln for ln in page_lines if ln.x0 >= split_x]
     if len(left) < _MIN_LINES_PER_COLUMN or len(right) < _MIN_LINES_PER_COLUMN:
         return None
-    left_y = (min(ln.y0 for ln in left), max(ln.y1 for ln in left))
-    right_y = (min(ln.y0 for ln in right), max(ln.y1 for ln in right))
+    # The "spans most of the page" evidence must come from the column's own
+    # recurring lines, never from a one-off line (a running page-number
+    # footer, say) that happens to land on this side of the split purely by
+    # x-coordinate - such a stray line can otherwise stretch a side's
+    # apparent range far past its real content and let a compact same-
+    # question answer grid (e.g. options D/E of one question set beside
+    # A/B/C, just 2 lines tall) masquerade as a genuine full-height column
+    # (found on a real ITA exam page).
+    left_recurring = [ln for ln in left if ln in recurring]
+    right_recurring = [ln for ln in right if ln in recurring]
+    if not left_recurring or not right_recurring:
+        return None
+    left_y = (min(ln.y0 for ln in left_recurring), max(ln.y1 for ln in left_recurring))
+    right_y = (min(ln.y0 for ln in right_recurring), max(ln.y1 for ln in right_recurring))
     overlap = max(0.0, min(left_y[1], right_y[1]) - max(left_y[0], right_y[0]))
     span = max(left_y[1], right_y[1]) - min(left_y[0], right_y[0])
     if span <= 0 or (overlap / span) < _MIN_Y_OVERLAP_RATIO:

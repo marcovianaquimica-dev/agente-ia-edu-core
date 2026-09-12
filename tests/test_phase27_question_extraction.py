@@ -113,6 +113,63 @@ class StructureTests(unittest.TestCase):
         split = detect_two_column_layout(left + right, page_width=595.0)
         self.assertIsNone(split)
 
+    def test_two_column_detection_rejects_a_compact_two_column_answer_grid(self):
+        # Real regression found on a real ITA exam page: a SINGLE question's
+        # five multiple-choice options (A-E) are laid out as a compact
+        # 2-column grid (A, B, C stacked on the left; D, E stacked on the
+        # right, at the SAME y-rows as A and B) rather than one running
+        # column - this is answer-grid formatting for ONE question, not two
+        # independent side-by-side columns of running content, and reading
+        # it column-major would move D/E to after unrelated later content
+        # instead of leaving them in their natural row position. The right
+        # "column" here is only 2 real lines tall (~30pt) against a left
+        # side that runs the whole page (~600pt) - it must be rejected for
+        # not spanning most of the page's vertical extent, exactly as this
+        # module's own docstring promises, even when a stray one-off line
+        # (e.g. a running page-number footer, sharing the right side's x0
+        # purely by coincidence) could otherwise be misread as stretching
+        # the right side's apparent span.
+        left = (
+            [TextLine(page=1, x0=57, y0=10 * i, x1=57 + 300, y1=10 * i + 8, text=f"left content {i}")
+             for i in range(66)]
+        )
+        right = [
+            TextLine(page=1, x0=305, y0=404, x1=487, y1=413, text="D (   ) opcao D da questao"),
+            TextLine(page=1, x0=305, y0=424, x1=474, y1=433, text="E (   ) opcao E da questao"),
+        ]
+        stray_footer = TextLine(page=1, x0=533, y0=797, x1=543, y1=806, text="9")
+        split = detect_two_column_layout(left + right + [stray_footer], page_width=595.0)
+        self.assertIsNone(split)
+
+    def test_two_column_detection_survives_a_stray_off_column_caption(self):
+        # Real regression found on a FUVEST page: two genuine side-by-side
+        # QUESTIONS (not a wrapped article split at one gutter) sit next to
+        # each other, but the page also carries a couple of ONE-OFF lines
+        # that land at x-positions between the two real columns - a source
+        # citation under a graph ("IPCC (...). Adaptado.") and a running
+        # page banner. Each of those appears on only ONE line; a real
+        # column is made of MANY lines sharing close x0s. The old gap
+        # search treated every line's x0 as equally significant, so the
+        # lone citation line split the one true gutter into two smaller,
+        # comparably-wide gaps and the strict "single dominant gap" check
+        # rejected the page outright - silently falling back to top-to-
+        # bottom order, which interleaves the two unrelated questions'
+        # text line-by-line into nonsense.
+        left = (
+            [TextLine(page=1, x0=34, y0=10 * i, x1=34 + 250, y1=10 * i + 8, text=f"L{i}")
+             for i in range(10)]
+        )
+        right = (
+            [TextLine(page=1, x0=312, y0=10 * i, x1=312 + 250, y1=10 * i + 8, text=f"R{i}")
+             for i in range(10)]
+        )
+        stray_caption = TextLine(page=1, x0=150, y0=45, x1=210, y1=53, text="Fonte. Adaptado.")
+        stray_banner = TextLine(page=1, x0=421, y0=1, x1=563, y1=9, text="Prova X - pagina")
+        split = detect_two_column_layout(
+            left + right + [stray_caption, stray_banner], page_width=595.0)
+        self.assertIsNotNone(split)
+        self.assertTrue(34 < split < 312)
+
     def test_standalone_number_marker_confirmed_by_repeated_column_position(self):
         # Real convention found on a FUVEST exam: the question number sits
         # ALONE on its own line (no "." or ")"), body text starting only on
