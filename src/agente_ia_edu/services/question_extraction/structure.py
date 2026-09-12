@@ -65,10 +65,23 @@ _MIN_X0_CLUSTER_OCCURRENCES = 2
 # (one consistent x0, spans most of the page vertically) but is not one -
 # reordering it column-major destroys the per-row marker/content pairing
 # (found on a real UECE exam). A line under this fraction of its own
-# side's widest line counts as "narrow"; a side made mostly of narrow
-# lines is a marker column, not prose.
+# side's widest line counts as "narrow".
+#
+# The limit below is about how MANY narrow lines a real column tolerates,
+# not whether it has any: a real UECE marker column is ~89% narrow lines
+# (every marker plus one genuine wide line, the sole exception) - the
+# marker IS the column. A real FUVEST physics question, by contrast, is a
+# genuine wrapped-prose column that also happens to carry a handful of
+# short structural lines - its own number marker, a "Note e adote:"
+# aside, a source citation tail, and five short NUMERIC options ("(A)
+# 0degC" .. "(E) 275degC") instead of the sentence-length options seen
+# elsewhere in the same exam - measured at ~39% narrow on the real page.
+# The two real, measured ratios are far enough apart (0.39 vs 0.89) that
+# the boundary sits at "narrow lines are the MAJORITY", not "more than a
+# handful": a marker column is DOMINATED by its markers; a prose column
+# with a minority of short lines is still prose.
 _NARROW_LINE_WIDTH_RATIO = 0.25
-_MAX_NARROW_LINE_FRACTION = 0.35
+_MAX_NARROW_LINE_FRACTION = 0.5
 
 # Some real exam layouts (found on a real FUVEST booklet) print the question
 # number ALONE on its own line - no "." or ")", no content until the next

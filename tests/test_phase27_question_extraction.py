@@ -113,6 +113,38 @@ class StructureTests(unittest.TestCase):
         split = detect_two_column_layout(left + right, page_width=595.0)
         self.assertIsNone(split)
 
+    def test_two_column_detection_accepts_a_column_with_short_answer_options(self):
+        # Real regression found on a real FUVEST exam page: a genuine
+        # single-topic column (a physics question, wrapped prose statement)
+        # whose multiple-choice options are short NUMERIC values ("(A)
+        # 0degC", "(B) 75degC", ...) rather than the long sentence-length
+        # options seen elsewhere in the same exam. The question's own
+        # number marker, a couple of short instruction/citation lines
+        # ("Note e adote:", "Adaptado.") and the five short options are all
+        # narrower than 25% of the column's own widest (wrapped-paragraph)
+        # line - together just over the old 0.35 fraction limit, even
+        # though the clear MAJORITY of the column's lines are full-width
+        # prose. Unlike the real marker-column regression above (where
+        # narrow lines are ~89% of the side and the one wide line is the
+        # outlier), a genuine prose column occasionally built from a
+        # minority of short structural lines (a marker, a few numeric
+        # options, an instruction aside) must not be rejected as if it
+        # were a marker/label list.
+        wide_width = 251.7
+        narrow_widths = [18.5, 27.9, 29.8, 35.6, 37.0, 42.1, 42.1, 42.1, 46.5]  # 9 lines
+        left = (
+            [TextLine(page=1, x0=34, y0=10 * i, x1=34 + wide_width, y1=10 * i + 8, text=f"left content {i}")
+             for i in range(20)]
+        )
+        right = (
+            [TextLine(page=1, x0=312, y0=10 * i, x1=312 + wide_width, y1=10 * i + 8, text=f"right content {i}")
+             for i in range(14)]
+            + [TextLine(page=1, x0=312, y0=140 + 10 * i, x1=312 + w, y1=140 + 10 * i + 8, text=f"short {i}")
+               for i, w in enumerate(narrow_widths)]
+        )
+        split = detect_two_column_layout(left + right, page_width=595.0)
+        self.assertIsNotNone(split)
+
     def test_two_column_detection_rejects_a_compact_two_column_answer_grid(self):
         # Real regression found on a real ITA exam page: a SINGLE question's
         # five multiple-choice options (A-E) are laid out as a compact
@@ -592,11 +624,15 @@ class AssetAssociationTests(unittest.TestCase):
         self.assertLess(assoc[1][0].extraction_confidence, 0.9)
 
 
-def _fake_result(number: int, n_options: int, *, review_status: str = "VALIDATED") -> ExtractedQuestionResult:
+def _fake_result(
+    number: int, n_options: int, *, review_status: str = "VALIDATED",
+    confidence: float = 0.9, raw_text: str | None = None,
+) -> ExtractedQuestionResult:
     options = [OptionDraft(label=chr(ord("A") + i), text=f"opt{i}") for i in range(n_options)]
     draft = ExtractedQuestionDraft(
         number=number, question_type="multiple_choice" if n_options else "discursive",
-        raw_text=f"q{number}", normalized_text=f"q{number}", options=options, confidence=0.9,
+        raw_text=raw_text or f"q{number}", normalized_text=raw_text or f"q{number}",
+        options=options, confidence=confidence,
     )
     return ExtractedQuestionResult(
         draft=draft, source_page_start=1, source_page_end=1, cross_page=False,
@@ -642,6 +678,37 @@ class ColumnDetectionMergeTests(unittest.TestCase):
         # same option count - either is fine; just confirm no crash and a
         # complete, non-fabricated result comes out.
         self.assertEqual(len(merged.questions[0].draft.options), 4)
+
+    def test_tie_prefers_the_confidently_validated_pass(self):
+        # Real regression found on a real PUC-Rio exam: enabling column
+        # detection on a page correctly identified as two independent
+        # columns (verified geometrically correct) had a document-wide
+        # side effect - it shifted where a DUPLICATE question number (this
+        # booklet numbers its discursive section 1, 2, 3... independently
+        # of its multiple-choice section) resolves in the reordered text,
+        # making the enhanced pass bind "question 1" to an unrelated
+        # discursive item instead of the real multiple-choice question the
+        # baseline pass found correctly. Both passes found the SAME option
+        # count (0 - discursive), so the old tie-break ("ties favor
+        # enhanced") blindly picked the low-confidence, wrong-span result
+        # over a pass that was confident enough to validate on its own.
+        baseline = _fake_extraction_result([_fake_result(1, 0, confidence=0.65, raw_text="real question")])
+        enhanced = _fake_extraction_result([_fake_result(1, 0, confidence=0.55, raw_text="wrong duplicate")])
+        merged = merge_extraction_results(baseline, enhanced)
+        self.assertEqual(merged.questions[0].draft.raw_text, "real question")
+
+    def test_more_options_does_not_override_a_confident_pass_with_a_low_confidence_one(self):
+        # Same real regression, worse variant: the wrongly-bound duplicate
+        # happened to also parse a couple of unrelated list items as
+        # "options", so it had MORE raw options than the baseline's
+        # correctly-bound (but discursive, 0-option) question - the old
+        # rule ("more options always wins") let a confidently-wrong span
+        # override a confidently-right one just because it looked
+        # numerically richer.
+        baseline = _fake_extraction_result([_fake_result(1, 0, confidence=0.65, raw_text="real question")])
+        enhanced = _fake_extraction_result([_fake_result(1, 2, confidence=0.3, raw_text="wrong duplicate")])
+        merged = merge_extraction_results(baseline, enhanced)
+        self.assertEqual(merged.questions[0].draft.raw_text, "real question")
 
     def test_question_only_in_one_pass_is_kept(self):
         baseline = _fake_extraction_result([_fake_result(1, 4), _fake_result(2, 3)])

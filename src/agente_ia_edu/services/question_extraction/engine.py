@@ -26,7 +26,7 @@ from .assets import AssetAssociation, associate_assets, unassociated_images
 from .boundary import ExtractedQuestionDraft, QuestionBoundary, classify_and_extract, cut_at_answer_key, detect_boundaries
 from .reconstruction import reconstruct_question, review_reasons_for
 from .structure import DocumentStructure, PageImage, TextLine, extract_structure
-from .validation import ValidationReport, review_status_for, validate
+from .validation import CONFIDENCE_REVIEW_THRESHOLD, ValidationReport, review_status_for, validate
 
 ENGINE_VERSION = "phase28-question-reconstruction-1.0.0"
 
@@ -69,7 +69,21 @@ def merge_extraction_results(
     that was already correctly read without it - found on a real exam
     during PHASE 27/28 hardening. Never lets that happen: the reordered
     pass only ever WINS, it never SILENTLY LOSES information the baseline
-    pass already had."""
+    pass already had.
+
+    A second, distinct risk (found on a real PUC-Rio exam, which numbers
+    its discursive section 1, 2, 3... independently of its multiple-
+    choice section): reordering a page can shift which of two DUPLICATE-
+    numbered questions elsewhere in the document boundary detection binds
+    a number to, so ``b`` and ``e`` are sometimes not two readings of the
+    SAME question at all - comparing their option counts is then
+    meaningless, and a wrongly-bound duplicate can even score MORE raw
+    options than the correctly-bound one. Confidence already measures
+    "does this look like a well-formed, correctly-bounded question," so a
+    pass is only trusted to win (by option count OR on a tie) over a
+    pass that clears ``CONFIDENCE_REVIEW_THRESHOLD`` on its own if it also
+    clears that same bar - never let a REVIEW_REQUIRED-grade result
+    silently replace one that would have validated by itself."""
     baseline_by_num = {r.draft.number: r for r in baseline.questions}
     enhanced_by_num = {r.draft.number: r for r in enhanced.questions}
     merged: list[ExtractedQuestionResult] = []
@@ -80,7 +94,14 @@ def merge_extraction_results(
             merged.append(e)
         elif e is None:
             merged.append(b)
+        elif (
+            b.draft.confidence >= CONFIDENCE_REVIEW_THRESHOLD
+            and e.draft.confidence < CONFIDENCE_REVIEW_THRESHOLD
+        ):
+            merged.append(b)
         elif len(e.draft.options) < len(b.draft.options):
+            merged.append(b)
+        elif len(e.draft.options) == len(b.draft.options) and b.draft.confidence > e.draft.confidence:
             merged.append(b)
         else:
             merged.append(e)
