@@ -6,6 +6,8 @@ from agente_ia_edu.services.assessments import (
     AssessmentFactory,
     AssessmentPublicationService,
     AssessmentService,
+    ExerciseList,
+    ExerciseListFactory,
 )
 
 
@@ -203,6 +205,22 @@ class AssessmentDomainTests(unittest.TestCase):
         )
         self.assertEqual(assessment.created_by_external_identity, "ext-prof-7")
         self.assertNotIn("password", assessment.__dict__)
+
+    def test_exercise_list_reuses_assessment_primitive(self) -> None:
+        exercise_list = ExerciseListFactory().create_list(
+            title="Lista de exercícios - Álgebra",
+            description="Exercícios de revisão",
+            school_id="school-001",
+            created_by_external_identity="ext-teacher-77",
+            visibility_scope="SCHOOL",
+        )
+        version = exercise_list.versions[0]
+
+        self.assertIsInstance(exercise_list, ExerciseList)
+        self.assertEqual(exercise_list.school_id, "school-001")
+        self.assertEqual(exercise_list.visibility_scope, "SCHOOL")
+        self.assertEqual(version.title, "Lista de exercícios - Álgebra")
+        self.assertEqual(version.status, "draft")
 
 
 if __name__ == "__main__":

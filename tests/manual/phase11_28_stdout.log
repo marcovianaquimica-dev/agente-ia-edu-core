@@ -1,0 +1,201 @@
+{
+  "phase": "11.28",
+  "mode": "DETERMINISTIC_PRODUCTION_WRITE",
+  "llm_used": false,
+  "date": "2026-09-10",
+  "current_database": "agente_ia_edu",
+  "before_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 37,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 33
+  },
+  "baseline_note": {
+    "spec_expected": {
+      "pedagogical_classifications": 36,
+      "curriculum_v2_ACTIVE": 32
+    },
+    "actual": {
+      "pedagogical_classifications": 37,
+      "curriculum_v2_ACTIVE": 33
+    },
+    "delta_explained_by": "phase11.26-q150-deterministic-v1 ACTIVE curriculum-v2 rows = 1 (PHASE 11.26 Q150 -> MATH-ALGEBRA-LOGARITHMS, previously approved)"
+  },
+  "protected_fp_before": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_before": "537edeaff2eee60bf23efa8c88aebfa17067037e57c49a4199e27fe7255e4810",
+  "all_pc_rows_before": 37,
+  "preflight_gates": {
+    "Q132": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q116": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    }
+  },
+  "created_rows": [
+    {
+      "question": "2024 Q132",
+      "pc_id": "a0781426-78ed-415e-81bd-d2bd729f500b",
+      "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.28-q132-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-28-curator-approved"
+    },
+    {
+      "question": "2025 Q116",
+      "pc_id": "65dbda15-bd90-4d9d-8914-816ca75eacb0",
+      "content_code": "CHEMISTRY-GENERAL-POLARITY-IMF",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.28-q116-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-28-curator-approved"
+    }
+  ],
+  "Q132": {
+    "question": "2024 Q132",
+    "verdict": "PERSISTED",
+    "expected_target": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+    "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+    "pc_id": "a0781426-78ed-415e-81bd-d2bd729f500b",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "Q116": {
+    "question": "2025 Q116",
+    "verdict": "PERSISTED",
+    "expected_target": "CHEMISTRY-GENERAL-POLARITY-IMF",
+    "content_code": "CHEMISTRY-GENERAL-POLARITY-IMF",
+    "pc_id": "65dbda15-bd90-4d9d-8914-816ca75eacb0",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "after_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 39,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 35
+  },
+  "deltas": {
+    "questions": 0,
+    "question_versions": 0,
+    "question_options": 0,
+    "booklet_questions": 0,
+    "catalog_nodes": 0,
+    "catalog_node_prerequisites": 0,
+    "pedagogical_classifications": 2,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 2
+  },
+  "protected_fp_after": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_after_excluding_new": "537edeaff2eee60bf23efa8c88aebfa17067037e57c49a4199e27fe7255e4810",
+  "all_pc_rows_after_excluding_new": 37,
+  "target_verification": {
+    "Q132": {
+      "active_cv2_rows": [
+        {
+          "id": "a0781426-78ed-415e-81bd-d2bd729f500b",
+          "pcc": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+          "model_version": "phase11.28-q132-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    },
+    "Q116": {
+      "active_cv2_rows": [
+        {
+          "id": "65dbda15-bd90-4d9d-8914-816ca75eacb0",
+          "pcc": "CHEMISTRY-GENERAL-POLARITY-IMF",
+          "model_version": "phase11.28-q116-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    }
+  },
+  "duplicate_active_cv2": [],
+  "orphan_classifications": 0,
+  "inactive_node_refs": 0,
+  "integrity_checks": {
+    "delta_pedagogical_classifications": 2,
+    "delta_curriculum_v2_ACTIVE": 2,
+    "delta_catalog_nodes": 0,
+    "delta_catalog_node_prerequisites": 0,
+    "delta_question_classifications": 0,
+    "delta_questions": 0,
+    "delta_question_versions": 0,
+    "delta_question_options": 0,
+    "protected_unchanged": true,
+    "all_other_pc_unchanged": true,
+    "duplicates": [],
+    "orphans": 0,
+    "inactive_node_refs": 0,
+    "both_targets_point_to_expected": true
+  },
+  "idempotency": {
+    "second_run": true,
+    "targets_noop": 2,
+    "targets_written": 0,
+    "new_rows": 0,
+    "curriculum_v2_ACTIVE_delta": 0,
+    "provider_calls": 0
+  },
+  "provider_calls": 0,
+  "security": {
+    "DATABASE_WRITES": 1,
+    "CLASSIFICATIONS_CREATED": 2,
+    "CATALOG_NODES_CREATED": 0,
+    "OPENAI_CALLS": 0,
+    "ALEMBIC_EXECUTION": 0,
+    "PRODUCTION_DATA_MODIFIED": 1,
+    "no_provider_constructed": true,
+    "api_key_in_report": false
+  },
+  "total_elapsed_s": 0.2,
+  "FINAL_DECISION": "PHASE_11_28_PERSIST_Q132_Q116_COMPLETE"
+}

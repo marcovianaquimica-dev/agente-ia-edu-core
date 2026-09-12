@@ -1,0 +1,99 @@
+{
+  "phase": "10.1",
+  "exam": "ENEM",
+  "scope": "ENEM 2016-2020 (one entry per printed booklet: year x day)",
+  "note": "2016-2019 booklets completed by PHASE 10.2 (source acquisition). All 16 PDFs downloaded to var/inep-pilot/ from the official INEP domain download.inep.gov.br, validated (PDF magic, pypdf pages > 0), SHA-256 recorded in var/inep-pilot/phase10_source_acquisition_2016_2019_report.json. Each booklet pairs a prova and its matching same-caderno gabarito. license_review_required stays true for every INEP booklet.",
+  "required_metadata_keys": ["exam_year", "exam_day", "booklet", "source_url", "answer_key_source_url"],
+  "booklets": [
+    {
+      "exam_year": 2016, "exam_day": 1, "booklet": "D1_CD1", "booklet_color": "AZUL",
+      "proof_pdf": "var/inep-pilot/2016_PV_impresso_D1_CD1.pdf",
+      "answer_key_pdf": "var/inep-pilot/2016_GB_impresso_D1_CD1.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2016/2016_PV_impresso_D1_CD1.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2016/GAB_ENEM_2016_DIA_1_01_AZUL.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2016, "exam_day": 2, "booklet": "D2_CD7", "booklet_color": "AZUL",
+      "proof_pdf": "var/inep-pilot/2016_PV_impresso_D2_CD7.pdf",
+      "answer_key_pdf": "var/inep-pilot/2016_GB_impresso_D2_CD7.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2016/2016_PV_impresso_D2_CD7.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2016/GAB_ENEM_2016_DIA_2_07_AZUL.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2017, "exam_day": 1, "booklet": "D1_CD1", "booklet_color": "AZUL",
+      "proof_pdf": "var/inep-pilot/2017_PV_impresso_D1_CD1.pdf",
+      "answer_key_pdf": "var/inep-pilot/2017_GB_impresso_D1_CD1.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2017/2017_PV_impresso_D1_CD1.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2017/cad_1_gabarito_azul_5112017.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2017, "exam_day": 2, "booklet": "D2_CD7", "booklet_color": "AZUL",
+      "proof_pdf": "var/inep-pilot/2017_PV_impresso_D2_CD7.pdf",
+      "answer_key_pdf": "var/inep-pilot/2017_GB_impresso_D2_CD7.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2017/2017_PV_impresso_D2_CD7.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2017/cad_7_gabarito_azul_12112017.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2018, "exam_day": 1, "booklet": "D1_01", "booklet_color": "AZUL",
+      "proof_pdf": "var/inep-pilot/2018_PV_impresso_D1_01.pdf",
+      "answer_key_pdf": "var/inep-pilot/2018_GB_impresso_D1_01.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2018/1DIA_01_AZUL_BAIXA.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2018/GAB_ENEM_2018_DIA_1_AZUL.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2018, "exam_day": 2, "booklet": "D2_05", "booklet_color": "AMARELO",
+      "proof_pdf": "var/inep-pilot/2018_PV_impresso_D2_05.pdf",
+      "answer_key_pdf": "var/inep-pilot/2018_GB_impresso_D2_05.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2018/2DIA_05_AMARELO_BAIXA.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2018/GAB_ENEM_2018_DIA_2_AMARELO.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2019, "exam_day": 1, "booklet": "D1_CD1", "booklet_color": "AZUL",
+      "proof_pdf": "var/inep-pilot/2019_PV_impresso_D1_CD1.pdf",
+      "answer_key_pdf": "var/inep-pilot/2019_GB_impresso_D1_CD1.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2019/2019_PV_impresso_D1_CD1.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2019/gabarito_1_dia_caderno_1_azul_aplicacao_regular.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2019, "exam_day": 2, "booklet": "D2_CD5", "booklet_color": "AMARELO",
+      "proof_pdf": "var/inep-pilot/2019_PV_impresso_D2_CD5.pdf",
+      "answer_key_pdf": "var/inep-pilot/2019_GB_impresso_D2_CD5.pdf",
+      "source_url": "https://download.inep.gov.br/educacao_basica/enem/provas/2019/2019_PV_impresso_D2_CD5.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/educacao_basica/enem/gabaritos/2019/gabarito_2_dia_caderno_5_amarelo_aplicacao_regular.pdf",
+      "source_url_confirmed": true, "license_review_required": true
+    },
+    {
+      "exam_year": 2020,
+      "exam_day": 1,
+      "booklet": "D1_CD1",
+      "booklet_color": null,
+      "proof_pdf": "var/inep-pilot/2020_PV_impresso_D1_CD1.pdf",
+      "answer_key_pdf": "var/inep-pilot/2020_GB_impresso_D1_CD1.pdf",
+      "source_url": "https://download.inep.gov.br/enem/provas_e_gabaritos/2020_PV_impresso_D1_CD1.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/enem/provas_e_gabaritos/2020_GB_impresso_D1_CD1.pdf",
+      "source_url_confirmed": true,
+      "url_provenance": "confirmed by PHASE 10.2: HTTP 200 application/pdf, content-length matches the local file (PV 5554330, GB 129591)",
+      "license_review_required": true
+    },
+    {
+      "exam_year": 2020,
+      "exam_day": 2,
+      "booklet": "D2_CD5",
+      "booklet_color": "AMARELO",
+      "proof_pdf": "var/inep-pilot/2020_PV_impresso_D2_CD5.pdf",
+      "answer_key_pdf": "var/inep-pilot/2020_GB_impresso_D2_CD5.pdf",
+      "source_url": "https://download.inep.gov.br/enem/provas_e_gabaritos/2020_PV_impresso_D2_CD5.pdf",
+      "answer_key_source_url": "https://download.inep.gov.br/enem/provas_e_gabaritos/2020_GB_impresso_D2_CD5.pdf",
+      "source_url_confirmed": true,
+      "url_provenance": "verbatim from ingestion_documents.metadata in agente_ia_edu (already partially ingested; expect idempotent duplicates)",
+      "license_review_required": true
+    }
+  ]
+}

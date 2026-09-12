@@ -1,0 +1,346 @@
+{
+  "phase": "11.33",
+  "mode": "READ_ONLY_ARCHITECTURAL",
+  "llm_used": false,
+  "date": "2026-09-10",
+  "current_database": "agente_ia_edu",
+  "counts_before": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 46,
+    "curriculum_v2_ACTIVE": 42
+  },
+  "protected_fp": {
+    "2020_Q91": "be53679cce6bd5e4",
+    "2020_Q93": "b70168db9f70a78f",
+    "2020_Q107": "4f53cda18c2baa0c",
+    "2020_Q128": "ced1bab7939514dd",
+    "2020_Q133": "3a1c3a1481939713"
+  },
+  "bindings_before": 30,
+  "unclassified_day2": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128",
+    "2024 Q107",
+    "2024 Q129",
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q98",
+    "2025 Q150",
+    "2025 Q153",
+    "2025 Q155",
+    "2025 Q173"
+  ],
+  "active_content_nodes": [
+    "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+    "BIOLOGY-CYTOLOGY-BIOCHEMISTRY",
+    "BIOLOGY-CYTOLOGY-BIOCHEMISTRY-PROTEINS",
+    "BIOLOGY-CYTOLOGY-ORGANELLES",
+    "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+    "BIOLOGY-ECOLOGY-COMMUNITIES-SUCCESSION",
+    "BIOLOGY-ECOLOGY-POPULATIONS-CONSERVATION",
+    "BIOLOGY-EVOLUTION-MECHANISMS",
+    "BIOLOGY-IMMUNOLOGY-MICROBIOLOGY-DISEASES",
+    "CHEMISTRY-ENVIRONMENTAL-AIR-POLLUTION",
+    "CHEMISTRY-GENERAL-MATTER-PROPERTIES",
+    "CHEMISTRY-GENERAL-POLARITY-IMF",
+    "CHEMISTRY-ORGANIC-FUNCTIONS",
+    "CHEMISTRY-ORGANIC-POLYMERS",
+    "CHEMISTRY-ORGANIC-REACTIONS",
+    "CHEMISTRY-PHYSICAL-ACID-BASE",
+    "CHEMISTRY-PHYSICAL-EQUILIBRIUM",
+    "CHEMISTRY-PHYSICAL-KINETICS",
+    "CHEMISTRY-PHYSICAL-STOICHIOMETRY",
+    "CHEMISTRY-SOLUTIONS",
+    "CHEMISTRY-SOLUTIONS-CONCENTRATION",
+    "CHEMISTRY-SOLUTIONS-DILUTION",
+    "MATH-ALGEBRA-FUNCTIONS",
+    "MATH-ALGEBRA-LOGARITHMS",
+    "MATH-ALGEBRA-PERCENTAGE",
+    "MATH-ALGEBRA-RATIO",
+    "MATH-COMBINATORICS-COUNTING",
+    "MATH-GEOMETRY-SPATIAL",
+    "MATH-MEASUREMENT-PLANE-AREA",
+    "MATH-PROBABILITY-BASICS",
+    "MATH-STATISTICS-CENTRAL-TENDENCY",
+    "MATH-STATISTICS-DATA-INTERPRETATION",
+    "PHYSICS-EM-ELECTROSTATICS",
+    "PHYSICS-EM-INDUCTION",
+    "PHYSICS-MECHANICS-HYDROSTATICS",
+    "PHYSICS-MECHANICS-KINEMATICS",
+    "PHYSICS-MECHANICS-KINEMATICS-UNIFORM",
+    "PHYSICS-MECHANICS-PRESSURE-SCALE",
+    "PHYSICS-THERMAL-PHASE-CHANGE",
+    "PHYSICS-THERMAL-THERMODYNAMICS",
+    "PHYSICS-WAVES-PHENOMENA"
+  ],
+  "reuse_sweep_332": {
+    "total_statements": 332,
+    "Q129 electromagnetic-radiation/optics": {
+      "count": 1,
+      "questions": [
+        "2024 Q129"
+      ]
+    },
+    "Q107 phytoremediation/environmental-biology": {
+      "count": 0,
+      "questions": []
+    },
+    "Q98 biological-toxins/food-safety": {
+      "count": 1,
+      "questions": [
+        "2025 Q98"
+      ]
+    },
+    "Q153 numbering-systems/structured-codes": {
+      "count": 1,
+      "questions": [
+        "2025 Q153"
+      ]
+    },
+    "Q173 cost-optimization/financial-arithmetic": {
+      "count": 1,
+      "questions": [
+        "2025 Q173"
+      ]
+    }
+  },
+  "gap_analysis": {
+    "2024 Q129": {
+      "central_concept": "Attenuation of X-rays by matter: X-rays do not pass through dense/thick components, so overlapping objects cannot be imaged - hence laptops are scanned separately. Interaction of electromagnetic (ionising) radiation with matter; density-dependent transmission/absorption.",
+      "nearest_content": "PHYSICS-WAVES-PHENOMENA",
+      "nearest_defensible": false,
+      "why": "PHYSICS-WAVES-PHENOMENA is scoped to mechanical-wave phenomena (interference, sound, noise cancellation - see its binding). PHYSICS-EM-ELECTROSTATICS / PHYSICS-EM-INDUCTION are static fields / electromagnetic induction. None represents photon-matter interaction or the electromagnetic spectrum. Classifying here would be a 'closest match' (forbidden).",
+      "new_node_candidate": "PHYSICS-EM-RADIATION (or PHYSICS-OPTICS-EM) under PHYSICS-EM",
+      "new_node_legit_concept": true,
+      "new_node_justified_now": false,
+      "reuse_key": "Q129 electromagnetic-radiation/optics",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "current_retrieval_top3": [
+        {
+          "rank": 1,
+          "score": 132,
+          "type": "EXACT_CANDIDATE",
+          "content_code": "MATH-ALGEBRA-FUNCTIONS",
+          "matched_terms": [
+            "razao"
+          ]
+        },
+        {
+          "rank": 2,
+          "score": 19,
+          "type": "ANCESTOR_CANDIDATE",
+          "content_code": null,
+          "matched_terms": [
+            "fisica"
+          ]
+        }
+      ],
+      "nearest_content_exists": true,
+      "reuse_hits_in_bank": 1,
+      "reuse_questions": [
+        "2024 Q129"
+      ],
+      "reuse_verdict": "insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand"
+    },
+    "2024 Q107": {
+      "central_concept": "Phytoremediation mechanisms - which method removes mercury from soil by transferring it to a volatile form (fitovolatilizacao). Plant-based decontamination of contaminated environments.",
+      "nearest_content": "CHEMISTRY-ENVIRONMENTAL-AIR-POLLUTION / BIOLOGY-ECOLOGY-POPULATIONS-CONSERVATION",
+      "nearest_defensible": false,
+      "why": "CHEMISTRY-ENVIRONMENTAL-AIR-POLLUTION is air-pollution + chemistry-framed; this is a plant-biology soil-remediation mechanism. BIOLOGY-ECOLOGY-POPULATIONS-CONSERVATION is population conservation, not remediation technology. No applied/environmental-biology CONTENT node exists.",
+      "new_node_candidate": "BIOLOGY-ECOLOGY-ENVIRONMENTAL-REMEDIATION under BIOLOGY-ECOLOGY",
+      "new_node_legit_concept": true,
+      "new_node_justified_now": false,
+      "reuse_key": "Q107 phytoremediation/environmental-biology",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "current_retrieval_top3": [
+        {
+          "rank": 1,
+          "score": 60,
+          "type": "CONTROLLED_VOCABULARY",
+          "content_code": "MATH-MEASUREMENT-PLANE-AREA",
+          "matched_terms": [
+            "área"
+          ]
+        },
+        {
+          "rank": 2,
+          "score": 30,
+          "type": "CONTROLLED_VOCABULARY",
+          "content_code": "CHEMISTRY-ENVIRONMENTAL-AIR-POLLUTION",
+          "matched_terms": [
+            "chumbo"
+          ]
+        }
+      ],
+      "nearest_content_exists": true,
+      "reuse_hits_in_bank": 0,
+      "reuse_questions": [],
+      "reuse_verdict": "insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand"
+    },
+    "2025 Q98": {
+      "central_concept": "Tetrodotoxin is a heat-stable neurotoxin produced and stored in the pufferfish gonads and viscera; the only reliable prevention is to prepare the fish without rupturing those organs (cooking does not help - thermostable). Applied food-safety reasoning from toxin localisation + thermal stability.",
+      "nearest_content": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS / BIOLOGY-IMMUNOLOGY-MICROBIOLOGY-DISEASES",
+      "nearest_defensible": false,
+      "why": "The tested competency is food-safety practice, not an animal-physiology concept; forcing BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS would be a superficial match. It is not a pathogen/disease, so IMMUNOLOGY-MICROBIOLOGY-DISEASES does not apply. No biological-toxin / food-safety CONTENT node exists.",
+      "new_node_candidate": "BIOLOGY-* biological-toxins/food-safety",
+      "new_node_legit_concept": false,
+      "new_node_justified_now": false,
+      "reuse_key": "Q98 biological-toxins/food-safety",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "current_retrieval_top3": [],
+      "nearest_content_exists": true,
+      "reuse_hits_in_bank": 1,
+      "reuse_questions": [
+        "2025 Q98"
+      ],
+      "reuse_verdict": "insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand"
+    },
+    "2025 Q153": {
+      "central_concept": "Construct a 7-digit identification code by concatenating fixed-width fields with given ranges (floor 1-4, sector 01-20, employee 001-135, shift 0/1). Positional numeral construction / structured codes - no counting, no arrangement, purely deterministic assembly.",
+      "nearest_content": "MATH-COMBINATORICS-COUNTING",
+      "nearest_defensible": false,
+      "why": "MATH-COMBINATORICS-COUNTING is the fundamental counting principle / digit-occurrence counting. Q153 performs no counting - it applies concatenation rules. Classifying here would be a 'closest match'.",
+      "new_node_candidate": "MATH-* numbering-systems / structured-codes",
+      "new_node_legit_concept": false,
+      "new_node_justified_now": false,
+      "reuse_key": "Q153 numbering-systems/structured-codes",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "current_retrieval_top3": [],
+      "nearest_content_exists": true,
+      "reuse_hits_in_bank": 1,
+      "reuse_questions": [
+        "2025 Q153"
+      ],
+      "reuse_verdict": "insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand"
+    },
+    "2025 Q173": {
+      "central_concept": "Compute the total cost C = 20*(teorica) + 10*(pratica) + aluguel for each of three driving schools and pick the minimum. Arithmetic evaluation and comparison (optimisation by enumeration) - no rate, proportion, function or equation.",
+      "nearest_content": "MATH-ALGEBRA-FUNCTIONS",
+      "nearest_defensible": false,
+      "why": "MATH-ALGEBRA-FUNCTIONS covers linear/affine functions, equations and proportional reasoning (RATIO subcontent). Q173 is substitution of given constants and comparison - no variable, no rate, no graph. (Contrast 2025 Q146, correctly placed in FUNCTIONS because it hinges on the rate 1 m3 / 13 km.) Placing Q173 here would be a 'closest match'.",
+      "new_node_candidate": "MATH-* cost-optimisation / financial-arithmetic problem solving",
+      "new_node_legit_concept": false,
+      "new_node_justified_now": false,
+      "reuse_key": "Q173 cost-optimization/financial-arithmetic",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "current_retrieval_top3": [
+        {
+          "rank": 1,
+          "score": 11,
+          "type": "ANCESTOR_CANDIDATE",
+          "content_code": "CHEMISTRY-PHYSICAL-KINETICS",
+          "matched_terms": [
+            "da"
+          ]
+        }
+      ],
+      "nearest_content_exists": true,
+      "reuse_hits_in_bank": 1,
+      "reuse_questions": [
+        "2025 Q173"
+      ],
+      "reuse_verdict": "insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand"
+    }
+  },
+  "nodes_before": 64,
+  "nodes_after": 64,
+  "bindings_after": 30,
+  "classifications_before": 42,
+  "classifications_after": 42,
+  "nodes_created": [],
+  "classifications_created": [],
+  "bindings_added_or_changed": [],
+  "day2_coverage_before": "42/56",
+  "day2_coverage_after": "42/56",
+  "per_gap_summary": {
+    "2024 Q129": {
+      "concept": "Attenuation of X-rays by matter: X-rays do not pass through dense/thick components, so overlapping objects cannot be imaged - hence laptops are scanned separately. Interaction of electromagnetic (ionising) radiation with matter; density-dependent transmission/absorption.",
+      "content_chosen": "NONE (no defensible existing CONTENT)",
+      "justification": "PHYSICS-WAVES-PHENOMENA is scoped to mechanical-wave phenomena (interference, sound, noise cancellation - see its binding). PHYSICS-EM-ELECTROSTATICS / PHYSICS-EM-INDUCTION are static fields / electromagnetic induction. None represents photon-matter interaction or the electromagnetic spectrum. Classifying here would be a 'closest match' (forbidden).",
+      "reuse_potential": "1 bank match(es): insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "classification_created": null
+    },
+    "2024 Q107": {
+      "concept": "Phytoremediation mechanisms - which method removes mercury from soil by transferring it to a volatile form (fitovolatilizacao). Plant-based decontamination of contaminated environments.",
+      "content_chosen": "NONE (no defensible existing CONTENT)",
+      "justification": "CHEMISTRY-ENVIRONMENTAL-AIR-POLLUTION is air-pollution + chemistry-framed; this is a plant-biology soil-remediation mechanism. BIOLOGY-ECOLOGY-POPULATIONS-CONSERVATION is population conservation, not remediation technology. No applied/environmental-biology CONTENT node exists.",
+      "reuse_potential": "0 bank match(es): insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "classification_created": null
+    },
+    "2025 Q98": {
+      "concept": "Tetrodotoxin is a heat-stable neurotoxin produced and stored in the pufferfish gonads and viscera; the only reliable prevention is to prepare the fish without rupturing those organs (cooking does not help - thermostable). Applied food-safety reasoning from toxin localisation + thermal stability.",
+      "content_chosen": "NONE (no defensible existing CONTENT)",
+      "justification": "The tested competency is food-safety practice, not an animal-physiology concept; forcing BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS would be a superficial match. It is not a pathogen/disease, so IMMUNOLOGY-MICROBIOLOGY-DISEASES does not apply. No biological-toxin / food-safety CONTENT node exists.",
+      "reuse_potential": "1 bank match(es): insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "classification_created": null
+    },
+    "2025 Q153": {
+      "concept": "Construct a 7-digit identification code by concatenating fixed-width fields with given ranges (floor 1-4, sector 01-20, employee 001-135, shift 0/1). Positional numeral construction / structured codes - no counting, no arrangement, purely deterministic assembly.",
+      "content_chosen": "NONE (no defensible existing CONTENT)",
+      "justification": "MATH-COMBINATORICS-COUNTING is the fundamental counting principle / digit-occurrence counting. Q153 performs no counting - it applies concatenation rules. Classifying here would be a 'closest match'.",
+      "reuse_potential": "1 bank match(es): insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "classification_created": null
+    },
+    "2025 Q173": {
+      "concept": "Compute the total cost C = 20*(teorica) + 10*(pratica) + aluguel for each of three driving schools and pick the minimum. Arithmetic evaluation and comparison (optimisation by enumeration) - no rate, proportion, function or equation.",
+      "content_chosen": "NONE (no defensible existing CONTENT)",
+      "justification": "MATH-ALGEBRA-FUNCTIONS covers linear/affine functions, equations and proportional reasoning (RATIO subcontent). Q173 is substitution of given constants and comparison - no variable, no rate, no graph. (Contrast 2025 Q146, correctly placed in FUNCTIONS because it hinges on the rate 1 m3 / 13 km.) Placing Q173 here would be a 'closest match'.",
+      "reuse_potential": "1 bank match(es): insufficient - the only real occurrence is this question (or matches are Day-1 LC/CH, out of curriculum-v2 scope, or already-classified questions); no new in-scope demand",
+      "action": "KEEP HUMAN_REVIEW / TAXONOMY_GAP",
+      "classification_created": null
+    }
+  },
+  "human_review_remaining": {
+    "TAXONOMY_GAP": [
+      "2024 Q129",
+      "2024 Q107",
+      "2025 Q98",
+      "2025 Q153",
+      "2025 Q173"
+    ],
+    "VISUAL_DEPENDENCY": [
+      "2024 Q159",
+      "2024 Q161",
+      "2024 Q168",
+      "2025 Q150",
+      "2025 Q155"
+    ],
+    "total": 10
+  },
+  "integrity": {
+    "state_drift": false,
+    "protected_fingerprints_preserved": true,
+    "catalog_nodes_delta": 0,
+    "bindings_delta": 0,
+    "classifications_delta": 0,
+    "duplicate_active_cv2": [],
+    "orphans": 0
+  },
+  "idempotency": {
+    "note": "read-only phase - no state changed; re-running yields an identical report",
+    "writes": 0
+  },
+  "security": {
+    "DATABASE_WRITES": 0,
+    "OPENAI_CALLS": 0,
+    "CATALOG_NODES_CREATED": 0,
+    "CLASSIFICATIONS_CREATED": 0,
+    "BINDINGS_ADDED_OR_CHANGED": 0,
+    "ALEMBIC_EXECUTION": 0,
+    "CODE_FILES_MODIFIED": 0,
+    "secrets_in_report": false
+  },
+  "FINAL_DECISION": "PHASE_11_33_FINAL_TAXONOMY_GAP_AUDIT_COMPLETE"
+}

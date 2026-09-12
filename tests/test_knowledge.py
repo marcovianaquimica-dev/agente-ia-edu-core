@@ -257,6 +257,47 @@ class TestKnowledgeLayer(unittest.IsolatedAsyncioTestCase):
             res_school_a = await service.find_resources_by_content("Diluição", requester_institution_id="SCHOOL_A")
             self.assertEqual(len(res_school_a), 2)
 
+    async def test_12_resource_access_grants_support_school_and_classroom_scope(self):
+        """12. explicit grants should respect school and classroom scoping"""
+        async with self.session_factory() as session:
+            school_a = "school-a"
+            resource = EducationalResource(
+                title="Material distribuído para turma",
+                resource_type="THEORY_MATERIAL",
+                origin_type="SCHOOL",
+                owner_external_id=school_a,
+                visibility_scope="CLASSROOM",
+                status="active",
+            )
+            session.add(resource)
+            await session.flush()
+
+            grant = ResourceAccessGrant(
+                resource_id=resource.id,
+                grantee_type="CLASSROOM",
+                grantee_external_id="TURMA_3A",
+            )
+            session.add(grant)
+            await session.flush()
+            await session.commit()
+            resource.__dict__["access_grants"] = [grant]
+
+            is_visible = KnowledgeService._is_resource_visible(
+                resource,
+                requester_institution_id=school_a,
+                requester_scope_type="CLASSROOM",
+                requester_scope_external_id="TURMA_3A",
+            )
+            self.assertTrue(is_visible)
+
+            denied = KnowledgeService._is_resource_visible(
+                resource,
+                requester_institution_id=school_a,
+                requester_scope_type="CLASSROOM",
+                requester_scope_external_id="TURMA_3B",
+            )
+            self.assertFalse(denied)
+
     async def test_10_11_versioned_and_reprocessed_classification(self):
         """10, 11. classificação versionada e reprocessada"""
         async with self.session_factory() as session:
@@ -304,6 +345,155 @@ class TestKnowledgeLayer(unittest.IsolatedAsyncioTestCase):
             res1 = await service.find_questions_by_content("Diluição")
             res2 = await service.find_questions_by_content("Diluição")
             self.assertEqual(res1, res2)
+
+    async def test_14_visibility_matrix_for_scope_grants(self):
+        """14. matriz de visibilidade respeita escola, unidade, segmento, série e turma."""
+        cases = [
+            (
+                "PUBLIC",
+                None,
+                None,
+                None,
+                None,
+                True,
+            ),
+            (
+                "SCHOOL",
+                "school-a",
+                "school-a",
+                None,
+                None,
+                True,
+            ),
+            (
+                "SCHOOL",
+                "school-a",
+                "school-b",
+                None,
+                None,
+                False,
+            ),
+            (
+                "UNIT",
+                "school-a",
+                "school-a",
+                "UNIT",
+                "unit-10",
+                True,
+            ),
+            (
+                "SEGMENT",
+                "school-a",
+                "school-a",
+                "SEGMENT",
+                "segment-9",
+                True,
+            ),
+            (
+                "GRADE_LEVEL",
+                "school-a",
+                "school-a",
+                "GRADE_LEVEL",
+                "9ano",
+                True,
+            ),
+            (
+                "CLASSROOM",
+                "school-a",
+                "school-a",
+                "CLASSROOM",
+                "TURMA_3A",
+                True,
+            ),
+        ]
+
+        for visibility, owner, school_id, scope_type, scope_external_id, expected in cases:
+            resource = EducationalResource(
+                title=f"Material {visibility}",
+                resource_type="THEORY_MATERIAL",
+                origin_type="SCHOOL",
+                owner_external_id=owner,
+                visibility_scope=visibility,
+                status="active",
+            )
+            if visibility in {"UNIT", "SEGMENT", "GRADE_LEVEL", "CLASSROOM"}:
+                grant = ResourceAccessGrant(
+                    resource_id=resource.id,
+                    grantee_type=visibility,
+                    grantee_external_id=scope_external_id,
+                )
+                resource.__dict__["access_grants"] = [grant]
+
+            visible = KnowledgeService._is_resource_visible(
+                resource,
+                requester_institution_id=school_id,
+                requester_scope_type=scope_type,
+                requester_scope_external_id=scope_external_id,
+            )
+            self.assertEqual(visible, expected, msg=f"case failed: {visibility} / {school_id} / {scope_type} / {scope_external_id}")
+
+    async def test_15_independent_student_only_sees_public_platform_resources(self):
+        """15. aluno autônomo enxergará somente recursos públicos ou da própria plataforma."""
+        public_resource = EducationalResource(
+            title="Recurso público do aluno",
+            resource_type="VIDEO",
+            origin_type="PLATFORM",
+            visibility_scope="PUBLIC",
+            status="active",
+        )
+        private_resource = EducationalResource(
+            title="Recurso escolar fechado",
+            resource_type="THEORY_MATERIAL",
+            origin_type="SCHOOL",
+            owner_external_id="school-a",
+            visibility_scope="SCHOOL",
+            status="active",
+        )
+
+        self.assertTrue(KnowledgeService._is_resource_visible(public_resource))
+        self.assertFalse(KnowledgeService._is_resource_visible(private_resource))
+        self.assertFalse(
+            KnowledgeService._is_resource_visible(
+                private_resource,
+                requester_institution_id=None,
+                requester_scope_type="CLASSROOM",
+                requester_scope_external_id="TURMA_3A",
+            )
+        )
+
+    async def test_16_missing_greenlet_regression_for_access_grants(self):
+        """16. leitura de grants em memória deve ser segura mesmo sem lazy loading do relacionamento."""
+        resource = EducationalResource(
+            title="Material com grant em memória",
+            resource_type="THEORY_MATERIAL",
+            origin_type="SCHOOL",
+            owner_external_id="school-a",
+            visibility_scope="CLASSROOM",
+            status="active",
+        )
+        resource.__dict__["access_grants"] = [
+            ResourceAccessGrant(
+                resource_id=resource.id,
+                grantee_type="CLASSROOM",
+                grantee_external_id="TURMA_3A",
+            )
+        ]
+
+        visible = KnowledgeService._is_resource_visible(
+            resource,
+            requester_institution_id="school-a",
+            requester_scope_type="CLASSROOM",
+            requester_scope_external_id="TURMA_3A",
+        )
+        self.assertTrue(visible)
+
+        denied = KnowledgeService._is_resource_visible(
+            resource,
+            requester_institution_id="school-a",
+            requester_scope_type="CLASSROOM",
+            requester_scope_external_id="TURMA_3B",
+        )
+        self.assertFalse(denied)
 
 
 if __name__ == "__main__":

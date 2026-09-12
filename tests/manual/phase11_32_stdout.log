@@ -1,0 +1,345 @@
+{
+  "phase": "11.32",
+  "mode": "FINAL_DAY2_GAP_RESOLUTION",
+  "llm_used": false,
+  "date": "2026-09-10",
+  "current_database": "agente_ia_edu",
+  "before_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 45,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 41
+  },
+  "spec_vs_actual_note": "PHASE 11.32 spec says '45 classificacoes curriculum-v2 ACTIVE'; the actual ACTIVE curriculum-v2 count is 41 and total pedagogical_classifications is 45 (the spec conflated the two). Proceeding on the verified state 45 / 41.",
+  "unclassified_day2_before": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128",
+    "2024 Q107",
+    "2024 Q129",
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q97",
+    "2025 Q98",
+    "2025 Q150",
+    "2025 Q153",
+    "2025 Q155",
+    "2025 Q173"
+  ],
+  "pending_11_before": {
+    "VISUAL": [
+      "2024 Q159",
+      "2024 Q161",
+      "2024 Q168",
+      "2025 Q150",
+      "2025 Q155"
+    ],
+    "GAP": [
+      "2024 Q129",
+      "2024 Q107",
+      "2025 Q97",
+      "2025 Q98",
+      "2025 Q153",
+      "2025 Q173"
+    ]
+  },
+  "reuse_sweep": {
+    "total_statements": 332,
+    "matches": {
+      "EM_radiation_xray": 1,
+      "phytoremediation_env_bio": 1,
+      "identification_code_numbering": 1,
+      "cost_minimisation_arithmetic": 1,
+      "toxinology_food_safety": 1
+    }
+  },
+  "prewritten_phase_rows": 0,
+  "protected_fp_before": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_before": "6cb0a401fe76ba3a5ec0a59ce1a269e8bee1e5629a4d49bfbb1ea9106a91a5a1",
+  "all_pc_rows_before": 45,
+  "preflight_gates": {
+    "Q97": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    }
+  },
+  "created_rows": [
+    {
+      "question": "2025 Q97",
+      "pc_id": "955237a1-3526-46e2-8a35-fc1cafb7ea46",
+      "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.32-q097-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-32-curator-approved",
+      "evidence_used": [
+        "a luz do flash da câmera incide diretamente no globo ocular, sendo refletida por uma região repleta de vasos sanguíneos",
+        "Esse efeito é mais comum à noite ou em lugares pouco iluminados porque, com a pupila"
+      ]
+    }
+  ],
+  "Q97": {
+    "question": "2025 Q97",
+    "verdict": "PERSISTED",
+    "expected_target": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+    "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+    "pc_id": "955237a1-3526-46e2-8a35-fc1cafb7ea46",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "after_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 46,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 42
+  },
+  "deltas": {
+    "questions": 0,
+    "question_versions": 0,
+    "question_options": 0,
+    "booklet_questions": 0,
+    "catalog_nodes": 0,
+    "catalog_node_prerequisites": 0,
+    "pedagogical_classifications": 1,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 1
+  },
+  "protected_fp_after": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_after_excluding_new": "6cb0a401fe76ba3a5ec0a59ce1a269e8bee1e5629a4d49bfbb1ea9106a91a5a1",
+  "unclassified_day2_after": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128",
+    "2024 Q107",
+    "2024 Q129",
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q98",
+    "2025 Q150",
+    "2025 Q153",
+    "2025 Q155",
+    "2025 Q173"
+  ],
+  "target_verification": {
+    "Q97": {
+      "active_cv2_rows": [
+        {
+          "id": "955237a1-3526-46e2-8a35-fc1cafb7ea46",
+          "pcc": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+          "model_version": "phase11.32-q097-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    }
+  },
+  "duplicate_active_cv2": [],
+  "orphan_classifications": 0,
+  "inactive_node_refs": 0,
+  "catalog_integrity": {
+    "duplicate_codes": [],
+    "orphan_parent": 0,
+    "bad_root_id": 0,
+    "invalid_parent_type": 0,
+    "self_cycle": 0,
+    "broken_or_cyclic_chain": 0,
+    "ok": true
+  },
+  "integrity_checks": {
+    "delta_pedagogical_classifications": 1,
+    "delta_curriculum_v2_ACTIVE": 1,
+    "delta_catalog_nodes": 0,
+    "delta_catalog_node_prerequisites": 0,
+    "delta_questions": 0,
+    "delta_question_versions": 0,
+    "delta_question_options": 0,
+    "delta_question_classifications": 0,
+    "protected_unchanged": true,
+    "all_other_pc_unchanged": true,
+    "duplicates": [],
+    "orphans": 0,
+    "inactive_node_refs": 0,
+    "all_targets_point_to_expected": true
+  },
+  "idempotency": {
+    "second_run": true,
+    "targets_noop": 1,
+    "targets_written": 0,
+    "new_rows": 0,
+    "curriculum_v2_ACTIVE_delta": 0,
+    "provider_calls": 0
+  },
+  "provider_calls": 0,
+  "per_question_final_decision": {
+    "2025 Q97": {
+      "before": "GAP",
+      "after": "CLASSIFIED",
+      "target": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "method": "deterministic",
+      "reason": "pupillary light reflex = animal sensory physiology; area catch-all CONTENT node; literal stem evidence; not superficial (precedent Q132/Q134)"
+    },
+    "2024 Q159": {
+      "before": "VISUAL",
+      "after": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "price list on a 'cartaz' is not in the statement; min-cost uncomputable without the asset"
+    },
+    "2024 Q161": {
+      "before": "VISUAL",
+      "after": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "options A-E each cite bar-chart quantities/percentages"
+    },
+    "2024 Q168": {
+      "before": "VISUAL",
+      "after": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "two piecewise-linear graphs mandatory to read the maximum of grandeza III"
+    },
+    "2025 Q150": {
+      "before": "VISUAL",
+      "after": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "options are bare I..V; the five scale figures carry all the data"
+    },
+    "2025 Q155": {
+      "before": "VISUAL",
+      "after": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "graphs with unstated quantities mandatory to total the students"
+    },
+    "2024 Q129": {
+      "before": "GAP",
+      "after": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "X-ray attenuation by density / EM-radiation-matter interaction. No EM-radiation CONTENT node (PHYSICS-WAVES-PHENOMENA = interference/sound; PHYSICS-EM-* = electrostatics/induction). Reusable in principle, but serves exactly 1 question in the current bank -> not created (rule 3)."
+    },
+    "2024 Q107": {
+      "before": "GAP",
+      "after": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "phytoremediation mechanism (fitovolatilizacao). No environmental-/applied-biology CONTENT node. 1 question -> not created."
+    },
+    "2025 Q98": {
+      "before": "GAP",
+      "after": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "tetrodotoxin localisation (gonads/viscera) + thermostability -> food-safety practice. Tested skill is applied toxicology, not a physiology concept; no defensible CONTENT node. 1 question -> not created; not forced into ANIMAL-PHYSIOLOGY-ADAPTATIONS (superficial)."
+    },
+    "2025 Q153": {
+      "before": "GAP",
+      "after": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "positional construction of a 7-digit code; no combinatorial reasoning, so MATH-COMBINATORICS-COUNTING is a superficial match. No numbering-systems node. 1 question."
+    },
+    "2025 Q173": {
+      "before": "GAP",
+      "after": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "evaluate three cost expressions, pick the minimum - pure arithmetic comparison; no proportion/function/equation. No arithmetic-optimization CONTENT node. 1 question (2024 Q159 is the same family but asset-blocked; 2025 Q146 already covered via the proportional-consumption angle). Not created."
+    }
+  },
+  "classified_this_phase": [
+    "2025 Q97"
+  ],
+  "human_review_remaining": [
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q150",
+    "2025 Q155",
+    "2024 Q129",
+    "2024 Q107",
+    "2025 Q98",
+    "2025 Q153",
+    "2025 Q173"
+  ],
+  "human_review_visual": [
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q150",
+    "2025 Q155"
+  ],
+  "human_review_taxonomy_gap": [
+    "2024 Q129",
+    "2024 Q107",
+    "2025 Q98",
+    "2025 Q153",
+    "2025 Q173"
+  ],
+  "taxonomy_nodes_created": [],
+  "bindings_added_or_changed": [],
+  "node_creation_analysis": {
+    "verdict": "NO NODE CREATED",
+    "rationale": "Each of the 6 GAP themes maps to exactly ONE unclassified question in the current 332-question bank (Day-1 LC/CH are out of curriculum-v2 scope). Rule 3 forbids a node exclusive to a single question; reuse within actionable scope is nil. A future taxonomy-design phase should decide EM-radiation / environmental-biology / numbering-systems / arithmetic-optimization / applied-toxicology together.",
+    "reuse_sweep": {
+      "total_statements": 332,
+      "matches": {
+        "EM_radiation_xray": 1,
+        "phytoremediation_env_bio": 1,
+        "identification_code_numbering": 1,
+        "cost_minimisation_arithmetic": 1,
+        "toxinology_food_safety": 1
+      }
+    }
+  },
+  "pending_summary": {
+    "pending_11_before": 11,
+    "resolved_this_phase": 1,
+    "pending_after": 10,
+    "human_review_after": 10,
+    "visual_dependency": 5,
+    "taxonomy_gap": 5
+  },
+  "security": {
+    "DATABASE_WRITES": 1,
+    "CLASSIFICATIONS_CREATED": 1,
+    "CATALOG_NODES_CREATED": 0,
+    "BINDINGS_ADDED_OR_CHANGED": 0,
+    "OPENAI_CALLS": 0,
+    "ALEMBIC_EXECUTION": 0,
+    "CODE_FILES_MODIFIED": 0,
+    "PRODUCTION_DATA_MODIFIED": 1,
+    "no_provider_constructed": true,
+    "secrets_in_report": false
+  },
+  "total_elapsed_s": 0.2,
+  "FINAL_DECISION": "PHASE_11_32_FINAL_DAY2_GAP_RESOLUTION_COMPLETE"
+}

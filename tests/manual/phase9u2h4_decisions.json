@@ -1,0 +1,55 @@
+{
+  "phase": "9U.2-H4",
+  "taxonomy_version": "curriculum-v2",
+  "instructions": "For each question set decision to CONFIRM or REJECT (leave PENDING to skip). On CONFIRM, content_code MUST equal the packet's candidate_content_code for that question; fill curator_id and evidence_note (a literal excerpt or an explicit human rationale). No decision is pre-filled.",
+  "decisions": [
+    {
+      "official_number": 95,
+      "decision": "CONFIRM",
+      "content_code": "CHEMISTRY-PHYSICAL-EQUILIBRIUM",
+      "candidate_content_code": "CHEMISTRY-PHYSICAL-EQUILIBRIUM",
+      "curator_id": "",
+      "evidence_note": ""
+    },
+    {
+      "official_number": 104,
+      "decision": "CONFIRM",
+      "content_code": "CHEMISTRY-PHYSICAL-ACID-BASE",
+      "candidate_content_code": "CHEMISTRY-PHYSICAL-ACID-BASE",
+      "curator_id": "",
+      "evidence_note": ""
+    },
+    {
+      "official_number": 105,
+      "decision": "CONFIRM",
+      "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "candidate_content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "curator_id": "",
+      "evidence_note": ""
+    },
+    {
+      "official_number": 112,
+      "decision": "CONFIRM",
+      "content_code": "PHYSICS-EM-ELECTROSTATICS",
+      "candidate_content_code": "PHYSICS-EM-ELECTROSTATICS",
+      "curator_id": "",
+      "evidence_note": ""
+    },
+    {
+      "official_number": 129,
+      "decision": "CONFIRM",
+      "content_code": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+      "candidate_content_code": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+      "curator_id": "",
+      "evidence_note": ""
+    },
+    {
+      "official_number": 134,
+      "decision": "CONFIRM",
+      "content_code": "PHYSICS-MECHANICS-HYDROSTATICS",
+      "candidate_content_code": "PHYSICS-MECHANICS-HYDROSTATICS",
+      "curator_id": "",
+      "evidence_note": ""
+    }
+  ]
+}

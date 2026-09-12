@@ -38,14 +38,14 @@ class QuestionsEndpointTests(unittest.TestCase):
             response = client.get("/api/v1/questions")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"items": [], "pagination": {"page": 1, "limit": 20, "total": 0}})
+        self.assertEqual(response.json(), {"items": [], "pagination": {"page": 1, "limit": 20, "total": 0, "total_pages": 0}})
 
     def test_list_accepts_page_and_limit(self):
         with TestClient(app) as client:
             response = client.get("/api/v1/questions?page=2&limit=100")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["pagination"], {"page": 2, "limit": 100, "total": 0})
+        self.assertEqual(response.json()["pagination"], {"page": 2, "limit": 100, "total": 0, "total_pages": 0})
 
     def test_limit_maximum_is_enforced(self):
         with TestClient(app) as client:

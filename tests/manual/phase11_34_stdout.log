@@ -1,0 +1,804 @@
+{
+  "phase": "11.34",
+  "mode": "FINAL_CLASSIFICATION_CLOSURE",
+  "llm_used": false,
+  "date": "2026-09-10",
+  "current_database": "agente_ia_edu",
+  "before_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 46,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 42
+  },
+  "prewritten_phase_rows": 0,
+  "unclassified_day2_before": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128",
+    "2024 Q107",
+    "2024 Q129",
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q98",
+    "2025 Q150",
+    "2025 Q153",
+    "2025 Q155",
+    "2025 Q173"
+  ],
+  "protected_fp_before": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_before": "2f759e5172f1da0df364e29b2bf69cb0f2a7b49814e50406e8ed4b6eff6122ef",
+  "catalog_integrity_before": {
+    "duplicate_codes": [],
+    "orphan_parent": 0,
+    "bad_root_id": 0,
+    "invalid_parent_type": 0,
+    "ok": true
+  },
+  "preflight_gates": {
+    "Q129": {
+      "node": "PHYSICS-WAVES-PHENOMENA",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual": false,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q107": {
+      "node": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual": false,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q98": {
+      "node": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual": false,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q153": {
+      "node": "MATH-COMBINATORICS-COUNTING",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual": false,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q173": {
+      "node": "MATH-ALGEBRA-FUNCTIONS",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual": false,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q159": {
+      "node": "MATH-ALGEBRA-FUNCTIONS",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual": true,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q161": {
+      "node": "MATH-PROBABILITY-BASICS",
+      "band": "MEDIUM",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual": true,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q168": {
+      "node": "MATH-ALGEBRA-FUNCTIONS",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual": true,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q150": {
+      "node": "MATH-ALGEBRA-FUNCTIONS",
+      "band": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual": true,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q155": {
+      "node": "MATH-STATISTICS-DATA-INTERPRETATION",
+      "band": "MEDIUM",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual": true,
+      "evidence_literal": true,
+      "existing_active_cv2": []
+    }
+  },
+  "created_rows": [
+    {
+      "question": "2024 Q129",
+      "pc_id": "2bd18d21-f49a-4d1f-be74-9cf984e6d51e",
+      "content_code": "PHYSICS-WAVES-PHENOMENA",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q129-gap-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "X-rays are electromagnetic WAVES; the assessed physics is wave-matter interaction - transmission blocked by dense/thick material, so overlapping objects cannot be imaged. curriculum-v2 has no EM-radiation node; PHYSICS-WAVES-PHENOMENA is the nearest wave-phenomena CONTENT. Evidence supports 'X-ray physics question' but not the mechanical-wave framing -> LOW.",
+      "evidence_used": [
+        "os passageiros devem ter suas bagagens de mão examinadas antes do embarque, passando-as em esteiras para sua inspeção por aparelhos de raios X",
+        "Que explicação física justifica esse procedimento?"
+      ]
+    },
+    {
+      "question": "2024 Q107",
+      "pc_id": "cb21b49f-7161-4b81-baa1-1d018e59949c",
+      "content_code": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q107-gap-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "Phytoremediation intercepts the movement of a heavy metal (Hg) through the soil-plant-food-chain pathway ('impedindo sua entrada na cadeia alimentar'). Nearest ecology CONTENT is BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES (movement / trophic transfer of matter through the environment). No applied/environmental-biology node exists -> LOW.",
+      "evidence_used": [
+        "A fitorremediação é uma técnica que utiliza plantas para a remediação de ambientes contaminados",
+        "O método que retira o mercúrio de uma área contaminada, impedindo sua entrada na cadeia alimentar"
+      ]
+    },
+    {
+      "question": "2025 Q98",
+      "pc_id": "ae3e157c-3dac-45ee-8b31-3efbae336e3c",
+      "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q098-gap-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "Tetrodotoxin is produced and compartmentalised in the pufferfish gonads and viscera - an animal chemical-defence trait. BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS is the area catch-all CONTENT. The tested competency is applied food safety, so support is partial -> LOW.",
+      "evidence_used": [
+        "esse peixe contém uma potente neurotoxina termoestável, a tetrodotoxina, que é produzida e armazenada nas gônadas e vísceras",
+        "Que ação poderia evitar essa intoxicação?"
+      ]
+    },
+    {
+      "question": "2025 Q153",
+      "pc_id": "1ad36e23-aa0d-4034-b4c1-af9cbfbb1135",
+      "content_code": "MATH-COMBINATORICS-COUNTING",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q153-gap-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "A 7-digit identification code built from fixed-width positional fields with given value ranges (floor 1-4, sector 01-20, employee 001-135, shift 0/1). Structured numeric codes are taught within combinatorics/counting (the fundamental counting principle underlies the code space). Q153 only assembles the code, so support is partial -> LOW.",
+      "evidence_used": [
+        "cada visitante será identificado com um código sequencial numérico com 7 dígitos",
+        "o primeiro dígito indica o andar ao qual o visitante se dirige"
+      ]
+    },
+    {
+      "question": "2025 Q173",
+      "pc_id": "4062b005-a082-4ce1-9ed6-f35f66ca09d0",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q173-gap-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "The total cost per school is an affine expression C = 20*t + 10*p + r; the task compares three linear cost models and picks the minimum. Comparing first-degree cost models is algebra/functions territory (consistent with 2024 Q160, 2025 Q146/Q152 in this node). Q173 only evaluates at points, so support is partial -> LOW.",
+      "evidence_used": [
+        "Ela contratará os três produtos numa mesma autoescola de modo que o custo total nessa primeira etapa seja o menor possível",
+        "pacote com 20 aulas teóricas"
+      ]
+    },
+    {
+      "question": "2024 Q159",
+      "pc_id": "1daa5b32-d646-40c7-ad21-3f4eac995be4",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q159-visual-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Unit-rate proportional reasoning: litres per hectare -> litres for 20 ha -> least-cost purchase. The concept is explicit in the stem; the price list ('cartaz') is not reproduced, so the numeric answer and the cost-minimisation step cannot be verified -> LOW, visual_dependency.",
+      "evidence_used": [
+        "1 litro de defensivo do Tipo A é suficiente para aplicação em 0,5 hectare",
+        "O valor mínimo, em real, a ser gasto pelo agricultor é"
+      ]
+    },
+    {
+      "question": "2024 Q161",
+      "pc_id": "3c3ac53d-694b-4d28-b40a-5da7762a100b",
+      "content_code": "MATH-PROBABILITY-BASICS",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q161-visual-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "MEDIUM",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Uniform draw over a population: with equal selection probability, the most likely age band is the one with the largest count. The probability concept is fully stated and retrieval matches MATH-PROBABILITY-BASICS strongly (controlled-vocabulary, verbatim). Only the numeric comparison needs the bar chart -> MEDIUM, visual_dependency.",
+      "evidence_used": [
+        "Uma viagem de férias será sorteada entre esses funcionários, de forma que todos terão igual probabilidade de serem sorteados",
+        "A maior probabilidade é que o funcionário sorteado esteja na faixa etária"
+      ]
+    },
+    {
+      "question": "2024 Q168",
+      "pc_id": "caa70173-1965-43d4-a18d-cc128a8d491e",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q168-visual-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Functional dependence between three quantities via piecewise-linear graphs; find the maximum of III as I varies over [1,3] by chaining the two relations. The 'relations of dependence between quantities' concept is in the stem; the graphs are indispensable for any value -> LOW, visual_dependency.",
+      "evidence_used": [
+        "Três grandezas (I, II e III) se relacionam entre si",
+        "descrevem as relações de dependência existentes entre as grandezas I e II, e entre as grandezas II e III"
+      ]
+    },
+    {
+      "question": "2025 Q150",
+      "pc_id": "c96a5981-0570-43fb-81c3-07bbb8fdb72f",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q150-visual-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Scale as a ratio between image length and real length (RATIO subcontent of MATH-ALGEBRA-FUNCTIONS); pick the displacement with the greatest real length. The scale/proportion concept is in the stem; the five figures are indispensable to compare -> LOW, visual_dependency.",
+      "evidence_used": [
+        "uma tela que ajusta automaticamente a escala empregada na exibição de cada deslocamento",
+        "o comprimento desse deslocamento, em centímetro, em conformidade com a escala empregada"
+      ]
+    },
+    {
+      "question": "2025 Q155",
+      "pc_id": "30ce2ef7-d174-4ff3-a11a-9d8c91db1e45",
+      "content_code": "MATH-STATISTICS-DATA-INTERPRETATION",
+      "status": "NEEDS_REVIEW",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.34-q155-visual-closure-v1",
+      "classification_mode": "FORCED_CLOSURE",
+      "confidence": "MEDIUM",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Read partial values from graphs and reconstruct a total across three disjoint sport categories (each student practises exactly one). The data-interpretation concept is unambiguous from the stem; the graphs supply the numbers -> MEDIUM, visual_dependency.",
+      "evidence_used": [
+        "todos os estudantes do ensino médio praticam uma das três modalidades esportivas oferecidas como atividade física",
+        "Qual é a quantidade de estudantes no ensino médio dessa escola?"
+      ]
+    }
+  ],
+  "Q129": {
+    "question": "2024 Q129",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "PHYSICS-WAVES-PHENOMENA",
+    "pc_id": "2bd18d21-f49a-4d1f-be74-9cf984e6d51e",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE",
+    "visual_dependency": false
+  },
+  "Q107": {
+    "question": "2024 Q107",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+    "pc_id": "cb21b49f-7161-4b81-baa1-1d018e59949c",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE",
+    "visual_dependency": false
+  },
+  "Q98": {
+    "question": "2025 Q98",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+    "pc_id": "ae3e157c-3dac-45ee-8b31-3efbae336e3c",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE",
+    "visual_dependency": false
+  },
+  "Q153": {
+    "question": "2025 Q153",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-COMBINATORICS-COUNTING",
+    "pc_id": "1ad36e23-aa0d-4034-b4c1-af9cbfbb1135",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE",
+    "visual_dependency": false
+  },
+  "Q173": {
+    "question": "2025 Q173",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "4062b005-a082-4ce1-9ed6-f35f66ca09d0",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE",
+    "visual_dependency": false
+  },
+  "Q159": {
+    "question": "2024 Q159",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "1daa5b32-d646-40c7-ad21-3f4eac995be4",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE_VISUAL",
+    "visual_dependency": true
+  },
+  "Q161": {
+    "question": "2024 Q161",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-PROBABILITY-BASICS",
+    "pc_id": "3c3ac53d-694b-4d28-b40a-5da7762a100b",
+    "status": "NEEDS_REVIEW",
+    "confidence": "MEDIUM",
+    "review_reason": "FORCED_CLOSURE_VISUAL",
+    "visual_dependency": true
+  },
+  "Q168": {
+    "question": "2024 Q168",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "caa70173-1965-43d4-a18d-cc128a8d491e",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE_VISUAL",
+    "visual_dependency": true
+  },
+  "Q150": {
+    "question": "2025 Q150",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "c96a5981-0570-43fb-81c3-07bbb8fdb72f",
+    "status": "NEEDS_REVIEW",
+    "confidence": "LOW",
+    "review_reason": "FORCED_CLOSURE_VISUAL",
+    "visual_dependency": true
+  },
+  "Q155": {
+    "question": "2025 Q155",
+    "verdict": "PERSISTED_FORCED_CLOSURE",
+    "content_code": "MATH-STATISTICS-DATA-INTERPRETATION",
+    "pc_id": "30ce2ef7-d174-4ff3-a11a-9d8c91db1e45",
+    "status": "NEEDS_REVIEW",
+    "confidence": "MEDIUM",
+    "review_reason": "FORCED_CLOSURE_VISUAL",
+    "visual_dependency": true
+  },
+  "after_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 56,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 52
+  },
+  "deltas": {
+    "questions": 0,
+    "question_versions": 0,
+    "question_options": 0,
+    "booklet_questions": 0,
+    "catalog_nodes": 0,
+    "catalog_node_prerequisites": 0,
+    "pedagogical_classifications": 10,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 10
+  },
+  "protected_fp_after": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_after_excluding_new": "2f759e5172f1da0df364e29b2bf69cb0f2a7b49814e50406e8ed4b6eff6122ef",
+  "unclassified_day2_after": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128"
+  ],
+  "catalog_integrity_after": {
+    "duplicate_codes": [],
+    "orphan_parent": 0,
+    "bad_root_id": 0,
+    "invalid_parent_type": 0,
+    "ok": true
+  },
+  "distribution": {
+    "by_discipline": {
+      "(none)": 20,
+      "BIOLOGY": 10,
+      "CHEMISTRY": 4,
+      "MATH": 15,
+      "PHYSICS": 3
+    },
+    "by_confidence": {
+      "(historic)": 42,
+      "LOW": 8,
+      "MEDIUM": 2
+    },
+    "by_classification_mode": {
+      "HUMAN_REVIEW": 6,
+      "INITIAL": 14,
+      "(historic)": 22,
+      "FORCED_CLOSURE": 10
+    }
+  },
+  "target_verification": {
+    "Q129": {
+      "active_cv2_rows": [
+        {
+          "id": "2bd18d21-f49a-4d1f-be74-9cf984e6d51e",
+          "pcc": "PHYSICS-WAVES-PHENOMENA",
+          "model_version": "phase11.34-q129-gap-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q107": {
+      "active_cv2_rows": [
+        {
+          "id": "cb21b49f-7161-4b81-baa1-1d018e59949c",
+          "pcc": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+          "model_version": "phase11.34-q107-gap-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q98": {
+      "active_cv2_rows": [
+        {
+          "id": "ae3e157c-3dac-45ee-8b31-3efbae336e3c",
+          "pcc": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+          "model_version": "phase11.34-q098-gap-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q153": {
+      "active_cv2_rows": [
+        {
+          "id": "1ad36e23-aa0d-4034-b4c1-af9cbfbb1135",
+          "pcc": "MATH-COMBINATORICS-COUNTING",
+          "model_version": "phase11.34-q153-gap-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q173": {
+      "active_cv2_rows": [
+        {
+          "id": "4062b005-a082-4ce1-9ed6-f35f66ca09d0",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.34-q173-gap-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q159": {
+      "active_cv2_rows": [
+        {
+          "id": "1daa5b32-d646-40c7-ad21-3f4eac995be4",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.34-q159-visual-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q161": {
+      "active_cv2_rows": [
+        {
+          "id": "3c3ac53d-694b-4d28-b40a-5da7762a100b",
+          "pcc": "MATH-PROBABILITY-BASICS",
+          "model_version": "phase11.34-q161-visual-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "MEDIUM"
+        }
+      ],
+      "ok": true
+    },
+    "Q168": {
+      "active_cv2_rows": [
+        {
+          "id": "caa70173-1965-43d4-a18d-cc128a8d491e",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.34-q168-visual-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q150": {
+      "active_cv2_rows": [
+        {
+          "id": "c96a5981-0570-43fb-81c3-07bbb8fdb72f",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.34-q150-visual-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "LOW"
+        }
+      ],
+      "ok": true
+    },
+    "Q155": {
+      "active_cv2_rows": [
+        {
+          "id": "30ce2ef7-d174-4ff3-a11a-9d8c91db1e45",
+          "pcc": "MATH-STATISTICS-DATA-INTERPRETATION",
+          "model_version": "phase11.34-q155-visual-closure-v1",
+          "status": "NEEDS_REVIEW",
+          "lifecycle": "ACTIVE",
+          "cm": "FORCED_CLOSURE",
+          "cf": "MEDIUM"
+        }
+      ],
+      "ok": true
+    }
+  },
+  "duplicate_active_cv2": [],
+  "orphan_classifications": 0,
+  "classifications_pointing_to_inactive_node": 0,
+  "historical_metadata_preserved_on_new_rows": true,
+  "integrity_checks": {
+    "delta_pedagogical_classifications": 10,
+    "delta_curriculum_v2_ACTIVE": 10,
+    "delta_catalog_nodes": 0,
+    "delta_catalog_node_prerequisites": 0,
+    "delta_questions": 0,
+    "delta_question_versions": 0,
+    "delta_question_options": 0,
+    "delta_question_classifications": 0,
+    "protected_unchanged": true,
+    "all_other_pc_unchanged": true,
+    "duplicates": [],
+    "orphans": 0,
+    "inactive_node_refs": 0,
+    "catalog_ok": true,
+    "all_targets_ok": true,
+    "historical_metadata_preserved": true
+  },
+  "idempotency": {
+    "second_run": true,
+    "targets_noop": 10,
+    "targets_written": 0,
+    "new_rows": 0,
+    "curriculum_v2_ACTIVE_delta": 0,
+    "provider_calls": 0
+  },
+  "provider_calls": 0,
+  "forced_closure_questions": [
+    "2024 Q129",
+    "2024 Q107",
+    "2025 Q98",
+    "2025 Q153",
+    "2025 Q173",
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q150",
+    "2025 Q155"
+  ],
+  "forced_closure_detail": [
+    {
+      "question": "2024 Q129",
+      "content": "PHYSICS-WAVES-PHENOMENA",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "X-rays are electromagnetic WAVES; the assessed physics is wave-matter interaction - transmission blocked by dense/thick material, so overlapping objects cannot be imaged. curriculum-v2 has no EM-radiation node; PHYSICS-WAVES-PHENOMENA is the nearest wave-phenomena CONTENT. Evidence supports 'X-ray physics question' but not the mechanical-wave framing -> LOW."
+    },
+    {
+      "question": "2024 Q107",
+      "content": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "Phytoremediation intercepts the movement of a heavy metal (Hg) through the soil-plant-food-chain pathway ('impedindo sua entrada na cadeia alimentar'). Nearest ecology CONTENT is BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES (movement / trophic transfer of matter through the environment). No applied/environmental-biology node exists -> LOW."
+    },
+    {
+      "question": "2025 Q98",
+      "content": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "Tetrodotoxin is produced and compartmentalised in the pufferfish gonads and viscera - an animal chemical-defence trait. BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS is the area catch-all CONTENT. The tested competency is applied food safety, so support is partial -> LOW."
+    },
+    {
+      "question": "2025 Q153",
+      "content": "MATH-COMBINATORICS-COUNTING",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "A 7-digit identification code built from fixed-width positional fields with given value ranges (floor 1-4, sector 01-20, employee 001-135, shift 0/1). Structured numeric codes are taught within combinatorics/counting (the fundamental counting principle underlies the code space). Q153 only assembles the code, so support is partial -> LOW."
+    },
+    {
+      "question": "2025 Q173",
+      "content": "MATH-ALGEBRA-FUNCTIONS",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE",
+      "visual_dependency": false,
+      "justification": "The total cost per school is an affine expression C = 20*t + 10*p + r; the task compares three linear cost models and picks the minimum. Comparing first-degree cost models is algebra/functions territory (consistent with 2024 Q160, 2025 Q146/Q152 in this node). Q173 only evaluates at points, so support is partial -> LOW."
+    },
+    {
+      "question": "2024 Q159",
+      "content": "MATH-ALGEBRA-FUNCTIONS",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Unit-rate proportional reasoning: litres per hectare -> litres for 20 ha -> least-cost purchase. The concept is explicit in the stem; the price list ('cartaz') is not reproduced, so the numeric answer and the cost-minimisation step cannot be verified -> LOW, visual_dependency."
+    },
+    {
+      "question": "2024 Q161",
+      "content": "MATH-PROBABILITY-BASICS",
+      "confidence": "MEDIUM",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Uniform draw over a population: with equal selection probability, the most likely age band is the one with the largest count. The probability concept is fully stated and retrieval matches MATH-PROBABILITY-BASICS strongly (controlled-vocabulary, verbatim). Only the numeric comparison needs the bar chart -> MEDIUM, visual_dependency."
+    },
+    {
+      "question": "2024 Q168",
+      "content": "MATH-ALGEBRA-FUNCTIONS",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Functional dependence between three quantities via piecewise-linear graphs; find the maximum of III as I varies over [1,3] by chaining the two relations. The 'relations of dependence between quantities' concept is in the stem; the graphs are indispensable for any value -> LOW, visual_dependency."
+    },
+    {
+      "question": "2025 Q150",
+      "content": "MATH-ALGEBRA-FUNCTIONS",
+      "confidence": "LOW",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Scale as a ratio between image length and real length (RATIO subcontent of MATH-ALGEBRA-FUNCTIONS); pick the displacement with the greatest real length. The scale/proportion concept is in the stem; the five figures are indispensable to compare -> LOW, visual_dependency."
+    },
+    {
+      "question": "2025 Q155",
+      "content": "MATH-STATISTICS-DATA-INTERPRETATION",
+      "confidence": "MEDIUM",
+      "review_reason": "FORCED_CLOSURE_VISUAL",
+      "visual_dependency": true,
+      "justification": "Read partial values from graphs and reconstruct a total across three disjoint sport categories (each student practises exactly one). The data-interpretation concept is unambiguous from the stem; the graphs supply the numbers -> MEDIUM, visual_dependency."
+    }
+  ],
+  "classification_mode_counts": {
+    "DETERMINISTIC": 0,
+    "AI_ASSISTED": 0,
+    "FORCED_CLOSURE": 10
+  },
+  "protected_proposals_registered_only": {
+    "2020 Q91": {
+      "proposed_content": "CHEMISTRY-ORGANIC-POLYMERS",
+      "basis": "PHASE 11.24 N=3 = 3/3 CLASSIFIED HIGH; retrieval s=60 (tie w/ a PLANE-AREA trap)",
+      "action": "REGISTERED FOR REVIEW ONLY - not persisted (protected)"
+    },
+    "2020 Q93": {
+      "proposed_content": "CHEMISTRY-PHYSICAL-KINETICS",
+      "basis": "PHASE 11.24 N=3 = 2/3 CLASSIFIED HIGH; retrieval s=30",
+      "action": "REGISTERED FOR REVIEW ONLY - not persisted (protected)"
+    },
+    "2020 Q107": {
+      "proposed_content": null,
+      "basis": "PHASE 11.24 N=3 = 3/3 HUMAN_REVIEW; ancestor-only retrieval; no defensible CONTENT",
+      "action": "REGISTERED AS UNRESOLVED - not persisted (protected)"
+    },
+    "2020 Q128": {
+      "proposed_content": "CHEMISTRY-SOLUTIONS",
+      "basis": "PHASE 11.24 N=3 = 3/3 CLASSIFIED HIGH; retrieval EXACT s=124",
+      "action": "REGISTERED FOR REVIEW ONLY - not persisted (protected)"
+    }
+  },
+  "day2_coverage_before": "42/56 (75%)",
+  "day2_coverage_after": "52/56 (93%)",
+  "day2_remaining_unclassified": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128"
+  ],
+  "day2_remaining_reason": "4 protected 2020 questions - rule 5 forbids persistence; proposals registered for review only",
+  "day1_note": "276 Day-1 questions (Linguagens + Ciencias Humanas) are structurally OUT OF SCOPE for curriculum-v2, which has only Physics/Chemistry/Biology/Math nodes. They are not HUMAN_REVIEW - they are not in this taxonomy's domain.",
+  "closure_summary": {
+    "day2_in_scope": 56,
+    "day2_final_classified": 52,
+    "day2_forced_closure_of_those": 10,
+    "day2_protected_pending": 4,
+    "day2_unresolved_non_protected": 0
+  },
+  "security": {
+    "DATABASE_WRITES": 1,
+    "CLASSIFICATIONS_CREATED": 10,
+    "CATALOG_NODES_CREATED": 0,
+    "BINDINGS_CREATED": 0,
+    "OPENAI_CALLS": 0,
+    "ALEMBIC_EXECUTION": 0,
+    "CODE_FILES_MODIFIED": 0,
+    "PRODUCTION_DATA_MODIFIED": 1,
+    "questions_versions_options_modified": 0,
+    "existing_classifications_modified": 0,
+    "no_provider_constructed": true,
+    "secrets_in_report": false
+  },
+  "total_elapsed_s": 0.2,
+  "FINAL_DECISION": "PHASE_11_34_FINAL_CLASSIFICATION_CLOSURE_COMPLETE"
+}

@@ -1,0 +1,509 @@
+{
+  "phase": "11.31",
+  "mode": "FINAL_DAY2_BATCH",
+  "llm_used": false,
+  "date": "2026-09-10",
+  "policy": {
+    "provider_calls_budget_used": 0,
+    "bindings": 0,
+    "nodes": 0,
+    "deterministic_only": true
+  },
+  "current_database": "agente_ia_edu",
+  "before_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 41,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 37
+  },
+  "initial_unclassified_day2": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128",
+    "2024 Q107",
+    "2024 Q129",
+    "2024 Q159",
+    "2024 Q160",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q96",
+    "2025 Q97",
+    "2025 Q98",
+    "2025 Q146",
+    "2025 Q150",
+    "2025 Q152",
+    "2025 Q153",
+    "2025 Q155",
+    "2025 Q173"
+  ],
+  "initial_unclassified_count": 19,
+  "disposition_covers_all_unclassified": true,
+  "disposition_entries_now_classified": [],
+  "prewritten_phase_rows": 0,
+  "protected_fp_before": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_before": "9090f6f23a50df05a78a1a5c055a2f74978d2461b46a612474e4e8a221be29a4",
+  "all_pc_rows_before": 41,
+  "preflight_gates": {
+    "Q96": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q146": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q152": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    },
+    "Q160": {
+      "node_type": "CONTENT",
+      "node_active": true,
+      "version_kind": "official_original",
+      "is_immutable": true,
+      "options": 5,
+      "evidence_all_literal": true,
+      "existing_active_cv2": []
+    }
+  },
+  "created_rows": [
+    {
+      "question": "2025 Q96",
+      "pc_id": "f424e33b-8d68-4e6e-a7f3-35d149045b4e",
+      "content_code": "CHEMISTRY-SOLUTIONS",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.31-q096-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-31-curator-approved",
+      "evidence_used": [
+        "Existe um processo de purificação de água em que são removidos os sais dissolvidos",
+        "esse tipo de água não é adequado para ingestão, pois pode causar problemas de saúde, como carência iônica e diarreia"
+      ]
+    },
+    {
+      "question": "2025 Q146",
+      "pc_id": "d20e86df-1fd6-46e3-9b35-49dd4fb8702a",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.31-q146-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-31-curator-approved",
+      "evidence_used": [
+        "O preço do cilindro é proporcional à sua capacidade",
+        "o consumo do GNV é de 1 m3 a cada 13 km rodados"
+      ]
+    },
+    {
+      "question": "2025 Q152",
+      "pc_id": "3189b768-859f-432d-99cd-a97be92a41d1",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.31-q152-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-31-curator-approved",
+      "evidence_used": [
+        "cada um trabalhando 6 horas diárias, produz 720 unidades por dia",
+        "Todos os funcionários produzem igual quantidade de tijolos a cada hora, independentemente de trabalharem 6 ou 9 horas diárias"
+      ]
+    },
+    {
+      "question": "2024 Q160",
+      "pc_id": "475c0621-28b1-4119-88a1-3fe6bddc3750",
+      "content_code": "MATH-ALGEBRA-FUNCTIONS",
+      "status": "CLASSIFIED",
+      "lifecycle": "ACTIVE",
+      "source": "rule",
+      "model_version": "phase11.31-q160-deterministic-v1",
+      "prompt_version": "v1",
+      "provider_name": "phase-11-31-curator-approved",
+      "evidence_used": [
+        "o valor total a ser pago por um cliente na compra de 5 porções permaneça o mesmo",
+        "qual será o novo valor cobrado, em real, por uma porção"
+      ]
+    }
+  ],
+  "Q96": {
+    "question": "2025 Q96",
+    "verdict": "PERSISTED",
+    "expected_target": "CHEMISTRY-SOLUTIONS",
+    "content_code": "CHEMISTRY-SOLUTIONS",
+    "pc_id": "f424e33b-8d68-4e6e-a7f3-35d149045b4e",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "Q146": {
+    "question": "2025 Q146",
+    "verdict": "PERSISTED",
+    "expected_target": "MATH-ALGEBRA-FUNCTIONS",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "d20e86df-1fd6-46e3-9b35-49dd4fb8702a",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "Q152": {
+    "question": "2025 Q152",
+    "verdict": "PERSISTED",
+    "expected_target": "MATH-ALGEBRA-FUNCTIONS",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "3189b768-859f-432d-99cd-a97be92a41d1",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "Q160": {
+    "question": "2024 Q160",
+    "verdict": "PERSISTED",
+    "expected_target": "MATH-ALGEBRA-FUNCTIONS",
+    "content_code": "MATH-ALGEBRA-FUNCTIONS",
+    "pc_id": "475c0621-28b1-4119-88a1-3fe6bddc3750",
+    "status": "CLASSIFIED",
+    "lifecycle": "ACTIVE",
+    "source": "rule",
+    "llm_used": false
+  },
+  "after_counts": {
+    "questions": 332,
+    "question_versions": 332,
+    "question_options": 1660,
+    "booklet_questions": 332,
+    "catalog_nodes": 64,
+    "catalog_node_prerequisites": 3,
+    "pedagogical_classifications": 45,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 41
+  },
+  "deltas": {
+    "questions": 0,
+    "question_versions": 0,
+    "question_options": 0,
+    "booklet_questions": 0,
+    "catalog_nodes": 0,
+    "catalog_node_prerequisites": 0,
+    "pedagogical_classifications": 4,
+    "question_classifications": 0,
+    "curriculum_v2_ACTIVE": 4
+  },
+  "protected_fp_after": {
+    "2020_Q91": "be53679cce6bd5e4e5674d49a08ae4bc5c6f05bcef83027f730eb0299956fd4d",
+    "2020_Q93": "b70168db9f70a78f247f98ea1e349e61ba2be60f95cc73c6b14e4cde6c297681",
+    "2020_Q107": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2020_Q128": "ced1bab7939514dd05cdf3ee5150a3eb88f807805e2b5424e18977c3b2169c4e",
+    "2020_Q133": "3a1c3a14819397132a6716c79cddaf0eb2fe3b5054b99e4412d344bed03e7d2e"
+  },
+  "all_pc_fp_after_excluding_new": "9090f6f23a50df05a78a1a5c055a2f74978d2461b46a612474e4e8a221be29a4",
+  "target_verification": {
+    "Q96": {
+      "active_cv2_rows": [
+        {
+          "id": "f424e33b-8d68-4e6e-a7f3-35d149045b4e",
+          "pcc": "CHEMISTRY-SOLUTIONS",
+          "model_version": "phase11.31-q096-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    },
+    "Q146": {
+      "active_cv2_rows": [
+        {
+          "id": "d20e86df-1fd6-46e3-9b35-49dd4fb8702a",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.31-q146-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    },
+    "Q152": {
+      "active_cv2_rows": [
+        {
+          "id": "3189b768-859f-432d-99cd-a97be92a41d1",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.31-q152-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    },
+    "Q160": {
+      "active_cv2_rows": [
+        {
+          "id": "475c0621-28b1-4119-88a1-3fe6bddc3750",
+          "pcc": "MATH-ALGEBRA-FUNCTIONS",
+          "model_version": "phase11.31-q160-deterministic-v1",
+          "status": "CLASSIFIED",
+          "lifecycle": "ACTIVE"
+        }
+      ],
+      "points_to_expected": true
+    }
+  },
+  "duplicate_active_cv2": [],
+  "orphan_classifications": 0,
+  "inactive_node_refs": 0,
+  "final_unclassified_day2": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128",
+    "2024 Q107",
+    "2024 Q129",
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q97",
+    "2025 Q98",
+    "2025 Q150",
+    "2025 Q153",
+    "2025 Q155",
+    "2025 Q173"
+  ],
+  "integrity_checks": {
+    "delta_pedagogical_classifications": 4,
+    "delta_curriculum_v2_ACTIVE": 4,
+    "delta_catalog_nodes": 0,
+    "delta_catalog_node_prerequisites": 0,
+    "delta_question_classifications": 0,
+    "delta_questions": 0,
+    "delta_question_versions": 0,
+    "delta_question_options": 0,
+    "protected_unchanged": true,
+    "all_other_pc_unchanged": true,
+    "duplicates": [],
+    "orphans": 0,
+    "inactive_node_refs": 0,
+    "all_targets_point_to_expected": true
+  },
+  "idempotency": {
+    "second_run": true,
+    "targets_noop": 4,
+    "targets_written": 0,
+    "new_rows": 0,
+    "curriculum_v2_ACTIVE_delta": 0,
+    "provider_calls": 0
+  },
+  "provider_calls": 0,
+  "per_question_final_decision": {
+    "2025 Q96": {
+      "decision": "CLASSIFIED",
+      "target": "CHEMISTRY-SOLUTIONS",
+      "method": "deterministic"
+    },
+    "2025 Q146": {
+      "decision": "CLASSIFIED",
+      "target": "MATH-ALGEBRA-FUNCTIONS",
+      "method": "deterministic"
+    },
+    "2025 Q152": {
+      "decision": "CLASSIFIED",
+      "target": "MATH-ALGEBRA-FUNCTIONS",
+      "method": "deterministic"
+    },
+    "2024 Q160": {
+      "decision": "CLASSIFIED",
+      "target": "MATH-ALGEBRA-FUNCTIONS",
+      "method": "deterministic"
+    },
+    "2024 Q159": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "price list is 'divulgados em um cartaz' and is NOT reproduced in the statement; minimum-cost answer is uncomputable without the asset"
+    },
+    "2024 Q161": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "every option A-E is decided by quantities/percentages read from the bar chart (setor x faixa etaria); probability framing alone is insufficient"
+    },
+    "2024 Q168": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "two piecewise-linear graphs (I-II and II-III) are mandatory to read the maximum of III"
+    },
+    "2025 Q150": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "options are bare I..V; the five scale figures carry all the data"
+    },
+    "2025 Q155": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "VISUAL_DEPENDENCY",
+      "reason": "graphs with 'algumas quantidades nao informadas' are mandatory to total the students"
+    },
+    "2024 Q107": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "phytoremediation / bioremediation mechanism; no environmental-biology CONTENT node (CHEMISTRY-ENVIRONMENTAL-AIR-POLLUTION is air+chemistry). Single question -> no node created."
+    },
+    "2024 Q129": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "X-ray transmission / EM-radiation-matter interaction; PHYSICS-WAVES-PHENOMENA is interference/sound, PHYSICS-EM-* is electrostatics/induction. No EM-radiation node. 'razao' EXACT retrieval is a pure lexical trap. Single question -> no node created."
+    },
+    "2025 Q97": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "pupillary light reflex (dim light -> pupil dilates -> more light to retina). Borderline between BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS and an optics node; held for curator review rather than a loose fit."
+    },
+    "2025 Q98": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "tetrodotoxin location (gonads/viscera) and thermostability; no toxinology / animal-chemical-defence CONTENT node. Single question -> no node created."
+    },
+    "2025 Q153": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "positional construction of a 7-digit identification code; not an arrangement-counting problem, so MATH-COMBINATORICS-COUNTING is a weak fit. Single question -> no node created."
+    },
+    "2025 Q173": {
+      "decision": "HUMAN_REVIEW",
+      "subtype": "TAXONOMY_GAP",
+      "reason": "evaluate three cost expressions and pick the minimum - pure arithmetic comparison, no proportion / function / equation; no arithmetic-optimization CONTENT node. Single question -> no node created."
+    },
+    "2020 Q91": {
+      "decision": "PROTECTED_ANALYSIS_ONLY",
+      "note": "retrieval CHEMISTRY-ORGANIC-POLYMERS s=60 (tie with a 'revestimento' PLANE-AREA trap); PHASE 11.24 N=3 = 3/3 CLASSIFIED HIGH -> POLYMERS. Classifiable in principle; protection rule blocks persistence."
+    },
+    "2020 Q93": {
+      "decision": "PROTECTED_ANALYSIS_ONLY",
+      "note": "retrieval CHEMISTRY-PHYSICAL-KINETICS s=30; PHASE 11.24 N=3 = 2/3 only. Protected."
+    },
+    "2020 Q107": {
+      "decision": "PROTECTED_ANALYSIS_ONLY",
+      "note": "ancestor-only retrieval; PHASE 11.24 N=3 = 3/3 HUMAN_REVIEW. Protected."
+    },
+    "2020 Q128": {
+      "decision": "PROTECTED_ANALYSIS_ONLY",
+      "note": "retrieval CHEMISTRY-SOLUTIONS EXACT s=124; PHASE 11.24 N=3 = 3/3 CLASSIFIED HIGH. Classifiable in principle; protection rule blocks persistence."
+    }
+  },
+  "classified_this_phase": [
+    "2025 Q96",
+    "2025 Q146",
+    "2025 Q152",
+    "2024 Q160"
+  ],
+  "human_review": [
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q150",
+    "2025 Q155",
+    "2024 Q107",
+    "2024 Q129",
+    "2025 Q97",
+    "2025 Q98",
+    "2025 Q153",
+    "2025 Q173"
+  ],
+  "human_review_visual_dependency": [
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q150",
+    "2025 Q155"
+  ],
+  "human_review_taxonomy_gap": [
+    "2024 Q107",
+    "2024 Q129",
+    "2025 Q97",
+    "2025 Q98",
+    "2025 Q153",
+    "2025 Q173"
+  ],
+  "protected_analysis_only": [
+    "2020 Q91",
+    "2020 Q93",
+    "2020 Q107",
+    "2020 Q128"
+  ],
+  "genuine_taxonomy_gaps": {
+    "electromagnetic_radiation_xrays": [
+      "2024 Q129"
+    ],
+    "environmental_remediation_biology": [
+      "2024 Q107"
+    ],
+    "arithmetic_cost_optimization": [
+      "2025 Q173",
+      "2024 Q159(partly, also asset-blocked)"
+    ],
+    "sensory_physiology_or_optics": [
+      "2025 Q97"
+    ],
+    "animal_chemical_defence_toxinology": [
+      "2025 Q98"
+    ],
+    "note": "No node created: each gap currently maps to a single unclassified question; per anti-fragmentation policy a dedicated design phase should decide these together."
+  },
+  "visual_dependencies": [
+    "2024 Q159",
+    "2024 Q161",
+    "2024 Q168",
+    "2025 Q150",
+    "2025 Q155"
+  ],
+  "bindings_added_or_changed": [],
+  "taxonomy_nodes_created": [],
+  "counts_summary": {
+    "initial_unclassified": 19,
+    "classified_this_phase": 4,
+    "remaining_unclassified": 15,
+    "remaining_human_review": 11,
+    "protected_untouched": 4
+  },
+  "security": {
+    "DATABASE_WRITES": 1,
+    "CLASSIFICATIONS_CREATED": 4,
+    "CATALOG_NODES_CREATED": 0,
+    "OPENAI_CALLS": 0,
+    "VOCABULARY_CHANGES": 0,
+    "ALEMBIC_EXECUTION": 0,
+    "CODE_FILES_MODIFIED": 0,
+    "PRODUCTION_DATA_MODIFIED": 1,
+    "no_provider_constructed": true,
+    "api_key_in_report": false
+  },
+  "total_elapsed_s": 0.3,
+  "FINAL_DECISION": "PHASE_11_31_FINAL_DAY2_CLASSIFICATION_COMPLETE"
+}

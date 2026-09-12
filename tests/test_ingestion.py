@@ -339,15 +339,13 @@ class TestIngestionService(unittest.IsolatedAsyncioTestCase):
             # Hashes should match
             self.assertEqual(doc1_hash, doc2_hash)
 
-            # Both documents created (but same hash)
+            # Repeating a document reuses its source record.
             result = await session.execute(
                 select(IngestionDocument).where(IngestionDocument.document_hash == doc1_hash)
             )
             docs_with_same_hash = result.scalars().all()
 
-            # Could be 2 documents (both ingested) or use hash to deduplicate
-            # For now, verify that hash is consistent
-            self.assertEqual(len(docs_with_same_hash), 2)
+            self.assertEqual(len(docs_with_same_hash), 1)
 
     async def test_traceability_question_to_document(self):
         """Question → episódio → documento."""

@@ -119,8 +119,8 @@ class TestEndToEndLearningFlow(unittest.IsolatedAsyncioTestCase):
         ])
 
         # 4. Questions (EASY & MEDIUM)
-        q_easy = Question(validation_status="approved")
-        q_med = Question(validation_status="approved")
+        q_easy = Question(validation_status="approved", status="PUBLISHED", visibility_scope="PUBLIC")
+        q_med = Question(validation_status="approved", status="PUBLISHED", visibility_scope="PUBLIC")
         session.add_all([q_easy, q_med])
         await session.flush()
 

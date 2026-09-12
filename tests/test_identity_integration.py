@@ -16,6 +16,7 @@ from uuid import uuid4
 from agente_ia_edu.api.dependencies import (
     TestExternalIdentityProvider,
     get_identity_provider,
+    reset_identity_provider,
     set_identity_provider,
 )
 from agente_ia_edu.identity import (
@@ -29,7 +30,11 @@ class TestExternalIdentityProviderTests(unittest.TestCase):
 
     def setUp(self):
         """Reset to default provider before each test."""
-        set_identity_provider(TestExternalIdentityProvider())
+        reset_identity_provider()
+
+    def tearDown(self):
+        """Ensure global identity state does not leak across tests."""
+        reset_identity_provider()
 
     def test_provider_resolves_student_identity(self):
         """Test that provider correctly resolves student identity."""
@@ -88,6 +93,28 @@ class TestExternalIdentityProviderTests(unittest.TestCase):
         
         asyncio.run(run_test())
 
+    def test_reset_identity_provider_restores_default_test_provider(self):
+        """Regression: resetting the global provider should restore the default test identity."""
+        class CustomProvider:
+            async def resolve(self, request):
+                return ExternalIdentityContext(
+                    provider="Custom",
+                    external_user_id=request.external_user_id,
+                    student_id=request.external_user_id,
+                    roles=("student",),
+                )
+
+        set_identity_provider(CustomProvider())
+        self.assertEqual(get_identity_provider().__class__.__name__, "CustomProvider")
+
+        from agente_ia_edu.api.dependencies import reset_identity_provider
+        reset_identity_provider()
+
+        provider = get_identity_provider()
+        self.assertIsInstance(provider, TestExternalIdentityProvider)
+        self.assertTrue(callable(provider.resolve))
+        self.assertEqual(provider.resolve.__qualname__.split(".")[0], "TestExternalIdentityProvider")
+
     def test_provider_handles_unformatted_subject(self):
         """Test provider handles subjects without role:id format."""
         async def run_test():
@@ -132,6 +159,12 @@ class IdentityIsolationTests(unittest.TestCase):
     Integration tests with FastAPI endpoints are in test_attempt_execution.py
     """
 
+    def setUp(self):
+        reset_identity_provider()
+
+    def tearDown(self):
+        reset_identity_provider()
+
     def test_different_students_have_different_ids(self):
         """Test that different students have distinct identities."""
         alice = ExternalIdentityContext(
@@ -165,6 +198,12 @@ class IdentityIsolationTests(unittest.TestCase):
 
 class NoPlaceholderTests(unittest.TestCase):
     """Test that no hardcoded placeholders exist in the execution path."""
+
+    def setUp(self):
+        reset_identity_provider()
+
+    def tearDown(self):
+        reset_identity_provider()
 
     def test_test_provider_identifies_as_test(self):
         """Test that TestExternalIdentityProvider is clearly marked as test."""
@@ -222,6 +261,12 @@ class HostIntegrationPatternTests(unittest.TestCase):
     3. Optionally override get_current_identity() to extract request data
     """
 
+    def setUp(self):
+        reset_identity_provider()
+
+    def tearDown(self):
+        reset_identity_provider()
+
     def test_provider_can_be_replaced(self):
         """Test that application provider can be swapped."""
         original_provider = get_identity_provider()
@@ -259,6 +304,12 @@ class StandaloneFutureTests(unittest.TestCase):
     
     Standalone will need a StandaloneIdentityProvider that does login flow.
     """
+
+    def setUp(self):
+        reset_identity_provider()
+
+    def tearDown(self):
+        reset_identity_provider()
 
     def test_architecture_accepts_any_provider(self):
         """Test that any provider matching protocol is accepted."""

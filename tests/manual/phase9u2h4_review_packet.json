@@ -1,0 +1,347 @@
+{
+  "phase": "9U.2-H4",
+  "taxonomy_version": "curriculum-v2",
+  "generated_by": "phase9u2h4_review_packet.py",
+  "review_official_numbers": [
+    95,
+    104,
+    105,
+    112,
+    129,
+    134
+  ],
+  "protected_official_numbers": [
+    91,
+    93,
+    107,
+    128
+  ],
+  "already_classified_official_numbers": [
+    92,
+    94,
+    103,
+    111,
+    113,
+    125,
+    126,
+    127,
+    130,
+    133,
+    135,
+    152,
+    153,
+    172
+  ],
+  "n05_deferred_content": "CHEMISTRY-ORGANIC-FUNCTIONAL-GROUPS",
+  "database_writes": 0,
+  "openai_calls": 0,
+  "alembic_execution": 0,
+  "questions": [
+    {
+      "official_number": 95,
+      "question_version_id": "1446af69-0ed8-4046-be8b-d0d616036bd4",
+      "content_hash": "31f47192205b929345a0700db39559ecaa1853a6eeda91c0a8891df40ff99e7a",
+      "statement": "Para garantir que produtos eletrônicos estejam armazenados de forma adequada antes da venda, algumas empresas utilizam cartões indicadores de umidade nas embalagens desses produtos. Alguns desses cartões contêm um sal de cobalto que muda de cor em presença de água, de acordo com a equação química: ∆H < 0 (azul) (rosa) Como você procederia para reutilizar, num curto intervalo de tempo, um cartão que já estivesse com a coloração rosa?",
+      "canonical_text": "Para garantir que produtos eletrônicos estejam armazenados de forma adequada antes da venda, algumas empresas utilizam cartões indicadores de umidade nas embalagens desses produtos. Alguns desses cartões contêm um sal de cobalto que muda de cor em presença de água, de acordo com a equação química: ∆H < 0 (azul) (rosa) Como você procederia para reutilizar, num curto intervalo de tempo, um cartão que já estivesse com a coloração rosa?",
+      "alternatives": [
+        "A) Resfriaria no congelador.",
+        "B) Borrifaria com spray de água.",
+        "C) Envolveria com papel alumínio.",
+        "D) Aqueceria com secador de cabelos.",
+        "E) Embrulharia em guardanapo de papel."
+      ],
+      "g0_fiche": {
+        "found": true,
+        "raw": "**#95** — qv `1446af69-0ed8-4046-be8b-d0d616036bd4`\nDISCIPLINE CHEMISTRY · AREA Físico-Química (`CHEMISTRY-PHYSICAL` existe) · CONTENT Equilíbrio químico · SUBCONTENT Deslocamento de equilíbrio (Le Chatelier — efeito da temperatura) · CORE_CONCEPT: reação reversível exotérmica; aquecer desloca o equilíbrio revertendo a cor.\nEXISTING_CONTENT NO (AREA existe; não há CONTENT de equilíbrio) · NEW_CONTENT_REQUIRED YES · PROPOSED_CONTENT_NAME \"Equilíbrio químico\" · PROPOSED_PARENT_NODE `CHEMISTRY-PHYSICAL`\nVOCABULARY_STATUS NEW_VOCABULARY_REQUIRED · CONFIDENCE HIGH\nEVIDENCE: \"sal de cobalto que muda de cor em presença de água, de acordo com a equação química: ∆H < 0 (azul) (rosa)\" ; alt. D \"Aqueceria com secador de cabelos\".\nRATIONALE: reação reversível com ∆H declarado; a tarefa é revertê-la mudando a temperatura → Le Chatelier. **Não é cinética.**\nNEXT_STATE NEW_CONTENT_REQUIRED",
+        "evidence": "\"sal de cobalto que muda de cor em presença de água, de acordo com a equação química: ∆H < 0 (azul) (rosa)\" ; alt. D \"Aqueceria com secador de cabelos\".",
+        "rationale": "reação reversível com ∆H declarado; a tarefa é revertê-la mudando a temperatura → Le Chatelier. **Não é cinética.**",
+        "next_state": "NEW_CONTENT_REQUIRED"
+      },
+      "candidate_content_code": "CHEMISTRY-PHYSICAL-EQUILIBRIUM",
+      "candidate_content_name": "Equilíbrio químico",
+      "candidate_content_path": "? / CHEMISTRY-PHYSICAL / Equilíbrio químico",
+      "candidate_area_code": "CHEMISTRY-PHYSICAL",
+      "taxonomy_version": "curriculum-v2",
+      "binding_registered": true,
+      "vocabulary_version": "curriculum-v2-chemistry_physical_equilibrium-v1",
+      "deterministic_vocabulary_probe": {
+        "statement_primary_terms": [],
+        "statement_specific_terms": [],
+        "statement_contextual_terms": [],
+        "statement_real_terms": [],
+        "statement_degenerate_terms": []
+      },
+      "matched_term": null,
+      "match_source": "NONE",
+      "binding_status": "NONE",
+      "current_decision": "NEEDS_REVIEW",
+      "reason_for_human_review": "statement carries no vocabulary term for the candidate content",
+      "statement_evidence": [],
+      "option_only_evidence": [],
+      "warnings": [
+        "no genuine vocabulary term in the statement or any alternative"
+      ],
+      "curator_decision": "PENDING",
+      "curator_evidence_note": ""
+    },
+    {
+      "official_number": 104,
+      "question_version_id": "919f1846-8030-40bb-be7d-19d413b96e2d",
+      "content_hash": "69350cd094a37f9edbc60a4635be080746a1b375edcc7e252d3d37536931cd29",
+      "statement": "O dióxido de carbono passa para o estado sólido (gelo seco) a −78 °C e retorna ao estado gasoso à temperatura ambiente. O gás é facilmente solubilizado em água, capaz de absorver radiação infravermelha da superfície da terra e não conduz eletricidade. Ele é utilizado como matéria-prima para a fotossíntese até o limite de saturação. Após a fixação pelos organismos autotróficos, o gás retorna ao meio ambiente pela respiração aeróbica, fermentação, decomposição ou por resíduos industriais, queima de combustíveis fósseis e queimadas. Apesar da sua importância ecológica, seu excesso causa perturbações no equilíbrio ambiental. Considerando as propriedades descritas, o aumento atmosférico da substância afetará os organismos aquáticos em razão da",
+      "canonical_text": "O dióxido de carbono passa para o estado sólido (gelo seco) a −78 °C e retorna ao estado gasoso à temperatura ambiente. O gás é facilmente solubilizado em água, capaz de absorver radiação infravermelha da superfície da terra e não conduz eletricidade. Ele é utilizado como matéria-prima para a fotossíntese até o limite de saturação. Após a fixação pelos organismos autotróficos, o gás retorna ao meio ambiente pela respiração aeróbica, fermentação, decomposição ou por resíduos industriais, queima de combustíveis fósseis e queimadas. Apesar da sua importância ecológica, seu excesso causa perturbações no equilíbrio ambiental. Considerando as propriedades descritas, o aumento atmosférico da substância afetará os organismos aquáticos em razão da",
+      "alternatives": [
+        "A) redução do potencial hidrogeniônico da água.",
+        "B) restrição da aerobiose pelo excesso de poluentes.",
+        "C) diminuição da emissão de oxigênio pelos autótrofos.",
+        "D) limitação de transferência de energia entre os seres vivos.",
+        "E) retração dos oceanos pelo congelamento do gás nos polos."
+      ],
+      "g0_fiche": {
+        "found": true,
+        "raw": "**#104** — qv `919f1846-8030-40bb-be7d-19d413b96e2d`\nDISCIPLINE CHEMISTRY · AREA Físico-Química (`CHEMISTRY-PHYSICAL` existe) · CONTENT Ácidos e bases (pH) · SUBCONTENT acidificação de meio aquoso por CO₂ · CORE_CONCEPT: CO₂ dissolvido forma ácido carbônico e reduz o pH da água.\nEXISTING_CONTENT NO · NEW_CONTENT_REQUIRED YES · PROPOSED_CONTENT_NAME \"Ácidos e bases (pH)\" · PROPOSED_PARENT_NODE `CHEMISTRY-PHYSICAL`\nVOCABULARY_STATUS NEW_VOCABULARY_REQUIRED · CONFIDENCE HIGH\nEVIDENCE: \"O gás é facilmente solubilizado em água\" ; alt. A \"redução do potencial hidrogeniônico da água\".\nRATIONALE: a alternativa correta é literalmente a queda do \"potencial hidrogeniônico\" (pH); o contexto ecológico é acessório.\nNEXT_STATE NEW_CONTENT_REQUIRED",
+        "evidence": "\"O gás é facilmente solubilizado em água\" ; alt. A \"redução do potencial hidrogeniônico da água\".",
+        "rationale": "a alternativa correta é literalmente a queda do \"potencial hidrogeniônico\" (pH); o contexto ecológico é acessório.",
+        "next_state": "NEW_CONTENT_REQUIRED"
+      },
+      "candidate_content_code": "CHEMISTRY-PHYSICAL-ACID-BASE",
+      "candidate_content_name": "Ácidos e bases (pH)",
+      "candidate_content_path": "? / CHEMISTRY-PHYSICAL / Ácidos e bases (pH)",
+      "candidate_area_code": "CHEMISTRY-PHYSICAL",
+      "taxonomy_version": "curriculum-v2",
+      "binding_registered": true,
+      "vocabulary_version": "curriculum-v2-chemistry_physical_acid_base-v1",
+      "deterministic_vocabulary_probe": {
+        "statement_primary_terms": [],
+        "statement_specific_terms": [
+          "pH"
+        ],
+        "statement_contextual_terms": [],
+        "statement_real_terms": [],
+        "statement_degenerate_terms": [
+          "pH"
+        ]
+      },
+      "matched_term": null,
+      "match_source": "NONE_GENUINE",
+      "binding_status": "SPURIOUS_BOUND_DEGENERATE_TERM",
+      "current_decision": "NEEDS_REVIEW",
+      "reason_for_human_review": "match only via an empty-normalizing vocab term; no genuine statement evidence",
+      "statement_evidence": [],
+      "option_only_evidence": [
+        {
+          "option": "A) redução do potencial hidrogeniônico da água.",
+          "terms": [
+            "potencial hidrogeniônico"
+          ]
+        }
+      ],
+      "warnings": [
+        "vocabulary defect: term(s) ['pH'] normalize to the empty string and match every statement (spurious BOUND)",
+        "the only genuine vocabulary evidence is in the ALTERNATIVES, not the statement — the deterministic engine reads statement/canonical_text only; OPTION_ONLY_EVIDENCE"
+      ],
+      "curator_decision": "PENDING",
+      "curator_evidence_note": ""
+    },
+    {
+      "official_number": 105,
+      "question_version_id": "ff5056bc-9319-48d2-8afb-fa09e29e990f",
+      "content_hash": "39a2248561c46d1f1f0cbd0216a3651da36602af35e5ab3beda2e0ec0b86bde2",
+      "statement": "Grupos de proteção ao meio ambiente conseguem resgatar muitas aves aquáticas vítimas de vazamentos de petróleo. Essas aves são lavadas com água e detergente neutro para a retirada completa do óleo de seu corpo e, posteriormente, são aquecidas, medicadas, desintoxicadas e alimentadas. Mesmo após esses cuidados, o retorno ao ambiente não pode ser imediato, pois elas precisam recuperar a capacidade de flutuação. Para flutuar, essas aves precisam",
+      "canonical_text": "Grupos de proteção ao meio ambiente conseguem resgatar muitas aves aquáticas vítimas de vazamentos de petróleo. Essas aves são lavadas com água e detergente neutro para a retirada completa do óleo de seu corpo e, posteriormente, são aquecidas, medicadas, desintoxicadas e alimentadas. Mesmo após esses cuidados, o retorno ao ambiente não pode ser imediato, pois elas precisam recuperar a capacidade de flutuação. Para flutuar, essas aves precisam",
+      "alternatives": [
+        "A) recuperar o tônus muscular.",
+        "B) restaurar a massa corporal.",
+        "C) substituir as penas danificadas.",
+        "D) restabelecer a capacidade de homeotermia.",
+        "E) refazer a camada de cera impermeabilizante das penas."
+      ],
+      "g0_fiche": {
+        "found": true,
+        "raw": "**#105** — qv `ff5056bc-9319-48d2-8afb-fa09e29e990f`\nDISCIPLINE BIOLOGY · AREA Fisiologia Animal / Zoologia (nova) · CONTENT Fisiologia e adaptações animais · SUBCONTENT impermeabilização das penas e flutuação · CORE_CONCEPT: a camada de cera das penas retém ar e garante a flutuação; o óleo a remove.\nEXISTING_CONTENT NO (`BIOLOGY-CYTOLOGY` apenas) · NEW_CONTENT_REQUIRED YES · PROPOSED_CONTENT_NAME \"Fisiologia e adaptações animais\" · PROPOSED_PARENT_NODE BIOLOGY → (new AREA) Fisiologia Animal / Zoologia\nVOCABULARY_STATUS NEW_VOCABULARY_REQUIRED · CONFIDENCE MEDIUM\nEVIDENCE: \"precisam recuperar a capacidade de flutuação\" ; alt. E \"refazer a camada de cera impermeabilizante das penas\".\nRATIONALE: a resposta nomeia uma estrutura biológica (camada de cera das penas) cuja perda pelo óleo elimina a flutuação.\nALTERNATIVES: poderia ser enquadrada em FÍSICA (empuxo/densidade média) — sinalizado, não escolhido.\nNEXT_STATE NEW_CONTENT_REQUIRED",
+        "evidence": "\"precisam recuperar a capacidade de flutuação\" ; alt. E \"refazer a camada de cera impermeabilizante das penas\".",
+        "rationale": "a resposta nomeia uma estrutura biológica (camada de cera das penas) cuja perda pelo óleo elimina a flutuação.",
+        "next_state": "NEW_CONTENT_REQUIRED"
+      },
+      "candidate_content_code": "BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS",
+      "candidate_content_name": "Fisiologia e adaptações animais",
+      "candidate_content_path": "BIOLOGY / Fisiologia Animal / Zoologia / Fisiologia e adaptações animais",
+      "candidate_area_code": "BIOLOGY-ANIMAL-PHYSIOLOGY",
+      "taxonomy_version": "curriculum-v2",
+      "binding_registered": true,
+      "vocabulary_version": "curriculum-v2-biology_animal_physiology_adaptations-v1",
+      "deterministic_vocabulary_probe": {
+        "statement_primary_terms": [],
+        "statement_specific_terms": [],
+        "statement_contextual_terms": [],
+        "statement_real_terms": [],
+        "statement_degenerate_terms": []
+      },
+      "matched_term": null,
+      "match_source": "NONE",
+      "binding_status": "NONE",
+      "current_decision": "NEEDS_REVIEW",
+      "reason_for_human_review": "statement carries no vocabulary term for the candidate content",
+      "statement_evidence": [],
+      "option_only_evidence": [
+        {
+          "option": "E) refazer a camada de cera impermeabilizante das penas.",
+          "terms": [
+            "camada de cera"
+          ]
+        }
+      ],
+      "warnings": [
+        "the only genuine vocabulary evidence is in the ALTERNATIVES, not the statement — the deterministic engine reads statement/canonical_text only; OPTION_ONLY_EVIDENCE"
+      ],
+      "curator_decision": "PENDING",
+      "curator_evidence_note": ""
+    },
+    {
+      "official_number": 112,
+      "question_version_id": "76532306-6845-42b9-99e3-c5e5724c70ba",
+      "content_hash": "6bd6d6ef36365266b9f7d476250cbab87b6080a7b6888d17f028ea4afe636e5b",
+      "statement": "Há muitos mitos em relação a como se proteger de raios, cobrir espelhos e não pegar em facas, garfos e outros objetos metálicos, por exemplo. Mas, de fato, se houver uma tempestade com raios, alguns cuidados são importantes, como evitar ambientes abertos. Um bom abrigo para proteção é o interior de um automóvel, desde que este não seja conversível. OLIVEIRA, A. Raios nas tempestades de verão. Disponível em: http://cienciahoje.uol.com.br. Acesso em: 10 dez. 2014 (adaptado). Qual o motivo físico da proteção fornecida pelos automóveis, conforme citado no texto?",
+      "canonical_text": "Há muitos mitos em relação a como se proteger de raios, cobrir espelhos e não pegar em facas, garfos e outros objetos metálicos, por exemplo. Mas, de fato, se houver uma tempestade com raios, alguns cuidados são importantes, como evitar ambientes abertos. Um bom abrigo para proteção é o interior de um automóvel, desde que este não seja conversível. OLIVEIRA, A. Raios nas tempestades de verão. Disponível em: http://cienciahoje.uol.com.br. Acesso em: 10 dez. 2014 (adaptado). Qual o motivo físico da proteção fornecida pelos automóveis, conforme citado no texto?",
+      "alternatives": [
+        "A) Isolamento elétrico dos pneus.",
+        "B) Efeito de para-raios da antena.",
+        "C) Blindagem pela carcaça metálica.",
+        "D) Escoamento da água pela lataria.",
+        "E) Aterramento pelo fio terra da bateria."
+      ],
+      "g0_fiche": {
+        "found": true,
+        "raw": "**#112** — qv `76532306-6845-42b9-99e3-c5e5724c70ba`\nDISCIPLINE PHYSICS · AREA Eletromagnetismo (nova) · CONTENT Eletrostática — condutores em equilíbrio · SUBCONTENT blindagem eletrostática (gaiola de Faraday) · CORE_CONCEPT: campo elétrico nulo dentro de condutor fechado; a carcaça metálica blinda o interior.\nEXISTING_CONTENT NO · NEW_CONTENT_REQUIRED YES · PROPOSED_CONTENT_NAME \"Eletrostática (eletrização e condutores em equilíbrio)\" · PROPOSED_PARENT_NODE PHYSICS → (new AREA) Eletromagnetismo\nVOCABULARY_STATUS NEW_VOCABULARY_REQUIRED · CONFIDENCE HIGH\nEVIDENCE: \"Qual o motivo físico da proteção fornecida pelos automóveis\" ; alt. C \"Blindagem pela carcaça metálica\".\nRATIONALE: item direto de gaiola de Faraday / blindagem eletrostática.\nNEXT_STATE NEW_CONTENT_REQUIRED",
+        "evidence": "\"Qual o motivo físico da proteção fornecida pelos automóveis\" ; alt. C \"Blindagem pela carcaça metálica\".",
+        "rationale": "item direto de gaiola de Faraday / blindagem eletrostática.",
+        "next_state": "NEW_CONTENT_REQUIRED"
+      },
+      "candidate_content_code": "PHYSICS-EM-ELECTROSTATICS",
+      "candidate_content_name": "Eletrostática",
+      "candidate_content_path": "PHYSICS / Eletromagnetismo / Eletrostática",
+      "candidate_area_code": "PHYSICS-ELECTROMAGNETISM",
+      "taxonomy_version": "curriculum-v2",
+      "binding_registered": true,
+      "vocabulary_version": "curriculum-v2-physics_em_electrostatics-v1",
+      "deterministic_vocabulary_probe": {
+        "statement_primary_terms": [],
+        "statement_specific_terms": [],
+        "statement_contextual_terms": [],
+        "statement_real_terms": [],
+        "statement_degenerate_terms": []
+      },
+      "matched_term": null,
+      "match_source": "NONE",
+      "binding_status": "NONE",
+      "current_decision": "NEEDS_REVIEW",
+      "reason_for_human_review": "statement carries no vocabulary term for the candidate content",
+      "statement_evidence": [],
+      "option_only_evidence": [],
+      "warnings": [
+        "no genuine vocabulary term in the statement or any alternative"
+      ],
+      "curator_decision": "PENDING",
+      "curator_evidence_note": ""
+    },
+    {
+      "official_number": 129,
+      "question_version_id": "6dec6d14-911b-42f5-bdb8-43f2c6a3242a",
+      "content_hash": "536b9a2d552fb396e3181981fe54232b482cec392b0bf423ae2ef96ccb936843",
+      "statement": "Grandes reservatórios de óleo leve de melhor qualidade e que produz petróleo mais fino foram descobertos no litoral brasileiro numa camada denominada pré-sal, formada há 150 milhões de anos. A utilização desse recurso energético acarreta para o ambiente um desequilíbrio no ciclo do",
+      "canonical_text": "Grandes reservatórios de óleo leve de melhor qualidade e que produz petróleo mais fino foram descobertos no litoral brasileiro numa camada denominada pré-sal, formada há 150 milhões de anos. A utilização desse recurso energético acarreta para o ambiente um desequilíbrio no ciclo do",
+      "alternatives": [
+        "A) nitrogênio, devido à nitrificação ambiental transformando amônia em nitrito.",
+        "B) nitrogênio, devido ao aumento dos compostos nitrogenados no ambiente terrestre.",
+        "C) carbono, devido ao aumento dos carbonatos dissolvidos no ambiente marinho.",
+        "D) carbono, devido à liberação das cadeias carbônicas aprisionadas abaixo dos sedimentos.",
+        "E) fósforo, devido à liberação dos fosfatos acumulados no ambiente marinho."
+      ],
+      "g0_fiche": {
+        "found": true,
+        "raw": "**#129** — qv `6dec6d14-911b-42f5-bdb8-43f2c6a3242a`\nDISCIPLINE BIOLOGY · AREA Ecologia (nova) · CONTENT Ciclos biogeoquímicos · SUBCONTENT ciclo do carbono / combustíveis fósseis · CORE_CONCEPT: queimar petróleo libera carbono há muito aprisionado nos sedimentos, desequilibrando o ciclo do carbono.\nEXISTING_CONTENT NO · NEW_CONTENT_REQUIRED YES · PROPOSED_CONTENT_NAME \"Ciclos biogeoquímicos\" · PROPOSED_PARENT_NODE BIOLOGY → (new AREA) Ecologia\nVOCABULARY_STATUS NEW_VOCABULARY_REQUIRED · CONFIDENCE HIGH\nEVIDENCE: \"acarreta para o ambiente um desequilíbrio no ciclo do\" ; alt. D \"carbono, devido à liberação das cadeias carbônicas aprisionadas abaixo dos sedimentos\".\nRATIONALE: nomeia explicitamente o ciclo do carbono; liberação de carbono fóssil.\nNEXT_STATE NEW_CONTENT_REQUIRED",
+        "evidence": "\"acarreta para o ambiente um desequilíbrio no ciclo do\" ; alt. D \"carbono, devido à liberação das cadeias carbônicas aprisionadas abaixo dos sedimentos\".",
+        "rationale": "nomeia explicitamente o ciclo do carbono; liberação de carbono fóssil.",
+        "next_state": "NEW_CONTENT_REQUIRED"
+      },
+      "candidate_content_code": "BIOLOGY-ECOLOGY-BIOGEOCHEMICAL-CYCLES",
+      "candidate_content_name": "Ciclos biogeoquímicos",
+      "candidate_content_path": "BIOLOGY / Ecologia / Ciclos biogeoquímicos",
+      "candidate_area_code": "BIOLOGY-ECOLOGY",
+      "taxonomy_version": "curriculum-v2",
+      "binding_registered": true,
+      "vocabulary_version": "curriculum-v2-biology_ecology_biogeochemical_cycles-v1",
+      "deterministic_vocabulary_probe": {
+        "statement_primary_terms": [],
+        "statement_specific_terms": [],
+        "statement_contextual_terms": [],
+        "statement_real_terms": [],
+        "statement_degenerate_terms": []
+      },
+      "matched_term": null,
+      "match_source": "NONE",
+      "binding_status": "NONE",
+      "current_decision": "NEEDS_REVIEW",
+      "reason_for_human_review": "statement carries no vocabulary term for the candidate content",
+      "statement_evidence": [],
+      "option_only_evidence": [],
+      "warnings": [
+        "no genuine vocabulary term in the statement or any alternative"
+      ],
+      "curator_decision": "PENDING",
+      "curator_evidence_note": ""
+    },
+    {
+      "official_number": 134,
+      "question_version_id": "406e3e57-9753-4051-8ecf-69ee36e6d038",
+      "content_hash": "a3391dbe3173c3f3f6aa160a329fc811695779feda22da0b4430e8038a3d0555",
+      "statement": "Um mergulhador fi ca preso ao explorar uma caverna no oceano. Dentro da caverna formou-se um bolsão de ar, como mostrado na fi gura, onde o mergulhador se abrigou. Durante o resgate, para evitar danos a seu organismo, foi necessário que o mergulhador passasse por um processo de descompressão antes de retornar à superfície para que seu corpo fi casse novamente sob pressão atmosférica. O gráfi co mostra a relação entre os tempos de descompressão recomendados para indivíduos nessa situação e a variação de pressão. Tempo de descompressão (min)Variação de pressão (kPa) 100 80 60 40 20 100 200 300 400 500 600 700 Considere que a aceleração da gravidade seja igual a 10 m s −2 e que a densidade da água seja de ρ = 1 000 kg m −3. Em minutos, qual é o tempo de descompressão a que o mergulhador deverá ser submetido?",
+      "canonical_text": "Um mergulhador fi ca preso ao explorar uma caverna no oceano. Dentro da caverna formou-se um bolsão de ar, como mostrado na fi gura, onde o mergulhador se abrigou. Durante o resgate, para evitar danos a seu organismo, foi necessário que o mergulhador passasse por um processo de descompressão antes de retornar à superfície para que seu corpo fi casse novamente sob pressão atmosférica. O gráfi co mostra a relação entre os tempos de descompressão recomendados para indivíduos nessa situação e a variação de pressão. Tempo de descompressão (min)Variação de pressão (kPa) 100 80 60 40 20 100 200 300 400 500 600 700 Considere que a aceleração da gravidade seja igual a 10 m s −2 e que a densidade da água seja de ρ = 1 000 kg m −3. Em minutos, qual é o tempo de descompressão a que o mergulhador deverá ser submetido?",
+      "alternatives": [
+        "A) 100",
+        "B) 80",
+        "C) 60",
+        "D) 40",
+        "E) 20"
+      ],
+      "g0_fiche": {
+        "found": true,
+        "raw": "**#134** — qv `406e3e57-9753-4051-8ecf-69ee36e6d038`\nDISCIPLINE PHYSICS · AREA Mecânica (`PHYSICS-MECHANICS` existe) · CONTENT Hidrostática — pressão em fluidos · SUBCONTENT Teorema de Stevin + leitura de gráfico · CORE_CONCEPT: calcular a variação de pressão hidrostática na profundidade e obter, no gráfico, o tempo de descompressão.\nEXISTING_CONTENT NO (AREA existe; só há CONTENT de cinemática) · NEW_CONTENT_REQUIRED YES · PROPOSED_CONTENT_NAME \"Hidrostática (pressão em fluidos)\" · PROPOSED_PARENT_NODE `PHYSICS-MECHANICS`\nVOCABULARY_STATUS NEW_VOCABULARY_REQUIRED · CONFIDENCE MEDIUM (resposta numérica depende do gráfico parcialmente corrompido; o conceito é claro por ρ e g dados)\nEVIDENCE: \"a densidade da água seja de ρ = 1 000 kg m −3\" ; \"a aceleração da gravidade seja igual a 10 m s −2\" ; \"processo de descompressão\".\nRATIONALE: ρ e g são fornecidos precisamente para o cálculo da pressão hidrostática (Stevin) antes da leitura do gráfico.\nNEXT_STATE NEW_CONTENT_REQUIRED",
+        "evidence": "\"a densidade da água seja de ρ = 1 000 kg m −3\" ; \"a aceleração da gravidade seja igual a 10 m s −2\" ; \"processo de descompressão\".",
+        "rationale": "ρ e g são fornecidos precisamente para o cálculo da pressão hidrostática (Stevin) antes da leitura do gráfico.",
+        "next_state": "NEW_CONTENT_REQUIRED"
+      },
+      "candidate_content_code": "PHYSICS-MECHANICS-HYDROSTATICS",
+      "candidate_content_name": "Hidrostática (pressão em fluidos)",
+      "candidate_content_path": "? / PHYSICS-MECHANICS / Hidrostática (pressão em fluidos)",
+      "candidate_area_code": "PHYSICS-MECHANICS",
+      "taxonomy_version": "curriculum-v2",
+      "binding_registered": true,
+      "vocabulary_version": "curriculum-v2-physics_mechanics_hydrostatics-v1",
+      "deterministic_vocabulary_probe": {
+        "statement_primary_terms": [],
+        "statement_specific_terms": [
+          "ρ g h"
+        ],
+        "statement_contextual_terms": [],
+        "statement_real_terms": [],
+        "statement_degenerate_terms": [
+          "ρ g h"
+        ]
+      },
+      "matched_term": null,
+      "match_source": "NONE_GENUINE",
+      "binding_status": "SPURIOUS_BOUND_DEGENERATE_TERM",
+      "current_decision": "NEEDS_REVIEW",
+      "reason_for_human_review": "match only via an empty-normalizing vocab term; no genuine statement evidence",
+      "statement_evidence": [],
+      "option_only_evidence": [],
+      "warnings": [
+        "vocabulary defect: term(s) ['ρ g h'] normalize to the empty string and match every statement (spurious BOUND)",
+        "no genuine vocabulary term in the statement or any alternative"
+      ],
+      "curator_decision": "PENDING",
+      "curator_evidence_note": ""
+    }
+  ]
+}

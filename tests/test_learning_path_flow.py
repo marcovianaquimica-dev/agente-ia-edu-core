@@ -436,6 +436,9 @@ class PracticeFlowE2ETests(unittest.TestCase):
                 answered=30, correct=27, confidence=0.95,
             )
         )
+        self._seed(
+            self._seed_question(self.content_b_id, difficulty="HARD", correct_key="A")
+        )
 
         resp = self.client.post(
             "/api/v1/practice/sessions",
