@@ -178,6 +178,11 @@ class QuestionClassification(Base):
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by: Mapped[str | None] = mapped_column(String(255))
+    classification_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
+    classified_by: Mapped[str] = mapped_column(String(50), nullable=False, default='MANUAL')
+    ai_model: Mapped[str | None] = mapped_column(String(255))
+    human_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_status: Mapped[str] = mapped_column(String(20), nullable=False, default='APPROVED')
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     question_version: Mapped[QuestionVersion] = relationship()
@@ -222,9 +227,17 @@ class PedagogicalClassification(Base):
             "difficulty_confidence IS NULL OR difficulty_confidence BETWEEN 0 AND 1",
             name="ck_pedagogical_classifications_difficulty_confidence_range",
         ),
+        CheckConstraint(
+            "lifecycle IN ('ACTIVE', 'SUPERSEDED')",
+            name="ck_pedagogical_classifications_lifecycle",
+        ),
         Index(
             "ix_pedagogical_classifications_question_version_id",
             "question_version_id",
+        ),
+        Index(
+            "ix_pedagogical_classifications_supersedes_id",
+            "supersedes_id",
         ),
     )
 
@@ -260,8 +273,70 @@ class PedagogicalClassification(Base):
         default=lambda: datetime.now(timezone.utc),
     )
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
+    # Lifecycle is independent of `status` (a quality/review judgement).
+    # ACTIVE = the current classification for its (question_version_id,
+    # taxonomy_version); SUPERSEDED = preserved history, superseded by a newer
+    # ACTIVE row referenced by that row's `supersedes_id`. A PostgreSQL partial
+    # unique index (see migration file 025_pedagogical_classification_lifecycle.py,
+    # revision id ``025_classification_lifecycle``)
+    # enforces at most one ACTIVE row per (question_version_id, taxonomy_version).
+    lifecycle: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("pedagogical_classifications.id", ondelete="RESTRICT"),
+    )
 
     question_version: Mapped[QuestionVersion] = relationship()
+    supersedes: Mapped["PedagogicalClassification | None"] = relationship(
+        remote_side=[id],
+        back_populates="superseded_by",
+        foreign_keys=[supersedes_id],
+    )
+    superseded_by: Mapped[list["PedagogicalClassification"]] = relationship(
+        back_populates="supersedes",
+        foreign_keys=[supersedes_id],
+    )
+
+
+class PedagogicalClassificationReview(Base):
+    """PHASE 30 (additive, migration 038) - append-only human/AI audit trail
+    for a PedagogicalClassification row: every AI classify, manual edit,
+    approval, and reclassification is recorded here, never overwritten
+    (spec s27/s29). ``previous_value``/``new_value`` are small snapshots
+    (discipline/content/subcontent/difficulty/status) - not the full row."""
+
+    __tablename__ = "pedagogical_classification_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('AI_CLASSIFY', 'MANUAL_CLASSIFY', 'APPROVE', 'RECLASSIFY', 'EDIT')",
+            name="ck_pedagogical_classification_reviews_action",
+        ),
+        CheckConstraint(
+            "actor_type IN ('AI', 'TEACHER', 'COORDINATOR', 'DIRECTOR', 'PLATFORM_ADMIN', 'SYSTEM')",
+            name="ck_pedagogical_classification_reviews_actor_type",
+        ),
+        Index(
+            "ix_pedagogical_classification_reviews_classification_id",
+            "pedagogical_classification_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    pedagogical_classification_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("pedagogical_classifications.id", ondelete="RESTRICT"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    previous_value: Mapped[dict[str, Any] | None] = mapped_column(JSONBCompatible)
+    new_value: Mapped[dict[str, Any] | None] = mapped_column(JSONBCompatible)
+    reason: Mapped[str | None] = mapped_column(Text)
+    classifier_version: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    classification: Mapped["PedagogicalClassification"] = relationship()
 
 
 class DifficultyEstimate(Base):

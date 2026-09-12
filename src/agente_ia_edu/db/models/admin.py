@@ -4,7 +4,7 @@ Platform Administration and Multi-tenancy domain models (Phase 12A).
 Models for:
 - School: Multi-tenant school/institution entity.
 - SchoolModule: Platform module enablements per school (e.g., AGENTE_IA_EDU, REDACAO_IA).
-- UserSchoolLink: Role and scope bindings for users (PLATFORM_ADMIN, DIRECTOR, COORDINATOR, TEACHER, STUDENT).
+- UserSchoolLink: Role and scope bindings for users, including reception-only SECRETARY.
 - AdminAuditLog: Administrative audit trail for global platform changes.
 """
 
@@ -110,14 +110,14 @@ class UserSchoolLink(Base):
     """
     Role and Scope bindings for users.
 
-    Separates ROLE (PLATFORM_ADMIN, DIRECTOR, COORDINATOR, TEACHER, STUDENT)
+    Separates ROLE (PLATFORM_ADMIN, DIRECTOR, COORDINATOR, SECRETARY, TEACHER, STUDENT)
     from SCOPE (PLATFORM, SCHOOL, UNIT, SEGMENT, GRADE_LEVEL, CLASSROOM).
     """
 
     __tablename__ = "user_school_links"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('PLATFORM_ADMIN', 'DIRECTOR', 'COORDINATOR', 'TEACHER', 'STUDENT')",
+            "role IN ('PLATFORM_ADMIN', 'DIRECTOR', 'COORDINATOR', 'SECRETARY', 'TEACHER', 'STUDENT')",
             name="ck_user_school_links_role",
         ),
         CheckConstraint(

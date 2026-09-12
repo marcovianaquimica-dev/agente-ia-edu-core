@@ -54,6 +54,7 @@ class CatalogNode(Base):
     __tablename__ = "catalog_nodes"
     __table_args__ = (
         CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_catalog_nodes_parent_not_self"),
+        UniqueConstraint("code", name="uq_catalog_nodes_code"),
         Index("ix_catalog_nodes_parent_id", "parent_id"),
         Index("ix_catalog_nodes_root_id", "root_id"),
         Index("ix_catalog_nodes_node_type", "node_type"),
@@ -92,6 +93,21 @@ class CatalogNode(Base):
     children: Mapped[list[CatalogNode]] = relationship(
         back_populates="parent", foreign_keys=[parent_id]
     )
+
+
+class CatalogNodePrerequisite(Base):
+    __tablename__ = "catalog_node_prerequisites"
+    __table_args__ = (
+        UniqueConstraint("content_node_id", "prerequisite_node_id", name="uq_catalog_node_prerequisite"),
+        CheckConstraint("content_node_id <> prerequisite_node_id", name="ck_catalog_node_prerequisite_not_self"),
+        Index("ix_catalog_node_prerequisites_content", "content_node_id"),
+        Index("ix_catalog_node_prerequisites_prerequisite", "prerequisite_node_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    content_node_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("catalog_nodes.id", ondelete="RESTRICT"), nullable=False)
+    prerequisite_node_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("catalog_nodes.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class EducationalResource(Base):
@@ -179,7 +195,7 @@ class ResourceAccessGrant(Base):
     __tablename__ = "resource_access_grants"
     __table_args__ = (
         CheckConstraint(
-            "grantee_type IN ('INSTITUTION', 'SCHOOL_UNIT', 'CLASSROOM', 'EXTERNAL_IDENTITY')",
+            "grantee_type IN ('INSTITUTION', 'SCHOOL', 'UNIT', 'SEGMENT', 'GRADE_LEVEL', 'CLASSROOM', 'SCHOOL_UNIT', 'EXTERNAL_IDENTITY')",
             name="ck_resource_access_grants_grantee_type",
         ),
         UniqueConstraint(
@@ -377,6 +393,16 @@ class TheoryMaterial(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    # PHASE 23: identity fields on the STABLE parent (kind/source/visibility are
+    # material-level, not version-level). Free-form strings (no CheckConstraint,
+    # following the section_type pattern) so new kinds can be added migration-free.
+    #   material_kind    : BOOK / WORKBOOK / CHAPTER / SUMMARY / COMPLEMENTARY / SUPPORT / OTHER
+    #   authoring_source : PLATFORM / TEACHER / SCHOOL / OFFICIAL / LICENSED / IMPORTED
+    #   visibility_scope : PRIVATE / SCHOOL / CLASS / STUDENT / PUBLIC
+    material_kind: Mapped[str | None] = mapped_column(String(30))
+    authoring_source: Mapped[str | None] = mapped_column(String(20))
+    visibility_scope: Mapped[str] = mapped_column(String(20), nullable=False, default="PRIVATE")
     # Convenience direct link to its main content; the full N:N mapping to
     # any number of content nodes happens via ContentResourceLink once a
     # version is published and materialized as an EducationalResource.
@@ -454,14 +480,15 @@ class TheoryMaterialVersion(Base):
         back_populates="material_version", order_by="MaterialSection.position"
     )
     exercises: Mapped[list[MaterialExercise]] = relationship(back_populates="material_version")
+    blocks: Mapped[list[MaterialBlock]] = relationship(back_populates="material_version")
 
 
 class MaterialSection(Base):
     """
-    Ordered content block within a material version (intro, explanation,
-    example, image, table, formula, note, summary, ...). section_type is
-    intentionally free-form (no CheckConstraint) so new block kinds can be
-    added later without a migration.
+    Pedagogical organisation level of a material version: chapter / unit /
+    section / topic (section_type is free-form - no CheckConstraint). Reusable
+    content units live BELOW it as MaterialBlock rows (PHASE 23). A section may
+    be associated to a curriculum-v2 node by stable code via content_node_id.
     """
 
     __tablename__ = "material_sections"
@@ -472,6 +499,7 @@ class MaterialSection(Base):
         ),
         CheckConstraint("position > 0", name="ck_material_sections_position_positive"),
         Index("ix_material_sections_material_version_id", "material_version_id"),
+        Index("ix_material_sections_content_node_id", "content_node_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -482,11 +510,68 @@ class MaterialSection(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str | None] = mapped_column(String(500))
     body: Mapped[str | None] = mapped_column(Text)
+    # PHASE 23: structured, versionable curriculum association (stable code,
+    # never a name/path). Null content_node_id == UNMAPPED. relation_type is
+    # free-form: THEORY / REVIEW / PREREQUISITE / DEEPENING / ...
+    content_node_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("catalog_nodes.id", ondelete="SET NULL")
+    )
+    curriculum_relation_type: Mapped[str | None] = mapped_column(String(30))
     # Structured payload for images/tables/formulas placeholders; no visual
     # editor is built in this phase.
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
     material_version: Mapped[TheoryMaterialVersion] = relationship(back_populates="sections")
+    content_node: Mapped[CatalogNode | None] = relationship(foreign_keys=[content_node_id])
+    blocks: Mapped[list[MaterialBlock]] = relationship(
+        back_populates="section", order_by="MaterialBlock.position"
+    )
+
+
+class MaterialBlock(Base):
+    """
+    PHASE 23 - a reusable content unit inside a MaterialSection. block_type is
+    free-form (no CheckConstraint) so new kinds need no migration:
+    TEXT / HEADING / DEFINITION / FORMULA / EXAMPLE / SOLVED_EXAMPLE / TABLE /
+    IMAGE / CALLOUT / EXERCISE_REFERENCE / SUMMARY / REVIEW / OTHER.
+
+    The block never stores a PDF/DOCX as "the content": body holds structured
+    text and metadata_ holds structured payloads (image ref, table data, ...).
+    """
+
+    __tablename__ = "material_blocks"
+    __table_args__ = (
+        UniqueConstraint("section_id", "position", name="uq_material_blocks_section_position"),
+        CheckConstraint("position > 0", name="ck_material_blocks_position_positive"),
+        Index("ix_material_blocks_section_id", "section_id"),
+        Index("ix_material_blocks_material_version_id", "material_version_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("material_sections.id", ondelete="RESTRICT"), nullable=False
+    )
+    # Denormalised pointer to the owning version (fast "all blocks of a version").
+    material_version_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("theory_material_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    block_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500))
+    body: Mapped[str | None] = mapped_column(Text)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    section: Mapped[MaterialSection] = relationship(back_populates="blocks")
+    material_version: Mapped[TheoryMaterialVersion] = relationship(back_populates="blocks")
 
 
 class MaterialExercise(Base):
@@ -522,6 +607,10 @@ class MaterialExercise(Base):
         Uuid, ForeignKey("material_sections.id", ondelete="RESTRICT")
     )
     source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # PHASE 23: pedagogical role of the material <-> question link. Free-form:
+    # EXERCISE / EXAMPLE / REVIEW / PRACTICE / REFERENCE. The question is never
+    # copied - question_version_id is the only reference to the Question Bank.
+    relation_type: Mapped[str | None] = mapped_column(String(30))
     question_version_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("question_versions.id", ondelete="RESTRICT")
     )

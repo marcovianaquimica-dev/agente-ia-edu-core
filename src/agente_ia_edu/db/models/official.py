@@ -179,14 +179,62 @@ class SourceDocument(Base):
 
 class Question(Base):
     __tablename__ = "questions"
+    __table_args__ = (
+        Index("ix_questions_school_id", "school_id"),
+        Index("ix_questions_status", "status"),
+        Index("ix_questions_origin_type", "origin_type"),
+        Index("ix_questions_created_by", "created_by_external_identity"),
+        Index("ix_questions_external_id", "external_id"),
+        CheckConstraint(
+            # PHASE 29 (migration 037): widened to add 'AUTHORIAL' - a
+            # question promoted from teacher-reviewed authorial-material
+            # extraction (spec s20). Purely additive; every prior value
+            # keeps its exact prior meaning.
+            "origin_type IN ('PLATFORM', 'SCHOOL', 'TEACHER', 'IMPORTED', 'GENERATED', 'AUTHORIAL')",
+            name="ck_questions_origin_type",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED', 'REJECTED')",
+            name="ck_questions_status",
+        ),
+        CheckConstraint(
+            "visibility_scope IN ('PRIVATE', 'CLASSROOM', 'SCHOOL', 'PUBLIC')",
+            name="ck_questions_visibility_scope",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    question_type: Mapped[str] = mapped_column(String(50), nullable=False, default='MULTIPLE_CHOICE')
+    school_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("schools.id", ondelete="RESTRICT"),
+    )
+    author_external_id: Mapped[str | None] = mapped_column(String(255))
+    owner_external_id: Mapped[str | None] = mapped_column(String(255))
+    origin_type: Mapped[str] = mapped_column(String(50), nullable=False, default='PLATFORM')
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default='DRAFT')
+    visibility_scope: Mapped[str] = mapped_column(String(50), nullable=False, default='PRIVATE')
+    created_by_external_identity: Mapped[str | None] = mapped_column(String(255))
     validation_status: Mapped[str] = mapped_column(String(50), nullable=False)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata_", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
     versions: Mapped[list[QuestionVersion]] = relationship(back_populates="question")
+    status_transitions: Mapped[list["QuestionStatusTransition"]] = relationship(
+        back_populates="question", foreign_keys="QuestionStatusTransition.question_id"
+    )
+    approvals: Mapped[list["QuestionApproval"]] = relationship(
+        back_populates="question", foreign_keys="QuestionApproval.question_id"
+    )
+    eligibility: Mapped["QuestionEligibility | None"] = relationship(
+        back_populates="question", foreign_keys="QuestionEligibility.question_id", uselist=False
+    )
 
 
 class QuestionVersion(Base):
@@ -197,6 +245,7 @@ class QuestionVersion(Base):
             "question_id",
             unique=True,
             postgresql_where=text("version_kind = 'official_original'"),
+            sqlite_where=text("version_kind = 'official_original'"),
         ),
         Index("ix_question_versions_content_hash", "content_hash"),
     )
@@ -412,3 +461,102 @@ class AnswerKeyEntry(Base):
     resolved_option: Mapped[QuestionOption | None] = relationship(
         back_populates="answer_key_entries"
     )
+
+
+class QuestionStatusTransition(Base):
+    """Audit trail for question status changes."""
+
+    __tablename__ = "question_status_transitions"
+    __table_args__ = (
+        Index("ix_question_status_transitions_question_id", "question_id"),
+        Index("ix_question_status_transitions_to_status", "to_status"),
+        Index("ix_question_status_transitions_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("questions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    from_status: Mapped[str | None] = mapped_column(String(30))
+    to_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    performed_by_external_id: Mapped[str | None] = mapped_column(String(255))
+    reason: Mapped[str | None] = mapped_column(Text)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata_", JSONBCompatible)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    question: Mapped[Question] = relationship(back_populates="status_transitions")
+
+
+class QuestionApproval(Base):
+    """Tracks approvals/rejections/feedback for questions."""
+
+    __tablename__ = "question_approvals"
+    __table_args__ = (
+        Index("ix_question_approvals_question_id", "question_id"),
+        Index("ix_question_approvals_decision", "decision"),
+        Index("ix_question_approvals_created_at", "created_at"),
+        CheckConstraint(
+            "decision IN ('APPROVED', 'REJECTED', 'FEEDBACK')",
+            name="ck_question_approvals_decision",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("questions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("question_versions.id", ondelete="SET NULL"),
+    )
+    reviewer_external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    feedback_text: Mapped[str | None] = mapped_column(Text)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata_", JSONBCompatible)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    question: Mapped[Question] = relationship(back_populates="approvals")
+    version: Mapped[QuestionVersion | None] = relationship(
+        foreign_keys=[version_id]
+    )
+
+
+class QuestionEligibility(Base):
+    """Cached/computed eligibility status for performance."""
+
+    __tablename__ = "question_eligibility"
+    __table_args__ = (
+        Index("ix_question_eligibility_question_id", "question_id"),
+        Index("ix_question_eligibility_is_eligible", "is_eligible"),
+        Index("ix_question_eligibility_valid_until", "valid_until"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("questions.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    )
+    is_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reasons: Mapped[list[str] | None] = mapped_column("reasons", JSONBCompatible)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata_", JSONBCompatible)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    question: Mapped[Question] = relationship(back_populates="eligibility")

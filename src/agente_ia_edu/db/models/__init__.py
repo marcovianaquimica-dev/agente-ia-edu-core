@@ -14,18 +14,27 @@ from .official import (
 from .pedagogical import (
     DifficultyEstimate,
     PedagogicalClassification,
+    PedagogicalClassificationReview,
     QuestionClassification,
     Taxonomy,
     TaxonomyNode,
 )
 from .assessments import (
+    ActivityAnswer,
+    ActivityAssignment,
+    ActivityAttempt,
+    ActivityResult,
+    ActivityResultItem,
     Assessment,
     AssessmentAnswer,
+    AssessmentAssignment,
     AssessmentAttempt,
     AssessmentItem,
     AssessmentPublication,
     AssessmentSelectionRequest,
     AssessmentVersion,
+    AssessmentWorkflowAudit,
+    DomainContentMastery,
 )
 from .learning_path import (
     LearningHistory,
@@ -35,6 +44,7 @@ from .learning_path import (
 )
 from .catalog import (
     CatalogNode,
+    CatalogNodePrerequisite,
     EducationalResource,
     ResourceAccessGrant,
     VideoResourceDetail,
@@ -45,6 +55,7 @@ from .catalog import (
     TheoryMaterial,
     TheoryMaterialVersion,
     MaterialSection,
+    MaterialBlock,
     MaterialExercise,
 )
 from .ingestion import (
@@ -75,8 +86,35 @@ from .diagnostic import (
     DiagnosticQuestionSelection,
     InitialDiagnostic,
 )
+from .invitation import (
+    UserInvitation,
+)
+from .pedagogical_universe import (
+    PedagogicalUniverse,
+    PedagogicalUniverseAcademicScope,
+    PedagogicalUniverseBinding,
+    PedagogicalUniverseCatalogScope,
+)
+from .reception import ReceptionCandidate
+from .modification_proposals import ModificationProposal
+from .study_session import StudySession
+from .material_progress import MaterialProgress
+from .authorial_ingestion import IngestionMaterialReview
+from .question_extraction import (
+    ExtractedQuestion,
+    ExtractedQuestionAsset,
+    ExtractedQuestionOption,
+    QuestionExtractionRun,
+)
 
 __all__ = [
+    "StudySession",
+    "MaterialProgress",
+    "IngestionMaterialReview",
+    "QuestionExtractionRun",
+    "ExtractedQuestion",
+    "ExtractedQuestionOption",
+    "ExtractedQuestionAsset",
     "AnswerKeyEntry",
     "AnswerKeyRevision",
     "BookletQuestion",
@@ -89,21 +127,31 @@ __all__ = [
     "QuestionVersion",
     "SourceDocument",
     "DifficultyEstimate",
+    "PedagogicalClassificationReview",
     "QuestionClassification",
     "Taxonomy",
     "TaxonomyNode",
     "Assessment",
     "AssessmentAnswer",
+    "AssessmentAssignment",
     "AssessmentAttempt",
+    "ActivityAnswer",
+    "ActivityAssignment",
+    "ActivityAttempt",
+    "ActivityResult",
+    "ActivityResultItem",
     "AssessmentItem",
     "AssessmentPublication",
     "AssessmentSelectionRequest",
     "AssessmentVersion",
+    "AssessmentWorkflowAudit",
+    "DomainContentMastery",
     "LearningHistory",
     "StudentContentMastery",
     "PracticeSession",
     "PracticeQuestionSelection",
     "CatalogNode",
+    "CatalogNodePrerequisite",
     "EducationalResource",
     "ResourceAccessGrant",
     "VideoResourceDetail",
@@ -114,6 +162,7 @@ __all__ = [
     "TheoryMaterial",
     "TheoryMaterialVersion",
     "MaterialSection",
+    "MaterialBlock",
     "MaterialExercise",
     "IngestionDocument",
     "IngestionRun",
@@ -131,4 +180,11 @@ __all__ = [
     "TeachingLesson",
     "InitialDiagnostic",
     "DiagnosticQuestionSelection",
+    "UserInvitation",
+    "PedagogicalUniverse",
+    "PedagogicalUniverseAcademicScope",
+    "PedagogicalUniverseBinding",
+    "PedagogicalUniverseCatalogScope",
+    "ReceptionCandidate",
+    "ModificationProposal",
 ]

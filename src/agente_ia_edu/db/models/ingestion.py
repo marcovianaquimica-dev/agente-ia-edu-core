@@ -166,6 +166,14 @@ class IngestionSection(Base):
     page_end: Mapped[int | None] = mapped_column(Integer)
     # Extracted content preview
     content_preview: Mapped[str | None] = mapped_column(Text)
+    # PHASE 26 (additive, nullable - ESTENDER not RECRIAR): the full extracted
+    # body text for this section, newline-joined paragraph by paragraph.
+    # content_preview above stays a short (500-char) summary as it always
+    # was; this column exists because authorial material publication (PHASE
+    # 26) needs the REAL content to build MaterialBlocks from, not just a
+    # preview. NULL for every pre-existing (ENEM/official) ingestion row -
+    # that pipeline never sets it and is completely unaffected.
+    content_text: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

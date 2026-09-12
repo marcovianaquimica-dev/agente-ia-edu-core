@@ -58,7 +58,7 @@ class LearningHistory(Base):
     # Activity context
     activity_type: Mapped[str] = mapped_column(
         String(20), nullable=False
-    )  # OFFICIAL_ASSESSMENT, INDIVIDUAL_PRACTICE
+    )  # INITIAL_DIAGNOSTIC, OFFICIAL_ASSESSMENT, INDIVIDUAL_PRACTICE
     assessment_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, nullable=True
     )  # FK to AssessmentAttempt if from assessment
