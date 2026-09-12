@@ -478,6 +478,19 @@ def detect_two_column_layout(
             return sum(1 for ln in page_lines if ln.x0 < x < ln.x1) / len(page_lines)
 
         best_straddle = _straddle_fraction(split_x)
+        runner_up_straddle = _straddle_fraction(gaps[1][1])
+        if best_straddle < runner_up_straddle:
+            # The legacy-widest candidate is ALSO less-crossed than its one
+            # comparably-wide competitor - no need for a dramatic margin
+            # here, since it isn't switching to anything: this simply
+            # confirms the width-based leader is already the more
+            # plausible gutter (found on a real UNICAMP exam: two genuine
+            # questions, each with its OWN compact multi-line answer grid,
+            # producing two internal grid gaps comparably wide to the true
+            # gutter between the questions - the true gutter still wins on
+            # crossings, just not by the dramatic margin the switch below
+            # requires).
+            legacy_ambiguous = False
         cleaner = [
             (g, x) for g, x in gaps[1:]
             if _straddle_fraction(x) <= best_straddle / 2

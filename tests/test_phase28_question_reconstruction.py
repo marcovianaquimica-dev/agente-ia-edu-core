@@ -155,6 +155,67 @@ class ReconstructionUnitTests(unittest.TestCase):
             # fragment ("Enunciado parte...") glued onto it (spec s2/s26).
             self.assertNotIn("Enunciado", opt.text)
 
+    def test_reconstruct_question_rejects_a_hanging_indent_misread_as_two_columns(self):
+        from agente_ia_edu.services.question_extraction.boundary import QuestionBoundary
+        # Real regression found on a real ITA exam: an entirely ordinary
+        # single-column question whose multi-line options wrap with a
+        # HANGING INDENT (the marker "A ( )" starts a line; when the
+        # option's own text wraps, the CONTINUATION indents to align
+        # under the TEXT, not the marker - a universal typesetting
+        # convention, not a second column) geometrically resembles two
+        # real columns just as well as a genuine one does: two x-clusters,
+        # comparable width, comparable vertical span. The original
+        # (natural, correct) reading already has each option's marker
+        # immediately followed by its own continuation - complete and
+        # correctly ordered. "Reconstructing" it instead groups all five
+        # markers' first lines together, THEN all five continuations
+        # together, unmarked - so `_extract_options` (verbatim capture
+        # from one marker to the next) truncates every option except the
+        # LAST, which absorbs every other option's orphaned continuation
+        # as its own tail: one wildly long option beside four short,
+        # truncated ones.
+        #
+        # What actually tips the raw quality score (option count,
+        # statement length) in the contaminated candidate's favour: a
+        # WORD-style marker ("Questão 1.") shares its OWN physical PDF
+        # line with the first bit of the statement - ``lines_in_range``
+        # returns that whole line, so the reconstructed candidate's
+        # statement carries the marker text (which ``original_body``,
+        # sliced precisely at the parsed body offset, never includes),
+        # making it a few characters LONGER than the real original for a
+        # reason with nothing to do with structure. Real option count
+        # ties (5 vs 5); the marker-leak alone was enough to win the
+        # statement-length tiebreak. The resulting options' lengths are
+        # the real, structural tell this comparison misses entirely.
+        marker = "Questão 1."
+        rows = [
+            (56.0, f"{marker}   Enunciado de uma questao comum, com alternativas"),
+            (56.0, "que quebram linha com um recuo pendurado, nada mais."),
+            (56.0, "A ( )  primeira parte da alternativa um,"),
+            (92.0, "com uma segunda linha bem mais longa aqui tambem."),
+            (56.0, "B ( )  primeira parte da alternativa dois,"),
+            (92.0, "tambem com uma segunda linha mais longa aqui igual."),
+            (56.0, "C ( )  primeira parte da alternativa tres,"),
+            (92.0, "e mais uma segunda linha longa igual as outras tres."),
+            (56.0, "D ( )  primeira parte da alternativa quatro,"),
+            (92.0, "com sua propria segunda linha tambem bem longa assim."),
+            (56.0, "E ( )  primeira parte da alternativa cinco,"),
+            (92.0, "e a ultima segunda linha, do mesmo tamanho das outras."),
+        ]
+        lines = [
+            TextLine(page=1, x0=x, y0=float(i * 15),
+                    x1=x + (430 if x == 56 else 390), y1=float(i * 15 + 10), text=text)
+            for i, (x, text) in enumerate(rows)
+        ]
+        structure = DocumentStructure(document_hash="x", page_count=1, lines=lines)
+        full_text = structure.text()
+        body_start = full_text.index("Enunciado")
+        boundary = QuestionBoundary(number=1, marker_style="WORD", start=body_start,
+                                     end=len(full_text), preceded_by_paragraph_break=True)
+        original_body = full_text[boundary.start:boundary.end]
+        result = reconstruct_question(structure, boundary, original_body)
+        self.assertFalse(result.reconstruction_applied)
+
     def test_review_reasons_for_reports_column_ambiguity_when_split_found_but_not_adopted(self):
         from agente_ia_edu.services.question_extraction.boundary import ExtractedQuestionDraft
         from agente_ia_edu.services.question_extraction.reconstruction import ReconstructionResult

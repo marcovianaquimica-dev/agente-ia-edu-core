@@ -56,6 +56,38 @@ def _quality_score(statement: str, options: list[OptionDraft]) -> tuple[int, int
     return (len(options), len(statement))
 
 
+# A real exam's options are written to a comparable scope/length - never
+# one paragraph beside four fragments. Found on a real ITA exam: an
+# ordinary single-column question whose multi-line options wrap with a
+# HANGING INDENT (the marker starts a line; the option's own continuation
+# indents to align under the TEXT, not the marker - a universal
+# typesetting convention, not a second column) is geometrically
+# indistinguishable, by every other check here, from a genuine local
+# two-column misread ``detect_two_column_layout`` exists to fix - two
+# x-clusters, comparable width, comparable vertical span. Reconstructing
+# it groups every option's FIRST line together, then every continuation
+# together, UNMARKED - so extraction (which captures verbatim from one
+# marker to the next) truncates every option except the last, which
+# absorbs every other option's orphaned continuation as its own tail: one
+# wildly long option beside several short, truncated ones. The raw
+# quality score (option count, statement length) cannot see this - a
+# WORD-style marker sharing its own PDF line with the statement's first
+# words is enough on its own to tip a tied option count - but the
+# resulting per-option length spread is a direct, structural tell no
+# genuine option list ever produces.
+_MAX_OPTION_LENGTH_IMBALANCE = 2.0
+
+
+def _options_are_balanced(options: list[OptionDraft]) -> bool:
+    if len(options) < 3:
+        return True
+    lengths = sorted(len(o.text) for o in options)
+    median = lengths[len(lengths) // 2]
+    if median == 0:
+        return True
+    return lengths[-1] <= median * _MAX_OPTION_LENGTH_IMBALANCE
+
+
 def reconstruct_question(
     structure: DocumentStructure, boundary: QuestionBoundary, original_body: str,
 ) -> ReconstructionResult:
@@ -81,7 +113,10 @@ def reconstruct_question(
     candidate_text = "\n".join(ln.text for ln in reordered_lines)
     candidate_statement, candidate_options = _extract_options(candidate_text)
 
-    if _quality_score(candidate_statement, candidate_options) > _quality_score(original_statement, original_options):
+    if (
+        _quality_score(candidate_statement, candidate_options) > _quality_score(original_statement, original_options)
+        and _options_are_balanced(candidate_options)
+    ):
         return ReconstructionResult(
             reconstructed_text=candidate_text, options=candidate_options,
             reconstruction_applied=True, column_split_x=split_x,

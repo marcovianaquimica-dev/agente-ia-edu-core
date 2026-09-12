@@ -64,10 +64,10 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("2025_PV_impresso_D1_CD1.pdf", min_boundaries=90, min_validated=71)
 
     def test_enem_2025_dia2(self):
-        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=88)
+        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=89)
 
     def test_unicamp_2024(self):
-        self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=59)
+        self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=73)
 
     def test_uece_cev_2025(self):
         self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=75)
@@ -96,7 +96,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # marker with no other confidence signal). No longer reordering
         # that page is the more correct, safer behaviour in general, even
         # though it costs this one question's lucky accidental boost.
-        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=39)
+        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=43)
 
     def test_uerj(self):
         # The real regression this guards: "Questão" glued to its number

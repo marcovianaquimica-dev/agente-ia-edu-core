@@ -133,6 +133,63 @@ class StructureTests(unittest.TestCase):
         self.assertIsNotNone(split)
         self.assertTrue(221 < split < 312)
 
+    def test_two_column_detection_accepts_two_columns_each_with_their_own_answer_grid(self):
+        # Real regression found on a real UNICAMP exam page: TWO genuine
+        # independent side-by-side questions (like the FUVEST case above),
+        # but EACH one's own 4 multiple-choice options are laid out as a
+        # compact 2-column grid (a/b stacked at the question's own margin,
+        # c/d stacked further right) - unlike the ITA compact-grid
+        # regression, which was a single 2-line sub-column, this repeats
+        # across many questions stacked down the WHOLE page, so each
+        # sub-column has well over a handful of lines and survives the
+        # tiny-cluster gap-search filter on cluster size alone. The
+        # resulting two INTERNAL grid gaps (left's own margin to its c/d
+        # column; right's own margin to its c/d column) are comparably
+        # wide to the TRUE gutter between the two questions (measured on
+        # the real page: 127pt and 127pt against a 151pt true gutter) -
+        # comfortably inside the old width-ambiguity guard's rejection
+        # zone. The true gutter is still the least-crossed candidate by a
+        # clear margin (22% real page; every internal grid gap here is
+        # crossed by every one of that side's own full-width statement
+        # lines running over it) - trusting whichever LEGACY-widest
+        # candidate is ALSO the least-crossed, even without a dramatic 2x
+        # margin over the runner-up, resolves this without reopening the
+        # door to the synthetic multi-cell-table below (which never
+        # reaches this comparison at all: none of its clusters have enough
+        # lines to survive the gap-search size filter in the first place).
+        # Real wrapped text mostly does NOT reach a column's full width -
+        # only occasional lines run close to the margin (see the embedded-
+        # table test above, which learned the same lesson: a fixture where
+        # every line is exactly full-width makes ordinary paragraph text
+        # look like it straddles a distant split just as much as a close
+        # one). Varying widths, mostly short, reproduces the real
+        # asymmetry: the internal grid gap sits close to the column's OWN
+        # margin (little of the column's width needed to cross it - most
+        # lines do), while the true gutter sits close to the FAR edge of
+        # the column (only the rare near-full-width line reaches it).
+        _widths = [250, 150, 190, 210, 245, 170, 230, 200, 248, 160,
+                  220, 240, 246, 180, 200, 249, 165, 210, 247, 195] * 2
+        left_main = [
+            TextLine(page=1, x0=31, y0=12.0 * i, x1=31 + _widths[i], y1=12.0 * i + 10, text=f"esquerda enunciado {i}")
+            for i in range(40)
+        ]
+        left_grid = [
+            TextLine(page=1, x0=158, y0=500.0 + 12.0 * i, x1=158 + 22, y1=500.0 + 12.0 * i + 10, text=f"c) {i}")
+            for i in range(16)
+        ]
+        right_main = [
+            TextLine(page=1, x0=309, y0=12.0 * i, x1=309 + _widths[i], y1=12.0 * i + 10, text=f"direita enunciado {i}")
+            for i in range(40)
+        ]
+        right_grid = [
+            TextLine(page=1, x0=436, y0=500.0 + 12.0 * i, x1=436 + 22, y1=500.0 + 12.0 * i + 10, text=f"c) {i}")
+            for i in range(16)
+        ]
+        lines = left_main + left_grid + right_main + right_grid
+        split = detect_two_column_layout(lines, page_width=595.0)
+        self.assertIsNotNone(split)
+        self.assertTrue(158 < split < 309)
+
     def test_two_column_detection_rejects_a_multi_cell_table(self):
         # many distinct x0 (table cells), not a clean bimodal split
         lines = [
