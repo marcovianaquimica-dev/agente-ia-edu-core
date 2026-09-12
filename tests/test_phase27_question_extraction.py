@@ -571,6 +571,37 @@ class BoundaryDetectionTests(unittest.TestCase):
         self.assertTrue(b.preceded_by_paragraph_break)
         self.assertIn("questão real", text[b.start:b.end])
 
+    def test_duplicate_number_prefers_the_candidate_with_real_options_over_a_longer_bare_one(self):
+        # Real regression found on a real UECE exam: the numbered EXAM-
+        # RULES preamble ("13. Na parte superior da carteira, ficarão
+        # somente...") uses the exact same "N. text" convention as real
+        # questions and collides with every real question number the
+        # rules section's own count reaches. Neither candidate is
+        # preceded by a paragraph break here (both a dense rules list and
+        # an exam question can immediately follow the prior item with
+        # ordinary spacing) - so the OLD tie-break fell to body length,
+        # and a rules paragraph can easily run longer than a short
+        # multiple-choice question, wrongly winning. A rules paragraph is
+        # never phrased as multiple-choice; a real graded question in
+        # this convention always is - that alone should settle it, no
+        # matter which body is longer.
+        text = (
+            "13. Na parte superior da carteira, ficarão somente a caneta "
+            "transparente, o documento de identidade, o caderno de prova "
+            "e a folha de respostas, um texto normativo mais longo do que "
+            "a questão real, sem nenhuma alternativa de resposta.\n"
+            "14. Outra regra qualquer do mesmo tipo, também sem alternativas.\n"
+            "13.   A soma dos divisores positivos do número 9438 que são "
+            "números primos é igual a\n"
+            "A) 25.\n"
+            "B) 29.\n"
+            "C) 18.\n"
+            "D) 26.\n"
+        )
+        boundaries = detect_boundaries(text)
+        b13 = [b for b in boundaries if b.number == 13][0]
+        self.assertIn("soma dos divisores", text[b13.start:b13.end])
+
     def test_cut_at_answer_key_excludes_gabarito_section(self):
         text = "1.   Questão real, com texto suficiente.\n\nGabarito:\n\nResposta da questão 1: [A]\n"
         main_text, cut = cut_at_answer_key(text)

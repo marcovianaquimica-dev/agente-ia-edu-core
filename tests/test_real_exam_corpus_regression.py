@@ -61,7 +61,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         )
 
     def test_enem_2025_dia1(self):
-        self._check("2025_PV_impresso_D1_CD1.pdf", min_boundaries=90, min_validated=71)
+        self._check("2025_PV_impresso_D1_CD1.pdf", min_boundaries=90, min_validated=90)
 
     def test_enem_2025_dia2(self):
         self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=89)
@@ -70,7 +70,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=73)
 
     def test_uece_cev_2025(self):
-        self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=75)
+        self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=77)
 
     def test_ita_2024(self):
         # VALIDATED floor dropped by 1 (was 41) when GARBLED_ENCODING

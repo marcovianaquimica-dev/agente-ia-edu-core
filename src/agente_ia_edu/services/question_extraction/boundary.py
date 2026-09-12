@@ -200,9 +200,32 @@ def detect_boundaries(text: str) -> list[QuestionBoundary]:
             preceded_by_paragraph_break=preceded,
         ))
 
-    # disambiguate duplicate numbers: paragraph-break-preceded wins; ties
+    # disambiguate duplicate numbers: a candidate with a COMPLETE (4-5,
+    # same floor as MISSING_OPTION elsewhere) run of real multiple-choice
+    # options wins first, regardless of the other two signals (found on a
+    # real UECE exam: a numbered EXAM-RULES preamble - "13. Na parte
+    # superior da carteira, ficarão somente..." - uses the exact same "N.
+    # text" convention as real questions and collides with every real
+    # question number the rules section's own count reaches; instructions
+    # are never phrased as multiple-choice, so this one signal already
+    # tells them apart with certainty, unlike body length or a paragraph
+    # break, which a rules paragraph can just as easily have). Requiring
+    # a FULL set - not just "2 or more options, any letters" - matters:
+    # a genuinely DISCURSIVE question asking the candidate to address
+    # "a) primeiro ponto, b) segundo ponto" (found on a real PUC-Rio
+    # exam) is structurally identical, by this same option-marker
+    # pattern, to a 2-option multiple-choice question, and must not win
+    # by it. Only when this doesn't disambiguate (both/neither candidate
+    # has a full option set - most real duplicate collisions, like a
+    # worked example's numbered step or a gabarito grid, are never
+    # confused with the real question by this signal either way) does
+    # the ORIGINAL rule decide: paragraph-break-preceded wins; ties
     # broken by the longer body (a real question is never as short as a
     # numbered step or a one-token gabarito answer).
+    def _has_options(span: QuestionBoundary) -> bool:
+        _, options = _extract_options(text[span.start:span.end])
+        return len(options) in (4, 5)
+
     best: dict[int, QuestionBoundary] = {}
     for span in spans:
         body_len = span.end - span.start
@@ -211,8 +234,8 @@ def detect_boundaries(text: str) -> list[QuestionBoundary]:
             best[span.number] = span
             continue
         cur_len = cur.end - cur.start
-        cur_score = (1 if cur.preceded_by_paragraph_break else 0, cur_len)
-        new_score = (1 if span.preceded_by_paragraph_break else 0, body_len)
+        cur_score = (1 if _has_options(cur) else 0, 1 if cur.preceded_by_paragraph_break else 0, cur_len)
+        new_score = (1 if _has_options(span) else 0, 1 if span.preceded_by_paragraph_break else 0, body_len)
         if new_score > cur_score:
             best[span.number] = span
     return [best[n] for n in sorted(best)]
