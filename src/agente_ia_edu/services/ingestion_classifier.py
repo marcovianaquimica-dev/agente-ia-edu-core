@@ -299,13 +299,23 @@ class IngestionClassificationService:
             qv = iq.question_version
             classification = None
             if qv:
+                # `lifecycle == "ACTIVE"` is the explicit selector for "the
+                # current classification" (a SUPERSEDED row must not surface
+                # in the trace as if it were current). `created_at desc` +
+                # `.first()` (not `scalar_one_or_none()`) is only a
+                # deterministic tie-break for the rare case of several ACTIVE
+                # rows coexisting across different taxonomy_version values;
+                # it must never raise MultipleResultsFound.
                 class_stmt = (
                     select(PedagogicalClassification)
-                    .where(PedagogicalClassification.question_version_id == qv.id)
+                    .where(
+                        PedagogicalClassification.question_version_id == qv.id,
+                        PedagogicalClassification.lifecycle == "ACTIVE",
+                    )
                     .order_by(PedagogicalClassification.created_at.desc())
                 )
                 class_res = await self.session.execute(class_stmt)
-                classification = class_res.scalar_one_or_none()
+                classification = class_res.scalars().first()
 
             trace_list.append({
                 "document": {

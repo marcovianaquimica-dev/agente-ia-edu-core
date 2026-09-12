@@ -20,8 +20,189 @@ class DifficultyLevel(str, Enum):
 class ActivityType(str, Enum):
     """Types of learning activities."""
 
+    INITIAL_DIAGNOSTIC = "INITIAL_DIAGNOSTIC"
     OFFICIAL_ASSESSMENT = "OFFICIAL_ASSESSMENT"
     INDIVIDUAL_PRACTICE = "INDIVIDUAL_PRACTICE"
+
+
+@dataclass(frozen=True)
+class NextBestActionCandidate:
+    content_node_id: str
+    content_name: str
+    mastery_score: Optional[float]
+    confidence: float
+    evidence_count: int
+    trend: str = "INSUFFICIENT_EVIDENCE"
+    context_sources: tuple[str, ...] = ()
+    objective_aligned: bool = False
+    recent_practice_count: int = 0
+    prerequisite_node_id: Optional[str] = None
+    prerequisite_name: Optional[str] = None
+    prerequisite_mastery_score: Optional[float] = None
+    prerequisite_confidence: float = 0.0
+    prerequisite_evidence_count: int = 0
+    prerequisite_hypothesis_status: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class NextBestActionDecision:
+    action: str
+    target_content_node_id: str
+    target_content_name: str
+    related_content_node_id: Optional[str]
+    priority_score: float
+    reason: str
+    factors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class NextBestActionPolicy:
+    """Choose one explainable pedagogical action from existing domain evidence."""
+
+    minimum_confidence: float = 0.3
+    mastered_score: float = 85.0
+    developing_score: float = 70.0
+    gap_score: float = 40.0
+
+    def decide(
+        self, candidates: list[NextBestActionCandidate]
+    ) -> Optional[NextBestActionDecision]:
+        decisions = [self._evaluate(candidate) for candidate in candidates]
+        if not decisions:
+            return None
+        return sorted(
+            decisions,
+            key=lambda item: (-item.priority_score, item.target_content_node_id),
+        )[0]
+
+    def _evaluate(self, candidate: NextBestActionCandidate) -> NextBestActionDecision:
+        factors: list[str] = []
+        related_content_node_id: Optional[str] = None
+        target_id = candidate.content_node_id
+        target_name = candidate.content_name
+        prerequisite_relevant = (
+            candidate.prerequisite_node_id is not None
+            and candidate.prerequisite_hypothesis_status != "REFUTED"
+        )
+
+        if prerequisite_relevant and (
+            candidate.prerequisite_evidence_count == 0
+            or candidate.prerequisite_confidence < self.minimum_confidence
+        ):
+            action = "COMPLETE_MISSING_EVIDENCE"
+            base_score = 110.0
+            related_content_node_id = candidate.content_node_id
+            target_id = candidate.prerequisite_node_id or candidate.content_node_id
+            target_name = candidate.prerequisite_name or candidate.content_name
+            factors.extend(("PREREQUISITE_RELEVANT", "PREREQUISITE_LOW_EVIDENCE"))
+            reason = (
+                f"{candidate.content_name} pode depender de {target_name}, mas ainda ha "
+                "pouca evidencia sobre esse pre-requisito; a proxima acao e completar "
+                "essa evidencia antes de avancar."
+            )
+        elif prerequisite_relevant and (
+            candidate.prerequisite_mastery_score is not None
+            and candidate.prerequisite_mastery_score < self.gap_score
+        ):
+            action = "STUDY_PREREQUISITE"
+            base_score = 105.0
+            related_content_node_id = candidate.content_node_id
+            target_id = candidate.prerequisite_node_id or candidate.content_node_id
+            target_name = candidate.prerequisite_name or candidate.content_name
+            factors.extend(("PREREQUISITE_RELEVANT", "PREREQUISITE_GAP"))
+            reason = (
+                f"{candidate.content_name} apresenta um possivel bloqueio em {target_name}, "
+                f"com dominio estimado de {candidate.prerequisite_mastery_score:.1f}%; "
+                "a proxima acao e estudar o pre-requisito antes de avancar."
+            )
+        elif candidate.evidence_count == 0 or candidate.mastery_score is None:
+            action = "COMPLETE_MISSING_EVIDENCE"
+            base_score = 90.0
+            factors.append("NOT_EVALUATED")
+            reason = (
+                f"Ainda nao ha evidencia suficiente para estimar o dominio em "
+                f"{candidate.content_name}; a proxima acao e completar uma atividade diagnostica."
+            )
+        elif candidate.confidence < self.minimum_confidence:
+            action = "COMPLETE_MISSING_EVIDENCE"
+            base_score = 85.0
+            factors.append("LOW_CONFIDENCE")
+            reason = (
+                f"A estimativa de {candidate.content_name} tem confianca baixa "
+                f"({candidate.confidence:.0%}); a proxima acao e obter mais evidencia."
+            )
+        elif candidate.mastery_score < self.gap_score:
+            action = "PRACTICE_CONTENT"
+            base_score = 80.0
+            factors.append("LOW_MASTERY")
+            reason = (
+                f"{candidate.content_name} apresenta dominio estimado de "
+                f"{candidate.mastery_score:.1f}% com evidencia suficiente; "
+                "a proxima acao e praticar o conteudo."
+            )
+        elif candidate.mastery_score < self.developing_score:
+            action = "REINFORCE_CONTENT"
+            base_score = 65.0
+            factors.append("DEVELOPING_MASTERY")
+            reason = (
+                f"{candidate.content_name} esta em desenvolvimento "
+                f"({candidate.mastery_score:.1f}%); a proxima acao e reforcar o conteudo."
+            )
+        elif candidate.trend == "DECLINING":
+            action = "REVIEW_CONTENT"
+            base_score = 60.0
+            factors.append("DECLINING_TREND")
+            reason = (
+                f"O desempenho recente em {candidate.content_name} esta em queda; "
+                "a proxima acao e revisar o conteudo."
+            )
+        elif (
+            candidate.mastery_score >= self.mastered_score
+            and candidate.confidence >= 0.6
+        ):
+            action = "ADVANCE_CONTENT"
+            base_score = 30.0
+            factors.append("WELL_EVIDENCED_MASTERY")
+            reason = (
+                f"{candidate.content_name} apresenta dominio alto e bem evidenciado "
+                f"({candidate.mastery_score:.1f}%); o aluno pode avancar."
+            )
+        else:
+            action = "REVIEW_CONTENT"
+            base_score = 45.0
+            factors.append("MASTERY_MAINTENANCE")
+            reason = (
+                f"{candidate.content_name} apresenta dominio de "
+                f"{candidate.mastery_score:.1f}%; uma revisao breve preserva a aprendizagem."
+            )
+
+        source_bonus = max(
+            ({"TEACHER": 18.0, "COORDINATION": 12.0, "SCHOOL_PLAN": 8.0}.get(source, 0.0)
+             for source in candidate.context_sources),
+            default=0.0,
+        )
+        if source_bonus:
+            factors.append("PEDAGOGICAL_CONTEXT")
+        objective_bonus = 12.0 if candidate.objective_aligned else 0.0
+        if objective_bonus:
+            factors.append("STUDENT_OBJECTIVE")
+        trend_bonus = 8.0 if candidate.trend == "DECLINING" else 0.0
+        repetition_penalty = min(15.0, candidate.recent_practice_count * 3.0)
+        if repetition_penalty:
+            factors.append("RECENT_PRACTICE")
+
+        return NextBestActionDecision(
+            action=action,
+            target_content_node_id=target_id,
+            target_content_name=target_name,
+            related_content_node_id=related_content_node_id,
+            priority_score=round(
+                base_score + source_bonus + objective_bonus + trend_bonus - repetition_penalty,
+                2,
+            ),
+            reason=reason,
+            factors=tuple(factors),
+        )
 
 
 @dataclass

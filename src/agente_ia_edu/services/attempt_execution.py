@@ -10,6 +10,12 @@ if TYPE_CHECKING:
     from agente_ia_edu.services.assessments import AssessmentAttempt, AssessmentAnswer
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 class PublicationAvailabilityService:
     """Validates publication availability based on temporal constraints.
     
@@ -38,6 +44,8 @@ class PublicationAvailabilityService:
             True if the publication is available, False otherwise.
         """
         now = now or datetime.now(timezone.utc)
+        starts_at = _as_utc(starts_at)
+        ends_at = _as_utc(ends_at)
 
         # Publication must be active
         if publication_status != "active":
@@ -107,6 +115,8 @@ class AttemptExecutionService:
         Returns:
             The expiration datetime, or None if no limit.
         """
+        started_at = _as_utc(started_at)
+        publication_ends_at = _as_utc(publication_ends_at)
         expiration = None
 
         if time_limit_seconds is not None:
@@ -136,6 +146,7 @@ class AttemptExecutionService:
         if expires_at is None:
             return False
         now = now or datetime.now(timezone.utc)
+        expires_at = _as_utc(expires_at)
         return now > expires_at
 
     @staticmethod
@@ -156,6 +167,7 @@ class AttemptExecutionService:
         if expires_at is None:
             return None
         now = now or datetime.now(timezone.utc)
+        expires_at = _as_utc(expires_at)
         remaining = expires_at - now
         return max(0, int(remaining.total_seconds()))
 
@@ -174,7 +186,7 @@ class AttemptExecutionService:
         Returns:
             Duration in seconds.
         """
-        return int((submitted_at - started_at).total_seconds())
+        return int((_as_utc(submitted_at) - _as_utc(started_at)).total_seconds())
 
 
 class AnswerCorrectionService:

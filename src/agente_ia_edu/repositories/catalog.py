@@ -16,6 +16,7 @@ from ..db.models import (
     ContentQuestionLink,
     ContentResourceLink,
     EducationalResource,
+    MaterialBlock,
     MaterialExercise,
     MaterialSection,
     ResourceAccessGrant,
@@ -207,5 +208,24 @@ class TheoryMaterialRepository:
             select(MaterialExercise)
             .where(MaterialExercise.material_version_id == material_version_id)
             .order_by(MaterialExercise.position)
+        )
+        return list(result.scalars().all())
+
+    async def get_section(self, section_id: UUID) -> Optional[MaterialSection]:
+        return await self.session.get(MaterialSection, section_id)
+
+    async def list_blocks(self, section_id: UUID) -> list[MaterialBlock]:
+        result = await self.session.execute(
+            select(MaterialBlock)
+            .where(MaterialBlock.section_id == section_id)
+            .order_by(MaterialBlock.position)
+        )
+        return list(result.scalars().all())
+
+    async def list_blocks_for_version(self, material_version_id: UUID) -> list[MaterialBlock]:
+        result = await self.session.execute(
+            select(MaterialBlock)
+            .where(MaterialBlock.material_version_id == material_version_id)
+            .order_by(MaterialBlock.position)
         )
         return list(result.scalars().all())

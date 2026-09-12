@@ -274,6 +274,7 @@ class PracticeSessionService:
         requested_question_count: int = 10,
         recommended_difficulty: Optional[Union[DifficultyLevel, str]] = None,
         recommendation_reason: Optional[str] = None,
+        metadata: dict | None = None,
     ) -> PracticeSession:
         """
         Create a new practice session.
@@ -290,6 +291,7 @@ class PracticeSessionService:
             requested_question_count=requested_question_count,
             status="active",
             recommendation_reason=recommendation_reason,
+            metadata_=metadata,
         )
         session.add(practice_session)
         await session.flush()
@@ -332,7 +334,7 @@ class PracticeSessionService:
                 if selection.selected_option_id is None:
                     continue
 
-                from ..repositories.questions import resolve_official_correct_option_id
+                from .answer_key import resolve_official_correct_option_id
 
                 correct_option_id = await resolve_official_correct_option_id(
                     session, selection.question_version_id
@@ -417,6 +419,7 @@ class QuestionSelectionService:
         content_node_id: Optional[UuidLike],
         difficulty_level: Union[DifficultyLevel, str],
         requested_question_count: int,
+        eligibility_context: dict | None = None,
     ) -> list[QuestionVersion]:
         """
         Select up to `requested_question_count` question versions.
@@ -441,19 +444,56 @@ class QuestionSelectionService:
 
         repo = self._repository(session)
 
+        recent_ids = await repo.recently_answered_version_ids(
+            external_identity_id, content_node_id
+        )
+
+        if eligibility_context is not None:
+            query_context = dict(eligibility_context)
+            candidates = await repo.list_eligible_candidate_versions(
+                content_node_id,
+                difficulty_level=difficulty.value,
+                exclude_version_ids=recent_ids,
+                limit=requested_question_count,
+                **query_context,
+            )
+            if len(candidates) < requested_question_count:
+                remaining = requested_question_count - len(candidates)
+                additional_fresh = await repo.list_eligible_candidate_versions(
+                    content_node_id,
+                    exclude_version_ids=recent_ids | {item.id for item in candidates},
+                    limit=remaining,
+                    **query_context,
+                )
+                candidates.extend(additional_fresh)
+            if len(candidates) < requested_question_count:
+                remaining = requested_question_count - len(candidates)
+                repeats = await repo.list_eligible_candidate_versions(
+                    content_node_id,
+                    difficulty_level=difficulty.value,
+                    include_version_ids=recent_ids,
+                    limit=remaining,
+                    **query_context,
+                )
+                if not repeats:
+                    repeats = await repo.list_eligible_candidate_versions(
+                        content_node_id,
+                        include_version_ids=recent_ids,
+                        limit=remaining,
+                        **query_context,
+                    )
+                candidates.extend(repeats)
+            return candidates[:requested_question_count]
+
         candidates = await repo.list_candidate_versions(
             content_node_id, difficulty.value
         )
         if not candidates:
-            # Fall back: ignore difficulty filter rather than yield nothing.
+            # Backward-compatible taxonomy selector for legacy callers.
             candidates = await repo.list_candidate_versions(content_node_id, None)
 
         if not candidates:
             return []
-
-        recent_ids = await repo.recently_answered_version_ids(
-            external_identity_id, content_node_id
-        )
 
         fresh = [c for c in candidates if c.id not in recent_ids]
         chosen = fresh[:requested_question_count]
@@ -471,6 +511,7 @@ class QuestionSelectionService:
         practice_session: PracticeSession,
         external_identity_id: str,
         difficulty_level: Union[DifficultyLevel, str],
+        eligibility_context: dict | None = None,
     ) -> list[PracticeQuestionSelection]:
         """Select questions and persist them as PracticeQuestionSelection rows."""
         difficulty = _as_difficulty_level(difficulty_level)
@@ -480,6 +521,7 @@ class QuestionSelectionService:
             practice_session.content_node_id,
             difficulty,
             practice_session.requested_question_count,
+            eligibility_context=eligibility_context,
         )
 
         set_committed_value(practice_session, "question_selections", [])
@@ -488,7 +530,11 @@ class QuestionSelectionService:
             selection = PracticeQuestionSelection(
                 practice_session_id=practice_session.id,
                 question_version_id=version.id,
-                difficulty_level=difficulty.value,
+                difficulty_level=(
+                    version.recommended_difficulty
+                    if eligibility_context is not None and version.recommended_difficulty
+                    else difficulty.value
+                ),
                 position=position,
             )
             practice_session.question_selections.append(selection)

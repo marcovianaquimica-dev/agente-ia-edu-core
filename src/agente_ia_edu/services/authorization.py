@@ -125,13 +125,14 @@ class AuthorizationService:
                     "provider": identity.provider,
                     "roles": identity.roles,
                     "selected_from_link": True,
+                    "school_link_metadata": selected.metadata_ or {},
                 },
             )
 
         fallback_role = (role_hint or (identity.roles[0] if identity.roles else "STUDENT")).upper()
         if fallback_role == "ADMIN":
             fallback_role = "PLATFORM_ADMIN"
-        if fallback_role not in {"PLATFORM_ADMIN", "DIRECTOR", "COORDINATOR", "TEACHER", "STUDENT"}:
+        if fallback_role not in {"PLATFORM_ADMIN", "DIRECTOR", "COORDINATOR", "SECRETARY", "TEACHER", "STUDENT"}:
             fallback_role = "STUDENT"
 
         modules = tuple(sorted(await self._school_modules(school_id)))
@@ -160,6 +161,7 @@ class AuthorizationService:
             "DIRECTOR": 40,
             "COORDINATOR": 30,
             "TEACHER": 20,
+            "SECRETARY": 15,
             "STUDENT": 10,
         }
         return precedence.get(role.upper(), 0)

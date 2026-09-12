@@ -4,7 +4,7 @@ Platform Administration Service for Multi-tenant SaaS Management (Phase 12A).
 Handles:
 - School / Tenant lifecycle (CREATE, UPDATE, ACTIVATE, DEACTIVATE, SUSPEND).
 - Platform Module Management per school (AGENTE_IA_EDU, REDACAO_IA).
-- User Role & Scope bindings (PLATFORM_ADMIN, DIRECTOR, COORDINATOR, TEACHER, STUDENT).
+- User Role & Scope bindings, including reception-only SECRETARY.
 - Multi-tenant Isolation Enforcement.
 - Administrative Audit Logging.
 """
@@ -34,10 +34,11 @@ class AdminRole:
     PLATFORM_ADMIN = "PLATFORM_ADMIN"
     DIRECTOR = "DIRECTOR"
     COORDINATOR = "COORDINATOR"
+    SECRETARY = "SECRETARY"
     TEACHER = "TEACHER"
     STUDENT = "STUDENT"
 
-    ALL_ROLES = {PLATFORM_ADMIN, DIRECTOR, COORDINATOR, TEACHER, STUDENT}
+    ALL_ROLES = {PLATFORM_ADMIN, DIRECTOR, COORDINATOR, SECRETARY, TEACHER, STUDENT}
 
 
 class AdminScopeType:

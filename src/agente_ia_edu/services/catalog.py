@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -19,8 +19,11 @@ from ..db.models import (
     ContentQuestionLink,
     ContentResourceLink,
     EducationalResource,
+    MaterialBlock,
     MaterialExercise,
     MaterialSection,
+    QuestionVersion,
+    ResourceAccessGrant,
     TheoryMaterial,
     TheoryMaterialVersion,
 )
@@ -125,6 +128,53 @@ class EducationalResourceService:
         session.add(resource)
         await session.flush()
         return resource
+
+    async def grant_access(
+        self,
+        session: AsyncSession,
+        *,
+        resource_id: UUID,
+        grantee_type: str,
+        grantee_external_id: str,
+    ) -> ResourceAccessGrant:
+        resource = await session.get(EducationalResource, resource_id)
+        if resource is None:
+            raise ValueError("Resource not found")
+
+        normalized_type = (grantee_type or "").upper()
+        allowed = {
+            "INSTITUTION",
+            "SCHOOL",
+            "UNIT",
+            "SEGMENT",
+            "GRADE_LEVEL",
+            "CLASSROOM",
+            "SCHOOL_UNIT",
+            "EXTERNAL_IDENTITY",
+        }
+        if normalized_type not in allowed:
+            raise ValueError(f"Unsupported grantee type: {grantee_type}")
+        if not grantee_external_id or not str(grantee_external_id).strip():
+            raise ValueError("grantee_external_id is required")
+
+        existing = await session.execute(
+            select(ResourceAccessGrant).where(
+                ResourceAccessGrant.resource_id == resource_id,
+                ResourceAccessGrant.grantee_type == normalized_type,
+                ResourceAccessGrant.grantee_external_id == str(grantee_external_id).strip(),
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return existing.scalar_one_or_none()
+
+        grant = ResourceAccessGrant(
+            resource_id=resource_id,
+            grantee_type=normalized_type,
+            grantee_external_id=str(grantee_external_id).strip(),
+        )
+        session.add(grant)
+        await session.flush()
+        return grant
 
 
 class ContentResourceLinkService:
@@ -265,9 +315,19 @@ class TheoryMaterialService:
         created_by_external_identity: Optional[str] = None,
         primary_content_node_id: Optional[UUID] = None,
         school_id: Optional[UUID] = None,
+        description: Optional[str] = None,
+        material_kind: Optional[str] = None,
+        authoring_source: Optional[str] = None,
+        visibility_scope: str = "PRIVATE",
     ) -> TheoryMaterial:
+        if primary_content_node_id is not None:
+            await self._require_active_node(session, primary_content_node_id)
         material = TheoryMaterial(
             title=title,
+            description=description,
+            material_kind=material_kind,
+            authoring_source=authoring_source,
+            visibility_scope=(visibility_scope or "PRIVATE").upper(),
             created_by_external_identity=created_by_external_identity,
             primary_content_node_id=primary_content_node_id,
             school_id=school_id,
@@ -436,6 +496,12 @@ class TheoryMaterialService:
             )
         return version
 
+    async def _require_active_node(self, session: AsyncSession, node_id: UUID) -> CatalogNode:
+        node = await session.get(CatalogNode, node_id)
+        if node is None or not node.active:
+            raise ValueError("curriculum node does not exist or is inactive")
+        return node
+
     async def add_section(
         self,
         session: AsyncSession,
@@ -445,11 +511,15 @@ class TheoryMaterialService:
         position: int,
         title: Optional[str] = None,
         body: Optional[str] = None,
+        content_node_id: Optional[UUID] = None,
+        curriculum_relation_type: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> MaterialSection:
         version = await self._get_version(session, material_version_id)
         if self._normalize_status(version.status) not in self._ALLOWED_EDIT_STATUSES:
             raise ValueError("Only draft or rejected material versions can be edited.")
+        if content_node_id is not None:
+            await self._require_active_node(session, content_node_id)
 
         section = MaterialSection(
             material_version_id=material_version_id,
@@ -457,11 +527,44 @@ class TheoryMaterialService:
             position=position,
             title=title,
             body=body,
+            content_node_id=content_node_id,
+            curriculum_relation_type=curriculum_relation_type,
             metadata_=metadata,
         )
         session.add(section)
         await session.flush()
         return section
+
+    async def add_block(
+        self,
+        session: AsyncSession,
+        *,
+        section_id: UUID,
+        block_type: str,
+        position: int,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> "MaterialBlock":
+        section = await session.get(MaterialSection, section_id)
+        if section is None:
+            raise ValueError("Material section does not exist")
+        version = await self._get_version(session, section.material_version_id)
+        if self._normalize_status(version.status) not in self._ALLOWED_EDIT_STATUSES:
+            raise ValueError("Only draft or rejected material versions can be edited.")
+
+        block = MaterialBlock(
+            section_id=section_id,
+            material_version_id=section.material_version_id,
+            block_type=block_type,
+            position=position,
+            title=title,
+            body=body,
+            metadata_=metadata,
+        )
+        session.add(block)
+        await session.flush()
+        return block
 
     async def add_exercise(
         self,
@@ -473,6 +576,7 @@ class TheoryMaterialService:
         section_id: Optional[UUID] = None,
         question_version_id: Optional[UUID] = None,
         authored_text: Optional[str] = None,
+        relation_type: Optional[str] = None,
         is_required: bool = True,
         points: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
@@ -482,11 +586,24 @@ class TheoryMaterialService:
             raise ValueError("Only draft or rejected material versions can be edited.")
         if source_type == "EXISTING_QUESTION" and question_version_id is None:
             raise ValueError("question_version_id is required for EXISTING_QUESTION exercises")
+        if source_type == "EXISTING_QUESTION" and question_version_id is not None:
+            qv = await session.get(QuestionVersion, question_version_id)
+            if qv is None:
+                raise ValueError("question_version_id does not exist")
+            dup = await session.scalar(
+                select(MaterialExercise.id).where(
+                    MaterialExercise.material_version_id == material_version_id,
+                    MaterialExercise.question_version_id == question_version_id,
+                )
+            )
+            if dup is not None:
+                raise ValueError("question is already linked to this material version")
 
         exercise = MaterialExercise(
             material_version_id=material_version_id,
             section_id=section_id,
             source_type=source_type,
+            relation_type=relation_type,
             question_version_id=question_version_id,
             authored_text=authored_text,
             position=position,
@@ -497,6 +614,84 @@ class TheoryMaterialService:
         session.add(exercise)
         await session.flush()
         return exercise
+
+    async def remove_exercise(
+        self,
+        session: AsyncSession,
+        *,
+        material_version_id: UUID,
+        question_version_id: UUID,
+    ) -> bool:
+        version = await self._get_version(session, material_version_id)
+        if self._normalize_status(version.status) not in self._ALLOWED_EDIT_STATUSES:
+            raise ValueError("Only draft or rejected material versions can be edited.")
+        exercise = await session.scalar(
+            select(MaterialExercise).where(
+                MaterialExercise.material_version_id == material_version_id,
+                MaterialExercise.question_version_id == question_version_id,
+            )
+        )
+        if exercise is None:
+            return False
+        await session.delete(exercise)
+        await session.flush()
+        return True
+
+    async def update_material_fields(
+        self,
+        session: AsyncSession,
+        *,
+        material_id: UUID,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        material_kind: Optional[str] = None,
+        authoring_source: Optional[str] = None,
+        visibility_scope: Optional[str] = None,
+        primary_content_node_id: Optional[UUID] = None,
+        unset_primary_content_node: bool = False,
+    ) -> TheoryMaterial:
+        material = await session.get(TheoryMaterial, material_id)
+        if material is None:
+            raise ValueError("Material does not exist")
+        if title is not None:
+            material.title = title
+        if description is not None:
+            material.description = description
+        if material_kind is not None:
+            material.material_kind = material_kind
+        if authoring_source is not None:
+            material.authoring_source = authoring_source
+        if visibility_scope is not None:
+            material.visibility_scope = visibility_scope.upper()
+        if unset_primary_content_node:
+            material.primary_content_node_id = None
+        elif primary_content_node_id is not None:
+            await self._require_active_node(session, primary_content_node_id)
+            material.primary_content_node_id = primary_content_node_id
+        await session.flush()
+        return material
+
+    async def version_overview(
+        self, session: AsyncSession, *, material_version_id: UUID
+    ) -> dict[str, int]:
+        """Batched section / block / linked-question counts for one version
+        (no per-row query - safe as the material grows)."""
+        sections = int(await session.scalar(
+            select(func.count()).select_from(MaterialSection)
+            .where(MaterialSection.material_version_id == material_version_id)
+        ) or 0)
+        blocks = int(await session.scalar(
+            select(func.count()).select_from(MaterialBlock)
+            .where(MaterialBlock.material_version_id == material_version_id)
+        ) or 0)
+        questions = int(await session.scalar(
+            select(func.count()).select_from(MaterialExercise)
+            .where(
+                MaterialExercise.material_version_id == material_version_id,
+                MaterialExercise.question_version_id.isnot(None),
+            )
+        ) or 0)
+        return {"sections": sections, "blocks": blocks, "questions": questions}
 
     async def publish_version(
         self,

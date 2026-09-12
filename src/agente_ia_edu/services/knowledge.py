@@ -46,12 +46,74 @@ class KnowledgeService:
     # 1. QUESTION QUERIES
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    @staticmethod
+    def _scope_values(scope_value: str | tuple[str, ...] | None) -> tuple[str, ...]:
+        if scope_value is None:
+            return ()
+        if isinstance(scope_value, tuple):
+            return tuple(v for v in scope_value if v)
+        return (scope_value,)
+
+    @staticmethod
+    def _is_question_visible(
+        question: Question,
+        requester_institution_id: str | None = None,
+        requester_scope_type: str | None = None,
+        requester_scope_external_id: str | tuple[str, ...] | None = None,
+    ) -> bool:
+        """Visibility rules for school-scoped and classroom-scoped questions."""
+        if question.visibility_scope == "PUBLIC":
+            return True
+
+        # Legacy/default platform questions may exist without an explicit school owner or
+        # public visibility flag. They should remain visible in the generic discovery layer
+        # unless a stricter tenant or classroom scope is actually applied.
+        if question.school_id is None and not question.owner_external_id:
+            if question.origin_type in {"PLATFORM", "IMPORTED", "GENERATED"}:
+                return True
+
+        if question.visibility_scope == "PRIVATE":
+            if question.owner_external_id and requester_institution_id and question.owner_external_id == requester_institution_id:
+                return True
+            if question.school_id and requester_institution_id and str(question.school_id) == str(requester_institution_id):
+                return True
+            if question.school_id is None and not question.owner_external_id:
+                return True
+            return False
+
+        if question.school_id is None:
+            return question.origin_type == "PLATFORM" and question.visibility_scope == "PUBLIC"
+
+        if requester_institution_id is None:
+            return False
+
+        if str(question.school_id) != str(requester_institution_id):
+            return False
+
+        if question.visibility_scope == "SCHOOL":
+            return True
+
+        if question.visibility_scope == "CLASSROOM":
+            classroom_id = (question.metadata_ or {}).get("classroom_id") if isinstance(question.metadata_, dict) else None
+            scope_values = KnowledgeService._scope_values(requester_scope_external_id)
+            return bool(
+                requester_scope_type and requester_scope_type.upper() == "CLASSROOM"
+                and classroom_id
+                and classroom_id in scope_values
+            )
+
+        return False
+
     async def find_questions_by_content(
         self,
         content_name_or_code: str,
         *,
         difficulty: str | None = None,
         institution_id: str | None = None,
+        requester_institution_id: str | None = None,
+        requester_scope_type: str | None = None,
+        requester_scope_external_id: str | None = None,
         active_classification_only: bool = True,
     ) -> list[dict[str, Any]]:
         """Find questions associated with a content or subcontent name/code.
@@ -64,11 +126,18 @@ class KnowledgeService:
         search_term = content_name_or_code.strip()
 
         # Query AI Classifications
+        # `lifecycle == "ACTIVE"` excludes superseded (corrected-away) rows so
+        # a stale, incorrect classification can never resurface here just
+        # because its old content/subcontent text still matches the search
+        # term - this is an explicit selector, not an artifact of ordering.
         stmt = (
             select(PedagogicalClassification)
             .join(PedagogicalClassification.question_version)
-            .options(selectinload(PedagogicalClassification.question_version))
+            .options(
+                selectinload(PedagogicalClassification.question_version).selectinload(QuestionVersion.question)
+            )
             .where(
+                PedagogicalClassification.lifecycle == "ACTIVE",
                 or_(
                     PedagogicalClassification.content.ilike(f"%{search_term}%"),
                     PedagogicalClassification.subcontent.ilike(f"%{search_term}%"),
@@ -100,6 +169,14 @@ class KnowledgeService:
         for c in classifications:
             qv = c.question_version
             if qv and qv.id not in seen_qv_ids:
+                question = qv.question
+                if not self._is_question_visible(
+                    question,
+                    requester_institution_id=requester_institution_id or institution_id,
+                    requester_scope_type=requester_scope_type,
+                    requester_scope_external_id=requester_scope_external_id,
+                ):
+                    continue
                 seen_qv_ids.add(qv.id)
                 questions_list.append({
                     "question_version_id": str(qv.id),
@@ -137,7 +214,9 @@ class KnowledgeService:
             link_stmt = (
                 select(ContentQuestionLink)
                 .where(ContentQuestionLink.content_node_id.in_(node_ids))
-                .options(selectinload(ContentQuestionLink.question_version))
+                .options(
+                    selectinload(ContentQuestionLink.question_version).selectinload(QuestionVersion.question)
+                )
             )
             if difficulty:
                 link_stmt = link_stmt.join(QuestionVersion).where(
@@ -145,7 +224,8 @@ class KnowledgeService:
                         QuestionVersion.recommended_difficulty == difficulty.upper(),
                         QuestionVersion.id.in_(
                             select(PedagogicalClassification.question_version_id).where(
-                                PedagogicalClassification.difficulty == difficulty.upper()
+                                PedagogicalClassification.difficulty == difficulty.upper(),
+                                PedagogicalClassification.lifecycle == "ACTIVE",
                             )
                         ),
                     )
@@ -157,6 +237,14 @@ class KnowledgeService:
             for link in links:
                 qv = link.question_version
                 if qv and qv.id not in seen_qv_ids:
+                    question = qv.question
+                    if not self._is_question_visible(
+                        question,
+                        requester_institution_id=requester_institution_id or institution_id,
+                        requester_scope_type=requester_scope_type,
+                        requester_scope_external_id=requester_scope_external_id,
+                    ):
+                        continue
                     seen_qv_ids.add(qv.id)
                     questions_list.append({
                         "question_version_id": str(qv.id),
@@ -189,7 +277,8 @@ class KnowledgeService:
                 QuestionVersion.recommended_difficulty == target,
                 QuestionVersion.id.in_(
                     select(PedagogicalClassification.question_version_id).where(
-                        PedagogicalClassification.difficulty == target
+                        PedagogicalClassification.difficulty == target,
+                        PedagogicalClassification.lifecycle == "ACTIVE",
                     )
                 ),
             )
@@ -217,6 +306,8 @@ class KnowledgeService:
         *,
         resource_type: str | None = None,
         requester_institution_id: str | None = None,
+        requester_scope_type: str | None = None,
+        requester_scope_external_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Find educational resources linked to a content node.
 
@@ -260,7 +351,12 @@ class KnowledgeService:
         for link in links:
             res = link.resource
             if res and res.id not in seen_res_ids:
-                if not self._is_resource_visible(res, requester_institution_id):
+                if not self._is_resource_visible(
+                    res,
+                    requester_institution_id=requester_institution_id,
+                    requester_scope_type=requester_scope_type,
+                    requester_scope_external_id=requester_scope_external_id,
+                ):
                     continue
 
                 seen_res_ids.add(res.id)
@@ -346,17 +442,18 @@ class KnowledgeService:
     # -------------------------------------------------------------------------
 
     @staticmethod
+    @staticmethod
     def _is_resource_visible(
         resource: EducationalResource,
-        requester_institution_id: str | None,
+        requester_institution_id: str | None = None,
+        requester_scope_type: str | None = None,
+        requester_scope_external_id: str | tuple[str, ...] | None = None,
     ) -> bool:
-        """Evaluates if requester_institution_id can view resource.
+        """Evaluates if the current requester can view a published resource.
 
-        Rules:
-        1. PUBLIC or SHARED -> visible to all
-        2. PLATFORM origin -> visible to all
-        3. PRIVATE / SCHOOL / INSTITUTION -> visible if owner_external_id matches requester_institution_id
-        4. Explicit ResourceAccessGrant matching requester_institution_id
+        The project already models audience control through EducationalResource.visibility_scope
+        plus ResourceAccessGrant. This keeps distribution semantics consistent with the real
+        multi-tenant context (school, segment, grade, classroom) without introducing a parallel catalog.
         """
         if resource.visibility_scope in ("PUBLIC", "SHARED"):
             return True
@@ -364,12 +461,57 @@ class KnowledgeService:
         if resource.origin_type == "PLATFORM":
             return True
 
-        if requester_institution_id and resource.owner_external_id == requester_institution_id:
+        requester_school = (requester_institution_id or "").strip()
+        requester_scope = (requester_scope_type or "").upper()
+        scope_values = KnowledgeService._scope_values(requester_scope_external_id)
+        requester_scope_ids = tuple((v or "").strip() for v in scope_values)
+
+        if (
+            resource.visibility_scope not in {"CLASSROOM"}
+            and requester_school
+            and resource.owner_external_id == requester_school
+        ):
             return True
 
-        if requester_institution_id and resource.access_grants:
-            for grant in resource.access_grants:
-                if grant.grantee_external_id == requester_institution_id:
-                    return True
+        if (
+            resource.visibility_scope not in {"CLASSROOM"}
+            and resource.owner_external_id
+            and resource.owner_external_id in requester_scope_ids
+        ):
+            return True
+
+        grants = resource.__dict__.get("access_grants") or []
+        if not isinstance(grants, list):
+            try:
+                grants = list(grants)
+            except Exception:
+                grants = []
+
+        if grants:
+            for grant in grants:
+                grant_type = (grant.grantee_type or "").upper()
+                grant_id = (grant.grantee_external_id or "").strip()
+
+                if requester_school and grant_id == requester_school:
+                    if grant_type in {"INSTITUTION", "SCHOOL", "SCHOOL_UNIT"}:
+                        return True
+
+                if requester_scope_ids and grant_id in requester_scope_ids:
+                    if grant_type in {"CLASSROOM", "GRADE_LEVEL", "SEGMENT", "UNIT", "SCHOOL", "INSTITUTION"}:
+                        return True
+
+                if requester_scope and grant_type == requester_scope:
+                    if grant_id and requester_scope_ids and grant_id in requester_scope_ids:
+                        return True
+
+                if resource.visibility_scope == "CLASSROOM" and grant_type == "CLASSROOM":
+                    if requester_scope == "CLASSROOM" and grant_id in requester_scope_ids:
+                        return True
+
+        # Legacy behavior: private/school resources are visible to their owning school even when
+        # the caller only supplies the institutional id and no scope metadata.
+        if resource.visibility_scope in {"PRIVATE", "SCHOOL", "INSTITUTION"} and requester_school:
+            if resource.owner_external_id == requester_school:
+                return True
 
         return False

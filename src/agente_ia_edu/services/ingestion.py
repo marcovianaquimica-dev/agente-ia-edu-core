@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import IngestionDocument, IngestionQuestion, IngestionRun, IngestionSection
+from ..db.models import IngestionAsset, IngestionDocument, IngestionQuestion, IngestionRun, IngestionSection
 from .ingestion_parser import ParsedDocument, parse_document
 
 
@@ -26,19 +27,49 @@ class IngestionService:
         session: AsyncSession,
         filepath: Path,
         ingested_by: Optional[str] = None,
+        answer_key: dict[int, str] | None = None,
+        source_metadata: dict | None = None,
+        parsed_override: ParsedDocument | None = None,
+        document_type_override: str | None = None,
     ) -> tuple[IngestionDocument, IngestionRun]:
         """
         Ingest a document: parse it, preserve original, and track extraction.
 
+        ``parsed_override`` (PHASE 10.7): a ``ParsedDocument`` already produced by
+        the caller - used to supply a recovered text layer (PyMuPDF) for the four
+        ENEM 2024/2025 booklets the PHASE 10.6 contract marked ``RECOVERED``.
+        When ``None`` (every existing caller) the document is parsed here exactly
+        as before. The idempotency short-circuit still runs first either way, so
+        an already-ingested file is never re-parsed or re-imported.
+
+        ``document_type_override`` (PHASE 26): the ``document_type`` column only
+        accepts 'DOCX'/'PDF'/'OTHER'. Every existing caller ingests exactly those
+        two suffixes and leaves this ``None``, so ``filepath.suffix`` is used
+        exactly as before. Authorial ingestion (PHASE 26) also accepts TXT/MD,
+        whose bare suffix would violate that CHECK constraint - it passes
+        ``"OTHER"`` explicitly instead of widening the constraint.
+
         Returns (document, ingestion_run).
         """
-        # Parse the document deterministically
-        parsed = parse_document(filepath)
+        existing = await self.check_idempotency(session, filepath)
+        if existing is not None:
+            latest_run = await session.scalar(
+                select(IngestionRun).where(IngestionRun.document_id == existing.id)
+                .order_by(IngestionRun.created_at.desc()).limit(1)
+            )
+            if latest_run is not None:
+                return existing, latest_run
+
+        # Parse the document deterministically (or use the caller's parse)
+        parsed = parsed_override if parsed_override is not None else parse_document(filepath)
+        if answer_key is not None:
+            from .ingestion_parser import PdfParser
+            PdfParser.apply_answer_key(parsed, answer_key)
 
         # Create IngestionDocument record
         document = IngestionDocument(
             filename=parsed.filename,
-            document_type=filepath.suffix.lstrip(".").upper(),
+            document_type=document_type_override or filepath.suffix.lstrip(".").upper(),
             document_hash=parsed.document_hash,
             storage_uri=str(filepath),
             file_size_bytes=filepath.stat().st_size,
@@ -47,6 +78,7 @@ class IngestionService:
             page_count=parsed.page_count,
             ingested_by_external_identity=ingested_by,
             status="processing",
+            metadata_=source_metadata,
         )
         session.add(document)
         await session.flush()
@@ -80,6 +112,7 @@ class IngestionService:
             section_map[parsed_section.position] = section.id
 
         # Save questions
+        question_map = {}
         for parsed_question in parsed.questions:
             section_id = None
             if parsed_question.section_index is not None and parsed_question.section_index in section_map:
@@ -98,8 +131,31 @@ class IngestionService:
                 page_start=parsed_question.page_start,
                 page_end=parsed_question.page_end,
                 status="extracted",
+                metadata_={"requires_review": parsed_question.requires_review},
             )
             session.add(question)
+            await session.flush()
+            question_map[parsed_question.question_number] = question.id
+
+        for asset in parsed.assets:
+            session.add(IngestionAsset(
+                document_id=document.id,
+                asset_type=asset.asset_type if asset.asset_type in {"IMAGE", "TABLE", "FORMULA", "DIAGRAM"} else "OTHER",
+                asset_name=f"page-{asset.page}-{asset.asset_type.lower()}",
+                storage_uri=str(filepath),
+                question_id=question_map.get(asset.question_number),
+                page=asset.page,
+                position=asset.position,
+                metadata_={
+                    "evidence_only": True,
+                    "requires_review": True,
+                    "visual_asset_type": asset.asset_type,
+                    "source_hash": asset.source_hash,
+                    "mime_type": asset.mime_type,
+                    "byte_size": asset.byte_size,
+                    "association_confident": asset.association_confident,
+                },
+            ))
 
         # Update run statistics
         run.sections_found = len(parsed.sections)
@@ -129,7 +185,6 @@ class IngestionService:
         """
         from sqlalchemy import select
 
-        file_hash = parse_document(filepath).document_hash  # Only compute hash, don't parse fully
         from .ingestion_parser import DocxParser
         file_hash = DocxParser.file_hash(filepath)
 

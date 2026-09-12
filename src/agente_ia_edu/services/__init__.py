@@ -4,10 +4,22 @@ from .content_authoring import (
     QuestionAuthoringService,
     QuestionWorkflowStatus,
 )
+from .question_governance import (
+    InvalidQuestionStatusTransitionError,
+    QuestionAuthorizationService,
+    QuestionEligibilityCalculator,
+    QuestionEligibilityCheckResult,
+    QuestionStatusWorkflow,
+)
 
 __all__ = [
     "MaterialAuthoringService",
     "QuestionAuthoringResult",
     "QuestionAuthoringService",
     "QuestionWorkflowStatus",
+    "InvalidQuestionStatusTransitionError",
+    "QuestionAuthorizationService",
+    "QuestionEligibilityCalculator",
+    "QuestionEligibilityCheckResult",
+    "QuestionStatusWorkflow",
 ]

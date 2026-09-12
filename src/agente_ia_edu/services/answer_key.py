@@ -47,3 +47,42 @@ async def resolve_official_correct_option_id(
     if entry is None:
         return None
     return entry.resolved_option_id
+
+
+async def resolve_official_answer_key_snapshots(
+    session: AsyncSession,
+    question_version_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, tuple[uuid.UUID, uuid.UUID]]:
+    """Resolve the latest official revision and option for each version in one query."""
+    if not question_version_ids:
+        return {}
+    stmt = (
+        select(
+            BookletQuestion.question_version_id,
+            AnswerKeyRevision.id,
+            AnswerKeyEntry.resolved_option_id,
+            AnswerKeyRevision.revision_number,
+        )
+        .join(
+            AnswerKeyEntry,
+            AnswerKeyEntry.booklet_question_id == BookletQuestion.id,
+        )
+        .join(
+            AnswerKeyRevision,
+            AnswerKeyEntry.answer_key_revision_id == AnswerKeyRevision.id,
+        )
+        .where(
+            BookletQuestion.question_version_id.in_(question_version_ids),
+            AnswerKeyRevision.is_official.is_(True),
+            AnswerKeyEntry.resolved_option_id.isnot(None),
+        )
+        .order_by(
+            BookletQuestion.question_version_id,
+            AnswerKeyRevision.revision_number.desc(),
+            AnswerKeyRevision.id,
+        )
+    )
+    snapshots: dict[uuid.UUID, tuple[uuid.UUID, uuid.UUID]] = {}
+    for question_version_id, revision_id, option_id, _ in (await session.execute(stmt)).all():
+        snapshots.setdefault(question_version_id, (revision_id, option_id))
+    return snapshots

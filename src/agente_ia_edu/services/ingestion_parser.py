@@ -7,7 +7,7 @@ All extraction is deterministic and repeatable.
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -42,6 +42,22 @@ class ParsedQuestion:
     page_end: Optional[int]
     position: int
     section_index: Optional[int] = None
+    requires_review: bool = False
+
+
+@dataclass
+class ParsedAsset:
+    """A page-level visual asset retained as evidence, not reconstructed content."""
+
+    asset_type: str
+    page: int
+    position: int
+    question_number: Optional[int] = None
+    source_hash: Optional[str] = None
+    mime_type: Optional[str] = None
+    byte_size: Optional[int] = None
+    original_bytes: Optional[bytes] = None
+    association_confident: bool = False
 
 
 @dataclass
@@ -57,6 +73,7 @@ class ParsedDocument:
     questions: list[ParsedQuestion]
     total_images: int = 0
     total_tables: int = 0
+    assets: list[ParsedAsset] = field(default_factory=list)
 
 
 class DocxParser:
@@ -267,28 +284,149 @@ class DocxParser:
 
 class PdfParser:
     """
-    Placeholder for PDF parsing (not yet implemented in MVP).
+    Deterministic parser for PDFs with an embedded text layer.
 
-    PDF extraction would require additional dependencies (PyPDF2, pdfplumber, etc.)
-    and more complex logic to handle variable formatting.
+    It intentionally preserves extracted text and page evidence. Images are
+    reported as review-required page assets rather than being OCR'd or altered.
     """
 
+    QUESTION_PATTERN = re.compile(r"(?mi)^\s*Questão\s+(\d+)\s*")
+    OPTION_PATTERN = re.compile(r"(?ms)^\s*([A-E])\s{2,}(.+?)(?=^\s*[A-E]\s{2,}|\f|\Z)")
+    ANSWER_KEY_PATTERN = re.compile(r"(?m)^\s*(\d{2,3})\s+([A-E])\s*$")
+
     @staticmethod
-    def parse_file(filepath: Path) -> ParsedDocument:
-        raise NotImplementedError("PDF parsing will be implemented in a future phase")
+    def file_hash(filepath: Path) -> str:
+        return DocxParser.file_hash(filepath)
+
+    @staticmethod
+    def parse_file(filepath: Path, *, page_texts: list[str] | None = None) -> ParsedDocument:
+        """Parse a PDF's text layer deterministically.
+
+        ``page_texts`` (PHASE 10.6/10.7): an already-extracted per-page text layer
+        to use INSTEAD of ``pypdf.extract_text()`` - one string per PDF page, same
+        order and count. Used to feed a recovered text layer (e.g. PyMuPDF) into
+        the unchanged header/option/statement/asset logic below. When ``None``
+        (the default and every existing caller) behaviour is byte-for-byte the
+        original pypdf path. The PDF is still opened with pypdf either way, so
+        image/asset detection is identical.
+        """
+        try:
+            from pypdf import PdfReader
+            from pypdf.errors import PdfReadError
+            reader = PdfReader(filepath)
+        except (OSError, PdfReadError, ImportError) as exc:
+            raise ValueError("Unable to read PDF text layer") from exc
+
+        if page_texts is None:
+            page_texts = [page.extract_text() or "" for page in reader.pages]
+        elif len(page_texts) != len(reader.pages):
+            raise ValueError(
+                "injected page_texts length "
+                f"({len(page_texts)}) does not match PDF page count ({len(reader.pages)})"
+            )
+        if not any(page_texts):
+            raise ValueError("PDF has no extractable text layer; OCR review is required")
+        document_text = "\f".join(page_texts)
+        page_offsets: list[int] = []
+        offset = 0
+        for text in page_texts:
+            page_offsets.append(offset)
+            offset += len(text) + 1
+
+        headers = list(PdfParser.QUESTION_PATTERN.finditer(document_text))
+        questions: list[ParsedQuestion] = []
+        for position, header in enumerate(headers):
+            end = headers[position + 1].start() if position + 1 < len(headers) else len(document_text)
+            body = document_text[header.end():end].strip()
+            page_number = next(index + 1 for index, page_offset in enumerate(page_offsets) if page_offset <= header.start() < page_offset + len(page_texts[index]) + 1)
+            option_matches = list(PdfParser.OPTION_PATTERN.finditer(body))
+            first_option_start = None
+            options = []
+            for index in range(max(0, len(option_matches) - 4)):
+                run = option_matches[index:index + 5]
+                if [match.group(1) for match in run] == ["A", "B", "C", "D", "E"]:
+                    first_option_start = run[0].start()
+                    options = [f"{match.group(1)}) {' '.join(match.group(2).split())}" for match in run]
+                    break
+            if not options and option_matches:
+                first_option_start = option_matches[0].start()
+                options = [f"{match.group(1)}) {' '.join(match.group(2).split())}" for match in option_matches]
+            statement = body[:first_option_start].strip() if first_option_start is not None else body
+            statement = " ".join(statement.replace("\f", " ").split())
+            if not statement:
+                continue
+            questions.append(ParsedQuestion(
+                question_number=int(header.group(1)), statement_text=statement,
+                alternatives_text="\n".join(options) if options else None,
+                correct_answer=None, answer_explanation=None, page_start=page_number,
+                page_end=page_number, position=len(questions),
+                requires_review=len(options) != 5,
+            ))
+
+        assets: list[ParsedAsset] = []
+        document_hash = PdfParser.file_hash(filepath)
+        visual_reference = re.compile(r"\b(figura|gráfico|grafico|tabela|esquema)\b", re.IGNORECASE)
+        for page_number, page in enumerate(reader.pages, start=1):
+            try:
+                images = list(page.images)
+            except Exception:
+                images = []
+            containing_question = next((question.question_number for question in questions if question.page_start == page_number), None)
+            for position, image in enumerate(images):
+                image_bytes = image.data
+                assets.append(ParsedAsset(
+                    "IMAGE", page_number, position, containing_question,
+                    hashlib.sha256(image_bytes).hexdigest(), image.image_format,
+                    len(image_bytes), image_bytes, containing_question is not None,
+                ))
+            if not images and visual_reference.search(page_texts[page_number - 1]):
+                assets.append(ParsedAsset(
+                    "PAGE_REGION", page_number, 0, containing_question,
+                    document_hash, "application/pdf", filepath.stat().st_size,
+                    None, False,
+                ))
+        asset_pages = {asset.page for asset in assets}
+        for question in questions:
+            if question.page_start in asset_pages:
+                question.requires_review = True
+        return ParsedDocument(
+            filename=filepath.name, document_hash=document_hash,
+            title=filepath.stem, author=None, page_count=len(reader.pages), sections=[],
+            questions=questions, total_images=len(assets), total_tables=0, assets=assets,
+        )
+
+    @staticmethod
+    def parse_answer_key(filepath: Path) -> dict[int, str]:
+        try:
+            from pypdf import PdfReader
+            text = "\n".join(page.extract_text() or "" for page in PdfReader(filepath).pages)
+        except Exception as exc:
+            raise ValueError("Unable to read official answer-key PDF") from exc
+        return {int(number): option for number, option in PdfParser.ANSWER_KEY_PATTERN.findall(text)}
+
+    @staticmethod
+    def apply_answer_key(parsed: ParsedDocument, answer_key: dict[int, str]) -> ParsedDocument:
+        """Associate only explicit official key entries; annulled/missing entries require review."""
+        for question in parsed.questions:
+            question.correct_answer = answer_key.get(question.question_number)
+            if question.correct_answer is None:
+                question.requires_review = True
+        return parsed
 
 
-def parse_document(filepath: Path) -> ParsedDocument:
+def parse_document(filepath: Path, *, page_texts: list[str] | None = None) -> ParsedDocument:
     """
     Automatic dispatch to the appropriate parser based on file extension.
 
-    Deterministic, no LLM, repeatable for identical inputs.
+    Deterministic, no LLM, repeatable for identical inputs. ``page_texts`` is
+    forwarded to :meth:`PdfParser.parse_file` for PDFs (PHASE 10.6/10.7 recovered
+    text layer) and ignored for other formats.
     """
     suffix = filepath.suffix.lower()
 
     if suffix == ".docx":
         return DocxParser.parse_file(filepath)
     elif suffix == ".pdf":
-        return PdfParser.parse_file(filepath)
+        return PdfParser.parse_file(filepath, page_texts=page_texts)
     else:
         raise ValueError(f"Unsupported document format: {suffix}")

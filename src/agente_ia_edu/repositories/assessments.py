@@ -285,6 +285,8 @@ class AssessmentAttemptRepository:
         attempt_number: int,
         started_at: datetime | None = None,
         expires_at: datetime | None = None,
+        assignment_id: UUID | None = None,
+        metadata: dict | None = None,
     ) -> AssessmentAttempt:
         publication = await self.session.get(AssessmentPublication, publication_id)
         if publication is None:
@@ -301,11 +303,13 @@ class AssessmentAttemptRepository:
             started_at=started_at or datetime.now(timezone.utc),
             submitted_at=None,
             expires_at=expires_at,
+            assignment_id=assignment_id,
             score=0,
             max_score=0,
             correct_answers=0,
             answered_count=0,
             duration_seconds=0,
+            metadata_=metadata,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )

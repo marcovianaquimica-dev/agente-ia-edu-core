@@ -289,13 +289,22 @@ class QuestionAuthoringService:
             raise ValueError("Only approved questions can be published.")
 
         version = await self.get_current_version(question_id)
+        # `lifecycle == "ACTIVE"` is the explicit selector for "the current
+        # classification" (a SUPERSEDED row must never gate publication).
+        # `created_at desc` is only a deterministic tie-break for the case of
+        # several ACTIVE rows coexisting across different taxonomy_version
+        # values (by design, uniqueness is scoped per taxonomy) - it is not a
+        # replacement for the lifecycle filter, which does the real work.
         result = await self.session.execute(
-            select(PedagogicalClassification).where(
+            select(PedagogicalClassification)
+            .where(
                 PedagogicalClassification.question_version_id == version.id,
                 PedagogicalClassification.status == "CLASSIFIED",
+                PedagogicalClassification.lifecycle == "ACTIVE",
             )
+            .order_by(PedagogicalClassification.created_at.desc())
         )
-        classification = result.scalar_one_or_none()
+        classification = result.scalars().first()
         if classification is None or (classification.classification_confidence is None or float(classification.classification_confidence) < 0.7):
             raise ValueError("Question needs a reviewed classification with sufficient confidence before publication.")
 

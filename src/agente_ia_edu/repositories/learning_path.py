@@ -7,7 +7,7 @@ Handles queries and updates to learning history, mastery, and practice sessions.
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -16,7 +16,11 @@ from ..db.models import (
     PracticeSession,
     PracticeQuestionSelection,
     QuestionClassification,
+    ContentQuestionLink,
+    CatalogNode,
+    Question,
     QuestionVersion,
+    PedagogicalUniverseCatalogScope,
 )
 
 
@@ -273,6 +277,125 @@ class QuestionSelectionRepository:
             query = query.where(QuestionVersion.recommended_difficulty == difficulty_level)
 
         query = query.distinct().order_by(QuestionVersion.id)
+        result = await self.session.execute(query)
+        return list(result.scalars().unique().all())
+
+    async def list_diagnostic_candidate_versions(
+        self,
+        content_node_id: UUID,
+        *,
+        difficulty_level: Optional[str] = None,
+        school_id: UUID | None = None,
+        classroom_id: str | None = None,
+        unit_id: str | None = None,
+        segment: str | None = None,
+        grade_level: str | None = None,
+        universe_id: UUID | None = None,
+    ) -> list[QuestionVersion]:
+        """Return Question Bank versions eligible and visible for a diagnostic."""
+        return await self.list_eligible_candidate_versions(
+            content_node_id,
+            difficulty_level=difficulty_level,
+            school_id=school_id,
+            classroom_id=classroom_id,
+            unit_id=unit_id,
+            segment=segment,
+            grade_level=grade_level,
+            universe_id=universe_id,
+        )
+
+    async def list_eligible_candidate_versions(
+        self,
+        content_node_id: UUID,
+        *,
+        difficulty_level: Optional[str] = None,
+        school_id: UUID | None = None,
+        classroom_id: str | None = None,
+        unit_id: str | None = None,
+        segment: str | None = None,
+        grade_level: str | None = None,
+        universe_id: UUID | None = None,
+        exclude_version_ids: set[UUID] | None = None,
+        include_version_ids: set[UUID] | None = None,
+        limit: int | None = None,
+    ) -> list[QuestionVersion]:
+        """Return bounded canonical candidates shared by diagnostic and practice."""
+        visibility = [Question.visibility_scope == "PUBLIC"]
+        if school_id is not None:
+            visibility.append(
+                and_(Question.visibility_scope == "SCHOOL", Question.school_id == school_id)
+            )
+            if classroom_id:
+                visibility.append(
+                    and_(
+                        Question.visibility_scope == "CLASSROOM",
+                        Question.school_id == school_id,
+                        Question.metadata_["classroom_id"].as_string() == classroom_id,
+                    )
+                )
+
+        query = (
+            select(QuestionVersion)
+            .join(Question, Question.id == QuestionVersion.question_id)
+            .join(
+                ContentQuestionLink,
+                ContentQuestionLink.question_version_id == QuestionVersion.id,
+            )
+            .join(CatalogNode, CatalogNode.id == ContentQuestionLink.content_node_id)
+            .where(
+                ContentQuestionLink.content_node_id == content_node_id,
+                Question.status == "PUBLISHED",
+                Question.validation_status.in_(("valid", "acceptable", "approved")),
+                QuestionVersion.version_kind == "official_original",
+                QuestionVersion.recommended_difficulty.isnot(None),
+                or_(*visibility),
+            )
+        )
+        if difficulty_level:
+            query = query.where(QuestionVersion.recommended_difficulty == difficulty_level)
+
+        if exclude_version_ids:
+            query = query.where(QuestionVersion.id.not_in(exclude_version_ids))
+        if include_version_ids is not None:
+            if not include_version_ids:
+                return []
+            query = query.where(QuestionVersion.id.in_(include_version_ids))
+
+        if universe_id:
+            universe_scope = (
+                select(PedagogicalUniverseCatalogScope.id)
+                .where(
+                    PedagogicalUniverseCatalogScope.universe_id == universe_id,
+                    or_(
+                        PedagogicalUniverseCatalogScope.catalog_node_id == ContentQuestionLink.content_node_id,
+                        and_(
+                            PedagogicalUniverseCatalogScope.include_descendants.is_(True),
+                            or_(
+                                PedagogicalUniverseCatalogScope.catalog_node_id == CatalogNode.root_id,
+                                PedagogicalUniverseCatalogScope.catalog_node_id == CatalogNode.parent_id,
+                            ),
+                        ),
+                    ),
+                )
+                .exists()
+            )
+            query = query.where(universe_scope)
+
+        for metadata_key, context_value in (
+            ("unit_id", unit_id),
+            ("segment", segment),
+            ("grade_level", grade_level),
+            ("classroom_id", classroom_id),
+        ):
+            field = Question.metadata_[metadata_key].as_string()
+            if context_value is None:
+                query = query.where(field.is_(None))
+            else:
+                query = query.where(or_(field.is_(None), field == context_value))
+
+        query = query.order_by(QuestionVersion.id)
+        if limit is not None:
+            query = query.limit(limit)
         result = await self.session.execute(query)
         return list(result.scalars().unique().all())
 
