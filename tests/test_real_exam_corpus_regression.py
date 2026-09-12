@@ -1,0 +1,98 @@
+"""Real exam corpus regression tests for the question extraction engine.
+
+Why this file exists: the two PHASE 27 golden pilot PDFs alone gave a
+false sense of safety - they hit 83/83 for a long time while the engine
+still failed badly (0-8% of alternatives recognized) on real exams from
+other institutions, because both golden PDFs happen to use one specific
+option-marker convention. Testing against a small, diverse corpus of
+real, officially published exam booklets (ENEM/INEP, UNICAMP, UECE, ITA,
+PUC-Rio, UERJ) is what actually found and fixed those bugs (see the
+option-marker, asset-association-by-position and column-detection-merge
+commits). This file exists so the NEXT change to the engine is checked
+against that same diversity automatically, instead of only against the
+two files everyone already knows by heart.
+
+The PDFs themselves are official, publicly published past exam booklets
+(INEP/ENEM and public university entrance exams), kept locally under
+``var/real-exam-pilot/`` (gitignored, same convention the project already
+uses for ``var/inep-pilot/``) rather than committed to the repository -
+this suite is SKIPPED per-file, never faked with a substitute, when a
+given file is absent from the machine running the tests.
+
+Floors are set at (or slightly below) what was actually measured when
+this file was written, so a genuine regression fails loudly while a
+future improvement is free to raise the bar - never lower it without a
+documented reason.
+"""
+
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+from agente_ia_edu.services.question_extraction.engine import extract_questions
+
+PILOT_DIR = Path(__file__).resolve().parents[1] / "var" / "real-exam-pilot"
+
+
+def _validated_count(result) -> int:
+    return sum(1 for q in result.questions if q.review_status == "VALIDATED")
+
+
+class RealExamCorpusRegressionTests(unittest.TestCase):
+    """One test per real exam booklet. Each independently skips (never
+    substitutes a different file) when its PDF isn't present locally."""
+
+    def _check(self, filename: str, *, min_boundaries: int, min_validated: int) -> None:
+        path = PILOT_DIR / filename
+        if not path.is_file():
+            self.skipTest(f"{filename} not present in {PILOT_DIR} on this machine")
+        result = extract_questions(path)
+        self.assertGreaterEqual(
+            len(result.questions), min_boundaries,
+            f"{filename}: detected only {len(result.questions)} question boundaries, "
+            f"expected at least {min_boundaries} - possible boundary-detection regression",
+        )
+        validated = _validated_count(result)
+        self.assertGreaterEqual(
+            validated, min_validated,
+            f"{filename}: only {validated} questions auto-validated, "
+            f"expected at least {min_validated} - possible option/confidence regression",
+        )
+
+    def test_enem_2025_dia1(self):
+        self._check("2025_PV_impresso_D1_CD1.pdf", min_boundaries=90, min_validated=71)
+
+    def test_enem_2025_dia2(self):
+        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=66)
+
+    def test_unicamp_2024(self):
+        self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=51)
+
+    def test_uece_cev_2025(self):
+        self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=68)
+
+    def test_ita_2024(self):
+        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=41)
+
+    def test_uerj(self):
+        # The real regression this guards: "Questão" glued to its number
+        # with zero literal whitespace (a real UERJ PDF text-extraction
+        # quirk) used to collapse detection to just 2 boundaries.
+        self._check("uerj_exame_unico_objetiva.pdf", min_boundaries=60, min_validated=57)
+
+    def test_pucrio_2025_dia1_tarde(self):
+        # Small booklet (few boundaries) - kept mainly as a boundary-count
+        # guard, not a strong signal on the VALIDATED floor.
+        self._check("pucrio_2025_1dia_tarde_g1345.pdf", min_boundaries=7, min_validated=2)
+
+    def test_pucrio_2025_dia2_manha(self):
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=6, min_validated=0)
+
+    def test_fuvest_2024_caderno_x(self):
+        # Known-incomplete: boundary detection itself still only finds 9
+        # of ~90 real questions on this booklet (a DIFFERENT, not-yet
+        # investigated root cause - not the option/marker/column bugs
+        # already fixed). The low floor here is deliberate, not a typo -
+        # raising it is exactly the signal that investigation succeeded.
+        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=9, min_validated=8)
