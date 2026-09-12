@@ -73,7 +73,13 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=68)
 
     def test_ita_2024(self):
-        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=41)
+        # VALIDATED floor dropped by 1 (was 41) when GARBLED_ENCODING
+        # detection landed - a real question here has an unmapped math
+        # font glyph (see test_fuvest_2024_caderno_x below for the full
+        # story) that used to slip through as VALIDATED; it now correctly
+        # routes to REVIEW_REQUIRED. A lower VALIDATED count from THAT
+        # check is a correctness improvement, not a regression.
+        self._check("ita_2024_fase1.pdf", min_boundaries=56, min_validated=40)
 
     def test_uerj(self):
         # The real regression this guards: "Questão" glued to its number
@@ -102,4 +108,15 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # DIFFERENT real document (UECE, UERJ, PUC-Rio all guard specific
         # real false-positive patterns this convention could otherwise
         # match - see the dedicated tests in test_phase27_question_extraction.py).
-        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=37)
+        #
+        # VALIDATED floor dropped again (was 37) when GARBLED_ENCODING
+        # detection landed: this exact booklet is what surfaced it (a
+        # math-heavy PDF's embedded font for a special symbol - almost
+        # certainly a fraction bar/radical - lacks a correct ToUnicode
+        # mapping, so PyMuPDF decodes it into an unrelated script, e.g.
+        # real Oriya letters, mid-statement). 8 questions on this booklet
+        # carry that flag and now correctly route to REVIEW_REQUIRED
+        # instead of being silently VALIDATED with garbage embedded in
+        # otherwise-real content - a correctness improvement, not a
+        # regression.
+        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=34)

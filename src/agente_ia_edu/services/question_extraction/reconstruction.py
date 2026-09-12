@@ -37,6 +37,7 @@ UNASSIGNED_ASSET = "UNASSIGNED_ASSET"
 FORMULA_AMBIGUITY = "FORMULA_AMBIGUITY"
 CROSS_PAGE_AMBIGUITY = "CROSS_PAGE_AMBIGUITY"
 LOW_CONFIDENCE = "LOW_CONFIDENCE"
+GARBLED_ENCODING = "GARBLED_ENCODING"
 SEQUENCE_ANOMALY = "SEQUENCE_ANOMALY"
 
 
@@ -98,6 +99,8 @@ def review_reasons_for(
 ) -> list[str]:
     """spec s12 - WHY a question needs review, not just THAT it does."""
     reasons: list[str] = []
+    if "garbled_encoding" in draft.flags:
+        reasons.append(GARBLED_ENCODING)
     if "cross_page" in draft.flags and not reconstruction.options and draft.question_type == "multiple_choice":
         reasons.append(CROSS_PAGE_AMBIGUITY)
     if reconstruction.reconstruction_applied is False and "possible_missing_content" in draft.flags:

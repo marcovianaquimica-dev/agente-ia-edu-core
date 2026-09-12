@@ -418,6 +418,24 @@ class BoundaryDetectionTests(unittest.TestCase):
         boundaries = detect_boundaries(text)
         self.assertEqual([b.number for b in boundaries], [33])
 
+    def test_garbled_font_glyph_flags_the_question_for_review(self):
+        # Real regression found on a FUVEST exam: a math-heavy PDF's
+        # embedded font for a special symbol (almost certainly a fraction
+        # bar/radical glyph) lacks a correct ToUnicode mapping - PyMuPDF
+        # still emits SOME character, but it decodes into a script that
+        # would never legitimately appear (real case: Oriya letters, deep
+        # inside an otherwise normal statement). There is no way to
+        # recover the real symbol from the text layer alone, so it must
+        # never be silently kept as if it were real content - only flagged
+        # for a human to check against the original PDF.
+        text = (
+            "1.   Considere a equacao ହଶ com texto suficiente "
+            "para ser valida mesmo com o simbolo corrompido presente.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertIn("garbled_encoding", draft.flags)
+
     def test_duplicate_option_labels_are_rejected_never_merged(self):
         # two option lists concatenated (a page/column-order corruption) -
         # must never fabricate an 8-option question.

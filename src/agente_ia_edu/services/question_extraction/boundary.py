@@ -61,6 +61,38 @@ _MARKER_STANDALONE = re.compile(
 
 _PARAGRAPH_BREAK_BEFORE = re.compile(r"\n[ \t]*\n[ \t]*\Z")
 
+# A math-heavy PDF's embedded font for a special symbol (found on a real
+# FUVEST exam - almost certainly a fraction bar/radical/operator glyph)
+# sometimes lacks a correct ToUnicode mapping: PyMuPDF still emits SOME
+# character for that glyph, but it lands in a completely unrelated script -
+# real cases decoded as Oriya letters, never anything a Portuguese/math exam
+# would legitimately contain. There is no way to recover the real symbol
+# from the text layer alone (it would need OCR of the rendered glyph or the
+# font's own broken mapping table) - the honest response is to flag it for
+# a human to check against the original PDF, never silently keep or guess
+# at the garbage codepoints as if they were real content (spec s9/s10's own
+# "never invent" principle, applied to a font-decoding failure instead of a
+# missing image). Ranges cover scripts that would never appear in this
+# project's real documents; legitimate math notation (Mathematical
+# Alphanumeric Symbols, Greek, common operators) is deliberately NOT in
+# this list.
+_UNEXPECTED_SCRIPT_RANGES = (
+    (0x0590, 0x08FF),  # Hebrew, Arabic and related
+    (0x0900, 0x0DFF),  # Devanagari through Sinhala (Indic scripts)
+    (0x0E00, 0x0E7F),  # Thai
+    (0x10A0, 0x10FF),  # Georgian
+    (0x1100, 0x11FF),  # Hangul Jamo
+    (0x3040, 0x30FF),  # Hiragana/Katakana
+    (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+)
+
+
+def _has_unexpected_script(text: str) -> bool:
+    return any(
+        any(lo <= ord(c) <= hi for lo, hi in _UNEXPECTED_SCRIPT_RANGES)
+        for c in text
+    )
+
 _ANSWER_KEY_HEADING = re.compile(
     r"(?im)^[ \t]*(gabarito|respostas?( comentadas?)?|resolu[cç][aã]o( comentada)?)[ \t]*:?[ \t]*$"
 )
@@ -282,6 +314,9 @@ def classify_and_extract(boundary: QuestionBoundary, full_text: str) -> Extracte
     if second_hit or heading_leak:
         flags.add("possible_missing_content")
         flags.add("orphan_prefix_contamination")
+
+    if _has_unexpected_script(statement):
+        flags.add("garbled_encoding")
 
     if options:
         question_type = "multiple_choice"

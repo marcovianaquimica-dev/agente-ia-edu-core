@@ -99,4 +99,6 @@ def review_status_for(draft: ExtractedQuestionDraft) -> str:
         return "REVIEW_REQUIRED"
     if "possible_missing_content" in draft.flags:
         return "REVIEW_REQUIRED"
+    if "garbled_encoding" in draft.flags:
+        return "REVIEW_REQUIRED"
     return "VALIDATED"
