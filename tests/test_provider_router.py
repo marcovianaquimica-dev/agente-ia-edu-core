@@ -137,6 +137,35 @@ class ProviderRouterTests(unittest.TestCase):
         )
         self.assertFalse(any(isinstance(value, BaseException) for value in context.exception.attempts))
 
+    def test_multiple_provider_diagnostics_preserve_attempt_order(self):
+        first_error = ProviderUnavailableError()
+        first_error.original_error_type = "APIConnectionError"
+        first_error.diagnostic_message = "connection unavailable"
+        second_error = ProviderTimeoutError()
+        second_error.original_error_type = "APITimeoutError"
+        second_error.diagnostic_message = "request timed out"
+        router = ProviderRouter(
+            [
+                ControlledProvider("first", text_error=first_error),
+                ControlledProvider("second", text_error=second_error),
+            ],
+            [],
+        )
+
+        with self.assertRaises(AllProvidersFailedError) as context:
+            asyncio.run(router.generate(TextGenerationRequest(prompt="pergunta")))
+
+        self.assertEqual(
+            [
+                (attempt.provider, attempt.original_error_type, attempt.diagnostic_message)
+                for attempt in context.exception.attempts
+            ],
+            [
+                ("first", "APIConnectionError", "connection unavailable"),
+                ("second", "APITimeoutError", "request timed out"),
+            ],
+        )
+
     def test_empty_provider_list_raises_configuration_error(self):
         router = ProviderRouter([], [])
 

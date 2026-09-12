@@ -34,6 +34,10 @@ class ProviderConfigurationError(ProviderError):
 class ProviderAttempt:
     provider: str
     error_type: str
+    original_error_type: str | None = None
+    diagnostic_message: str | None = None
+    low_level_error_type: str | None = None
+    low_level_diagnostic_message: str | None = None
 
 
 class AllProvidersFailedError(ProviderError):

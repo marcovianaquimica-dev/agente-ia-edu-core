@@ -66,6 +66,12 @@ class ProviderRouter(TextGenerationProvider, EmbeddingProvider):
                     ProviderAttempt(
                         provider=self._provider_name(provider),
                         error_type=type(error).__name__,
+                        original_error_type=getattr(error, "original_error_type", None),
+                        diagnostic_message=getattr(error, "diagnostic_message", None),
+                        low_level_error_type=getattr(error, "low_level_error_type", None),
+                        low_level_diagnostic_message=getattr(
+                            error, "low_level_diagnostic_message", None
+                        ),
                     )
                 )
         raise AllProvidersFailedError(attempts)
