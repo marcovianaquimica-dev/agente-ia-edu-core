@@ -16,9 +16,15 @@ from ..schemas.admin import (
     SchoolUpdateRequest,
     UserLinkCreateRequest,
     UserLinkResponse,
+    PedagogicalUniverseBindingRequest,
+    PedagogicalUniverseCatalogScopeRequest,
+    PedagogicalUniverseConfigurationRequest,
+    PedagogicalUniverseCreateRequest,
+    PedagogicalUniverseResponse,
 )
 from ...identity import ExternalIdentityContext
 from ...services.admin import AdminRole, PlatformAdminService
+from ...services.pedagogical_universe import PedagogicalUniverseService
 
 admin_router = APIRouter(
     prefix="/api/v1/admin",
@@ -138,6 +144,127 @@ async def get_school(
         if not school:
             raise HTTPException(status_code=404, detail="School tenant not found.")
         return _to_school_response(school)
+
+
+def _to_universe_response(universe) -> PedagogicalUniverseResponse:
+    return PedagogicalUniverseResponse(
+        id=universe.id, external_id=universe.external_id, slug=universe.slug,
+        name=universe.name, status=universe.status, owner_type=universe.owner_type,
+        owner_external_id=universe.owner_external_id, configuration_version=universe.configuration_version,
+    )
+
+
+@admin_router.post("/pedagogical-universes", status_code=201, response_model=PedagogicalUniverseResponse)
+async def create_pedagogical_universe(
+    request: PedagogicalUniverseCreateRequest,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> PedagogicalUniverseResponse:
+    async with session_factory() as session:
+        service = PedagogicalUniverseService(session)
+        try:
+            universe = await service.create_universe(performed_by_external_id=identity.external_user_id, **request.model_dump())
+            return _to_universe_response(universe)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.get("/pedagogical-universes/{universe_id}", response_model=PedagogicalUniverseResponse)
+async def get_pedagogical_universe(
+    universe_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> PedagogicalUniverseResponse:
+    async with session_factory() as session:
+        try:
+            return _to_universe_response(await PedagogicalUniverseService(session).require_universe(universe_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+
+@admin_router.get("/pedagogical-universes", response_model=list[PedagogicalUniverseResponse])
+async def list_pedagogical_universes(
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> list[PedagogicalUniverseResponse]:
+    async with session_factory() as session:
+        return [_to_universe_response(item) for item in await PedagogicalUniverseService(session).list_universes()]
+
+
+@admin_router.patch("/pedagogical-universes/{universe_id}/status", response_model=PedagogicalUniverseResponse)
+async def set_pedagogical_universe_status(
+    universe_id: UUID, status: str = Query(...),
+    identity: ExternalIdentityContext = Depends(require_platform_admin), session_factory=Depends(get_session_factory),
+) -> PedagogicalUniverseResponse:
+    async with session_factory() as session:
+        try:
+            universe = await PedagogicalUniverseService(session).set_status(universe_id=universe_id, status=status, performed_by_external_id=identity.external_user_id)
+            return _to_universe_response(universe)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.patch("/pedagogical-universes/{universe_id}/configuration", response_model=PedagogicalUniverseResponse)
+async def update_pedagogical_universe_configuration(
+    universe_id: UUID,
+    request: PedagogicalUniverseConfigurationRequest,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> PedagogicalUniverseResponse:
+    async with session_factory() as session:
+        try:
+            universe = await PedagogicalUniverseService(session).update_configuration(universe_id=universe_id, performed_by_external_id=identity.external_user_id, **request.model_dump())
+            return _to_universe_response(universe)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.post("/pedagogical-universes/{universe_id}/catalog-scopes", status_code=201)
+async def add_pedagogical_universe_catalog_scope(
+    universe_id: UUID, request: PedagogicalUniverseCatalogScopeRequest,
+    identity: ExternalIdentityContext = Depends(require_platform_admin), session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        try:
+            scope = await PedagogicalUniverseService(session).add_catalog_scope(universe_id=universe_id, **request.model_dump())
+            return {"id": str(scope.id)}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.post("/pedagogical-universes/{universe_id}/bindings", status_code=201)
+async def bind_pedagogical_universe(
+    universe_id: UUID, request: PedagogicalUniverseBindingRequest,
+    identity: ExternalIdentityContext = Depends(require_platform_admin), session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        try:
+            binding = await PedagogicalUniverseService(session).bind(universe_id=universe_id, **request.model_dump())
+            return {"id": str(binding.id)}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.delete("/pedagogical-universes/catalog-scopes/{scope_id}", status_code=204)
+async def remove_pedagogical_universe_catalog_scope(
+    scope_id: UUID, identity: ExternalIdentityContext = Depends(require_platform_admin), session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        try:
+            await PedagogicalUniverseService(session).remove_catalog_scope(scope_id=scope_id, performed_by_external_id=identity.external_user_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+
+@admin_router.delete("/pedagogical-universes/bindings/{binding_id}", status_code=204)
+async def remove_pedagogical_universe_binding(
+    binding_id: UUID, identity: ExternalIdentityContext = Depends(require_platform_admin), session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        try:
+            await PedagogicalUniverseService(session).remove_binding(binding_id=binding_id, performed_by_external_id=identity.external_user_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
 
 
 @admin_router.patch(

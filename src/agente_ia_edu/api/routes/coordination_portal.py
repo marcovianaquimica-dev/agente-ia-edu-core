@@ -419,3 +419,87 @@ async def export_coordination_report(
             raise HTTPException(status_code=403, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ============================================================================
+# PHASE 24 - Study Session / Momento de Aprendizado (coordination-defined).
+# Reuses TeachingContextService scope authz (no parallel authorization).
+# ============================================================================
+from pydantic import BaseModel as _BaseModel, Field as _Field  # noqa: E402
+from ...services.study_session import (  # noqa: E402
+    StudySessionService,
+    StudySessionAuthError,
+    StudySessionError,
+)
+
+
+class _CoordBreak(_BaseModel):
+    duration_minutes: int | None = _Field(default=None, ge=1, le=120)
+    start_at: str | None = None
+    end_at: str | None = None
+    after_block: int | None = _Field(default=None, ge=1, le=50)
+
+
+class _CoordStudySessionRequest(_BaseModel):
+    school_id: str
+    target_type: str = _Field(default="CLASSROOM")   # CLASSROOM | STUDENT
+    target_id: str
+    session_date: str = _Field(min_length=10, max_length=10)   # YYYY-MM-DD
+    start_at: str
+    end_at: str
+    content_codes: list[str] | None = _Field(default=None, max_length=8)
+    breaks: list[_CoordBreak] | None = _Field(default=None, max_length=6)
+
+
+def _map_coord_study_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, StudySessionAuthError):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, (StudySessionError, ValueError)):
+        return HTTPException(status_code=422, detail={"message": str(exc)})
+    raise exc  # pragma: no cover
+
+
+@coordination_portal_router.post(
+    "/study-sessions",
+    summary="Create/refresh a scheduled Momento de Aprendizado for a class or a student",
+)
+async def create_coordination_study_session(
+    request: _CoordStudySessionRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await StudySessionService(session).create_coordination_sessions(
+                identity.external_user_id,
+                school_id=request.school_id,
+                target_type=request.target_type,
+                target_id=request.target_id,
+                session_date=request.session_date,
+                start_at=request.start_at,
+                end_at=request.end_at,
+                target_content_codes=request.content_codes,
+                breaks=[b.model_dump() for b in (request.breaks or [])],
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise _map_coord_study_error(exc) from exc
+
+
+@coordination_portal_router.get(
+    "/study-sessions",
+    summary="List scheduled Momentos de Aprendizado within the coordinator's school",
+)
+async def list_coordination_study_sessions(
+    school_id: str = Query(...),
+    session_date: str | None = Query(None),
+    classroom_id: str | None = Query(None),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await StudySessionService(session).list_coordination_sessions(
+                identity.external_user_id, school_id=school_id,
+                session_date=session_date, classroom_id=classroom_id)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_coord_study_error(exc) from exc

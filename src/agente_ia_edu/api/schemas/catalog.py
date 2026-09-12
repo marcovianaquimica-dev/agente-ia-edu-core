@@ -93,6 +93,23 @@ class EducationalResourceResponse(BaseModel):
     updated_at: datetime
 
 
+class ResourceAccessGrantCreateRequest(BaseModel):
+    """Request to grant a resource to a school/classroom/user audience."""
+
+    grantee_type: str = Field(..., description="INSTITUTION, SCHOOL, UNIT, SEGMENT, GRADE_LEVEL, CLASSROOM or EXTERNAL_IDENTITY")
+    grantee_external_id: str = Field(..., min_length=1)
+
+
+class ResourceAccessGrantResponse(BaseModel):
+    """A concrete audience grant for a published resource."""
+
+    id: UUID
+    resource_id: UUID
+    grantee_type: str
+    grantee_external_id: str
+    created_at: datetime
+
+
 # ============================================================================
 # Content <-> Resource Link Schemas
 # ============================================================================
@@ -143,7 +160,25 @@ class TheoryMaterialCreateRequest(BaseModel):
     """Request to create a new authored theory material."""
 
     title: str = Field(..., min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=20000)
+    # PHASE 23 - free-form identity (validated by the client's picklists, not a DB
+    # CheckConstraint, so new kinds/sources need no migration).
+    material_kind: Optional[str] = Field(None, max_length=30)
+    authoring_source: Optional[str] = Field(None, max_length=20)
+    visibility_scope: str = Field("PRIVATE", max_length=20)
     primary_content_node_id: Optional[UUID] = None
+
+
+class TheoryMaterialUpdateRequest(BaseModel):
+    """PATCH a DRAFT material's identity fields."""
+
+    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=20000)
+    material_kind: Optional[str] = Field(None, max_length=30)
+    authoring_source: Optional[str] = Field(None, max_length=20)
+    visibility_scope: Optional[str] = Field(None, max_length=20)
+    primary_content_node_id: Optional[UUID] = None
+    unset_primary_content_node: bool = False
 
 
 class TheoryMaterialResponse(BaseModel):
@@ -151,10 +186,89 @@ class TheoryMaterialResponse(BaseModel):
 
     id: UUID
     title: str
+    description: Optional[str] = None
+    material_kind: Optional[str] = None
+    authoring_source: Optional[str] = None
+    visibility_scope: str = "PRIVATE"
     primary_content_node_id: Optional[UUID] = None
+    primary_content_code: Optional[str] = None
+    curriculum_status: str = "UNMAPPED"
+    school_id: Optional[UUID] = None
     created_by_external_identity: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    latest_version_status: Optional[str] = None
+    latest_version_number: Optional[int] = None
+    section_count: int = 0
+    block_count: int = 0
+    question_count: int = 0
+
+
+class MaterialSectionCreateRequest(BaseModel):
+    section_type: str = Field(..., min_length=1, max_length=50)
+    position: int = Field(..., gt=0)
+    title: Optional[str] = Field(None, max_length=500)
+    body: Optional[str] = None
+    content_code: Optional[str] = Field(None, max_length=100)
+    curriculum_relation_type: Optional[str] = Field(None, max_length=30)
+    metadata: Optional[dict[str, Any]] = None
+
+
+class MaterialSectionResponse(BaseModel):
+    id: UUID
+    material_version_id: UUID
+    section_type: str
+    position: int
+    title: Optional[str] = None
+    body: Optional[str] = None
+    content_node_id: Optional[UUID] = None
+    content_code: Optional[str] = None
+    curriculum_relation_type: Optional[str] = None
+    curriculum_status: str = "UNMAPPED"
+    block_count: int = 0
+
+
+class MaterialBlockCreateRequest(BaseModel):
+    block_type: str = Field(..., min_length=1, max_length=50)
+    position: int = Field(..., gt=0)
+    title: Optional[str] = Field(None, max_length=500)
+    body: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
+class MaterialBlockResponse(BaseModel):
+    id: UUID
+    section_id: UUID
+    material_version_id: UUID
+    block_type: str
+    position: int
+    title: Optional[str] = None
+    body: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
+class MaterialQuestionLinkRequest(BaseModel):
+    question_version_id: UUID
+    relation_type: str = Field("EXERCISE", max_length=30)
+    section_id: Optional[UUID] = None
+    position: Optional[int] = Field(None, gt=0)
+
+
+class MaterialQuestionResponse(BaseModel):
+    id: UUID
+    material_version_id: UUID
+    question_version_id: UUID
+    relation_type: Optional[str] = None
+    section_id: Optional[UUID] = None
+    position: int
+    official_number: Optional[int] = None
+    statement: Optional[str] = None
+
+
+class MaterialContentAvailabilityResponse(BaseModel):
+    content_code: str
+    material_available: bool
+    material_count: int
 
 
 class TheoryMaterialVersionCreateRequest(BaseModel):

@@ -91,6 +91,12 @@ def set_identity_provider(provider: ExternalIdentityProvider) -> None:
     _identity_provider = provider
 
 
+def reset_identity_provider() -> None:
+    """Reset the application identity provider to the deterministic default."""
+    global _identity_provider
+    _identity_provider = TestExternalIdentityProvider()
+
+
 def get_identity_provider() -> ExternalIdentityProvider:
     """Get the current identity provider.
     
@@ -183,10 +189,23 @@ async def get_current_authenticated_context(
         return context
 
 
+async def reject_reception_only_role(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+) -> None:
+    """Prevent reception-only identities from entering other business domains."""
+    if "SECRETARY" in {role.upper() for role in identity.roles}:
+        raise HTTPException(
+            status_code=403,
+            detail="SECRETARY access is restricted to the reception domain.",
+        )
+
+
 __all__ = [
     "TestExternalIdentityProvider",
     "get_current_authenticated_context",
     "get_current_identity",
     "get_identity_provider",
+    "reject_reception_only_role",
+    "reset_identity_provider",
     "set_identity_provider",
 ]

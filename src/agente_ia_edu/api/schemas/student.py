@@ -102,3 +102,157 @@ class StudentLearningPathResponse(BaseModel):
     reason: str
     steps: list[LearningPathStep] = Field(default_factory=list)
     active_step_index: int = 0
+
+
+class StudySearchItem(BaseModel):
+    id: str | None = None
+    title: str | None = None
+    content: str | None = None
+    discipline: str | None = None
+    difficulty: str | None = None
+    resource_type: str | None = None
+
+
+class StudySearchPagination(BaseModel):
+    page: int = 1
+    limit: int = 10
+    total: int = 0
+    total_pages: int = 0
+
+
+class StudySearchResponse(BaseModel):
+    query: str = ""
+    intent: str = "SEARCH"
+    resolved_context: dict[str, Any] = Field(default_factory=dict)
+    results: dict[str, list[StudySearchItem]] = Field(default_factory=lambda: {"questions": [], "materials": []})
+    pagination: StudySearchPagination = Field(default_factory=StudySearchPagination)
+
+
+# ---------------------------------------------------------------------------
+# PHASE 17 - student activity player (execution state only; no correction/score)
+# ---------------------------------------------------------------------------
+
+
+class ActivityAnswerSaveRequest(BaseModel):
+    """Autosave payload: the CURRENT choice for one question. ``selected_option``
+    is an option key (A-E); ``null`` clears the answer. Idempotent."""
+
+    selected_option: str | None = Field(default=None, max_length=8)
+
+
+class ActivityPlayerOption(BaseModel):
+    key: str
+    position: int
+    text: str
+
+
+class ActivityPlayerQuestion(BaseModel):
+    position: int
+    question_version_id: str
+    question_id: str | None = None
+    year: int | None = None
+    official_number: int | None = None
+    enem_area: str | None = None
+    statement: str
+    options: list[ActivityPlayerOption]
+    answered: bool
+    selected_option: str | None = None
+    answered_at: str | None = None
+
+
+class ActivityPlayerAttempt(BaseModel):
+    id: str | None = None
+    status: str
+    started_at: str | None = None
+    last_activity_at: str | None = None
+    completed_at: str | None = None
+
+
+class ActivityPlayerActivity(BaseModel):
+    assignment_id: str
+    assessment_id: str
+    assessment_version_id: str
+    title: str
+    instructions: str | None = None
+    author_external_id: str | None = None
+    availability: str
+    available_from: str | None = None
+    due_at: str | None = None
+    selection_fingerprint: str | None = None
+    question_count: int
+
+
+class ActivityPlayerState(BaseModel):
+    activity: ActivityPlayerActivity
+    attempt: ActivityPlayerAttempt
+    status: str
+    editable: bool
+    total_questions: int
+    answered_count: int
+    pending_count: int
+    pending_positions: list[int] = Field(default_factory=list)
+    current_position: int | None = None
+    questions: list[ActivityPlayerQuestion] = Field(default_factory=list)
+    answer_key_visible: bool = False
+
+
+class ActivityAnswerSaveResponse(BaseModel):
+    saved: bool
+    question_version_id: str
+    position: int
+    selected_option: str | None = None
+    answered_at: str | None = None
+    answered_count: int
+    pending_count: int
+    total_questions: int
+    status: str
+
+
+# ---------------------------------------------------------------------------
+# PHASE 18 - deterministic correction & student result
+# ---------------------------------------------------------------------------
+
+
+class ActivityResultSummary(BaseModel):
+    id: str
+    attempt_id: str
+    assignment_id: str
+    assessment_version_id: str
+    student_external_id: str
+    selection_fingerprint: str | None = None
+    question_count: int
+    answered_count: int
+    correct_count: int
+    incorrect_count: int
+    unanswered_count: int
+    aproveitamento_percent: float  # correct_count / question_count * 100 - raw, NOT a grade
+    completion_status: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    corrected_at: str | None = None
+
+
+class ActivityResultItemView(BaseModel):
+    position: int
+    question_version_id: str
+    official_number: int | None = None
+    status: str  # CORRECT | INCORRECT | UNANSWERED
+    answered: bool
+    is_correct: bool
+    selected_option_key: str | None = None
+    correct_option_key: str | None = None  # released only after correction
+    resolution: str = "em breve"
+
+
+class ActivityResultActivity(BaseModel):
+    assignment_id: str
+    assessment_id: str
+    assessment_version_id: str
+    title: str
+
+
+class ActivityResultView(BaseModel):
+    result: ActivityResultSummary
+    activity: ActivityResultActivity
+    items: list[ActivityResultItemView] = Field(default_factory=list)
+    answer_key_visible: bool = True

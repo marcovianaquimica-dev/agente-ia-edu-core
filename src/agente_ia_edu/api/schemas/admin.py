@@ -54,7 +54,7 @@ class SchoolResponse(BaseModel):
 
 class UserLinkCreateRequest(BaseModel):
     external_user_id: str
-    role: str = Field(..., description="PLATFORM_ADMIN, DIRECTOR, COORDINATOR, TEACHER, STUDENT")
+    role: str = Field(..., description="PLATFORM_ADMIN, DIRECTOR, COORDINATOR, SECRETARY, TEACHER, STUDENT")
     scope_type: str = Field("SCHOOL", description="PLATFORM, SCHOOL, UNIT, SEGMENT, GRADE_LEVEL, CLASSROOM")
     scope_external_id: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
@@ -80,3 +80,43 @@ class AdminAuditLogResponse(BaseModel):
     school_id: Optional[UUID] = None
     metadata: Optional[dict[str, Any]] = None
     created_at: datetime
+
+
+class PedagogicalUniverseCreateRequest(BaseModel):
+    external_id: str = Field(..., min_length=2, max_length=100)
+    slug: str = Field(..., min_length=2, max_length=120)
+    name: str = Field(..., min_length=2, max_length=255)
+    owner_type: str
+    owner_external_id: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    configuration: Optional[dict[str, Any]] = None
+    configuration_version: str = Field("v1", max_length=50)
+    status: str = Field("DRAFT", max_length=20)
+
+
+class PedagogicalUniverseConfigurationRequest(BaseModel):
+    configuration: dict[str, Any]
+    configuration_version: str = Field(..., max_length=50)
+
+
+class PedagogicalUniverseCatalogScopeRequest(BaseModel):
+    catalog_node_id: UUID
+    scope_kind: str
+    include_descendants: bool = True
+
+
+class PedagogicalUniverseBindingRequest(BaseModel):
+    subject_type: str
+    subject_external_id: str
+    priority: int = 0
+
+
+class PedagogicalUniverseResponse(BaseModel):
+    id: UUID
+    external_id: str
+    slug: str
+    name: str
+    status: str
+    owner_type: str
+    owner_external_id: Optional[str] = None
+    configuration_version: str

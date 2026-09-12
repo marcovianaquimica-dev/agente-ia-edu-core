@@ -9,6 +9,7 @@ Endpoints for the full practice flow:
 - Querying results, learning history, and mastery/progress
 """
 
+from dataclasses import asdict
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from ..dependencies import get_session_factory, get_current_identity
+from .diagnostic import get_current_diagnostic_identity
 from ..schemas.learning_path import (
     PracticeSessionCreateRequest,
     PracticeSessionResponse,
@@ -33,7 +35,13 @@ from ..schemas.learning_path import (
     LearningHistoryEntryResponse,
 )
 from ...identity import ExternalIdentityContext
-from ...db.models import QuestionOption, QuestionVersion
+from ...db.models import (
+    CatalogNode,
+    PedagogicalUniverse,
+    QuestionOption,
+    QuestionVersion,
+    TaxonomyNode,
+)
 from ...repositories.learning_path import (
     PracticeSessionRepository,
     PracticeQuestionSelectionRepository,
@@ -49,6 +57,8 @@ from ...services.learning_path import (
     QuestionSelectionService,
 )
 from ...services.learning_path_policies import ActivityType, DifficultyLevel
+from ...services.domain_map import DomainMapService
+from ...services.pedagogical_universe import PedagogicalUniverseService
 
 practice_router = APIRouter(
     prefix="/api/v1/practice",
@@ -64,6 +74,19 @@ async def _load_question_version(session, question_version_id: UUID) -> Question
         .options(selectinload(QuestionVersion.options))
     )
     return result.scalar_one_or_none()
+
+
+async def _load_question_versions(
+    session, question_version_ids: list[UUID]
+) -> dict[UUID, QuestionVersion]:
+    if not question_version_ids:
+        return {}
+    result = await session.execute(
+        select(QuestionVersion)
+        .where(QuestionVersion.id.in_(question_version_ids))
+        .options(selectinload(QuestionVersion.options))
+    )
+    return {version.id: version for version in result.scalars().unique().all()}
 
 
 def _to_question_response(
@@ -105,7 +128,7 @@ def _to_question_response(
 )
 async def create_practice_session(
     request: PracticeSessionCreateRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
     session_factory=Depends(get_session_factory),
 ) -> PracticeSessionResponse:
     """Create a new practice session and populate it with selected questions."""
@@ -115,18 +138,74 @@ async def create_practice_session(
         practice_service = PracticeSessionService()
         difficulty_service = DifficultyRecommendationService()
         selection_service = QuestionSelectionService()
-        mastery_repo = StudentContentMasteryRepository(session)
-
+        domain_map = await DomainMapService(session).build(
+            student_id=external_identity_id,
+            identity=identity,
+        )
+        recommendation = domain_map["next_best_action"]
         content_node_id = request.content_node_id
+        recommendation_origin = "USER_SELECTED"
         reason = "User requested content"
+        if content_node_id is None:
+            if recommendation is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="No pedagogical next action is available for practice.",
+                )
+            content_node_id = UUID(recommendation.target_content_node_id)
+            recommendation_origin = "NEXT_BEST_ACTION"
+            reason = recommendation.reason
 
-        if not content_node_id:
-            lowest = await mastery_repo.get_lowest_mastery(external_identity_id)
-            if lowest:
-                content_node_id = lowest.content_node_id
-                reason = "System recommends content with lowest mastery"
-            else:
-                reason = "No mastery history yet; no content recommended"
+        canonical_node = await session.get(CatalogNode, content_node_id)
+        legacy_node = None if canonical_node else await session.get(TaxonomyNode, content_node_id)
+        if canonical_node is None and legacy_node is None:
+            raise HTTPException(status_code=404, detail="Content node not found")
+
+        universe_payload = domain_map.get("universe")
+        universe_id = UUID(str(universe_payload["id"])) if universe_payload else None
+        universe = await session.get(PedagogicalUniverse, universe_id) if universe_id else None
+        if universe_id:
+            if canonical_node is None or not await PedagogicalUniverseService(session).contains_catalog_node(
+                universe_id, content_node_id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Content is outside the authorized pedagogical universe.",
+                )
+
+        selected_content = next(
+            (
+                item for item in domain_map["contents"]
+                if str(item["content_node_id"]) == str(content_node_id)
+            ),
+            None,
+        )
+        recommendation_snapshot = asdict(recommendation) if recommendation else None
+        metadata = {
+            "selected_content_node_id": str(content_node_id),
+            "selection_origin": recommendation_origin,
+            "recommendation": recommendation_snapshot,
+            "universe": ({
+                "id": str(universe.id),
+                "owner_type": universe.owner_type,
+                "configuration_version": universe.configuration_version,
+            } if universe else None),
+            "academic_context": {
+                "school_id": identity.institution_id,
+                "unit_id": identity.unit_id,
+                "segment": identity.metadata.get("segment"),
+                "grade_level": identity.grade_level,
+                "classroom_id": identity.classroom_id,
+            },
+            "pedagogical_context": [
+                {
+                    "source": item["source"],
+                    "title": item["title"],
+                    "recorded_at": item["recorded_at"].isoformat(),
+                }
+                for item in (selected_content or {}).get("pedagogical_contexts", [])
+            ],
+        }
 
         recommended_difficulty = await difficulty_service.get_recommended_difficulty(
             session,
@@ -141,14 +220,39 @@ async def create_practice_session(
             requested_question_count=request.requested_question_count,
             recommended_difficulty=recommended_difficulty,
             recommendation_reason=reason,
+            metadata=metadata,
         )
 
-        await selection_service.populate_session(
+        school_id = None
+        if identity.institution_id:
+            try:
+                school_id = UUID(identity.institution_id)
+            except ValueError:
+                school_id = None
+        eligibility_context = None
+        if canonical_node is not None:
+            eligibility_context = {
+                "school_id": school_id,
+                "classroom_id": identity.classroom_id,
+                "unit_id": identity.unit_id,
+                "segment": identity.metadata.get("segment"),
+                "grade_level": identity.grade_level,
+                "universe_id": universe_id,
+            }
+        selections = await selection_service.populate_session(
             session,
             practice_session,
             external_identity_id,
             recommended_difficulty,
+            eligibility_context=eligibility_context,
         )
+
+        if not selections:
+            await session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="No eligible questions are available for this practice content.",
+            )
 
         await session.commit()
 
@@ -232,10 +336,13 @@ async def list_practice_questions(
 
         question_repo = PracticeQuestionSelectionRepository(session)
         selections = await question_repo.list_by_session(session_id)
+        versions = await _load_question_versions(
+            session, [selection.question_version_id for selection in selections]
+        )
 
         responses = []
         for sel in selections:
-            version = await _load_question_version(session, sel.question_version_id)
+            version = versions.get(sel.question_version_id)
             if version is None:
                 continue
             responses.append(_to_question_response(sel, version))
@@ -321,6 +428,14 @@ async def answer_practice_question(
         if selection.practice_session_id != session_id:
             raise HTTPException(status_code=400, detail="Question does not belong to this session")
 
+        if request.is_unknown and (
+            request.selected_option_id is not None or request.response_text
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="UNKNOWN cannot include an answer.",
+            )
+
         if request.selected_option_id is not None:
             option = await session.get(QuestionOption, request.selected_option_id)
             if option is None or option.question_version_id != selection.question_version_id:
@@ -329,8 +444,9 @@ async def answer_practice_question(
                     detail="Selected option does not belong to this question",
                 )
 
-        selection.selected_option_id = request.selected_option_id
-        selection.response_text = request.response_text
+        selection.selected_option_id = None if request.is_unknown else request.selected_option_id
+        selection.response_text = "UNKNOWN" if request.is_unknown else request.response_text
+        selection.is_correct = None if request.is_unknown else selection.is_correct
         selection.answered_at = datetime.now(timezone.utc)
 
         await session.flush()
@@ -339,6 +455,7 @@ async def answer_practice_question(
         return PracticeQuestionAnswerResponse(
             practice_question_selection_id=selection.id,
             is_received=True,
+            is_unknown=request.is_unknown,
             position=selection.position,
         )
 
@@ -612,6 +729,7 @@ async def get_learning_history(
                 question_version_id=entry.question_version_id,
                 difficulty_level=entry.difficulty_level,
                 is_correct=entry.is_correct,
+                response_text=entry.response_text,
                 points_awarded=float(entry.points_awarded) if entry.points_awarded else None,
                 response_time_ms=entry.response_time_ms,
                 content_node_id=entry.content_node_id,

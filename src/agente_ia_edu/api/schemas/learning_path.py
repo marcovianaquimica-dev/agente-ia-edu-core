@@ -73,6 +73,9 @@ class PracticeQuestionAnswerRequest(BaseModel):
     response_text: Optional[str] = Field(
         None, description="Response text (for discursive questions)"
     )
+    is_unknown: bool = Field(
+        False, description="Student explicitly reports not knowing the answer"
+    )
 
 
 class NextPracticeQuestionResponse(BaseModel):
@@ -87,6 +90,7 @@ class PracticeQuestionAnswerResponse(BaseModel):
 
     practice_question_selection_id: UUID
     is_received: bool
+    is_unknown: bool = False
     position: int
 
 
@@ -176,6 +180,7 @@ class LearningHistoryEntryResponse(BaseModel):
     question_version_id: UUID
     difficulty_level: str
     is_correct: Optional[bool] = None
+    response_text: Optional[str] = None
     points_awarded: Optional[float] = None
     response_time_ms: Optional[int] = None
     content_node_id: Optional[UUID] = None

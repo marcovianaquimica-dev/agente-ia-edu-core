@@ -2,6 +2,8 @@
 API routes for Initial Diagnostic & Student Mastery Map (Phase 13).
 """
 
+from datetime import datetime, timezone
+from typing import Callable
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,6 +14,8 @@ from ..dependencies import get_current_identity, get_session_factory
 from ..schemas.diagnostic import (
     DiagnosticAnswerRequest,
     DiagnosticAnswerResponse,
+    DiagnosticEntryRequest,
+    DiagnosticEntryResponse,
     DiagnosticQuestionResponse,
     DiagnosticResultResponse,
     DiagnosticStartRequest,
@@ -19,14 +23,57 @@ from ..schemas.diagnostic import (
 )
 from ..schemas.learning_path import PracticeQuestionOption
 from ...identity import ExternalIdentityContext
-from ...db.models import QuestionVersion
+from ...db.models import InitialDiagnostic, QuestionVersion
+from ...services.authorization import AuthorizationService
 from ...services.initial_diagnostic import InitialDiagnosticService
 from ...services.knowledge import KnowledgeService
+from ...services.pedagogical_universe import PedagogicalUniverseService
 
 diagnostic_router = APIRouter(
     prefix="/api/v1/student",
     tags=["initial-diagnostic"],
 )
+
+
+async def get_current_diagnostic_identity(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> ExternalIdentityContext:
+    """Enrich an authenticated student identity from its activated school link."""
+    if identity.institution_id:
+        return identity
+    async with session_factory() as session:
+        context = await AuthorizationService(session).resolve_context(identity)
+    if context.role != "STUDENT" or context.school_id is None:
+        return identity
+    academic = context.metadata.get("school_link_metadata", {})
+    return ExternalIdentityContext(
+        provider=identity.provider,
+        external_user_id=identity.external_user_id,
+        student_id=identity.student_id or identity.external_user_id,
+        institution_id=str(context.school_id),
+        unit_id=academic.get("unit_id"),
+        grade_level=academic.get("grade_level"),
+        classroom_id=academic.get("classroom_id") or (
+            context.scope_external_id if context.scope_type == "CLASSROOM" else None
+        ),
+        roles=identity.roles,
+        metadata={**identity.metadata, "segment": academic.get("segment")},
+    )
+
+
+def get_diagnostic_now_provider() -> Callable[[], datetime]:
+    return lambda: datetime.now(timezone.utc)
+
+
+@diagnostic_router.get("/diagnostic/universes")
+async def list_authorized_pedagogical_universes(
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
+    session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        universes = await PedagogicalUniverseService(session).authorized_universes(identity)
+        return [{"id": str(item.id), "name": item.name, "slug": item.slug, "configuration_version": item.configuration_version} for item in universes]
 
 
 async def _to_diagnostic_question_response(session, selection) -> DiagnosticQuestionResponse | None:
@@ -74,26 +121,47 @@ async def _to_diagnostic_question_response(session, selection) -> DiagnosticQues
 )
 async def start_initial_diagnostic(
     request: DiagnosticStartRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
     session_factory=Depends(get_session_factory),
+    now_provider: Callable[[], datetime] = Depends(get_diagnostic_now_provider),
 ) -> DiagnosticStartResponse:
     student_id = identity.external_user_id
-    # If request doesn't provide school_id, fall back to identity context
-    school_id = request.school_id or (UUID(identity.institution_id) if identity.institution_id else None)
+    school_id = UUID(identity.institution_id) if identity.institution_id else None
+    metadata = dict(request.metadata or {})
+    metadata["context_snapshot"] = {
+        "school_id": str(school_id) if school_id else None,
+        "unit_id": identity.unit_id,
+        "segment": identity.metadata.get("segment"),
+        "grade_level": identity.grade_level,
+        "classroom_id": identity.classroom_id,
+    }
 
     async with session_factory() as session:
+        universe_service = PedagogicalUniverseService(session)
+        try:
+            universe = await universe_service.resolve_active_universe(identity, request.requested_universe_id)
+        except PermissionError as exc:
+            if request.requested_universe_id:
+                raise HTTPException(status_code=403, detail=str(exc))
+            universe = None
+        if universe:
+            metadata["context_snapshot"]["pedagogical_universe"] = {
+                "id": str(universe.id), "external_id": universe.external_id,
+                "configuration_version": universe.configuration_version,
+                "owner_type": universe.owner_type, "owner_external_id": universe.owner_external_id,
+            }
         ks = KnowledgeService(session)
-        service = InitialDiagnosticService(session, ks)
+        service = InitialDiagnosticService(session, ks, now_provider=now_provider)
 
         diagnostic, first_q = await service.start_diagnostic(
             student_id=student_id,
             school_id=school_id,
-            classroom_id=request.classroom_id,
+            classroom_id=identity.classroom_id,
             academic_year=request.academic_year,
-            grade_level=request.grade_level,
+            grade_level=identity.grade_level or request.grade_level,
             discipline=request.discipline,
             diagnostic_version=request.diagnostic_version,
-            metadata=request.metadata,
+            metadata=metadata,
         )
 
         q_resp = await _to_diagnostic_question_response(session, first_q)
@@ -110,6 +178,102 @@ async def start_initial_diagnostic(
         )
 
 
+@diagnostic_router.post(
+    "/diagnostic/entry/start",
+    status_code=201,
+    response_model=DiagnosticEntryResponse,
+    summary="Start the diagnostic welcome conversation",
+)
+async def start_diagnostic_entry(
+    request: DiagnosticStartRequest,
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
+    session_factory=Depends(get_session_factory),
+    now_provider: Callable[[], datetime] = Depends(get_diagnostic_now_provider),
+) -> DiagnosticEntryResponse:
+    school_id = UUID(identity.institution_id) if identity.institution_id else None
+    metadata = {"context_snapshot": {
+        "school_id": str(school_id) if school_id else None,
+        "unit_id": identity.unit_id,
+        "segment": identity.metadata.get("segment"),
+        "grade_level": identity.grade_level,
+        "classroom_id": identity.classroom_id,
+    }}
+    async with session_factory() as session:
+        universe_service = PedagogicalUniverseService(session)
+        try:
+            universe = await universe_service.resolve_active_universe(identity, request.requested_universe_id)
+        except PermissionError as exc:
+            if request.requested_universe_id:
+                raise HTTPException(status_code=403, detail=str(exc))
+            universe = None
+        if universe:
+            metadata["context_snapshot"]["pedagogical_universe"] = {
+                "id": str(universe.id), "external_id": universe.external_id,
+                "configuration_version": universe.configuration_version,
+                "owner_type": universe.owner_type, "owner_external_id": universe.owner_external_id,
+            }
+        service = InitialDiagnosticService(session, KnowledgeService(session), now_provider=now_provider)
+        diagnostic, next_question = await service.start_diagnostic(
+            student_id=identity.external_user_id,
+            school_id=school_id,
+            classroom_id=identity.classroom_id,
+            academic_year=request.academic_year,
+            grade_level=identity.grade_level or request.grade_level,
+            discipline=request.discipline,
+            diagnostic_version=request.diagnostic_version,
+            metadata=metadata,
+            defer_questions=True,
+        )
+        entry = diagnostic.metadata_.get("entry_profile", {})
+        return DiagnosticEntryResponse(
+            diagnostic_id=diagnostic.id,
+            entry_status=diagnostic.metadata_["entry_status"],
+            step=diagnostic.metadata_["entry_step"],
+            preferred_name=entry.get("preferred_name"),
+            is_independent=diagnostic.school_id is None,
+            next_question=await _to_diagnostic_question_response(session, next_question),
+        )
+
+
+@diagnostic_router.put(
+    "/diagnostic/{diagnostic_id}/entry",
+    response_model=DiagnosticEntryResponse,
+    summary="Save or complete the diagnostic welcome conversation",
+)
+async def save_diagnostic_entry(
+    diagnostic_id: UUID,
+    request: DiagnosticEntryRequest,
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
+    session_factory=Depends(get_session_factory),
+    now_provider: Callable[[], datetime] = Depends(get_diagnostic_now_provider),
+) -> DiagnosticEntryResponse:
+    school_id = UUID(identity.institution_id) if identity.institution_id else None
+    async with session_factory() as session:
+        service = InitialDiagnosticService(session, KnowledgeService(session), now_provider=now_provider)
+        try:
+            diagnostic, next_question = await service.save_entry_profile(
+                diagnostic_id=diagnostic_id,
+                authorized_student_id=identity.external_user_id,
+                authorized_school_id=school_id,
+                profile=request.model_dump(exclude={"complete"}),
+                complete=request.complete,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        entry = diagnostic.metadata_.get("entry_profile", {})
+        return DiagnosticEntryResponse(
+            diagnostic_id=diagnostic.id,
+            entry_status=diagnostic.metadata_["entry_status"],
+            step=diagnostic.metadata_["entry_step"],
+            preferred_name=entry.get("preferred_name"),
+            is_independent=diagnostic.school_id is None,
+            next_question=await _to_diagnostic_question_response(session, next_question),
+            preferred_content_resolution=diagnostic.metadata_.get("preferred_content_resolution"),
+        )
+
+
 @diagnostic_router.get(
     "/diagnostic/{diagnostic_id}",
     response_model=DiagnosticStartResponse,
@@ -117,20 +281,23 @@ async def start_initial_diagnostic(
 )
 async def get_initial_diagnostic(
     diagnostic_id: UUID,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
     session_factory=Depends(get_session_factory),
+    now_provider: Callable[[], datetime] = Depends(get_diagnostic_now_provider),
 ) -> DiagnosticStartResponse:
     student_id = identity.external_user_id
 
     async with session_factory() as session:
         ks = KnowledgeService(session)
-        service = InitialDiagnosticService(session, ks)
+        service = InitialDiagnosticService(session, ks, now_provider=now_provider)
 
-        result = await service.get_diagnostic_result(diagnostic_id)
-        if result["student_id"] != student_id:
+        diag = await session.get(InitialDiagnostic, diagnostic_id)
+        if diag is None:
+            raise HTTPException(status_code=404, detail="Diagnostic not found")
+        identity_school_id = UUID(identity.institution_id) if identity.institution_id else None
+        if diag.student_id != student_id or diag.school_id != identity_school_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        diag = await session.get(InitialDiagnosticService, diagnostic_id)
         next_q = await service._get_next_question_selection(diag)
         q_resp = await _to_diagnostic_question_response(session, next_q)
 
@@ -155,14 +322,15 @@ async def answer_diagnostic_question(
     diagnostic_id: UUID,
     selection_id: UUID,
     request: DiagnosticAnswerRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
     session_factory=Depends(get_session_factory),
+    now_provider: Callable[[], datetime] = Depends(get_diagnostic_now_provider),
 ) -> DiagnosticAnswerResponse:
     student_id = identity.external_user_id
 
     async with session_factory() as session:
         ks = KnowledgeService(session)
-        service = InitialDiagnosticService(session, ks)
+        service = InitialDiagnosticService(session, ks, now_provider=now_provider)
 
         try:
             diag, is_correct, is_complete, next_q = await service.answer_question(
@@ -170,12 +338,14 @@ async def answer_diagnostic_question(
                 selection_id=selection_id,
                 selected_option_id=request.selected_option_id,
                 response_text=request.response_text,
+                is_unknown=request.is_unknown,
+                authorized_student_id=student_id,
+                authorized_school_id=UUID(identity.institution_id) if identity.institution_id else None,
             )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-
-        if diag.student_id != student_id:
-            raise HTTPException(status_code=403, detail="Access denied")
 
         q_resp = await _to_diagnostic_question_response(session, next_q)
 
@@ -197,21 +367,23 @@ async def answer_diagnostic_question(
 )
 async def get_diagnostic_result(
     diagnostic_id: UUID,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
     session_factory=Depends(get_session_factory),
+    now_provider: Callable[[], datetime] = Depends(get_diagnostic_now_provider),
 ) -> DiagnosticResultResponse:
     student_id = identity.external_user_id
 
     async with session_factory() as session:
         ks = KnowledgeService(session)
-        service = InitialDiagnosticService(session, ks)
+        service = InitialDiagnosticService(session, ks, now_provider=now_provider)
 
         try:
             res = await service.get_diagnostic_result(diagnostic_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
-        if res["student_id"] != student_id:
+        identity_school_id = UUID(identity.institution_id) if identity.institution_id else None
+        if res["student_id"] != student_id or res["school_id"] != (str(identity_school_id) if identity_school_id else None):
             raise HTTPException(status_code=403, detail="Access denied")
 
         return DiagnosticResultResponse(**res)
@@ -222,7 +394,7 @@ async def get_diagnostic_result(
     summary="Get student's overall initial/current mastery map",
 )
 async def get_student_mastery_map(
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(get_current_diagnostic_identity),
     session_factory=Depends(get_session_factory),
 ):
     student_id = identity.external_user_id

@@ -19,6 +19,33 @@ class DiagnosticStartRequest(BaseModel):
     discipline: str = Field("Química", description="Discipline name")
     diagnostic_version: str = Field("v1", description="Algorithm version")
     metadata: Optional[dict[str, Any]] = None
+    requested_universe_id: Optional[UUID] = None
+
+
+class DiagnosticEntryRequest(BaseModel):
+    preferred_name: Optional[str] = Field(None, max_length=255)
+    age_range: Optional[str] = Field(None, max_length=100)
+    study_objectives: list[str] = Field(default_factory=list, max_length=6)
+    interest_areas: list[str] = Field(default_factory=list, max_length=10)
+    perceived_difficulties: list[str] = Field(default_factory=list, max_length=10)
+    free_text: Optional[str] = Field(None, max_length=2000)
+    discipline: Optional[str] = Field(None, max_length=255)
+    content: Optional[str] = Field(None, max_length=255)
+    needs_guidance: bool = False
+    diagnostic_mode: str = Field("DISCIPLINE", max_length=40)
+    priority_disciplines: list[str] = Field(default_factory=list, max_length=12)
+    step: str = Field("WELCOME", max_length=40)
+    complete: bool = False
+
+
+class DiagnosticEntryResponse(BaseModel):
+    diagnostic_id: UUID
+    entry_status: str
+    step: str
+    preferred_name: Optional[str] = None
+    is_independent: bool
+    next_question: Optional["DiagnosticQuestionResponse"] = None
+    preferred_content_resolution: Optional[dict] = None
 
 
 class DiagnosticQuestionResponse(BaseModel):
@@ -45,6 +72,7 @@ class DiagnosticStartResponse(BaseModel):
 class DiagnosticAnswerRequest(BaseModel):
     selected_option_id: Optional[UUID] = None
     response_text: Optional[str] = None
+    is_unknown: bool = False
 
 
 class DiagnosticAnswerResponse(BaseModel):
@@ -88,3 +116,8 @@ class DiagnosticResultResponse(BaseModel):
     mastery_map: list[ContentMasteryEstimate] = Field(default_factory=list)
     probable_gaps: list[ProbableGap] = Field(default_factory=list)
     evidence_count: int = 0
+    raw_result: dict[str, int] = Field(default_factory=dict)
+    duration_seconds: int = 0
+    completion_reason: Optional[str] = None
+    latest_decision: Optional[dict[str, Any]] = None
+    pedagogical_states: list[dict[str, Any]] = Field(default_factory=list)

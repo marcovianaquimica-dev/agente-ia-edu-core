@@ -10,6 +10,7 @@ class Pagination(BaseModel):
     page: int
     limit: int
     total: int
+    total_pages: int = 0
 
 
 class QuestionOption(BaseModel):
@@ -111,21 +112,40 @@ class QuestionDetail(QuestionListItem):
 class QuestionListResponse(BaseModel):
     items: list[QuestionListItem]
     pagination: Pagination
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QuestionQuery(BaseModel):
     page: int = Field(default=1, ge=1)
     limit: int = Field(default=20, ge=1, le=100)
+    order_by: str = Field(default="updated_at")
+    order_direction: str = Field(default="desc")
+    # Exam source filters
     institution_code: str | None = None
     exam_code: str | None = None
     year: int | None = Field(default=None, gt=0)
+    # Question content and classification
     content: str | None = None
     subject: str | None = None
     difficulty: str | None = None
+    question_type: str | None = None
     taxonomy_code: str | None = None
     bncc_competency_code: str | None = None
     bncc_skill_code: str | None = None
     pisa: str | None = None
+    # Question governance filters
+    status: str | None = None
+    visibility_scope: str | None = None
+    origin_type: str | None = None
+    author_external_id: str | None = None
+    school_id: str | None = None
+    # Eligibility
+    eligible_only: bool = Field(default=False)
+    # Date range filters
+    created_from: str | None = Field(default=None)
+    created_to: str | None = Field(default=None)
+    updated_from: str | None = Field(default=None)
+    updated_to: str | None = Field(default=None)
 
 
 class QuestionAuthoringRequest(BaseModel):
@@ -146,6 +166,72 @@ class QuestionAuthoringResponse(BaseModel):
     question_id: UUID
     version_id: UUID
     status: str
+
+
+class QuestionCreateRequest(BaseModel):
+    statement: str
+    options: list[str]
+    correct_option: str
+    question_type: str = "MULTIPLE_CHOICE"
+    visibility_scope: str = "PRIVATE"
+    subject: str | None = None
+    difficulty: str | None = None
+    metadata: dict[str, str] | None = None
+    school_id: str | None = None
+    author_external_id: str | None = None
+    created_by_external_identity: str | None = None
+
+
+class QuestionUpdateRequest(BaseModel):
+    statement: str | None = None
+    options: list[str] | None = None
+    correct_option: str | None = None
+    question_type: str | None = None
+    visibility_scope: str | None = None
+    subject: str | None = None
+    difficulty: str | None = None
+    metadata: dict[str, str] | None = None
+
+
+class QuestionVersionCreateRequest(BaseModel):
+    statement: str
+    options: list[str]
+    correct_option: str
+    reason: str | None = None
+    difficulty: str | None = None
+
+
+class QuestionStatusTransitionRequest(BaseModel):
+    status: str
+    reason: str | None = None
+
+
+class QuestionStatusTransitionResponse(BaseModel):
+    id: UUID | None = None
+    question_id: UUID
+    from_status: str | None = None
+    to_status: str
+    performed_by_external_id: str | None = None
+    reason: str | None = None
+
+
+class QuestionEligibilityResponse(BaseModel):
+    question_id: UUID
+    is_eligible: bool
+    reasons: list[str] = Field(default_factory=list)
+
+
+class QuestionApprovalRequest(BaseModel):
+    decision: str = Field(default="APPROVED")
+    feedback_text: str | None = None
+
+
+class QuestionApprovalResponse(BaseModel):
+    id: UUID | None = None
+    question_id: UUID
+    reviewer_external_id: str
+    decision: str
+    feedback_text: str | None = None
 
 
 class QuestionResponseModel(BaseModel):
