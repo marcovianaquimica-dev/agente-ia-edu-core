@@ -29,7 +29,12 @@ from dataclasses import dataclass, field
 #    that blank line is itself a signal (paragraph break), checked below.
 _MARKER = re.compile(r"(?m)^[ \t]*(\d{1,3})[.)][ \t]*(?!\d[ \t]+[A-ZÀ-Ú])(?=\S)")
 # "Questão N" / "QUESTÃO N" - a second, independent marker convention.
-_MARKER_WORD = re.compile(r"(?mi)^[ \t]*quest[aã]o\s+(\d{1,3})\b[.:)]?[ \t]*")
+# \s* (not \s+): some real PDF text layers reproduce the visual gap before
+# the number via glyph positioning/kerning rather than an actual space
+# character, yielding "Questão33" with zero literal whitespace (found on a
+# real UERJ exam) - the word itself is distinctive enough that a missing
+# space is not a meaningful ambiguity risk.
+_MARKER_WORD = re.compile(r"(?mi)^[ \t]*quest[aã]o\s*(\d{1,3})\b[.:)]?[ \t]*")
 # "(1)" parenthesised numbering.
 _MARKER_PAREN = re.compile(r"(?m)^[ \t]*\((\d{1,3})\)[ \t]*(?=\S)")
 
@@ -39,9 +44,26 @@ _ANSWER_KEY_HEADING = re.compile(
     r"(?im)^[ \t]*(gabarito|respostas?( comentadas?)?|resolu[cç][aã]o( comentada)?)[ \t]*:?[ \t]*$"
 )
 
-# option markers: "A) " / "a) " / "A. " / "A - " - at least 2 in ascending
-# sequence (a), b), c)...) to be trusted as real alternatives.
-_OPTION = re.compile(r"\b([A-Ea-e])[.)][ \t]*")
+# option markers, anchored to the START of a real line (same philosophy as
+# _MARKER above - a bare letter can never be an option mid-sentence, only at
+# a true line start): "A) " / "a) " / "A. " / "A - " (punctuated, the
+# original pilot PDFs' convention - group 1, case-insensitive), OR a bare
+# UPPERCASE letter followed by plain whitespace with NO punctuation at all -
+# group 2 - covering both "A<TAB>texto" (real INEP/ENEM typesetting) and
+# "A texto" (real UNICAMP/ITA/UECE typesetting, the single most common
+# convention found across a 10-exam sample from different institutions).
+#
+# The bare form is deliberately UPPERCASE-ONLY, unlike the punctuated form:
+# real-world testing found that "a"/"e" are also the Portuguese feminine
+# article and the conjunction "and" - extremely common lowercase words that
+# routinely start a reflowed line on their own. Accepting a lowercase bare
+# letter let a plain sentence like "a lei impulsiona..." masquerade as a
+# second, duplicate "A" option candidate and silently break an otherwise
+# perfectly-formatted, fully punctuated option block elsewhere in the same
+# question (found on a real UECE exam). Every real no-punctuation
+# convention actually observed (INEP, UNICAMP, UECE, ITA) is uppercase, so
+# this loses no real coverage.
+_OPTION = re.compile(r"(?m)^[ \t]*(?:([A-Ea-e])[.)\-:][ \t]*|([A-E])[ \t]+)(?=\S)")
 
 MIN_QUESTION_BODY_CHARS = 12
 _TRUE_FALSE_HINT = re.compile(r"(?i)\b(verdadeiro|falso|\(V\)|\(F\)|V ou F)\b")
@@ -141,22 +163,55 @@ def detect_boundaries(text: str) -> list[QuestionBoundary]:
     return [best[n] for n in sorted(best)]
 
 
+def _is_clean_ascending_run(marks: list[re.Match]) -> bool:
+    """True when ``marks`` is, on its own, a confident A, B, C... run: no
+    repeated letter, no gap, starts at A. Shared by the punctuated-first
+    preference below and the final validation, so both apply the exact
+    same rule."""
+    if len(marks) < 2:
+        return False
+    letters = [(m.group(1) or m.group(2)).upper() for m in marks]
+    if len(letters) != len(set(letters)):
+        return False
+    return letters == [chr(ord("A") + i) for i in range(len(letters))]
+
+
+def _longest_clean_suffix(marks: list[re.Match]) -> list[re.Match]:
+    """The longest TRAILING run of ``marks`` that is, on its own, a clean
+    A, B, C... sequence - i.e. drop leading noise (an unrelated match
+    before the real option block) without ever accepting a run that
+    skips or repeats a letter. Trying suffixes from longest to shortest
+    means the first hit found IS the longest one - there is at most one
+    valid ascending run ending at the last mark, so no ambiguity."""
+    for start in range(len(marks)):
+        candidate = marks[start:]
+        if _is_clean_ascending_run(candidate):
+            return candidate
+    return []
+
+
 def _extract_options(body: str) -> tuple[str, list[OptionDraft]]:
     """Split off a trailing/embedded run of A)-E) (or a-e)) options. Returns
     (statement, options) - options=[] when no confident, sequential run of
     at least 2 ascending letters starting at A/a is found (spec s7: never
     assume every question has alternatives)."""
-    marks = list(_OPTION.finditer(body))
-    if len(marks) < 2:
-        return body, []
-    letters = [m.group(1).upper() for m in marks]
-    if len(letters) != len(set(letters)):
-        # a repeated letter (A...E...A...) means two option lists got
-        # concatenated (page/column-order corruption) - never merge them
-        # into one fabricated set; fall back to unstructured text instead.
-        return body, []
-    expected = [chr(ord("A") + i) for i in range(len(letters))]
-    if letters != expected:
+    all_marks = list(_OPTION.finditer(body))
+    # A punctuated marker ("A) "/"A. ") is unambiguous. The bare form ("A "/
+    # "A<TAB>") is not - bare "A" is also the Portuguese article, which is
+    # ordinary and common at the start of a sentence (capitalized) or a
+    # reflowed line (lowercase, already excluded from the bare branch by
+    # _OPTION itself), so it very often precedes the REAL option run as
+    # unrelated noise (found on real ENEM/UECE exams). Try, in order of
+    # confidence: (1) the longest clean run within the punctuated matches
+    # alone - unambiguous, so any bare match anywhere is noise once a real
+    # punctuated run exists; (2) the longest clean run within ALL matches -
+    # the fallback for a genuinely bare-only convention (INEP/ENEM) where a
+    # stray sentence-initial "A" preceded the real bare A..E block. Always
+    # the run ending at the FINAL candidate for that source - a real
+    # option block is never followed by more unrelated single-letter noise.
+    punctuated_only = [m for m in all_marks if m.group(1) is not None]
+    marks = _longest_clean_suffix(punctuated_only) or _longest_clean_suffix(all_marks)
+    if not marks:
         return body, []
     statement = body[: marks[0].start()].strip()
     options: list[OptionDraft] = []
@@ -164,7 +219,7 @@ def _extract_options(body: str) -> tuple[str, list[OptionDraft]]:
         end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
         opt_text = " ".join(body[m.end():end].split())
         if opt_text:
-            options.append(OptionDraft(label=m.group(1).upper(), text=opt_text))
+            options.append(OptionDraft(label=(m.group(1) or m.group(2)).upper(), text=opt_text))
     if len(options) != len(marks):
         return body, []
     return statement, options
