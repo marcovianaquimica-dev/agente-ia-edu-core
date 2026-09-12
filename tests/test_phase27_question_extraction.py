@@ -167,6 +167,137 @@ class BoundaryDetectionTests(unittest.TestCase):
         self.assertEqual(draft.options, [])
         self.assertIn("solução saturada", draft.raw_text)
 
+    def test_multiple_choice_options_tab_delimited_no_punctuation(self):
+        # Real INEP/ENEM typesetting: bare letter + TAB, no "." or ")" at
+        # all - found by testing the engine against the real 2025 ENEM PDFs.
+        text = (
+            "1.   Qual a resposta correta?\n"
+            "A\tprimeira alternativa\n"
+            "B\tsegunda alternativa\n"
+            "C\tterceira alternativa\n"
+            "D\tquarta alternativa\n"
+            "E\tquinta alternativa\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
+        self.assertEqual(draft.options[0].text, "primeira alternativa")
+
+    def test_multiple_choice_options_space_delimited_no_punctuation(self):
+        # Real UNICAMP/ITA/UECE typesetting: bare letter + single space, no
+        # punctuation - the single most common convention found across a
+        # 10-exam sample from different institutions.
+        text = (
+            "1.   Qual a resposta correta?\n"
+            "A primeira alternativa\n"
+            "B segunda alternativa\n"
+            "C terceira alternativa\n"
+            "D quarta alternativa\n"
+            "E quinta alternativa\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
+        self.assertEqual(draft.options[0].text, "primeira alternativa")
+
+    def test_bare_letter_article_at_line_start_does_not_fabricate_options(self):
+        # "A" is also the Portuguese feminine definite article and commonly
+        # starts a line on its own in justified/reflowed text. A single such
+        # line (not part of a real ascending A..E run) must never be read as
+        # an option - the >=2-sequential-letters guard must still hold once
+        # bare-letter delimiters are accepted.
+        text = (
+            "1.   Explique como a difusão de gases funciona no experimento.\n"
+            "A absorção de partículas no meio ocorre lentamente e depende "
+            "da concentração observada.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "discursive")
+        self.assertEqual(draft.options, [])
+
+    def test_lowercase_article_at_reflowed_line_start_does_not_break_real_options(self):
+        # Real regression found on a UECE exam: a line-wrapped statement
+        # elsewhere in the SAME question body starts with the lowercase
+        # article "a " right at a line start (pure coincidence of reflow),
+        # sitting BEFORE a real, fully punctuated "A) ... D)" option block.
+        # The bare (no-punctuation) delimiter must never match lowercase -
+        # every real no-punctuation convention observed in practice (INEP,
+        # UNICAMP, UECE, ITA) uses UPPERCASE letters only - so this stray
+        # lowercase "a" must not be treated as a candidate at all, and the
+        # real, punctuated A-D options must still be extracted correctly.
+        text = (
+            "1.   Considerando o texto de apoio, é correto afirmar que\n"
+            "a lei impulsiona a mobilidade urbana de forma direta.\n"
+            "A) I e II, apenas.\n"
+            "B) II e III, apenas.\n"
+            "C) I e III, apenas.\n"
+            "D) I, II e III.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+
+    def test_capitalized_sentence_starting_with_a_does_not_break_real_punctuated_options(self):
+        # Second real regression found on the same UECE exam: "A" capitalized
+        # at a true line start is grammatically ordinary Portuguese whenever
+        # it starts a new sentence (very common in reading-comprehension
+        # "texto de apoio" blocks and roman-numeral assertion lists: "I. A
+        # LBI trouxe..."), not just the lowercase article. A bare "A" is
+        # simply too ambiguous to trust, uppercase or not - so a fully
+        # punctuated option run present elsewhere in the same body must
+        # always win outright, with the bare (no-punctuation) form used only
+        # as a fallback when there is NO valid punctuated run at all.
+        text = (
+            "1.   Considere as afirmações a seguir sobre acessibilidade.\n"
+            "I.\n"
+            "A celebração da diversidade impulsiona políticas inclusivas.\n"
+            "A) I e II, apenas.\n"
+            "B) II e III, apenas.\n"
+            "C) I e III, apenas.\n"
+            "D) I, II e III.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+
+    def test_stray_leading_letter_before_a_real_bare_option_run_is_dropped(self):
+        # Real regression pattern found on the ENEM 2025 exams themselves
+        # (dominant remaining failure after fixes #1/#2): a capitalized
+        # sentence starting with "A" appears in the passage/support text,
+        # immediately before a real, complete, bare-delimited A-E option
+        # run. Since these real options have NO punctuation at all (INEP's
+        # own convention), the punctuated-priority fix doesn't help here -
+        # the fix must find the longest clean run at the END of the
+        # candidates and drop the leading noise, not just prefer punctuated
+        # matches over bare ones.
+        text = (
+            "1.   Considere o texto de apoio a seguir para responder.\n"
+            "A autora reconstrói a memória afetiva do bairro natal.\n"
+            "A\tprimeira alternativa\n"
+            "B\tsegunda alternativa\n"
+            "C\tterceira alternativa\n"
+            "D\tquarta alternativa\n"
+            "E\tquinta alternativa\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
+        self.assertEqual(draft.options[0].text, "primeira alternativa")
+
+    def test_word_marker_tolerates_missing_space_before_number(self):
+        # Real UERJ PDF text extraction: "Questão" and its number come out
+        # glued together with zero literal whitespace characters (the visual
+        # gap was achieved by glyph positioning/kerning, not a space glyph).
+        text = "Questão33 Enunciado real com texto suficiente para ser válido.\n"
+        boundaries = detect_boundaries(text)
+        self.assertEqual([b.number for b in boundaries], [33])
+
     def test_duplicate_option_labels_are_rejected_never_merged(self):
         # two option lists concatenated (a page/column-order corruption) -
         # must never fabricate an 8-option question.
@@ -213,12 +344,16 @@ class ValidationTests(unittest.TestCase):
 
 
 class AssetAssociationTests(unittest.TestCase):
-    def test_image_associated_to_the_question_whose_page_range_covers_it(self):
-        structure = DocumentStructure(
-            document_hash="x", page_count=3,
-            images=[PageImage(page=2, index=0, bbox=(0, 0, 10, 10), width=50, height=50, digest="d1")],
-        )
-        assoc = associate_assets(structure, {1: (1, 1), 2: (2, 2), 3: (3, 3)})
+    def test_image_associated_to_the_question_whose_page_it_sits_on(self):
+        structure = DocumentStructure(document_hash="x", page_count=3, images=[
+            PageImage(page=2, index=0, bbox=(0, 100, 10, 110), width=50, height=50, digest="d1"),
+        ])
+        question_lines = {
+            1: [TextLine(page=1, x0=0, y0=50, x1=10, y1=60, text="q1")],
+            2: [TextLine(page=2, x0=0, y0=50, x1=10, y1=60, text="q2")],
+            3: [TextLine(page=3, x0=0, y0=50, x1=10, y1=60, text="q3")],
+        }
+        assoc = associate_assets(structure, question_lines)
         self.assertIn(2, assoc)
         self.assertNotIn(1, assoc)
         self.assertNotIn(3, assoc)
@@ -228,8 +363,38 @@ class AssetAssociationTests(unittest.TestCase):
             document_hash="x", page_count=1,
             images=[PageImage(page=1, index=0, bbox=None, width=1, height=1, digest="d1")],
         )
-        assoc = associate_assets(structure, {1: (1, 1)})
+        assoc = associate_assets(structure, {1: [TextLine(page=1, x0=0, y0=50, x1=10, y1=60, text="q1")]})
         self.assertEqual(assoc, {})
+
+    def test_two_questions_share_a_page_image_goes_to_the_one_it_sits_under(self):
+        # The real bug this fixes: page-range-only association put every
+        # image on a shared page onto EVERY question covering that page
+        # (found on real ENEM/vestibular exams, where several questions
+        # routinely share one page). Position must decide, not just page.
+        structure = DocumentStructure(document_hash="x", page_count=1, images=[
+            PageImage(page=1, index=0, bbox=(0, 120, 10, 130), width=50, height=50, digest="belongs_to_q1"),
+            PageImage(page=1, index=1, bbox=(0, 320, 10, 330), width=50, height=50, digest="belongs_to_q2"),
+        ])
+        question_lines = {
+            1: [TextLine(page=1, x0=0, y0=100, x1=50, y1=110, text="q1 statement")],
+            2: [TextLine(page=1, x0=0, y0=300, x1=50, y1=310, text="q2 statement")],
+        }
+        assoc = associate_assets(structure, question_lines)
+        self.assertEqual({a.digest for a in assoc.get(1, [])}, {"belongs_to_q1"})
+        self.assertEqual({a.digest for a in assoc.get(2, [])}, {"belongs_to_q2"})
+
+    def test_image_with_no_bbox_falls_back_to_page_level_association(self):
+        # Some PDFs don't expose a usable image bbox (get_image_bbox can
+        # fail) - the image must still be recorded (never silently
+        # dropped), just with lower confidence since exact position within
+        # a shared page is unknown.
+        structure = DocumentStructure(document_hash="x", page_count=1, images=[
+            PageImage(page=1, index=0, bbox=None, width=50, height=50, digest="d1"),
+        ])
+        question_lines = {1: [TextLine(page=1, x0=0, y0=100, x1=50, y1=110, text="q1")]}
+        assoc = associate_assets(structure, question_lines)
+        self.assertIn(1, assoc)
+        self.assertLess(assoc[1][0].extraction_confidence, 0.9)
 
 
 class DeterminismTests(unittest.TestCase):

@@ -25,7 +25,7 @@ from pathlib import Path
 from .assets import AssetAssociation, associate_assets, unassociated_images
 from .boundary import ExtractedQuestionDraft, QuestionBoundary, classify_and_extract, cut_at_answer_key, detect_boundaries
 from .reconstruction import reconstruct_question, review_reasons_for
-from .structure import DocumentStructure, PageImage, extract_structure
+from .structure import DocumentStructure, PageImage, TextLine, extract_structure
 from .validation import ValidationReport, review_status_for, validate
 
 ENGINE_VERSION = "phase28-question-reconstruction-1.0.0"
@@ -68,7 +68,7 @@ def extract_questions(
     boundaries = detect_boundaries(main_text)
     drafts = [classify_and_extract(b, main_text) for b in boundaries]
 
-    question_pages: dict[int, tuple[int, int]] = {}
+    question_lines: dict[int, list[TextLine]] = {}
     reconstructions: dict[int, object] = {}  # number -> ReconstructionResult
     results: list[ExtractedQuestionResult] = []
     for boundary, draft in zip(boundaries, drafts):
@@ -77,7 +77,7 @@ def extract_questions(
         cross_page = page_end > page_start
         if cross_page:
             draft.flags.add("cross_page")
-        question_pages[draft.number] = (page_start, page_end)
+        question_lines[draft.number] = structure.lines_in_range(boundary.start, boundary.end)
 
         # PHASE 28: attempt a LOCAL, verified column reconstruction. raw_text
         # (PHASE 27's original) is NEVER overwritten (spec s10) - only
@@ -112,7 +112,7 @@ def extract_questions(
             reconstruction_applied=recon.reconstruction_applied,
         ))
 
-    asset_map = associate_assets(structure, question_pages)
+    asset_map = associate_assets(structure, question_lines)
     orphan_images = unassociated_images(structure, asset_map)
     for result in results:
         assoc = asset_map.get(result.draft.number, [])
