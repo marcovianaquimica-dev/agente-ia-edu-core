@@ -19,3 +19,6 @@ debug_http.py
 debug_http_verbose.py
 debug_isolation.py
 scratchpad_*.txt
+
+# Ephemeral fixture output regenerated on each test run.
+tests/_p10tmp/mf_*.json
