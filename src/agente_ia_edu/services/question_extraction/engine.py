@@ -28,7 +28,7 @@ from .reconstruction import reconstruct_question, review_reasons_for
 from .structure import DocumentStructure, PageImage, TextLine, extract_structure
 from .validation import CONFIDENCE_REVIEW_THRESHOLD, ValidationReport, review_status_for, validate
 
-ENGINE_VERSION = "phase28-question-reconstruction-1.7.0"
+ENGINE_VERSION = "phase28-question-reconstruction-1.8.0"
 
 
 @dataclass
