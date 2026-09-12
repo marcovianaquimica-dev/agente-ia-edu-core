@@ -104,7 +104,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # to also "detect" ~8 fake questions numbered from atomic numbers
         # (37, 39, 40, 41, 44, 49, 50, 53), jumbling the whole document's
         # real 1..33 sequence in the process. 33 is the real count.
-        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=2)
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=3)
 
     def test_fuvest_2024_caderno_x(self):
         # Was the motivating case for a THIRD marker convention support -

@@ -81,6 +81,58 @@ class StructureTests(unittest.TestCase):
         self.assertIsNotNone(split)
         self.assertTrue(50 < split < 300)
 
+    def test_two_column_detection_accepts_two_columns_beside_an_embedded_table(self):
+        # Real regression found on a real PUC-Rio exam page: two genuine
+        # independent side-by-side QUESTIONS (like the FUVEST case above),
+        # but the LEFT column also contains an embedded comparison table
+        # (a biology "which trait is present in cell type 1 vs type 2"
+        # grid) whose own data cells are indented well past the left
+        # column's usual text start - their x0 lands closer to the true
+        # gutter than the left column's OWN margin does, producing an
+        # x0-gap (~98pt, between the table's row-label column and its
+        # first data column) that is WIDER than the real gutter (~91pt,
+        # between the table's last data column and the right question).
+        # The genuine gutter is a real, well-motivated tell here: no line
+        # of running text ever CROSSES it (that is what a column boundary
+        # means), whereas the table's own internal indentation gap is
+        # crossed by every one of the left column's own full-width wrapped
+        # statement lines, which run right over it. Preferring whichever
+        # candidate gap the FEWEST lines straddle - not simply the widest
+        # one - picks the real gutter over the table's own indentation.
+        # Real wrapped paragraph text mostly does NOT reach the column's
+        # full width - only occasional lines run close to the margin, like
+        # any natural word-wrapped text. A fixture where every line is
+        # exactly full-width is unrealistic and would make ordinary
+        # paragraph text look like it straddles the true gutter just as
+        # much as the table's own internal gap does.
+        _left_widths = [255, 150, 190, 210, 255, 170, 230, 200, 255, 160,
+                       220, 240, 255, 180, 200, 250, 165, 210, 255, 195]
+        left_prose = [
+            TextLine(page=1, x0=28, y0=20.0 * i, x1=28 + _left_widths[i], y1=20.0 * i + 15,
+                    text=f"enunciado esquerdo {i}")
+            for i in range(20)
+        ]
+        table_labels = [
+            TextLine(page=1, x0=42, y0=340.0 + 20 * i, x1=42 + 60, y1=340.0 + 20 * i + 10, text=f"rotulo {i}")
+            for i in range(6)
+        ]
+        table_col1 = [
+            TextLine(page=1, x0=149, y0=340.0 + 20 * i, x1=149 + 35, y1=340.0 + 20 * i + 10, text="Ausente")
+            for i in range(6)
+        ]
+        table_col2 = [
+            TextLine(page=1, x0=221, y0=340.0 + 20 * i, x1=221 + 35, y1=340.0 + 20 * i + 10, text="Presente")
+            for i in range(6)
+        ]
+        right_prose = [
+            TextLine(page=1, x0=312, y0=20.0 * i, x1=312 + 255, y1=20.0 * i + 15, text=f"enunciado direito {i}")
+            for i in range(20)
+        ]
+        lines = left_prose + table_labels + table_col1 + table_col2 + right_prose
+        split = detect_two_column_layout(lines, page_width=595.0)
+        self.assertIsNotNone(split)
+        self.assertTrue(221 < split < 312)
+
     def test_two_column_detection_rejects_a_multi_cell_table(self):
         # many distinct x0 (table cells), not a clean bimodal split
         lines = [

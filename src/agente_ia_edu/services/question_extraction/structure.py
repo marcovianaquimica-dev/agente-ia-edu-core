@@ -43,6 +43,16 @@ _COLUMN_GAP_THRESHOLD = 30.0
 _MIN_LINES_PER_COLUMN = 3
 _MIN_Y_OVERLAP_RATIO = 0.3
 
+# A genuine column gutter is a vertical strip no line of running text ever
+# crosses - real prose wraps within its own column, never past the gutter.
+# How much a genuine gutter's own lines overshoot past its midpoint varies
+# a lot by document (measured 8% of a page's lines on one real PUC-Rio
+# page, 35% on a real FUVEST page - both single, correct gutters), so
+# there is no absolute crossing-rate cutoff safe to apply the same way
+# across documents (see detect_two_column_layout's own docstring for the
+# RELATIVE comparison used instead: how much cleaner one candidate gap is
+# than another, on the SAME page, rather than against a fixed number).
+
 # A real column is made of MANY lines sharing close x0s. A ONE-OFF line at
 # some x-position (a source citation under a graph, a running page banner)
 # is not a column - but if left in the gap search on equal footing with
@@ -368,48 +378,111 @@ def detect_two_column_layout(
     if len(xs) < 2:
         return None
     gaps = [(xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2) for i in range(1, len(xs))]
+    gaps = [g for g in gaps if g[0] >= _COLUMN_GAP_THRESHOLD]
+    if not gaps:
+        return None
     gaps.sort(reverse=True)
-    if not gaps or gaps[0][0] < _COLUMN_GAP_THRESHOLD:
-        return None
+
+    # The legacy rule - trust only the single widest gap, and only if no
+    # second gap comes within 0.6x of it (spec: a multi-cell table has
+    # several comparably-wide gaps between its many cell x-offsets) - is
+    # the DEFAULT in every case, including page-level calls: it is the one
+    # already verified safe across the whole real-exam corpus, and how
+    # much a genuine gutter's own lines naturally overshoot past its
+    # midpoint varies a lot by document (measured 8% on one real PUC-Rio
+    # page, 35% on a real FUVEST page. with equally single, correct
+    # gutters) - there is no one absolute "too much crossing" cutoff safe
+    # to apply the same way across documents.
     best_gap, split_x = gaps[0]
-    # a genuine 2-column page has exactly ONE gap this wide; a table/formula
-    # page has several comparably-wide gaps between its many cell x-offsets.
-    if len(gaps) > 1 and gaps[1][0] > best_gap * 0.6:
-        return None
-    if page_width and not (page_width * 0.25 < split_x < page_width * 0.75):
+    legacy_ambiguous = len(gaps) > 1 and gaps[1][0] > best_gap * 0.6
+    candidates = [(best_gap, split_x)]
+
+    if page_width and len(gaps) > 1:
+        # A real page can instead have an embedded TABLE sitting entirely
+        # inside one column, indenting its own cells well past that
+        # column's usual text start - producing an x0-gap (between the
+        # table's own columns) that rivals or even exceeds the true
+        # gutter's width (found on a real PUC-Rio exam: a comparison table
+        # inside the left column, beside a genuine second question on the
+        # right). Unlike varying overshoot rates across different
+        # documents, a RELATIVE contrast on the SAME page is trustworthy:
+        # a genuine gutter is a region no line of running text ever
+        # crosses, while an indentation gap INSIDE one wrapped-prose
+        # column is crossed by every one of that column's own full-width
+        # lines running right over it - so on the one page that actually
+        # has both, the true gutter's own crossing rate sits far below the
+        # table gap's, not just somewhat below it. Only ever override the
+        # legacy widest-gap choice when some other candidate is
+        # DRAMATICALLY (2x+) cleaner than it - never merely a little
+        # cleaner, which is exactly the ordinary page-to-page variance the
+        # legacy rule already has to tolerate.
+        def _straddle_fraction(x: float) -> float:
+            return sum(1 for ln in page_lines if ln.x0 < x < ln.x1) / len(page_lines)
+
+        best_straddle = _straddle_fraction(split_x)
+        cleaner = [
+            (g, x) for g, x in gaps[1:]
+            if _straddle_fraction(x) <= best_straddle / 2
+        ]
+        if cleaner:
+            # among the dramatically-cleaner alternatives, the widest one
+            # (gaps is already sorted descending, so the first match) is
+            # still the most plausible real gutter - tried FIRST, but the
+            # legacy widest-gap choice stays in the running as a fallback
+            # rather than being discarded outright: it was good enough to
+            # win on its own before this check existed, and a "dramatically
+            # cleaner" candidate that turns out not to satisfy the other
+            # structural checks below (min lines, vertical span, narrow-
+            # line fraction) must not cost the page a split it already had
+            # (found on a real FUVEST page: a citation caption's own
+            # leftover indentation looked cleaner by this measure than the
+            # real gutter, but is not itself a valid column split).
+            candidates = [cleaner[0], (best_gap, split_x)]
+            legacy_ambiguous = False
+
+    if legacy_ambiguous:
         return None
 
-    left = [ln for ln in page_lines if ln.x0 < split_x]
-    right = [ln for ln in page_lines if ln.x0 >= split_x]
-    if len(left) < _MIN_LINES_PER_COLUMN or len(right) < _MIN_LINES_PER_COLUMN:
-        return None
-    # The "spans most of the page" evidence must come from the column's own
-    # recurring lines, never from a one-off line (a running page-number
-    # footer, say) that happens to land on this side of the split purely by
-    # x-coordinate - such a stray line can otherwise stretch a side's
-    # apparent range far past its real content and let a compact same-
-    # question answer grid (e.g. options D/E of one question set beside
-    # A/B/C, just 2 lines tall) masquerade as a genuine full-height column
-    # (found on a real ITA exam page).
-    left_recurring = [ln for ln in left if ln in recurring]
-    right_recurring = [ln for ln in right if ln in recurring]
-    if not left_recurring or not right_recurring:
-        return None
-    left_y = (min(ln.y0 for ln in left_recurring), max(ln.y1 for ln in left_recurring))
-    right_y = (min(ln.y0 for ln in right_recurring), max(ln.y1 for ln in right_recurring))
-    overlap = max(0.0, min(left_y[1], right_y[1]) - max(left_y[0], right_y[0]))
-    span = max(left_y[1], right_y[1]) - min(left_y[0], right_y[0])
-    if span <= 0 or (overlap / span) < _MIN_Y_OVERLAP_RATIO:
-        return None
-    for side in (left, right):
-        widths = [ln.x1 - ln.x0 for ln in side]
-        max_w = max(widths)
-        if max_w <= 0:
-            return None
-        narrow_fraction = sum(1 for w in widths if w < _NARROW_LINE_WIDTH_RATIO * max_w) / len(widths)
-        if narrow_fraction > _MAX_NARROW_LINE_FRACTION:
-            return None
-    return split_x
+    for _gap, split_x in candidates:
+        if page_width and not (page_width * 0.25 < split_x < page_width * 0.75):
+            continue
+        left = [ln for ln in page_lines if ln.x0 < split_x]
+        right = [ln for ln in page_lines if ln.x0 >= split_x]
+        if len(left) < _MIN_LINES_PER_COLUMN or len(right) < _MIN_LINES_PER_COLUMN:
+            continue
+        # The "spans most of the page" evidence must come from the column's
+        # own recurring lines, never from a one-off line (a running page-
+        # number footer, say) that happens to land on this side of the
+        # split purely by x-coordinate - such a stray line can otherwise
+        # stretch a side's apparent range far past its real content and
+        # let a compact same-question answer grid (e.g. options D/E of one
+        # question set beside A/B/C, just 2 lines tall) masquerade as a
+        # genuine full-height column (found on a real ITA exam page).
+        left_recurring = [ln for ln in left if ln in recurring]
+        right_recurring = [ln for ln in right if ln in recurring]
+        if not left_recurring or not right_recurring:
+            continue
+        left_y = (min(ln.y0 for ln in left_recurring), max(ln.y1 for ln in left_recurring))
+        right_y = (min(ln.y0 for ln in right_recurring), max(ln.y1 for ln in right_recurring))
+        overlap = max(0.0, min(left_y[1], right_y[1]) - max(left_y[0], right_y[0]))
+        span = max(left_y[1], right_y[1]) - min(left_y[0], right_y[0])
+        if span <= 0 or (overlap / span) < _MIN_Y_OVERLAP_RATIO:
+            continue
+        ok = True
+        for side in (left, right):
+            widths = [ln.x1 - ln.x0 for ln in side]
+            max_w = max(widths)
+            if max_w <= 0:
+                ok = False
+                break
+            narrow_fraction = sum(1 for w in widths if w < _NARROW_LINE_WIDTH_RATIO * max_w) / len(widths)
+            if narrow_fraction > _MAX_NARROW_LINE_FRACTION:
+                ok = False
+                break
+        if not ok:
+            continue
+        return split_x
+    return None
 
 
 def detect_repeated_page_artifacts(
