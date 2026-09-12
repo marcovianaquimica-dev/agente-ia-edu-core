@@ -13,12 +13,24 @@ dependencies = [
 	"psycopg[binary]>=3.2,<4.0",
 	"fastapi>=0.115,<1.0",
 	"uvicorn[standard]>=0.30,<1.0",
+	"openai>=1.0,<2.0",
+	"pypdf>=5.0,<6.0",
+	"python-multipart>=0.0.9,<1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
 	"alembic>=1.13,<2.0",
 	"httpx2>=2.0.0",
+]
+# Optional PDF text-recovery backend (PHASE 10.6). Used only by
+# agente_ia_edu.services.text_recovery to rescue booklets whose embedded text
+# layer pypdf cannot decode (e.g. ENEM 2021 subsetted fonts with no ToUnicode
+# CMap). The module degrades to recovery_status="RECOVERY_PENDING" when absent.
+# NOT wired into the ingestion pipeline. Do NOT add pdfplumber here: it pulls in
+# Pillow, which changes pypdf's page.images behaviour and breaks the parser.
+recovery = [
+	"pymupdf>=1.24,<2.0",
 ]
 
 [tool.setuptools.packages.find]

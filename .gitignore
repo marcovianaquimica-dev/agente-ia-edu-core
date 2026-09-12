@@ -8,3 +8,14 @@ __pycache__/
 
 # Python package metadata
 *.egg-info/
+
+# Locally acquired official source documents, plus ephemeral audit/perf
+# reports and logs generated during acceptance walks and manual scripts.
+var/
+
+# Local env backups and ad-hoc debug scripts (never meant for the repo).
+.env.save
+debug_http.py
+debug_http_verbose.py
+debug_isolation.py
+scratchpad_*.txt

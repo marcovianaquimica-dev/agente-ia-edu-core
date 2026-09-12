@@ -1,6 +1,6 @@
 """Fix material schema and add real school scoping.
 
-Revision ID: 014_material_school_scope_and_metadata
+Revision ID: 014_material_school_scope
 Revises: 013_initial_diagnostic
 Create Date: 2026-08-31
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "014_material_school_scope_and_metadata"
+revision: str = "014_material_school_scope"
 down_revision: Union[str, None] = "013_initial_diagnostic"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
