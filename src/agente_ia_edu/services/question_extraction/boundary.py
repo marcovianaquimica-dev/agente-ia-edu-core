@@ -357,7 +357,22 @@ def _score_confidence(statement: str, options: list[OptionDraft],
     break signal is kept (it is still useful, and is exactly what
     disambiguates a duplicate number during boundary detection - see
     detect_boundaries()) but no longer carries as much weight ALONE as a
-    verified, complete option structure."""
+    verified, complete option structure.
+
+    A STANDALONE marker earns the SAME bonus regardless of whether a
+    paragraph break also precedes it (found on a real PUC-Rio exam, a
+    second densely-typeset booklet: a discursive question - no options to
+    verify structurally either - has ordinary 10pt line spacing before its
+    marker, not a visual gap, pushing confidence to just under the review
+    threshold for nearly every discursive question in the whole document).
+    Unlike a PERIOD/WORD/PAREN marker, a STANDALONE one only ever reaches
+    here after structure.py's own _normalize_standalone_number_markers
+    already confirmed it by STRICTER, independent geometric evidence: its
+    column position recurs 6+ times across the WHOLE document, each
+    occurrence spaced 40pt+ apart vertically, with 20pt+ of y-variance -
+    a real per-question marker, not a one-off number, regardless of
+    whether THIS one page also happens to have visible whitespace before
+    it."""
     score = 0.4
     if options and len(options) in (4, 5):
         score += 0.25
@@ -365,7 +380,7 @@ def _score_confidence(statement: str, options: list[OptionDraft],
         score -= 0.1  # an incomplete option run is a real red flag
     if len(statement) >= 40:
         score += 0.15
-    if boundary.preceded_by_paragraph_break:
+    if boundary.preceded_by_paragraph_break or boundary.marker_style == "STANDALONE":
         score += 0.1
     if "possible_missing_content" in flags:
         score -= 0.3

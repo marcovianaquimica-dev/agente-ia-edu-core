@@ -88,9 +88,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("uerj_exame_unico_objetiva.pdf", min_boundaries=60, min_validated=57)
 
     def test_pucrio_2025_dia1_tarde(self):
-        # Small booklet (few boundaries) - kept mainly as a boundary-count
-        # guard, not a strong signal on the VALIDATED floor.
-        self._check("pucrio_2025_1dia_tarde_g1345.pdf", min_boundaries=15, min_validated=4)
+        self._check("pucrio_2025_1dia_tarde_g1345.pdf", min_boundaries=15, min_validated=12)
 
     def test_pucrio_2025_dia2_manha(self):
         # Boundary floor LOWERED from 41 to 33 (the one documented
@@ -104,7 +102,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # to also "detect" ~8 fake questions numbered from atomic numbers
         # (37, 39, 40, 41, 44, 49, 50, 53), jumbling the whole document's
         # real 1..33 sequence in the process. 33 is the real count.
-        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=3)
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=23)
 
     def test_fuvest_2024_caderno_x(self):
         # Was the motivating case for a THIRD marker convention support -
@@ -130,4 +128,4 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # instead of being silently VALIDATED with garbage embedded in
         # otherwise-real content - a correctness improvement, not a
         # regression.
-        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=34)
+        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=81)

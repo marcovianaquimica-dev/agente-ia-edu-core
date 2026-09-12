@@ -626,6 +626,44 @@ class BoundaryDetectionTests(unittest.TestCase):
         labels = [o.label for o in draft.options]
         self.assertEqual(len(labels), len(set(labels)))
 
+    def test_standalone_marker_discursive_question_does_not_need_a_paragraph_break_too(self):
+        # Real regression found on a real PUC-Rio exam: this booklet prints
+        # its discursive questions TIGHTLY packed - the next question's
+        # bare-standalone marker follows the previous question's last line
+        # at perfectly ordinary single-line spacing (measured 10.3pt on
+        # the real PDF), never a visually larger paragraph gap. That is
+        # real, correct geometry, not a measurement bug - PHASE 28's own
+        # rebalancing comment already documents that a densely-typeset
+        # sheet can make genuine question breaks geometrically
+        # indistinguishable from ordinary line spacing.
+        #
+        # But a STANDALONE marker is not "just a number" the way a PERIOD/
+        # WORD/PAREN marker is: structure.py's own
+        # _normalize_standalone_number_markers already required its column
+        # position to recur 6+ times DOCUMENT-WIDE, each occurrence 40pt+
+        # apart vertically, with 20pt+ of y-variance across the document -
+        # a strictly stronger, more specific piece of evidence that this
+        # is a genuine per-question marker than "is there a blank line
+        # right before it" ever was. Requiring BOTH before trusting a
+        # discursive question (no options to verify structurally either)
+        # pushed confidence to exactly 0.55 - just under the 0.6 review
+        # threshold - for nearly every discursive question in that real
+        # document, for no reason but this document's own tight layout.
+        full_text = (
+            "(E)\tmeristemático, vascular e epidérmico\n"
+            f"17{STANDALONE_MARKER_SENTINEL}\n"
+            "Um biólogo estudou um determinado ecossistema, onde todas as "
+            "borboletas apresentavam coloração vibrante e marcante."
+        )
+        marker_end = full_text.index(STANDALONE_MARKER_SENTINEL) + len(STANDALONE_MARKER_SENTINEL) + 1
+        boundary = QuestionBoundary(
+            number=17, marker_style="STANDALONE", start=marker_end, end=len(full_text),
+            preceded_by_paragraph_break=False,
+        )
+        draft = classify_and_extract(boundary, full_text)
+        self.assertEqual(draft.question_type, "discursive")
+        self.assertGreaterEqual(draft.confidence, 0.6)
+
     def test_confidence_scoring_is_deterministic_and_bounded(self):
         text = "1.   Enunciado com texto razoavelmente longo para pontuar melhor.\na) x\nb) y\n"
         boundaries = detect_boundaries(text)
