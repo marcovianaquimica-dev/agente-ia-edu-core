@@ -1106,6 +1106,22 @@ class ClassificationProposalService:
             if any(code is not None for code in primary_codes):
                 raise self._validation_error("Primary curriculum codes must be null when no candidates were recovered", output, input_hash)
             return None
+        if selected_rank is None:
+            # The lexical pre-filter (recover_candidates) is a heuristic - it
+            # can recover a candidate on a single incidental term (a
+            # stopword, an object mentioned in passing) that is not actually
+            # a good fit (found running a real provider: recovered two
+            # CHEMISTRY candidates for a literature question). The AI is not
+            # required to pick one just because recovery found something; a
+            # null rank is trusted here too, but only when the AI is
+            # unambiguous that this is a real gap - explicitly flagged
+            # ``catalog_gap`` and no curriculum code smuggled in without a
+            # selection backing it (still validated as a genuine gap, not a
+            # bare omission, by the catalog_gap/gap_type/review_reason
+            # compatibility checks already applied by the caller).
+            if output.get("catalog_gap") is True and not any(code is not None for code in primary_codes):
+                return None
+            raise self._validation_error("Selected candidate rank is invalid", output, input_hash)
         if not isinstance(selected_rank, int) or isinstance(selected_rank, bool):
             raise self._validation_error("Selected candidate rank is invalid", output, input_hash)
         selected = next(

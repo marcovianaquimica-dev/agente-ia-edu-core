@@ -193,6 +193,42 @@ class CurriculumClassificationProposalTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(record.metadata_["review_reason"], "VISUAL_DEPENDENCY")
             self.assertTrue(record.metadata_["visual_dependency"])
 
+    async def test_ai_may_reject_every_recovered_candidate_as_a_real_catalog_gap(self):
+        # Real regression found running PHASE 30 against a real OpenAI-backed
+        # provider (not the deterministic FakeProvider these tests otherwise
+        # use): the LEXICAL pre-filter (recover_candidates) is a heuristic -
+        # it can recover a candidate on a single common term (a stopword, an
+        # incidentally-mentioned lab object) that is NOT actually a good fit,
+        # while the real subject matter (here, literature) has no compatible
+        # catalog node at all. The AI correctly said so - null rank, its own
+        # candidate_classifications empty, catalog_gap true - but the
+        # contract only ever allowed a null rank when recovery found NOTHING
+        # to recover in the first place (see the "genuinely zero candidates"
+        # test above). A real, lexically-noisy candidate list must not force
+        # the AI into either inventing a pick among candidates it correctly
+        # rejects, or being treated as if its OWN response were malformed.
+        async with self.factory() as session:
+            version = await self._proposal_fixture(session)  # recovers real DILUTION candidates
+            response = ClassificationFakeProvider().response
+            response.update({
+                "selected_candidate_rank": None,
+                "discipline_code": None, "area_code": None, "content_code": None,
+                "subcontent_code": None, "candidate_classifications": [], "catalog_gap": True,
+                "gap_type": "NO_COMPATIBLE_NODE",
+                "taxonomy_coverage_evidence": ["Os candidatos recuperados são de Química; o texto é de literatura."],
+                "review_reason": "CATALOG_GAP", "visual_dependency": False,
+                "status": "NEEDS_REVIEW",
+                "evidence": [{"text": "Diluição de soluções exige concentração.", "reason": "Não há nó de literatura no catálogo."}],
+            })
+            record = await ClassificationProposalService(session).propose_with_provider(
+                version.id, ClassificationFakeProvider(response),
+                classifier_version="contract-v1", taxonomy_version="reference-v1", prompt_version="contract-p1",
+            )
+            self.assertEqual(record.status, "NEEDS_REVIEW")
+            self.assertEqual(record.metadata_["review_reason"], "CATALOG_GAP")
+            self.assertIsNone(record.metadata_["selected_candidate_rank"])
+            self.assertEqual(record.metadata_["primary_content_code"], None)
+
     async def test_invented_candidate_and_invalid_rank_are_rejected(self):
         async with self.factory() as session:
             version = await self._proposal_fixture(session)
