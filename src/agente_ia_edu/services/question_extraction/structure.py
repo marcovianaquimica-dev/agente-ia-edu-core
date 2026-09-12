@@ -86,12 +86,21 @@ _MIN_X0_CLUSTER_OCCURRENCES = 2
 # aside, a source citation tail, and five short NUMERIC options ("(A)
 # 0degC" .. "(E) 275degC") instead of the sentence-length options seen
 # elsewhere in the same exam - measured at ~39% narrow on the real page.
-# The two real, measured ratios are far enough apart (0.39 vs 0.89) that
-# the boundary sits at "narrow lines are the MAJORITY", not "more than a
-# handful": a marker column is DOMINATED by its markers; a prose column
-# with a minority of short lines is still prose.
+#
+# A second real FUVEST page pushed this further: a "choose the correct
+# GRAPH" question (the five options are each just a bare letter - the
+# actual graphs are IMAGES, never text) beside a second question whose own
+# options are short numeric/chemical fragments (superscripts, ionic
+# half-reactions, voltage readings) - measured at 67% and 69% narrow on
+# the two sides of that real page, a clear MAJORITY on BOTH sides, yet
+# still two genuine questions, not marker columns: the narrow lines are
+# heterogeneous, structurally-legitimate content belonging to those SAME
+# questions, not one repeated short label paired row-by-row with unrelated
+# content on the other side (which is what makes UECE's case, at 89%,
+# still worth catching). Set with real margin below UECE's ratio and
+# above this page's own.
 _NARROW_LINE_WIDTH_RATIO = 0.25
-_MAX_NARROW_LINE_FRACTION = 0.5
+_MAX_NARROW_LINE_FRACTION = 0.75
 
 # Some real exam layouts (found on a real FUVEST booklet) print the question
 # number ALONE on its own line - no "." or ")", no content until the next
@@ -379,6 +388,20 @@ def detect_two_column_layout(
         return None
     gaps = [(xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2) for i in range(1, len(xs))]
     gaps = [g for g in gaps if g[0] >= _COLUMN_GAP_THRESHOLD]
+    if page_width:
+        # A gap whose split point could never itself pass the basic
+        # minimum-lines-per-column floor (below) is not a real competing
+        # column hypothesis - it is noise (found on a real FUVEST exam: a
+        # 2-line "Note e adote:" instruction aside, indented well past the
+        # right column's own text start, produced a gap almost as wide as
+        # the TRUE gutter between two real questions). Such a gap must
+        # never be allowed to trigger the ambiguity guard below and reject
+        # a page that otherwise has exactly one genuine candidate.
+        gaps = [
+            (g, x) for g, x in gaps
+            if sum(1 for ln in page_lines if ln.x0 < x) >= _MIN_LINES_PER_COLUMN
+            and sum(1 for ln in page_lines if ln.x0 >= x) >= _MIN_LINES_PER_COLUMN
+        ]
     if not gaps:
         return None
     gaps.sort(reverse=True)

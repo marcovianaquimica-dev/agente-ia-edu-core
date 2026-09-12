@@ -64,7 +64,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("2025_PV_impresso_D1_CD1.pdf", min_boundaries=90, min_validated=71)
 
     def test_enem_2025_dia2(self):
-        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=66)
+        self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=87)
 
     def test_unicamp_2024(self):
         self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=51)
@@ -102,7 +102,7 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # to also "detect" ~8 fake questions numbered from atomic numbers
         # (37, 39, 40, 41, 44, 49, 50, 53), jumbling the whole document's
         # real 1..33 sequence in the process. 33 is the real count.
-        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=23)
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=24)
 
     def test_fuvest_2024_caderno_x(self):
         # Was the motivating case for a THIRD marker convention support -
@@ -128,4 +128,4 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         # instead of being silently VALIDATED with garbage embedded in
         # otherwise-real content - a correctness improvement, not a
         # regression.
-        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=81)
+        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=82)

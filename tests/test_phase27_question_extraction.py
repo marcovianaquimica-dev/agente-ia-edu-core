@@ -197,6 +197,75 @@ class StructureTests(unittest.TestCase):
         split = detect_two_column_layout(left + right, page_width=595.0)
         self.assertIsNotNone(split)
 
+    def test_two_column_detection_accepts_columns_dominated_by_short_options(self):
+        # Real regression found on a real FUVEST exam page: a "choose the
+        # correct GRAPH" question, whose statement is short (3 lines) and
+        # whose five options are each just a bare letter - the actual
+        # graphs are IMAGES, never text - beside a second question whose
+        # own options are short numeric/chemical fragments (superscripts,
+        # ionic equations, voltage values). Measured on the real page:
+        # LEFT is 6/9 (67%) narrow lines, RIGHT is 36/52 (69%) narrow -
+        # both a clear MAJORITY, unlike the short-numeric-options case
+        # above where wide prose still dominated. This is still not a
+        # marker/label column (UECE's real regression, ~89% narrow, is the
+        # shape this check exists to catch): the narrow lines here are
+        # heterogeneous, structurally-legitimate content belonging to
+        # these SAME two questions (bare option letters, a citation, ionic
+        # half-reactions, voltage readings) - not one repeated short label
+        # paired row-by-row with unrelated content on the other side.
+        left = (
+            [TextLine(page=1, x0=34, y0=0, x1=34 + 18.5, y1=8, text="10")]
+            + [TextLine(page=1, x0=34, y0=15 * i, x1=34 + 220, y1=15 * i + 8, text=f"statement {i}")
+               for i in range(1, 4)]
+            + [TextLine(page=1, x0=37, y0=15 * i, x1=37 + 14, y1=15 * i + 8, text=letter)
+               for i, letter in enumerate("ABCDE", start=4)]
+            + [TextLine(page=1, x0=34, y0=600, x1=34 + 220, y1=608, text="padding")]
+        )
+        right = (
+            [TextLine(page=1, x0=312, y0=0, x1=312 + 18.5, y1=8, text="11")]
+            + [TextLine(page=1, x0=312, y0=15 * i, x1=312 + 251.7, y1=15 * i + 8, text=f"stem {i}")
+               for i in range(1, 4)]
+            + [TextLine(page=1, x0=312, y0=15 * i, x1=312 + 20, y1=15 * i + 8, text=f"frag {i}")
+               for i in range(4, 15)]
+            + [TextLine(page=1, x0=312, y0=15 * i, x1=312 + 251.7, y1=15 * i + 8, text=f"question 12 line {i}")
+               for i in range(15, 25)]
+            + [TextLine(page=1, x0=312, y0=15 * i, x1=312 + 45, y1=15 * i + 8, text=f"(A) reagent {i}")
+               for i in range(25, 47)]
+            + [TextLine(page=1, x0=312, y0=15 * 47, x1=312 + 251.7, y1=15 * 47 + 8, text="padding")]
+        )
+        split = detect_two_column_layout(left + right, page_width=595.0)
+        self.assertIsNotNone(split)
+
+    def test_two_column_detection_ignores_a_tiny_aside_when_judging_ambiguity(self):
+        # Real regression found on a real FUVEST exam page: a "Note e
+        # adote:" instruction aside (a couple of reference constants for
+        # the physics question) sits indented well past the right
+        # column's own text start - just 2 lines, both narrow. The gap
+        # between the right column's main text and this aside is almost
+        # as wide as the TRUE gutter between the two questions, so the
+        # legacy "is there a second comparably-wide gap" ambiguity guard
+        # fired and rejected the whole page - even though that second
+        # "candidate" produces only 2 lines on one side and could NEVER
+        # have been a real column split on its own (it fails the same
+        # minimum-lines-per-column floor every real candidate must clear).
+        # A gap that could never pass on its own is not real competition
+        # for the ambiguity check either.
+        left = (
+            [TextLine(page=1, x0=34, y0=15 * i, x1=34 + 250, y1=15 * i + 8, text=f"left content {i}")
+             for i in range(30)]
+        )
+        right = (
+            [TextLine(page=1, x0=312, y0=15 * i, x1=312 + 250, y1=15 * i + 8, text=f"right content {i}")
+             for i in range(25)]
+        )
+        aside = [
+            TextLine(page=1, x0=482, y0=503.5, x1=482 + 47, y1=511.5, text="Note e adote:"),
+            TextLine(page=1, x0=482, y0=514.7, x1=482 + 48, y1=522.7, text="log10 2 = 0,3"),
+        ]
+        split = detect_two_column_layout(left + right + aside, page_width=595.0)
+        self.assertIsNotNone(split)
+        self.assertTrue(34 < split < 312)
+
     def test_two_column_detection_rejects_a_compact_two_column_answer_grid(self):
         # Real regression found on a real ITA exam page: a SINGLE question's
         # five multiple-choice options (A-E) are laid out as a compact
