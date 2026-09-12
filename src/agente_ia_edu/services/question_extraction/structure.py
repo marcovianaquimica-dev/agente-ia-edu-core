@@ -114,6 +114,21 @@ _STANDALONE_NUMBER = re.compile(r"^\d{1,3}$")
 _MIN_MARKER_COLUMN_OCCURRENCES = 6
 _MIN_MARKER_VERTICAL_GAP = 40.0
 _MIN_MARKER_Y_STDEV = 20.0
+
+# A reference sheet handed out WITH an exam (found on a real PUC-Rio exam: a
+# full periodic table of elements, one page) can independently satisfy every
+# check above: each of its ~10 group COLUMNS is its own x-position, recurring
+# many times (one row per period), spaced 40pt+ apart, at a high-variance y -
+# geometrically indistinguishable, column by column, from a real marker. The
+# giveaway a real exam page never produces is DENSITY: a periodic table page
+# has over a hundred free-standing bare numbers at once (141, measured on the
+# real page); a genuine exam page has at most a handful of question markers,
+# never a page flooded with isolated digits. Any bare number sitting on a
+# page whose own bare-number count exceeds this is excluded before
+# clustering even starts - a flooded page is reference material, not
+# candidate marker evidence, no matter how cleanly one x-position on it
+# clusters.
+_MAX_BARE_NUMBERS_PER_PAGE = 30
 # Sentinel appended to a CONFIRMED standalone marker's own text, instead of
 # a plain "." - a real "N.\n<content>" pattern already occurs naturally
 # elsewhere in some real documents (found on a real UECE exam: an
@@ -160,6 +175,12 @@ def _normalize_standalone_number_markers(lines: list[TextLine]) -> list[TextLine
     appended to their OWN text - never merged with a neighbouring line, so
     line count/geometry/paragraph-break gaps are completely untouched."""
     candidates = [ln for ln in lines if _STANDALONE_NUMBER.match(ln.text)]
+    if not candidates:
+        return lines
+    bare_count_by_page: dict[int, int] = {}
+    for ln in candidates:
+        bare_count_by_page[ln.page] = bare_count_by_page.get(ln.page, 0) + 1
+    candidates = [ln for ln in candidates if bare_count_by_page[ln.page] <= _MAX_BARE_NUMBERS_PER_PAGE]
     if not candidates:
         return lines
     by_x0: dict[int, list[TextLine]] = {}

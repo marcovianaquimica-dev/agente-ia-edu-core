@@ -265,6 +265,42 @@ class StructureTests(unittest.TestCase):
         normalized = _normalize_standalone_number_markers(lines)
         self.assertEqual([ln.text for ln in normalized], [ln.text for ln in lines])
 
+    def test_reference_table_page_is_never_confirmed_as_markers(self):
+        # Real regression found on a real PUC-Rio exam: page 2 is a
+        # periodic table of elements handed out as a reference sheet, NOT
+        # exam content. Each element's atomic number sits alone on its own
+        # line, and each of the table's ~10 group COLUMNS independently
+        # recurs at one x-position, spaced ~40pt+ apart down the column
+        # (one row per period) with the same high y-variance a real
+        # question marker has - satisfying every existing geometric check
+        # this heuristic uses. The giveaway a real exam page never
+        # produces: a SINGLE page with dozens of free-standing bare
+        # numbers at once (141, measured on the real page) - a genuine
+        # exam page has at most a handful of question markers, never a
+        # page flooded with isolated digits. A page's bare numbers are
+        # never trusted as markers once that page's own count is this high,
+        # regardless of how cleanly any one x-position clusters.
+        lines = []
+        for col in range(10):
+            x0 = 100 + col * 40
+            for row in range(7):
+                y0 = 40.0 + row * 45
+                lines.append(TextLine(
+                    page=1, x0=x0, y0=y0, x1=x0 + 6, y1=y0 + 8,
+                    text=str(col * 7 + row + 1)))
+        # a genuine marker column elsewhere in the SAME document (a
+        # different page) must still be confirmed - the fix must not
+        # blind the whole document, only the flooded reference page.
+        for i in range(1, 7):
+            lines.append(TextLine(page=2, x0=34, y0=100 * i, x1=40, y1=100 * i + 10, text=str(i)))
+            lines.append(TextLine(page=2, x0=34, y0=100 * i + 12, x1=200, y1=100 * i + 20,
+                                 text=f"corpo da questao {i}"))
+        normalized = _normalize_standalone_number_markers(lines)
+        page1_markers = [ln for ln in normalized if ln.page == 1 and ln.text.endswith(STANDALONE_MARKER_SENTINEL)]
+        page2_markers = [ln for ln in normalized if ln.page == 2 and ln.text.endswith(STANDALONE_MARKER_SENTINEL)]
+        self.assertEqual(page1_markers, [])
+        self.assertEqual(len(page2_markers), 6)
+
     def test_paragraph_break_inserted_on_large_vertical_gap(self):
         # several lines with a NORMAL (small) line-to-line gap establish the
         # page's typical spacing, then one clearly larger gap (a paragraph

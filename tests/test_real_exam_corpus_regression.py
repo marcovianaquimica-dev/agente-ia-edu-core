@@ -93,7 +93,18 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("pucrio_2025_1dia_tarde_g1345.pdf", min_boundaries=15, min_validated=4)
 
     def test_pucrio_2025_dia2_manha(self):
-        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=41, min_validated=2)
+        # Boundary floor LOWERED from 41 to 33 (the one documented
+        # exception to "never lower without a reason" - the old 41 was
+        # itself measuring a bug, not ground truth): this booklet's page 2
+        # is a full periodic table of elements handed out as a reference
+        # sheet. Each element's atomic number sits alone on its own line,
+        # and one of its ~10 group columns independently satisfied every
+        # geometric check the standalone-bare-marker heuristic used (see
+        # structure.py's _MAX_BARE_NUMBERS_PER_PAGE) - so the engine used
+        # to also "detect" ~8 fake questions numbered from atomic numbers
+        # (37, 39, 40, 41, 44, 49, 50, 53), jumbling the whole document's
+        # real 1..33 sequence in the process. 33 is the real count.
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=33, min_validated=2)
 
     def test_fuvest_2024_caderno_x(self):
         # Was the motivating case for a THIRD marker convention support -
