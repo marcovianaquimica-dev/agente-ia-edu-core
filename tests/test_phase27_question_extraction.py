@@ -35,9 +35,11 @@ from agente_ia_edu.services.question_extraction.engine import (
     merge_extraction_results,
 )
 from agente_ia_edu.services.question_extraction.structure import (
+    STANDALONE_MARKER_SENTINEL,
     DocumentStructure,
     PageImage,
     TextLine,
+    _normalize_standalone_number_markers,
     detect_two_column_layout,
     extract_structure,
 )
@@ -110,6 +112,69 @@ class StructureTests(unittest.TestCase):
         ]
         split = detect_two_column_layout(left + right, page_width=595.0)
         self.assertIsNone(split)
+
+    def test_standalone_number_marker_confirmed_by_repeated_column_position(self):
+        # Real convention found on a FUVEST exam: the question number sits
+        # ALONE on its own line (no "." or ")"), body text starting only on
+        # the next line. Trusted as a real marker only when its x-position
+        # recurs many times (a genuine column start reused by many
+        # questions) - here x0=34 repeats 6x, matching the confirmation
+        # threshold.
+        lines = []
+        for i in range(1, 7):
+            lines.append(TextLine(page=1, x0=34, y0=100 * i, x1=40, y1=100 * i + 10, text=str(i)))
+            lines.append(TextLine(page=1, x0=34, y0=100 * i + 12, x1=200, y1=100 * i + 20,
+                                 text=f"corpo da questao {i}"))
+        normalized = _normalize_standalone_number_markers(lines)
+        marker_lines = [ln.text for ln in normalized if ln.text.rstrip(STANDALONE_MARKER_SENTINEL).isdigit()]
+        self.assertEqual(marker_lines, [f"{i}{STANDALONE_MARKER_SENTINEL}" for i in range(1, 7)])
+        # line count and every non-marker line's text must be untouched -
+        # no merging, no geometry change.
+        self.assertEqual(len(normalized), len(lines))
+
+    def test_standalone_number_not_confirmed_stays_untouched(self):
+        # A one-off bare number (e.g. a chart axis value) that does NOT
+        # recur at its x-position must never be treated as a marker -
+        # otherwise ordinary numeric content anywhere in the document
+        # would risk becoming a fabricated question boundary.
+        lines = [
+            TextLine(page=1, x0=439, y0=100, x1=445, y1=110, text="200"),
+            TextLine(page=1, x0=439, y0=120, x1=445, y1=130, text="content near it"),
+        ]
+        normalized = _normalize_standalone_number_markers(lines)
+        self.assertEqual([ln.text for ln in normalized], [ln.text for ln in lines])
+
+    def test_densely_packed_numbered_lines_are_never_confirmed_as_markers(self):
+        # Real regression found on a UECE exam: a numbered-line passage
+        # (every ~11pt - ordinary single-line spacing) sitting at one
+        # consistent x-position recurs far more often than the confirmation
+        # threshold, but it is NOT a per-question marker column - a real
+        # question is a whole block of content, never packed line-tight.
+        # Column-position recurrence alone is not enough; consecutive
+        # occurrences must also be spaced far apart vertically.
+        lines = []
+        for i in range(1, 10):
+            lines.append(TextLine(page=1, x0=41, y0=11 * i, x1=48, y1=11 * i + 9, text=str(i)))
+            lines.append(TextLine(page=1, x0=60, y0=11 * i, x1=200, y1=11 * i + 9, text=f"linha {i}"))
+        normalized = _normalize_standalone_number_markers(lines)
+        self.assertEqual([ln.text for ln in normalized], [ln.text for ln in lines])
+
+    def test_printed_running_page_number_is_never_confirmed_as_a_marker(self):
+        # Real regression found on a PUC-Rio exam: a running page number
+        # printed at the SAME y-position on every page (its text changes
+        # per page - "7" on page 7, "8" on page 8 - so
+        # detect_repeated_page_artifacts can never catch it, since that
+        # check requires IDENTICAL repeated text). Spaced far apart in
+        # page-index terms and recurs often enough to otherwise pass the
+        # column/sparsity checks - only near-constant y0 across pages
+        # gives it away: a real marker's position depends on how much
+        # content came before it and varies a lot page to page.
+        lines = []
+        for page in range(1, 9):
+            lines.append(TextLine(page=page, x0=294, y0=783.0 + (page % 3), x1=300, y1=793, text=str(page)))
+            lines.append(TextLine(page=page, x0=50, y0=100, x1=300, y1=110, text=f"conteudo real pagina {page}"))
+        normalized = _normalize_standalone_number_markers(lines)
+        self.assertEqual([ln.text for ln in normalized], [ln.text for ln in lines])
 
     def test_paragraph_break_inserted_on_large_vertical_gap(self):
         # several lines with a NORMAL (small) line-to-line gap establish the
@@ -319,6 +384,31 @@ class BoundaryDetectionTests(unittest.TestCase):
         self.assertEqual(draft.question_type, "multiple_choice")
         self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
         self.assertEqual(draft.options[0].text, "primeira alternativa")
+
+    def test_standalone_marker_body_across_a_paragraph_break_gap(self):
+        # Real regression found on the FUVEST exam itself: the vertical
+        # gap between the standalone number and its body is sometimes wide
+        # enough to register as its own paragraph break ("\n\n" from
+        # structure.py's own gap-based joiner), not a plain single-line
+        # break - the marker must still be found either way. Text here
+        # simulates what structure.py hands boundary.py AFTER confirming
+        # and marking the standalone numbers (the sentinel, never a plain
+        # "." - see the sentinel's own docstring for why).
+        S = STANDALONE_MARKER_SENTINEL
+        text = f"10{S}\n11{S}\n\nConsidere a equacao real com texto suficiente para ser valida.\n"
+        boundaries = detect_boundaries(text)
+        self.assertEqual(sorted(b.number for b in boundaries), [10, 11])
+
+    def test_plain_period_alone_on_a_line_is_never_treated_as_a_marker(self):
+        # The regression this sentinel fixes: a genuine "N.\n<content>"
+        # pattern that already exists naturally in a real document (found
+        # on a real UECE exam: an uncut answer-bubble grid template) must
+        # NEVER be read as a question boundary just because it happens to
+        # look like the FUVEST standalone convention - only a line
+        # structure.py itself confirmed via geometry (the sentinel) can be.
+        text = "10.\n11.\n\nConteudo nao relacionado que nao deveria virar questao.\n"
+        boundaries = detect_boundaries(text)
+        self.assertEqual(boundaries, [])
 
     def test_word_marker_tolerates_missing_space_before_number(self):
         # Real UERJ PDF text extraction: "Questão" and its number come out

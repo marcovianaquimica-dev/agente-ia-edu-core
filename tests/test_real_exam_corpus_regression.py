@@ -84,15 +84,22 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
     def test_pucrio_2025_dia1_tarde(self):
         # Small booklet (few boundaries) - kept mainly as a boundary-count
         # guard, not a strong signal on the VALIDATED floor.
-        self._check("pucrio_2025_1dia_tarde_g1345.pdf", min_boundaries=7, min_validated=2)
+        self._check("pucrio_2025_1dia_tarde_g1345.pdf", min_boundaries=15, min_validated=4)
 
     def test_pucrio_2025_dia2_manha(self):
-        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=6, min_validated=0)
+        self._check("pucrio_2025_2dia_manha_g2.pdf", min_boundaries=41, min_validated=2)
 
     def test_fuvest_2024_caderno_x(self):
-        # Known-incomplete: boundary detection itself still only finds 9
-        # of ~90 real questions on this booklet (a DIFFERENT, not-yet
-        # investigated root cause - not the option/marker/column bugs
-        # already fixed). The low floor here is deliberate, not a typo -
-        # raising it is exactly the signal that investigation succeeded.
-        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=9, min_validated=8)
+        # Was the motivating case for a THIRD marker convention support -
+        # boundary detection used to find only 9 of ~90 real questions on
+        # this booklet (FUVEST prints the question number alone on its own
+        # line, no punctuation - a convention the engine could not see at
+        # all). Now finds all 90; see structure.py's
+        # _normalize_standalone_number_markers for how this is confirmed
+        # safe (recurring column position + spaced far apart vertically +
+        # position varies with content, page to page) without colliding
+        # with an unrelated numbered list/grid/page-footer elsewhere in a
+        # DIFFERENT real document (UECE, UERJ, PUC-Rio all guard specific
+        # real false-positive patterns this convention could otherwise
+        # match - see the dedicated tests in test_phase27_question_extraction.py).
+        self._check("fuvest2024_primeira_fase_prova_X.pdf", min_boundaries=90, min_validated=37)

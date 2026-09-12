@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .structure import STANDALONE_MARKER_SENTINEL
+
 # -- boundary marker: "1." / "01." / "1)" / "01)" at the START of a real
 #    line. [ \t]* (never \s*) so the anchor cannot swallow a blank line -
 #    that blank line is itself a signal (paragraph break), checked below.
@@ -37,6 +39,25 @@ _MARKER = re.compile(r"(?m)^[ \t]*(\d{1,3})[.)][ \t]*(?!\d[ \t]+[A-ZÀ-Ú])(?=\S
 _MARKER_WORD = re.compile(r"(?mi)^[ \t]*quest[aã]o\s*(\d{1,3})\b[.:)]?[ \t]*")
 # "(1)" parenthesised numbering.
 _MARKER_PAREN = re.compile(r"(?m)^[ \t]*\((\d{1,3})\)[ \t]*(?=\S)")
+# Bare number ALONE on its own line, body starting only on the NEXT line -
+# a third convention (found on a real FUVEST exam) _MARKER above cannot see,
+# since it requires the delimiter and body on the SAME line. Only reaches
+# here because structure.py's _normalize_standalone_number_markers already
+# confirmed (by x-position recurring many times - a genuine column start,
+# not a one-off chart value) that this bare number is a real marker and
+# appended STANDALONE_MARKER_SENTINEL itself; body_start lands right after
+# the newline(s). Matching the sentinel (never a plain ".") is deliberate:
+# a real "N.\n<content>" pattern already occurs naturally elsewhere in some
+# real documents (found on a real UECE exam: an uncut answer-bubble grid
+# template) - matching plain "." would let THAT collide with genuine
+# question numbers. [ \t]*\n? (not a second mandatory \n): the vertical gap
+# between the marker and its body is sometimes wide enough to itself
+# register as a paragraph break (structure.py's own "\n\n" joiner), so BOTH
+# one and two newlines must be accepted - real data on a FUVEST exam has
+# both.
+_MARKER_STANDALONE = re.compile(
+    rf"(?m)^[ \t]*(\d{{1,3}}){re.escape(STANDALONE_MARKER_SENTINEL)}[ \t]*\n[ \t]*\n?(?=[ \t]*\S)"
+)
 
 _PARAGRAPH_BREAK_BEFORE = re.compile(r"\n[ \t]*\n[ \t]*\Z")
 
@@ -124,6 +145,8 @@ def _all_markers(text: str) -> list[tuple[int, int, int, str]]:
         out.append((int(m.group(1)), m.end(), m.start(), "WORD"))
     for m in _MARKER_PAREN.finditer(text):
         out.append((int(m.group(1)), m.end(), m.start(), "PAREN"))
+    for m in _MARKER_STANDALONE.finditer(text):
+        out.append((int(m.group(1)), m.end(), m.start(), "STANDALONE"))
     out.sort(key=lambda t: t[2])
     return out
 

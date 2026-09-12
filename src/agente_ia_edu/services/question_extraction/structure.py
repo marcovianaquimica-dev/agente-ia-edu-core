@@ -31,7 +31,8 @@ Pure, deterministic, no I/O side effects beyond reading the given file.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 # Minimum horizontal gap (in PDF points) between two candidate column bands
@@ -52,6 +53,103 @@ _MIN_Y_OVERLAP_RATIO = 0.3
 # lines is a marker column, not prose.
 _NARROW_LINE_WIDTH_RATIO = 0.25
 _MAX_NARROW_LINE_FRACTION = 0.35
+
+# Some real exam layouts (found on a real FUVEST booklet) print the question
+# number ALONE on its own line - no "." or ")", no content until the next
+# line - a convention _MARKER (boundary.py) cannot see: it deliberately
+# requires the delimiter and body on the SAME line, so a blank line before a
+# bare number stays a meaningful paragraph-break signal rather than being
+# swallowed. A bare digit-only line is trusted as a real marker only when
+# BOTH:
+#  - its x-position recurs at least this many times across the WHOLE
+#    document - a genuine column start reused by many questions, not a
+#    one-off (a chart axis value, a footnote number) that happens to sit
+#    alone on its line;
+#  - consecutive occurrences at that x-position are spaced FAR apart
+#    vertically - a real question is a whole block of content, never
+#    packed line-tight. Column position alone is NOT enough: a real UECE
+#    exam has a densely NUMBERED-LINE passage (every ~11pt, ordinary
+#    single-line spacing) at one consistent x-position, which recurs far
+#    more often than any real per-question marker column ever would but
+#    is not one - only real question markers on a real FUVEST exam were
+#    found spaced 130pt+ apart (a whole question's worth of content);
+#  - the vertical position VARIES meaningfully from page to page - a real
+#    marker's y0 depends on how much content came before it, so it moves
+#    around a lot across the document (stdev 150pt+ on both a real FUVEST
+#    and a real PUC-Rio exam). A printed running page number sits at
+#    practically the SAME y0 on every page (stdev ~5pt on a real PUC-Rio
+#    exam) and increments with the page - detect_repeated_page_artifacts
+#    above can never catch it (that check requires IDENTICAL repeated
+#    text; a page number's text changes every page by design).
+_STANDALONE_NUMBER = re.compile(r"^\d{1,3}$")
+_MIN_MARKER_COLUMN_OCCURRENCES = 6
+_MIN_MARKER_VERTICAL_GAP = 40.0
+_MIN_MARKER_Y_STDEV = 20.0
+# Sentinel appended to a CONFIRMED standalone marker's own text, instead of
+# a plain "." - a real "N.\n<content>" pattern already occurs naturally
+# elsewhere in some real documents (found on a real UECE exam: an
+# uncut answer-bubble grid template, "01.\n02.\n03. ...", that a plain "."
+# would have let boundary.py's marker regex match as if it were real
+# questions, colliding with the genuine question numbers). A Private Use
+# Area character cannot occur in real extracted PDF text, so boundary.py's
+# marker for this convention can ONLY ever match a line THIS function
+# itself confirmed via geometry - never a coincidental pattern already
+# present in the document.
+STANDALONE_MARKER_SENTINEL = ""
+
+
+def _is_sparse_enough(same_x0_candidates: list[TextLine]) -> bool:
+    """True when consecutive same-page occurrences are spaced far enough
+    apart to plausibly each be a whole question - false for a densely
+    packed numbered-line list (ordinary single-line spacing)."""
+    by_page: dict[int, list[float]] = {}
+    for ln in same_x0_candidates:
+        by_page.setdefault(ln.page, []).append(ln.y0)
+    for y0s in by_page.values():
+        y0s.sort()
+        for a, b in zip(y0s, y0s[1:]):
+            if (b - a) < _MIN_MARKER_VERTICAL_GAP:
+                return False
+    return True
+
+
+def _has_content_dependent_position(same_x0_candidates: list[TextLine]) -> bool:
+    """True when y0 varies meaningfully across the group - false for a
+    printed running page number, which sits at practically the same y0 on
+    every page regardless of content (spec: see the constant's own
+    docstring above)."""
+    if len(same_x0_candidates) < 2:
+        return False
+    y0s = [ln.y0 for ln in same_x0_candidates]
+    mean = sum(y0s) / len(y0s)
+    variance = sum((y - mean) ** 2 for y in y0s) / len(y0s)
+    return variance ** 0.5 >= _MIN_MARKER_Y_STDEV
+
+
+def _normalize_standalone_number_markers(lines: list[TextLine]) -> list[TextLine]:
+    """Confirmed standalone-marker lines get ``STANDALONE_MARKER_SENTINEL``
+    appended to their OWN text - never merged with a neighbouring line, so
+    line count/geometry/paragraph-break gaps are completely untouched."""
+    candidates = [ln for ln in lines if _STANDALONE_NUMBER.match(ln.text)]
+    if not candidates:
+        return lines
+    by_x0: dict[int, list[TextLine]] = {}
+    for ln in candidates:
+        by_x0.setdefault(round(ln.x0), []).append(ln)
+    confirmed_x0 = {
+        x0 for x0, group in by_x0.items()
+        if len(group) >= _MIN_MARKER_COLUMN_OCCURRENCES
+        and _is_sparse_enough(group)
+        and _has_content_dependent_position(group)
+    }
+    if not confirmed_x0:
+        return lines
+    return [
+        replace(ln, text=ln.text + STANDALONE_MARKER_SENTINEL)
+        if _STANDALONE_NUMBER.match(ln.text) and round(ln.x0) in confirmed_x0
+        else ln
+        for ln in lines
+    ]
 
 # PHASE 28 s9 - repeated_page_artifact_detection: a line sitting in the top/
 # bottom margin band, with IDENTICAL text, on this many or more DISTINCT
@@ -328,8 +426,8 @@ def extract_structure(pdf_path: Path, *, use_column_detection: bool = False) -> 
 
         return DocumentStructure(
             document_hash=document_hash, page_count=len(doc),
-            lines=all_lines, images=images, pages_multicolumn=multicolumn_pages,
-            stripped_artifact_texts=sorted(artifact_texts),
+            lines=_normalize_standalone_number_markers(all_lines), images=images,
+            pages_multicolumn=multicolumn_pages, stripped_artifact_texts=sorted(artifact_texts),
         )
     finally:
         doc.close()
