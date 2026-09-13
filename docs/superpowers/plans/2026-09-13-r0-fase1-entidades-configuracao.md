@@ -30,13 +30,23 @@ O worktree é `/Users/marcoviana/agente-ia-edu-core/.claude/worktrees/r0-estrutu
 
 **A suíte completa do projeto tem baseline sujo** — 71 falhas e 13 erros, todos de `DATABASE_URL` não exportada, anteriores a este trabalho. Não investigue, não rode a suíte inteira. O gate desta fase é `tests/test_r0_*.py` mais `tests/test_platform_administration.py` e `tests/test_r1_*.py` seguindo verdes.
 
-**Verificação de migration usa banco descartável, nunca o de desenvolvimento.** Crie-o uma vez:
+**Verificação de migration usa banco descartável, nunca o de desenvolvimento.**
 
-```bash
-docker exec agente-ia-edu-postgres psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE agente_ia_edu_r0_migcheck"
-```
+O banco descartável `agente_ia_edu_r0_migcheck` **já foi construído e carimbado** pelo
+controlador, e está pronto. Ele não pode ser criado vazio e carimbado, como se fez em R1:
+`alembic stamp` não executa DDL nenhum, e as tabelas de R0 têm FK para `schools`, criada lá
+na migration 011. Num banco carimbado e vazio, toda migration desta fase falha por alvo de
+chave estrangeira inexistente.
 
-e carimbe-o em `039_essay_rubric_foundation` antes do primeiro `upgrade`, porque a cadeia não roda do zero — `024_chemistry_kinetics` é migration de dados e aborta em banco vazio. A porta do Postgres deste projeto é **5433**; a 5432 pertence a outro projeto.
+Ele foi construído copiando o **schema** do banco de desenvolvimento — uma leitura, sem
+acesso exclusivo e sem escrever nada lá — e carimbado na revisão que aquele schema de fato
+tem, `038_authorial_classification`, lida em vez de suposta.
+
+Se precisar reconstruí-lo, o script está em
+`.superpowers/sdd/2026-09-13-r0-fase1-entidades-configuracao/build-migcheck.py`. Não o
+reconstrua sem necessidade.
+
+A porta do Postgres deste projeto é **5433**; a 5432 pertence a outro projeto.
 
 ## Estrutura de arquivos
 
@@ -432,13 +442,15 @@ Nunca no banco de desenvolvimento. A porta é **5433**.
 set -a; . /Users/marcoviana/agente-ia-edu-core/.env; set +a
 ENC=$(.venv/bin/python -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['POSTGRES_PASSWORD'],safe=''))")
 export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${ENC}@localhost:5433/agente_ia_edu_r0_migcheck"
-.venv/bin/python -m alembic stamp 039_essay_rubric_foundation
 .venv/bin/python -m alembic upgrade head
 .venv/bin/python -m alembic downgrade -1
 .venv/bin/python -m alembic upgrade head
 ```
 
-Nunca ecoe a senha nem a URL montada. Reporte apenas se cada comando teve sucesso.
+Sem `stamp`: o banco descartável já está carimbado. Nunca ecoe a senha nem a URL montada.
+Reporte apenas se cada comando teve sucesso, e confirme com uma consulta que as tabelas
+desta tarefa aparecem depois do `upgrade` e somem depois do `downgrade` — o código de
+retorno sozinho não prova que a migration fez algo.
 
 - [ ] **Step 9: Commit**
 
