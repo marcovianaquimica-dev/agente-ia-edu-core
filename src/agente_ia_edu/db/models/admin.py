@@ -19,6 +19,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
@@ -116,6 +117,42 @@ class UserSchoolLink(Base):
 
     __tablename__ = "user_school_links"
     __table_args__ = (
+        # R0: every bridge column is reached through (school_id, <entity>_id),
+        # so a link belonging to school B cannot point at school A's class -
+        # the row the authorisation service reads in Phase 3 (spec §3.2, §8).
+        # ``school_id`` is nullable for PLATFORM-scope links; with MATCH SIMPLE
+        # a NULL on either side leaves the key unenforced, which is exactly the
+        # case where there is no school to be isolated from.
+        ForeignKeyConstraint(
+            ["school_id", "user_id"],
+            ["users.school_id", "users.id"],
+            ondelete="RESTRICT",
+            name="fk_user_school_links_school_user",
+        ),
+        ForeignKeyConstraint(
+            ["school_id", "school_unit_id"],
+            ["school_units.school_id", "school_units.id"],
+            ondelete="RESTRICT",
+            name="fk_user_school_links_school_unit",
+        ),
+        ForeignKeyConstraint(
+            ["school_id", "segment_id"],
+            ["segments.school_id", "segments.id"],
+            ondelete="RESTRICT",
+            name="fk_user_school_links_school_segment",
+        ),
+        ForeignKeyConstraint(
+            ["school_id", "grade_level_id"],
+            ["grade_levels.school_id", "grade_levels.id"],
+            ondelete="RESTRICT",
+            name="fk_user_school_links_school_grade_level",
+        ),
+        ForeignKeyConstraint(
+            ["school_id", "class_id"],
+            ["classes.school_id", "classes.id"],
+            ondelete="RESTRICT",
+            name="fk_user_school_links_school_class",
+        ),
         CheckConstraint(
             "role IN ('PLATFORM_ADMIN', 'DIRECTOR', 'COORDINATOR', 'SECRETARY', 'TEACHER', 'STUDENT')",
             name="ck_user_school_links_role",
@@ -142,21 +179,11 @@ class UserSchoolLink(Base):
     # R0 bridge: the entity this scope points at, when it is already known.
     # Nullable on purpose - every row written before R0 has only the string,
     # and consumers migrate one at a time (spec §3.2, §7).
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="RESTRICT")
-    )
-    school_unit_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("school_units.id", ondelete="RESTRICT")
-    )
-    segment_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("segments.id", ondelete="RESTRICT")
-    )
-    grade_level_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("grade_levels.id", ondelete="RESTRICT")
-    )
-    class_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("classes.id", ondelete="RESTRICT")
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    school_unit_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    segment_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    grade_level_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    class_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 

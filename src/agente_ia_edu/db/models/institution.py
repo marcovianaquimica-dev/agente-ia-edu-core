@@ -22,6 +22,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -55,6 +56,15 @@ class SchoolSetting(Base):
 
     __tablename__ = "school_settings"
     __table_args__ = (
+        # Composite: the identity a school points at must be that school's own.
+        # This is the row R4 stamps onto a devolutiva's PDF, so a cross-school
+        # pointer here is school B's mark on school A's document (spec §8).
+        ForeignKeyConstraint(
+            ["school_id", "current_identity_version_id"],
+            ["school_identity_versions.school_id", "school_identity_versions.id"],
+            ondelete="RESTRICT",
+            name="fk_school_settings_school_identity_version",
+        ),
         UniqueConstraint("school_id", name="uq_school_settings_school"),
         CheckConstraint(
             "correction_mode IN ('FORMATIVO', 'AVALIATIVO')",
@@ -92,9 +102,7 @@ class SchoolSetting(Base):
         Boolean, nullable=False, default=False
     )
     validation_threshold_points: Mapped[int | None] = mapped_column(Integer)
-    current_identity_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("school_identity_versions.id", ondelete="RESTRICT")
-    )
+    current_identity_version_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
@@ -118,7 +126,14 @@ class SchoolIdentityVersion(Base):
 
     __tablename__ = "school_identity_versions"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["school_id", "published_by_user_id"],
+            ["users.school_id", "users.id"],
+            ondelete="RESTRICT",
+            name="fk_school_identity_versions_school_published_by",
+        ),
         UniqueConstraint("school_id", "version", name="uq_school_identity_versions_version"),
+        UniqueConstraint("school_id", "id", name="uq_school_identity_versions_school_id_id"),
         CheckConstraint("version > 0", name="ck_school_identity_versions_version_positive"),
         Index("ix_school_identity_versions_school_id", "school_id"),
     )
@@ -135,6 +150,4 @@ class SchoolIdentityVersion(Base):
     published_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
-    published_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="RESTRICT")
-    )
+    published_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)

@@ -38,7 +38,12 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
         year = AcademicYear(school_id=school.id, year=year_number, status="ACTIVE")
         session.add(year)
         await session.flush()
-        klass = Class(academic_year_id=year.id, grade_level_id=grade.id, name="A")
+        klass = Class(
+            school_id=school.id,
+            academic_year_id=year.id,
+            grade_level_id=grade.id,
+            name="A",
+        )
         session.add(klass)
         await session.flush()
         return klass
@@ -50,7 +55,9 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
         segment = Segment(school_id=school.id, name="Ensino Médio", ordinal=3)
         session.add(segment)
         await session.flush()
-        grade = GradeLevel(segment_id=segment.id, name="1ª série", ordinal=1)
+        grade = GradeLevel(
+            school_id=school.id, segment_id=segment.id, name="1ª série", ordinal=1
+        )
         person = Person(school_id=school.id, full_name="Ana Clara")
         session.add_all([grade, person])
         await session.flush()
@@ -65,7 +72,10 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             klass = await self._class_in_year(session, school, grade, 2026)
 
             enrollment = StudentEnrollment(
-                student_id=student.id, class_id=klass.id, enrolled_on=date(2026, 2, 1)
+                school_id=school.id,
+                student_id=student.id,
+                class_id=klass.id,
+                enrolled_on=date(2026, 2, 1),
             )
             session.add(enrollment)
             await session.flush()
@@ -76,9 +86,13 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             school, grade, student = await self._fixture(session)
             klass = await self._class_in_year(session, school, grade, 2026)
 
-            session.add(StudentEnrollment(student_id=student.id, class_id=klass.id))
+            session.add(StudentEnrollment(
+                school_id=school.id, student_id=student.id, class_id=klass.id
+            ))
             await session.flush()
-            session.add(StudentEnrollment(student_id=student.id, class_id=klass.id))
+            session.add(StudentEnrollment(
+                school_id=school.id, student_id=student.id, class_id=klass.id
+            ))
             with self.assertRaises(IntegrityError):
                 await session.flush()
 
@@ -91,17 +105,24 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             class_2026 = await self._class_in_year(session, school, grade, 2026)
             class_2027 = await self._class_in_year(session, school, grade, 2027)
 
-            first = StudentEnrollment(student_id=student.id, class_id=class_2026.id)
+            first = StudentEnrollment(
+                school_id=school.id, student_id=student.id, class_id=class_2026.id
+            )
             session.add(first)
             await session.flush()
 
             first.status = "COMPLETED"
-            second = StudentEnrollment(student_id=student.id, class_id=class_2027.id)
+            second = StudentEnrollment(
+                school_id=school.id, student_id=student.id, class_id=class_2027.id
+            )
             session.add(second)
             await session.flush()
 
             session.add(EnrollmentTransition(
-                from_enrollment_id=first.id, to_enrollment_id=second.id, kind="PROMOTED"
+                school_id=school.id,
+                from_enrollment_id=first.id,
+                to_enrollment_id=second.id,
+                kind="PROMOTED",
             ))
             await session.flush()
 
@@ -115,12 +136,17 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             school, grade, student = await self._fixture(session)
             klass = await self._class_in_year(session, school, grade, 2026)
-            enrollment = StudentEnrollment(student_id=student.id, class_id=klass.id)
+            enrollment = StudentEnrollment(
+                school_id=school.id, student_id=student.id, class_id=klass.id
+            )
             session.add(enrollment)
             await session.flush()
 
             session.add(EnrollmentTransition(
-                from_enrollment_id=enrollment.id, to_enrollment_id=None, kind="EXITED"
+                school_id=school.id,
+                from_enrollment_id=enrollment.id,
+                to_enrollment_id=None,
+                kind="EXITED",
             ))
             await session.flush()
 
@@ -128,12 +154,14 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             school, grade, student = await self._fixture(session)
             klass = await self._class_in_year(session, school, grade, 2026)
-            enrollment = StudentEnrollment(student_id=student.id, class_id=klass.id)
+            enrollment = StudentEnrollment(
+                school_id=school.id, student_id=student.id, class_id=klass.id
+            )
             session.add(enrollment)
             await session.flush()
 
             session.add(EnrollmentTransition(
-                from_enrollment_id=enrollment.id, kind="NAO_EXISTE"
+                school_id=school.id, from_enrollment_id=enrollment.id, kind="NAO_EXISTE"
             ))
             with self.assertRaises(IntegrityError):
                 await session.flush()
@@ -143,13 +171,16 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             school, grade, student = await self._fixture(session)
             klass = await self._class_in_year(session, school, grade, 2026)
             session.add(StudentEnrollment(
-                student_id=student.id, class_id=klass.id, status="NAO_EXISTE"
+                school_id=school.id,
+                student_id=student.id,
+                class_id=klass.id,
+                status="NAO_EXISTE",
             ))
             with self.assertRaises(IntegrityError):
                 await session.flush()
 
-    async def test_external_id_is_unique_per_class(self):
-        """The external_id bridge is ambiguous if two rows in the same class
+    async def test_external_id_is_unique_per_school(self):
+        """The external_id bridge is ambiguous if two rows in the same school
         claim it. Two different students are used so that the pre-existing
         UNIQUE(student_id, class_id) constraint cannot be the one firing."""
         async with self.session_factory() as session:
@@ -165,18 +196,26 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             klass = await self._class_in_year(session, school, grade, 2026)
 
             session.add(StudentEnrollment(
-                student_id=student_a.id, class_id=klass.id, external_id="MATRICULA_1"
+                school_id=school.id,
+                student_id=student_a.id,
+                class_id=klass.id,
+                external_id="MATRICULA_1",
             ))
             await session.flush()
             session.add(StudentEnrollment(
-                student_id=student_b.id, class_id=klass.id, external_id="MATRICULA_1"
+                school_id=school.id,
+                student_id=student_b.id,
+                class_id=klass.id,
+                external_id="MATRICULA_1",
             ))
             with self.assertRaises(IntegrityError):
                 await session.flush()
 
-    async def test_external_id_can_repeat_across_classes(self):
-        """The same external_id in a different class is legitimate: the
-        constraint is scoped to the class, not global."""
+    async def test_external_id_cannot_repeat_across_classes_of_one_school(self):
+        """Scoped per school, not per class (spec §4, §9). Scoping it to the
+        class let one string name two enrollments in the same school, and the
+        §3.2 bridge resolves a string plus a school_id - so it would have had
+        to pick one, by a rule nobody wrote."""
         async with self.session_factory() as session:
             school, grade, student_a = await self._fixture(session)
             person_b = Person(school_id=school.id, full_name="Bruno Silva")
@@ -191,9 +230,17 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             class_2 = await self._class_in_year(session, school, grade, 2027)
 
             session.add(StudentEnrollment(
-                student_id=student_a.id, class_id=class_1.id, external_id="MATRICULA_1"
-            ))
-            session.add(StudentEnrollment(
-                student_id=student_b.id, class_id=class_2.id, external_id="MATRICULA_1"
+                school_id=school.id,
+                student_id=student_a.id,
+                class_id=class_1.id,
+                external_id="MATRICULA_1",
             ))
             await session.flush()
+            session.add(StudentEnrollment(
+                school_id=school.id,
+                student_id=student_b.id,
+                class_id=class_2.id,
+                external_id="MATRICULA_1",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()

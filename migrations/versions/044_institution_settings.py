@@ -9,6 +9,12 @@ Typed columns with CHECK constraints rather than JSON, because R1's final review
 proved that validating only in code lets a wrong value through when the writer
 hardcodes it. Here the stake is a school running in evaluative mode believing it
 is formative (spec §3.5).
+
+The two links out of these tables are COMPOSITE on ``school_id``: a school can
+only point at its own identity version, and a version can only be signed by a
+user of that same school. The identity is what R4 stamps onto a devolutiva's
+PDF, so a cross-school pointer here would put one school's mark on another
+school's document (spec §8).
 """
 
 from alembic import op
@@ -35,9 +41,17 @@ def upgrade() -> None:
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("published_by_user_id", sa.Uuid()),
         sa.ForeignKeyConstraint(["school_id"], ["schools.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["published_by_user_id"], ["users.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["school_id", "published_by_user_id"],
+            ["users.school_id", "users.id"],
+            ondelete="RESTRICT",
+            name="fk_school_identity_versions_school_published_by",
+        ),
         sa.UniqueConstraint(
             "school_id", "version", name="uq_school_identity_versions_version"
+        ),
+        sa.UniqueConstraint(
+            "school_id", "id", name="uq_school_identity_versions_school_id_id"
         ),
         sa.CheckConstraint("version > 0", name="ck_school_identity_versions_version_positive"),
     )
@@ -66,9 +80,10 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["school_id"], ["schools.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(
-            ["current_identity_version_id"],
-            ["school_identity_versions.id"],
+            ["school_id", "current_identity_version_id"],
+            ["school_identity_versions.school_id", "school_identity_versions.id"],
             ondelete="RESTRICT",
+            name="fk_school_settings_school_identity_version",
         ),
         sa.UniqueConstraint("school_id", name="uq_school_settings_school"),
         sa.CheckConstraint(

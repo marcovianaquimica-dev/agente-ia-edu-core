@@ -78,6 +78,7 @@ class TestIdentityModels(unittest.IsolatedAsyncioTestCase):
             await session.flush()
 
             user = User(
+                school_id=school.id,
                 person_id=person.id,
                 external_identity_provider="host",
                 external_user_id="host:ana",
@@ -103,6 +104,7 @@ class TestIdentityModels(unittest.IsolatedAsyncioTestCase):
             await session.flush()
 
             session.add(User(
+                school_id=school.id,
                 person_id=person.id,
                 external_identity_provider="host",
                 external_user_id="host:ana2",

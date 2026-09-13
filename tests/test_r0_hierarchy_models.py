@@ -36,7 +36,9 @@ class TestHierarchyModels(unittest.IsolatedAsyncioTestCase):
         segment = Segment(school_id=school.id, name="Ensino Médio", ordinal=3)
         session.add(segment)
         await session.flush()
-        grade = GradeLevel(segment_id=segment.id, name="1ª série", ordinal=1)
+        grade = GradeLevel(
+            school_id=school.id, segment_id=segment.id, name="1ª série", ordinal=1
+        )
         session.add(grade)
         await session.flush()
         return school, segment, grade
@@ -52,8 +54,18 @@ class TestHierarchyModels(unittest.IsolatedAsyncioTestCase):
             session.add_all([year_2026, year_2027])
             await session.flush()
 
-            first = Class(academic_year_id=year_2026.id, grade_level_id=grade.id, name="A")
-            second = Class(academic_year_id=year_2027.id, grade_level_id=grade.id, name="A")
+            first = Class(
+                school_id=school.id,
+                academic_year_id=year_2026.id,
+                grade_level_id=grade.id,
+                name="A",
+            )
+            second = Class(
+                school_id=school.id,
+                academic_year_id=year_2027.id,
+                grade_level_id=grade.id,
+                name="A",
+            )
             session.add_all([first, second])
             await session.flush()
 
@@ -66,9 +78,19 @@ class TestHierarchyModels(unittest.IsolatedAsyncioTestCase):
             session.add(year)
             await session.flush()
 
-            session.add(Class(academic_year_id=year.id, grade_level_id=grade.id, name="A"))
+            session.add(Class(
+                school_id=school.id,
+                academic_year_id=year.id,
+                grade_level_id=grade.id,
+                name="A",
+            ))
             await session.flush()
-            session.add(Class(academic_year_id=year.id, grade_level_id=grade.id, name="A"))
+            session.add(Class(
+                school_id=school.id,
+                academic_year_id=year.id,
+                grade_level_id=grade.id,
+                name="A",
+            ))
             with self.assertRaises(IntegrityError):
                 await session.flush()
 
@@ -97,6 +119,7 @@ class TestHierarchyModels(unittest.IsolatedAsyncioTestCase):
             await session.flush()
 
             klass = Class(
+                school_id=school.id,
                 academic_year_id=year.id,
                 grade_level_id=grade.id,
                 school_unit_id=unit.id,

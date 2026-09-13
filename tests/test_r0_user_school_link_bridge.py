@@ -63,15 +63,23 @@ class TestUserSchoolLinkBridge(unittest.IsolatedAsyncioTestCase):
             person = Person(school_id=school.id, full_name="Prof. Mendes")
             session.add_all([segment, year, person])
             await session.flush()
-            grade = GradeLevel(segment_id=segment.id, name="3ª série", ordinal=3)
+            grade = GradeLevel(
+                school_id=school.id, segment_id=segment.id, name="3ª série", ordinal=3
+            )
             user = User(
+                school_id=school.id,
                 person_id=person.id,
                 external_identity_provider="host",
                 external_user_id="prof_mendes",
             )
             session.add_all([grade, user])
             await session.flush()
-            klass = Class(academic_year_id=year.id, grade_level_id=grade.id, name="A")
+            klass = Class(
+                school_id=school.id,
+                academic_year_id=year.id,
+                grade_level_id=grade.id,
+                name="A",
+            )
             session.add(klass)
             await session.flush()
 
