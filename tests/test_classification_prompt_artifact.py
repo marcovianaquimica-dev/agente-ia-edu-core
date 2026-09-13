@@ -13,10 +13,12 @@ from agente_ia_edu.classification_prompts import (
     get_classification_prompt,
 )
 from agente_ia_edu.classification_prompts import v1 as prompt_v1
+from agente_ia_edu.classification_prompts import v2 as prompt_v2
 from agente_ia_edu.services import curriculum_classification
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _GOLDEN = _ROOT / "tests" / "fixtures" / "phase11_18_golden_classification_prompt_v1.txt"
+_GOLDEN_V2 = _ROOT / "tests" / "fixtures" / "phase_prompt_v2_golden.txt"
 
 # The fixed fixture the golden file was generated from (pre-PHASE-11.18 inline code).
 _FIXTURE_RECOVERED = [{
@@ -44,10 +46,12 @@ class ClassificationPromptArtifactTests(unittest.TestCase):
     def test_version_resolves(self):
         default = get_classification_prompt()
         self.assertIsInstance(default, ClassificationPrompt)
-        self.assertEqual(default.version, "v1")
+        self.assertEqual(default.version, "v2")
         self.assertEqual(default.version, DEFAULT_VERSION)
         self.assertEqual(get_classification_prompt("v1").version, "v1")
+        self.assertEqual(get_classification_prompt("v2").version, "v2")
         self.assertIn("v1", available_versions())
+        self.assertIn("v2", available_versions())
 
     # 2 - unknown version fails clearly
     def test_unknown_version_fails_clearly(self):
@@ -57,27 +61,48 @@ class ClassificationPromptArtifactTests(unittest.TestCase):
         self.assertIn("Unknown classification prompt version", message)
         self.assertIn("v99", message)
         self.assertIn("v1", message)  # available list is shown
+        self.assertIn("v2", message)
 
     # 3 - no secret / no vendor coupling in the artifact
     def test_artifact_contains_no_secret_or_vendor_reference(self):
-        source = pathlib.Path(prompt_v1.__file__).read_text()
         built = get_classification_prompt().build(
             recovered_candidates=_FIXTURE_RECOVERED, question_data=_FIXTURE_QDATA)
-        schema_text = json.dumps(prompt_v1.RESPONSE_SCHEMA, ensure_ascii=False)
-        for blob_name, blob in (("v1.py source", source), ("built prompt", built),
-                                ("RESPONSE_SCHEMA", schema_text)):
+        blobs = [("built prompt (default)", built)]
+        for module in (prompt_v1, prompt_v2):
+            source = pathlib.Path(module.__file__).read_text()
+            schema_text = json.dumps(module.RESPONSE_SCHEMA, ensure_ascii=False)
+            blobs.append((f"{module.VERSION}.py source", source))
+            blobs.append((f"{module.VERSION} RESPONSE_SCHEMA", schema_text))
+        for blob_name, blob in blobs:
             low = blob.lower()
             for marker in _SECRET_MARKERS:
                 self.assertNotIn(marker.lower(), low, f"{blob_name} contains {marker!r}")
             for marker in _VENDOR_MARKERS:
                 self.assertNotIn(marker.lower(), low, f"{blob_name} contains vendor marker {marker!r}")
 
-    # 4 - current prompt content / behavior is preserved byte-for-byte
-    def test_prompt_is_byte_identical_to_pre_1118_construction(self):
+    # 4 - v1's content is preserved byte-for-byte (immutable once published)
+    def test_v1_prompt_is_byte_identical_to_pre_1118_construction(self):
         golden = _GOLDEN.read_text()
+        built = get_classification_prompt("v1").build(
+            recovered_candidates=_FIXTURE_RECOVERED, question_data=_FIXTURE_QDATA)
+        self.assertEqual(built, golden)
+
+    # 4b - v2 is now the default, and fixes the missing taxonomy_coverage_evidence
+    # requirement found running PHASE 30 against a real provider (see v2.py docstring)
+    def test_v2_is_the_default_and_requires_coverage_evidence_for_a_gap(self):
+        golden = _GOLDEN_V2.read_text()
         built = get_classification_prompt().build(
             recovered_candidates=_FIXTURE_RECOVERED, question_data=_FIXTURE_QDATA)
         self.assertEqual(built, golden)
+        self.assertIn(
+            "taxonomy_coverage_evidence must contain at least one entry",
+            prompt_v2._RULES,
+        )
+        self.assertIn("or if none of its entries is a genuine match", prompt_v2._RULES)
+        self.assertNotIn(
+            "taxonomy_coverage_evidence must contain at least one entry",
+            prompt_v1._RULES,
+        )
 
     def test_response_schema_is_unchanged(self):
         schema = get_classification_prompt().response_schema

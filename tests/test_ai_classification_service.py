@@ -104,7 +104,7 @@ class AiAgnosticClassificationServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_versioned_prompt_reaches_the_pipeline(self):
         fake = _FakeProvider()
         svc, out = await self._audit(fake)
-        self.assertEqual(svc.classification_prompt_version, "v1")
+        self.assertEqual(svc.classification_prompt_version, "v2")
         self.assertEqual(len(fake.prompts), 3)
         for prompt in fake.prompts:
             self.assertIn("RESPONSE_SCHEMA: ", prompt)
@@ -149,7 +149,7 @@ class AiAgnosticClassificationServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["evidence_text"], ["Diluição"])
         self.assertEqual(seen["taxonomy_version"], "reference-v1")
         self.assertEqual(seen["provider"], "phase-11-23")
-        self.assertEqual(seen["prompt_version"], "v1")  # the versioned artifact
+        self.assertEqual(seen["prompt_version"], "v2")  # the versioned artifact
         self.assertEqual(await self._count(), 0)  # the mock did not write
 
     # 5b - a real explicit persist creates exactly one deterministic ('rule') ACTIVE row

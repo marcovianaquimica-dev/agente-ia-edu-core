@@ -13,12 +13,12 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from . import v1
+from . import v1, v2
 
-DEFAULT_VERSION = "v1"
+DEFAULT_VERSION = "v2"
 
 # artifact version id -> module exposing VERSION, RESPONSE_SCHEMA, build_prompt(...)
-_ARTIFACTS = {v1.VERSION: v1}
+_ARTIFACTS = {v1.VERSION: v1, v2.VERSION: v2}
 
 # Free-form ``prompt_version`` labels used by callers before PHASE 11.18, each
 # mapped to the artifact version whose text actually built their prompt. Kept for
