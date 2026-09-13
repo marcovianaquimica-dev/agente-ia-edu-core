@@ -6,6 +6,8 @@ system is unaffected - and "purely additive" is exactly the kind of claim that
 is believed rather than checked.
 """
 
+import pathlib
+import re
 import unittest
 
 from sqlalchemy import inspect
@@ -163,6 +165,37 @@ class TestPhase1IsAdditive(unittest.IsolatedAsyncioTestCase):
             with self.subTest(column=name):
                 self.assertIn(name, columns)
                 self.assertTrue(columns[name].nullable)
+
+    def test_the_migration_declares_those_columns_nullable_too(self):
+        """The test above reads the MODEL. The claim of this phase is about what
+        the migration does to a production database, and a NOT NULL present only
+        in the DDL would pass a model-only check while breaking every existing
+        row on deploy.
+
+        Deliberately a textual assertion and nothing more: it reads the one
+        statement that matters - ``sa.Column(column, sa.Uuid(), nullable=True)``
+        - without knowing anything else about how the migration is written."""
+        migration = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "migrations"
+            / "versions"
+            / "043_user_school_link_entities.py"
+        )
+        source = migration.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'op.add_column("user_school_links", sa.Column(column, sa.Uuid(), nullable=True))',
+            source,
+            "043 must add the bridge columns as NULLABLE",
+        )
+        self.assertNotIn("nullable=False", source)
+
+        declared = set(re.findall(r'\("(\w+)", "\w+", "fk_user_school_links_\w+"\)', source))
+        self.assertEqual(
+            declared,
+            {"user_id", "school_unit_id", "segment_id", "grade_level_id", "class_id"},
+            "the five bridge columns the model declares must be the five 043 adds",
+        )
 
     async def test_a_school_still_works_with_no_r0_rows_at_all(self):
         """Every school in production is in this state today: it exists, it has

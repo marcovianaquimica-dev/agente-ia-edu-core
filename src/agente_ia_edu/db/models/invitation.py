@@ -111,7 +111,9 @@ class UserInvitation(Base):
 def generate_invitation_token() -> str:
     """Generate a cryptographically secure invitation token.
 
-    Token format: random 32 bytes, hex-encoded for URL safety.
+    Token format: 32 random bytes, base64url-encoded for URL safety
+    (``secrets.token_urlsafe``), which is not hex - the alphabet includes
+    letters beyond f, plus '-' and '_'.
     """
     return secrets.token_urlsafe(32)
 
