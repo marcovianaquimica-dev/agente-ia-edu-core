@@ -480,3 +480,42 @@ class TestExternalIdIsUniquePerSchool(TenantIsolationCase):
             a.klass.external_id = "TURMA_3A"
             b.klass.external_id = "TURMA_3A"
             await session.flush()
+
+
+class TestPlatformScopeBridgeRequiresSchool(TenantIsolationCase):
+    """The regression the composite fix introduced. Under MATCH SIMPLE, a
+    composite foreign key is unchecked the moment any one of its columns is
+    NULL, and ``school_id`` is NULL on every PLATFORM-scope link - so such a
+    link could name a class_id (or any other bridge column) that does not
+    exist at all, which is worse than the plain foreign key this phase
+    replaced. ``ck_user_school_links_bridge_requires_school`` closes that: a
+    link with no school must have every bridge column NULL too."""
+
+    async def test_a_platform_scope_link_cannot_name_a_class_that_does_not_exist(self):
+        """The composite foreign key (school_id, class_id) is unenforced here
+        because school_id is NULL - that is MATCH SIMPLE, not a bug. What
+        rejects this row is the CHECK, not the foreign key: class_id is
+        non-NULL while school_id is NULL, which the CHECK forbids outright,
+        before the (silent) foreign key ever gets a say."""
+        async with self.session_factory() as session:
+            session.add(UserSchoolLink(
+                external_user_id="admin:master",
+                school_id=None,
+                role="PLATFORM_ADMIN",
+                scope_type="PLATFORM",
+                class_id=uuid.uuid4(),
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
+    async def test_a_platform_scope_link_with_every_bridge_column_null_is_accepted(self):
+        """The other half of the rule: a PLATFORM-scope link naming nothing at
+        all - every such row in production today - must keep working."""
+        async with self.session_factory() as session:
+            session.add(UserSchoolLink(
+                external_user_id="admin:master_bare",
+                school_id=None,
+                role="PLATFORM_ADMIN",
+                scope_type="PLATFORM",
+            ))
+            await session.flush()

@@ -161,6 +161,18 @@ class UserSchoolLink(Base):
             "scope_type IN ('PLATFORM', 'SCHOOL', 'UNIT', 'SEGMENT', 'GRADE_LEVEL', 'CLASSROOM')",
             name="ck_user_school_links_scope_type",
         ),
+        # R0 fix: under MATCH SIMPLE, a composite foreign key is unchecked the
+        # moment any one of its columns is NULL. ``school_id`` is NULL for
+        # PLATFORM-scope links, which left every bridge column on those rows
+        # free to name an entity that does not exist at all - worse than the
+        # simple foreign key this phase replaced. A link with no school cannot
+        # point at a school-scoped entity, ``users`` included now that it
+        # carries ``school_id`` too (spec §8).
+        CheckConstraint(
+            "school_id IS NOT NULL OR (user_id IS NULL AND school_unit_id IS NULL "
+            "AND segment_id IS NULL AND grade_level_id IS NULL AND class_id IS NULL)",
+            name="ck_user_school_links_bridge_requires_school",
+        ),
         Index("ix_user_school_links_external_user_id", "external_user_id"),
         Index("ix_user_school_links_school_id", "school_id"),
         Index("ix_user_school_links_role", "role"),
