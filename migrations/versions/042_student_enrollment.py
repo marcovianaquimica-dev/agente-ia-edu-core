@@ -53,6 +53,9 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "student_id", "class_id", name="uq_student_enrollments_student_class"
         ),
+        sa.UniqueConstraint(
+            "class_id", "external_id", name="uq_student_enrollments_class_external_id"
+        ),
         sa.CheckConstraint(
             "status IN ('ACTIVE', 'TRANSFERRED', 'EXITED', 'COMPLETED')",
             name="ck_student_enrollments_status",

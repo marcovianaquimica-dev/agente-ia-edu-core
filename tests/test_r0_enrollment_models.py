@@ -147,3 +147,53 @@ class TestEnrollmentModels(unittest.IsolatedAsyncioTestCase):
             ))
             with self.assertRaises(IntegrityError):
                 await session.flush()
+
+    async def test_external_id_is_unique_per_class(self):
+        """The external_id bridge is ambiguous if two rows in the same class
+        claim it. Two different students are used so that the pre-existing
+        UNIQUE(student_id, class_id) constraint cannot be the one firing."""
+        async with self.session_factory() as session:
+            school, grade, student_a = await self._fixture(session)
+            person_b = Person(school_id=school.id, full_name="Bruno Silva")
+            session.add(person_b)
+            await session.flush()
+            student_b = Student(
+                school_id=school.id, person_id=person_b.id, student_code="2026002"
+            )
+            session.add(student_b)
+            await session.flush()
+            klass = await self._class_in_year(session, school, grade, 2026)
+
+            session.add(StudentEnrollment(
+                student_id=student_a.id, class_id=klass.id, external_id="MATRICULA_1"
+            ))
+            await session.flush()
+            session.add(StudentEnrollment(
+                student_id=student_b.id, class_id=klass.id, external_id="MATRICULA_1"
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
+    async def test_external_id_can_repeat_across_classes(self):
+        """The same external_id in a different class is legitimate: the
+        constraint is scoped to the class, not global."""
+        async with self.session_factory() as session:
+            school, grade, student_a = await self._fixture(session)
+            person_b = Person(school_id=school.id, full_name="Bruno Silva")
+            session.add(person_b)
+            await session.flush()
+            student_b = Student(
+                school_id=school.id, person_id=person_b.id, student_code="2026002"
+            )
+            session.add(student_b)
+            await session.flush()
+            class_1 = await self._class_in_year(session, school, grade, 2026)
+            class_2 = await self._class_in_year(session, school, grade, 2027)
+
+            session.add(StudentEnrollment(
+                student_id=student_a.id, class_id=class_1.id, external_id="MATRICULA_1"
+            ))
+            session.add(StudentEnrollment(
+                student_id=student_b.id, class_id=class_2.id, external_id="MATRICULA_1"
+            ))
+            await session.flush()

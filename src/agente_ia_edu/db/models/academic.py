@@ -7,10 +7,12 @@ controls rather than on identifiers it cannot validate.
 
 Every table here carries an optional ``external_id``, unique per school, except
 ``User``, which is keyed by ``external_user_id`` alongside its identity
-provider instead. That column is the bridge: what today is
-``scope_external_id = "TURMA_3A"`` resolves to a real row while existing
-consumers keep reading the string, and they migrate one at a time (spec §3.2,
-§7).
+provider instead, and ``EnrollmentTransition``, which has no ``external_id``
+at all because it records a decision taken in this system — promote, retain,
+transfer, exit — rather than mirroring an entity a hosting platform owns. That
+column is the bridge: what today is ``scope_external_id = "TURMA_3A"``
+resolves to a real row while existing consumers keep reading the string, and
+they migrate one at a time (spec §3.2, §7).
 
 Credentials live nowhere in this module. The hosting platform stays the source
 of truth for authentication; the core only needs a stable local identity for the
@@ -296,6 +298,9 @@ class StudentEnrollment(Base):
     __tablename__ = "student_enrollments"
     __table_args__ = (
         UniqueConstraint("student_id", "class_id", name="uq_student_enrollments_student_class"),
+        UniqueConstraint(
+            "class_id", "external_id", name="uq_student_enrollments_class_external_id"
+        ),
         CheckConstraint(
             "status IN ('ACTIVE', 'TRANSFERRED', 'EXITED', 'COMPLETED')",
             name="ck_student_enrollments_status",
