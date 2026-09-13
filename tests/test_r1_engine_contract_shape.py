@@ -75,6 +75,22 @@ class TestEngineContractShape(unittest.TestCase):
         with self.assertRaises(ValidationError):
             EssayEngineOutput.model_validate(minimal_payload(scores=partial))
 
+    def test_rejects_a_competency_score_off_the_official_scale(self):
+        """Rejection: a competency score not in [0, 40, 80, 120, 160, 200]."""
+        scores = {
+            "per_competency": {
+                "C1": {"points": 50, "confidence": 0.8},
+                "C2": {"points": 160, "confidence": 0.8},
+                "C3": {"points": 160, "confidence": 0.8},
+                "C4": {"points": 160, "confidence": 0.8},
+                "C5": {"points": 160, "confidence": 0.8},
+            },
+            "total": 690,
+        }
+        with self.assertRaises(ValidationError) as cm:
+            EssayEngineOutput.model_validate(minimal_payload(scores=scores))
+        self.assertIn("points must be one of", str(cm.exception))
+
     def test_rejects_a_total_that_is_not_the_sum(self):
         """Rejection 2."""
         scores = {
