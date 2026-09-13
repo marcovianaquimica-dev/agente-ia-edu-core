@@ -33,6 +33,7 @@ class LevelEntry:
     points: int
     descriptor: str
     source_page: int
+    provenance: str = "OFICIAL_INEP"
 
 
 @dataclass(frozen=True)
@@ -146,10 +147,16 @@ def _parse_level(raw: Any) -> LevelEntry:
         raise RubricFileError(
             f"Level {raw.get('points')!r} must cite a positive source_page"
         )
+    provenance = raw.get("provenance", "OFICIAL_INEP")
+    if provenance not in PROVENANCES:
+        raise RubricFileError(
+            f"Level {raw.get('points')!r} declares unknown provenance {provenance!r}"
+        )
     return LevelEntry(
         points=_required(raw, "points"),
         descriptor=_required(raw, "descriptor"),
         source_page=source_page,
+        provenance=provenance,
     )
 
 

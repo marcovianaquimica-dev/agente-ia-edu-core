@@ -126,7 +126,7 @@ class EssayRubricSeeder:
                         points=level.points,
                         descriptor=level.descriptor,
                         source_page=level.source_page,
-                        provenance="OFICIAL_INEP",
+                        provenance=level.provenance,
                     )
                 )
 

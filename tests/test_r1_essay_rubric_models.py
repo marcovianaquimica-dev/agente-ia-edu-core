@@ -68,6 +68,25 @@ class TestEssayRubricModels(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(IntegrityError):
                 await session.flush()
 
+    async def test_level_with_an_unknown_provenance_is_rejected(self):
+        async with self.session_factory() as session:
+            rubric = await self._rubric(session)
+            competency = EssayRubricCompetency(
+                rubric_id=rubric.id, code="C1", ordinal=1,
+                official_title="Demonstrar domínio da modalidade escrita formal da língua portuguesa.",
+                source_page=14,
+            )
+            session.add(competency)
+            await session.flush()
+
+            session.add(EssayRubricLevel(
+                competency_id=competency.id, points=200,
+                descriptor="descritor qualquer", source_page=14,
+                provenance="NAO_EXISTE",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
     async def test_official_signal_without_source_ref_is_rejected(self):
         async with self.session_factory() as session:
             rubric = await self._rubric(session)
@@ -113,6 +132,17 @@ class TestEssayRubricModels(unittest.IsolatedAsyncioTestCase):
                 competency_code=None, source_page=9, provenance="OFICIAL_INEP",
             ))
             await session.flush()
+
+    async def test_scoring_rule_with_an_unknown_provenance_is_rejected(self):
+        async with self.session_factory() as session:
+            rubric = await self._rubric(session)
+            session.add(EssayRubricScoringRule(
+                rubric_id=rubric.id, key="fuga_ao_tema",
+                label="Fuga ao tema", effect="ANULA_REDACAO",
+                competency_code=None, source_page=9, provenance="NAO_EXISTE",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()
 
     async def test_limita_pontuacao_rule_accepts_an_official_max_points(self):
         async with self.session_factory() as session:

@@ -269,8 +269,10 @@ ser um dos seis valores oficiais.
 ### Separação de responsabilidades
 
 Os níveis são texto oficial imutável. Os sinais são o vocabulário observável do motor. As
-regras de zero são condições de curto-circuito. Um consumidor lê a régua sem saber nada do
-motor; o motor consulta a régua sem saber de qual arquivo ela veio.
+regras de pontuação anulam a redação, zeram uma competência ou limitam seu teto - nem toda
+regra é um curto-circuito, a de teto convive com a pontuação normal do nível. Um consumidor
+lê a régua sem saber nada do motor; o motor consulta a régua sem saber de qual arquivo ela
+veio.
 
 ---
 

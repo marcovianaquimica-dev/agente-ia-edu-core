@@ -82,6 +82,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "points IN (0, 40, 80, 120, 160, 200)", name="ck_essay_rubric_levels_points"
         ),
+        sa.CheckConstraint(
+            "provenance IN ('OFICIAL_INEP', 'INTERPRETACAO_PEDAGOGICA', 'HEURISTICA_MOTOR')",
+            name="ck_essay_rubric_levels_provenance",
+        ),
     )
     op.create_index(
         "ix_essay_rubric_levels_competency_id", "essay_rubric_levels", ["competency_id"]
@@ -148,6 +152,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "max_points IS NULL OR max_points IN (0, 40, 80, 120, 160, 200)",
             name="ck_essay_rubric_scoring_rules_max_points_range",
+        ),
+        sa.CheckConstraint(
+            "provenance IN ('OFICIAL_INEP', 'INTERPRETACAO_PEDAGOGICA', 'HEURISTICA_MOTOR')",
+            name="ck_essay_rubric_scoring_rules_provenance",
         ),
     )
     op.create_index(

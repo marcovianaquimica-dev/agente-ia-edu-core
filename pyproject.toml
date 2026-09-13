@@ -44,5 +44,11 @@ where = ["src"]
 # The editable install pins src/ in the primary checkout, so a worktree would
 # silently import and test the WRONG tree. This puts the checkout's own src/ at
 # the front of sys.path for every pytest run, whichever checkout it runs in.
-pythonpath = ["src"]
+#
+# "." is also required: two test files import `tools.extract_cartilha_enem`,
+# which only resolves when the working directory is on sys.path. `python -m
+# pytest` adds it for free, but the bare `pytest` console script does not -
+# without "." here it aborts collection of the entire suite, not just those
+# two files.
+pythonpath = ["src", "."]
 testpaths = ["tests"]

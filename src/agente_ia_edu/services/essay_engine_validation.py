@@ -1,5 +1,6 @@
-"""Layers 2 and 3 of engine-output validation (spec v1.0 §7, §18).
+"""Layers 1-3 of engine-output validation (spec v1.0 §7, §18).
 
+Layer 1 checks shape: does the payload even parse as :class:`EssayEngineOutput`.
 Layer 2 checks the output against the rubric it claims to have used. Layer 3
 checks that every specific claim points at something real.
 
@@ -8,6 +9,14 @@ pedagógica": the engine must not invent an error to justify a score. As prose,
 that is a paragraph in a PDF. Here it is a rejection condition - an annotation
 that criticises a specific passage must resolve to that passage, or declare
 itself a global judgement of the competency.
+
+Spec §7 promises a single failure currency: every rejection, at any layer, is an
+:class:`EssayEngineOutputRejected` carrying a reason code, the raw output and the
+input hash. Layer 1 previously broke that promise - a malformed payload fails
+:meth:`EssayEngineOutput.model_validate` with Pydantic's own ``ValidationError``,
+which carries none of those three things. :func:`validate_engine_output_from_payload`
+is the fix and the intended entry point: it runs all three layers and always
+raises the one exception type, however the payload failed.
 
 ``RubricView`` is a plain frozen snapshot rather than an ORM object so the
 validator stays pure: no session, no I/O, no async. ``load_rubric_view`` is the
@@ -19,6 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +62,22 @@ class EssayEngineOutputRejected(ValueError):
         self.input_hash = input_hash
 
 
+class RubricHasNoLevelsError(ValueError):
+    """A rubric row exists but has no competencies or levels to validate against.
+
+    This is the reader's counterpart to ``EssayRubricSeeder``'s
+    ``IncompleteRubricSeedError``: that one guards the write path, refusing to
+    treat a bare rubric header row as a complete seed; this one guards the read
+    path, refusing to treat a bare header row as a usable rubric. Without this
+    guard, ``load_rubric_view`` would happily return
+    ``RubricView(levels={}, signal_keys=frozenset())`` for such a row, and a
+    formative output with no annotations would validate clean against it - while
+    any output with real content would fail with the misleading
+    ``UNKNOWN_COMPETENCY`` message rather than naming the actual problem: the
+    rubric itself was never fully seeded.
+    """
+
+
 @dataclass(frozen=True)
 class RubricView:
     """Read-only snapshot of the parts of a rubric the validator needs."""
@@ -82,6 +108,15 @@ async def load_rubric_view(session: AsyncSession, rubric_version: str) -> Rubric
     levels: dict[str, set[int]] = {}
     for code, points in rows:
         levels.setdefault(code, set()).add(points)
+
+    if not levels:
+        raise RubricHasNoLevelsError(
+            f"Rubric version {rubric_version!r} (id={rubric.id}) exists but has "
+            "no competencies or levels. A rubric row with no children cannot be "
+            "validated against; seed it fully with EssayRubricSeeder before using "
+            "it, or investigate how a bare header row was written outside a full "
+            "seed()."
+        )
 
     signal_rows = (
         await session.execute(
@@ -213,6 +248,55 @@ def validate_engine_output(
             _require_evidence(annotation, anchor.read_text, reject)
 
 
+def validate_engine_output_from_payload(
+    raw_payload: dict,
+    *,
+    rubric: RubricView,
+    text: str | None = None,
+    page_boxes: Mapping[int, tuple[float, float]] | None = None,
+    raw_output: Any = None,
+    input_hash: str | None = None,
+) -> EssayEngineOutput:
+    """Single entry point for engine-output validation: layers 1, 2 and 3.
+
+    Callers with a raw model payload should use this instead of calling
+    :func:`validate_engine_output` directly, because that function only ever
+    sees an already-parsed :class:`EssayEngineOutput` and therefore cannot
+    guard layer 1 (shape). A malformed payload previously failed
+    ``EssayEngineOutput.model_validate`` with Pydantic's own ``ValidationError``
+    - carrying none of the reason code, raw output or input hash that spec §7
+    promises for every rejection - which forced every caller to catch two
+    exception types and hand-build the layer-1 audit record itself. This
+    function closes that gap: whichever layer rejects the payload, the caller
+    catches exactly one exception type, :class:`EssayEngineOutputRejected`,
+    always carrying the same three things.
+
+    ``raw_output`` defaults to ``raw_payload`` itself when not given, since the
+    payload passed in here already IS the raw model output worth keeping for
+    reprocessing.
+    """
+    effective_raw_output = raw_payload if raw_output is None else raw_output
+    try:
+        output = EssayEngineOutput.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise EssayEngineOutputRejected(
+            "CONTRACT_SHAPE_INVALID",
+            str(exc),
+            raw_output=effective_raw_output,
+            input_hash=input_hash,
+        ) from exc
+
+    validate_engine_output(
+        output,
+        rubric=rubric,
+        text=text,
+        page_boxes=page_boxes,
+        raw_output=effective_raw_output,
+        input_hash=input_hash,
+    )
+    return output
+
+
 def _require_evidence(annotation, evidence: str, reject) -> None:
     """Spec §4: a specific critique must point at something, or say it is global."""
     if annotation.evidence_kind == "GLOBAL":
@@ -227,7 +311,9 @@ def _require_evidence(annotation, evidence: str, reject) -> None:
 
 __all__ = [
     "EssayEngineOutputRejected",
+    "RubricHasNoLevelsError",
     "RubricView",
     "load_rubric_view",
     "validate_engine_output",
+    "validate_engine_output_from_payload",
 ]

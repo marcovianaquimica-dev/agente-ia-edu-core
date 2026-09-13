@@ -115,6 +115,15 @@ class TestEnem2025RubricFile(unittest.TestCase):
                     else:
                         self.assertTrue(signal.source_ref)
 
+    def test_every_level_declares_provenance_defaulting_to_oficial_inep(self):
+        """enem_2025.yaml never sets ``provenance:`` on a level - the default
+        (OFICIAL_INEP) is correct for every one of its 30 descriptors, and this
+        pins that the loader actually fills it in rather than leaving it unset."""
+        for competency in self.rubric.competencies:
+            for level in competency.levels:
+                with self.subTest(competency=competency.code, points=level.points):
+                    self.assertEqual(level.provenance, "OFICIAL_INEP")
+
     def test_declares_the_annulment_rules(self):
         keys = {rule.key for rule in self.rubric.scoring_rules}
         self.assertIn("fuga_ao_tema", keys)
@@ -165,6 +174,21 @@ class TestEnem2025RubricFile(unittest.TestCase):
             ],
             "scoring_rules": [scoring_rule],
         }
+
+    def test_rejects_a_level_with_an_unknown_provenance(self):
+        """Built on ``_base_broken_rubric`` (all five competencies fully valid,
+        with a valid scoring rule) so the only possible source of the
+        RubricFileError is the corrupted level provenance - not a missing
+        competency or an unrelated structural gap."""
+        from agente_ia_edu.rubrics.loader import RubricFileError, parse_rubric_mapping
+
+        broken = self._base_broken_rubric({
+            "key": "fuga_ao_tema", "label": "bad", "effect": "ANULA_REDACAO",
+            "competency_code": None, "provenance": "OFICIAL_INEP",
+        })
+        broken["competencies"][0]["levels"][-1]["provenance"] = "NOPE"
+        with self.assertRaises(RubricFileError):
+            parse_rubric_mapping(broken)
 
     def test_rejects_a_scoring_rule_with_an_unknown_provenance(self):
         from agente_ia_edu.rubrics.loader import RubricFileError, parse_rubric_mapping

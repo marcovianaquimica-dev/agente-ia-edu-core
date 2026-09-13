@@ -11,7 +11,7 @@ from agente_ia_edu.db.models import (
     EssayRubricLevel,
     EssayRubricScoringRule,
 )
-from agente_ia_edu.rubrics.loader import load_rubric_file
+from agente_ia_edu.rubrics.loader import load_rubric_file, parse_rubric_mapping
 from agente_ia_edu.services.essay_rubric_seed import (
     EssayRubricSeeder,
     IncompleteRubricSeedError,
@@ -32,6 +32,80 @@ class TestEssayRubricSeed(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.engine.dispose()
+
+    async def test_a_level_with_a_non_default_provenance_is_carried_through_to_the_database(
+        self,
+    ):
+        """LevelEntry.provenance defaults to OFICIAL_INEP, but the seeder must
+        not overwrite an explicitly declared non-default value with a hardcoded
+        literal - the exact gap the review flagged: every level used to be
+        stamped OFICIAL_INEP regardless of what the rubric file declared, which
+        made the mislabelling invisible to the provenance CHECK. This rubric is
+        built by hand (not enem_2025.yaml, which must stay untouched) so the
+        loader and the seeder can be exercised on a level that genuinely
+        declares a non-default provenance."""
+        custom = {
+            "rubric_version": "CUSTOM_TEST_RUBRIC",
+            "label": "régua de teste com proveniência não padrão",
+            "competencies": [
+                {
+                    "code": code, "ordinal": i, "official_title": "t", "source_page": 1,
+                    "levels": [
+                        {
+                            "points": p, "descriptor": "d", "source_page": 1,
+                            **(
+                                {"provenance": "INTERPRETACAO_PEDAGOGICA"}
+                                if code == "C1" and p == 200
+                                else {}
+                            ),
+                        }
+                        for p in (0, 40, 80, 120, 160, 200)
+                    ],
+                    "signals": [],
+                }
+                for i, code in enumerate(["C1", "C2", "C3", "C4", "C5"], start=1)
+            ],
+            "scoring_rules": [],
+        }
+        rubric_file = parse_rubric_mapping(custom)
+
+        # The loader itself must carry the declared value through, not silently
+        # default it - and must still default the levels that say nothing.
+        c1 = next(c for c in rubric_file.competencies if c.code == "C1")
+        declared_level = next(level for level in c1.levels if level.points == 200)
+        default_level = next(level for level in c1.levels if level.points == 160)
+        self.assertEqual(declared_level.provenance, "INTERPRETACAO_PEDAGOGICA")
+        self.assertEqual(default_level.provenance, "OFICIAL_INEP")
+
+        async with self.session_factory() as session:
+            await EssayRubricSeeder(session).seed(rubric_file)
+            await session.commit()
+
+            rubric = await session.scalar(
+                select(EssayRubric).where(
+                    EssayRubric.rubric_version == "CUSTOM_TEST_RUBRIC"
+                )
+            )
+            competency = await session.scalar(
+                select(EssayRubricCompetency).where(
+                    EssayRubricCompetency.rubric_id == rubric.id,
+                    EssayRubricCompetency.code == "C1",
+                )
+            )
+            stored_declared = await session.scalar(
+                select(EssayRubricLevel).where(
+                    EssayRubricLevel.competency_id == competency.id,
+                    EssayRubricLevel.points == 200,
+                )
+            )
+            stored_default = await session.scalar(
+                select(EssayRubricLevel).where(
+                    EssayRubricLevel.competency_id == competency.id,
+                    EssayRubricLevel.points == 160,
+                )
+            )
+            self.assertEqual(stored_declared.provenance, "INTERPRETACAO_PEDAGOGICA")
+            self.assertEqual(stored_default.provenance, "OFICIAL_INEP")
 
     async def test_seeds_five_competencies_and_thirty_levels(self):
         async with self.session_factory() as session:

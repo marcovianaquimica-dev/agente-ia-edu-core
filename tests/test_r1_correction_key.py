@@ -46,5 +46,31 @@ class TestCorrectionKey(unittest.TestCase):
         self.assertEqual(essay_text_hash(composed), essay_text_hash(decomposed))
 
     def test_normalisation_is_idempotent(self):
-        once = normalize_essay_text("  Texto  \r\n\r\n  com espaços \n")
-        self.assertEqual(normalize_essay_text(once), once)
+        cases = {
+            "mixed line endings": "Linha um\r\nLinha dois\rLinha três\nLinha quatro",
+            "trailing whitespace per line": "Linha um   \nLinha dois\t\nLinha três",
+            "leading and trailing blank lines": "\n\n  Texto central  \n\n",
+            "combining accent": "é acento combinante",
+            "internal non-breaking space": "Espaço não quebra aqui",
+            "empty string": "",
+        }
+        for label, raw in cases.items():
+            with self.subTest(case=label):
+                once = normalize_essay_text(raw)
+                self.assertEqual(normalize_essay_text(once), once)
+
+    def test_internal_double_spaces_survive_normalisation(self):
+        text = "Este texto  tem espaço duplo interno."
+        self.assertEqual(normalize_essay_text(text), text)
+
+    def test_internal_triple_spaces_survive_normalisation(self):
+        text = "Este texto   tem espaço triplo interno."
+        self.assertEqual(normalize_essay_text(text), text)
+
+    def test_internal_tab_survives_normalisation(self):
+        text = "Coluna1\tColuna2\tColuna3"
+        self.assertEqual(normalize_essay_text(text), text)
+
+    def test_punctuation_is_untouched(self):
+        text = 'Olá, mundo! Você está bem? Sim; "ótimo" — 100% (dez) [dois]... etc.'
+        self.assertEqual(normalize_essay_text(text), text)

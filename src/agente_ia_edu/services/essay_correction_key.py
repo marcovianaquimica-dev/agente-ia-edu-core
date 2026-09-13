@@ -28,7 +28,14 @@ def normalize_essay_text(text: str) -> str:
 
 
 def essay_text_hash(text: str) -> str:
-    """SHA-256 of the normalised essay text."""
+    """SHA-256 of the canonical-JSON encoding of the normalised essay text.
+
+    Not a hash of the raw normalised string: it goes through
+    :func:`canonical_hash`/:func:`canonical_json`, the same serialisation every
+    other hash in the system uses, so every stored hash - this one, an engine
+    output hash, a classification hash - is produced the same way and none of
+    them can be recomputed with a bare ``hashlib.sha256(text.encode())``.
+    """
     return canonical_hash(normalize_essay_text(text))
 
 

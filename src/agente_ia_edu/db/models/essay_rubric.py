@@ -6,12 +6,13 @@ The normative text is NOT hardcoded (spec v1.0 §3): it is seeded from
 ``src/agente_ia_edu/rubrics/*.yaml``, which carries the official source page for
 every descriptor and is reviewed in a pull request against the INEP PDF.
 
-Why levels, signals and zero rules are three tables and not one: levels are
+Why levels, signals and scoring rules are three tables and not one: levels are
 immutable official text scored on a fixed six-value scale; signals are the
 observable vocabulary the engine reasons with, and each one declares where it
-came from (spec §17); zero rules are short-circuit conditions that annul the
-essay or a competency and therefore carry no points at all. Folding zero rules
-into levels would break the points CHECK.
+came from (spec §17); scoring rules are normative conditions outside the level
+scale - they annul the essay, zero a competency, or cap a competency's points
+below what its own level descriptor would otherwise award. Folding scoring
+rules into levels would break the points CHECK.
 """
 
 from __future__ import annotations
@@ -131,6 +132,10 @@ class EssayRubricLevel(Base):
         CheckConstraint(
             "points IN (0, 40, 80, 120, 160, 200)", name="ck_essay_rubric_levels_points"
         ),
+        CheckConstraint(
+            "provenance IN ('OFICIAL_INEP', 'INTERPRETACAO_PEDAGOGICA', 'HEURISTICA_MOTOR')",
+            name="ck_essay_rubric_levels_provenance",
+        ),
         Index("ix_essay_rubric_levels_competency_id", "competency_id"),
     )
 
@@ -218,6 +223,10 @@ class EssayRubricScoringRule(Base):
         CheckConstraint(
             "max_points IS NULL OR max_points IN (0, 40, 80, 120, 160, 200)",
             name="ck_essay_rubric_scoring_rules_max_points_range",
+        ),
+        CheckConstraint(
+            "provenance IN ('OFICIAL_INEP', 'INTERPRETACAO_PEDAGOGICA', 'HEURISTICA_MOTOR')",
+            name="ck_essay_rubric_scoring_rules_provenance",
         ),
         Index("ix_essay_rubric_scoring_rules_rubric_id", "rubric_id"),
     )

@@ -6,15 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import EssayRubricSignal
+from agente_ia_edu.db.models import EssayRubric, EssayRubricSignal
 from agente_ia_edu.essay_engine_contract.v1 import CONTRACT_VERSION, EssayEngineOutput
 from agente_ia_edu.rubrics.loader import load_rubric_file
 from agente_ia_edu.services.essay_rubric_seed import EssayRubricSeeder
 from agente_ia_edu.services.essay_engine_validation import (
     EssayEngineOutputRejected,
+    RubricHasNoLevelsError,
     RubricView,
     load_rubric_view,
     validate_engine_output,
+    validate_engine_output_from_payload,
 )
 
 TEXT = "A valorização da cultura é um direito de todos os brasileiros."
@@ -26,7 +28,7 @@ RUBRIC = RubricView(
 )
 
 
-def build_output(**overrides) -> EssayEngineOutput:
+def build_payload(**overrides) -> dict:
     payload = {
         "identification": {
             "essay_id": str(uuid.uuid4()),
@@ -67,7 +69,11 @@ def build_output(**overrides) -> EssayEngineOutput:
     }
     for key, value in overrides.items():
         payload[key] = value
-    return EssayEngineOutput.model_validate(payload)
+    return payload
+
+
+def build_output(**overrides) -> EssayEngineOutput:
+    return EssayEngineOutput.model_validate(build_payload(**overrides))
 
 
 class TestEngineValidation(unittest.TestCase):
@@ -318,6 +324,20 @@ class TestLoadRubricView(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await load_rubric_view(session, "ENEM_1999")
 
+    async def test_a_bare_header_row_without_children_raises_rubric_has_no_levels(self):
+        """The reader's counterpart to EssayRubricSeeder's
+        IncompleteRubricSeedError: a rubric row written without its
+        competencies/levels (bypassing the seeder entirely, as a manual insert
+        or a future migration might) must not be silently treated as a usable,
+        empty rubric."""
+        async with self.session_factory() as session:
+            session.add(EssayRubric(rubric_version="BARE_HEADER_ONLY", label="sem filhos"))
+            await session.commit()
+
+            with self.assertRaises(RubricHasNoLevelsError) as caught:
+                await load_rubric_view(session, "BARE_HEADER_ONLY")
+            self.assertIn("BARE_HEADER_ONLY", str(caught.exception))
+
     async def test_the_returned_view_carries_the_requested_rubric_version(self):
         async with self.session_factory() as session:
             view = await load_rubric_view(session, "ENEM_2025")
@@ -347,3 +367,52 @@ class TestLoadRubricView(unittest.IsolatedAsyncioTestCase):
             }],
         )
         validate_engine_output(output, rubric=view, text=TEXT)
+
+
+class TestValidateEngineOutputFromPayload(unittest.TestCase):
+    """``validate_engine_output_from_payload`` is the single entry point spec §7
+    promises: one exception type, carrying reason code, raw output and input
+    hash, whichever of the three layers rejects the payload - including layer 1
+    (shape), which ``validate_engine_output`` alone cannot guard because it only
+    ever receives an already-parsed ``EssayEngineOutput``."""
+
+    def test_a_shape_invalid_payload_raises_contract_shape_invalid(self):
+        raw_payload = build_payload()
+        del raw_payload["identification"]  # required field, missing -> ValidationError
+
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output_from_payload(
+                raw_payload, rubric=RUBRIC, text=TEXT, input_hash="abc123"
+            )
+
+        self.assertEqual(caught.exception.reason_code, "CONTRACT_SHAPE_INVALID")
+        self.assertEqual(caught.exception.raw_output, raw_payload)
+        self.assertEqual(caught.exception.input_hash, "abc123")
+
+    def test_a_rubric_invalid_payload_still_raises_its_own_layer_2_code(self):
+        """Shape is fine; the rejection must come from layer 2, not layer 1."""
+        raw_payload = build_payload(
+            identification={
+                "essay_id": str(uuid.uuid4()),
+                "essay_version_id": str(uuid.uuid4()),
+                "rubric_version": "ENEM_2024",  # RUBRIC below is ENEM_2025
+                "model_version": "fake-model-1",
+                "prompt_version": "v1",
+                "engine_version": "r1.0.0",
+                "contract_version": CONTRACT_VERSION,
+                "anchor_mode": "TEXT_OFFSET",
+            }
+        )
+
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
+
+        self.assertEqual(caught.exception.reason_code, "RUBRIC_VERSION_MISMATCH")
+
+    def test_a_valid_payload_returns_the_parsed_output(self):
+        raw_payload = build_payload()
+
+        output = validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
+
+        self.assertIsInstance(output, EssayEngineOutput)
+        self.assertEqual(output.identification.rubric_version, "ENEM_2025")
