@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from agente_ia_edu.classification_prompts import get_classification_prompt
 from agente_ia_edu.db.models import CatalogNode, PedagogicalClassification, QuestionOption, QuestionVersion
+from agente_ia_edu.services.canonical_hash import canonical_hash
 from agente_ia_edu.providers.contracts import TextGenerationProvider
 from agente_ia_edu.providers.models import TextGenerationRequest
 
@@ -1222,7 +1223,8 @@ class ClassificationProposalService:
 
     @staticmethod
     def _hash(value: Any) -> str:
-        return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+        # Behaviour frozen in services/canonical_hash.py - see the docstring there.
+        return canonical_hash(value)
 
     async def propose(self, question_version_id: UUID, proposal: ClassificationProposal, *, classifier_version: str, taxonomy_version: str, provider: str, model: str, prompt_version: str) -> PedagogicalClassification:
         version = await self.session.get(QuestionVersion, question_version_id)
