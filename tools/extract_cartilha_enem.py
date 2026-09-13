@@ -9,8 +9,12 @@ shifted by a constant 29 code points, and a handful of glyphs are ligatures -
 but running a decoder like this in production, over a third party's PDF, is
 fragile and unnecessary. The rubric is seeded once from a reviewed YAML file.
 
-Everything this tool cannot decode is replaced with UNDECODED_MARKER so the
-human reviewing the YAML against the PDF knows exactly where to look.
+Everything this tool cannot decode is marked so the human reviewing the YAML
+against the PDF knows exactly where to look: a single unmappable character
+within a trusted decode is replaced with UNDECODED_MARKER, and a whole run
+the tool suspects is encoded but would not bet its own decode on is returned
+as-is with UNDECIDED_MARKER prefixed - never silently unchanged, since that
+would look identical to ordinary correct text.
 
 Usage:
     python -m tools.extract_cartilha_enem <cartilha.pdf> > draft.yaml
@@ -22,7 +26,20 @@ import sys
 from pathlib import Path
 
 _SHIFT = 29
+
+# Marks a single character within an otherwise-decoded run that this tool
+# could not map (not in _ENCODED_RANGE, not a known ligature, not whitespace).
 UNDECODED_MARKER = "⟨?⟩"
+
+# Marks a whole run that _looks_encoded flagged as encoded, but that a
+# post-decode guard (_decoded_looks_sane or _decoded_mostly_lowercase)
+# rejected - the tool is not confident either that the run is encoded or
+# that its own decode of it is correct, so the original text is returned
+# with this marker prefixed rather than silently unchanged. This is a
+# different kind of uncertainty than UNDECODED_MARKER: that one flags a
+# single character the decoder could not map inside a run it otherwise
+# trusts; this one flags a whole run the decoder declined to touch at all.
+UNDECIDED_MARKER = "⟨?cifra⟩"
 
 # Glyphs the subset maps to multi-character ligatures rather than to a shifted
 # code point. Extend as the review surfaces more.
@@ -46,10 +63,13 @@ _ACCEPTABLE_PUNCTUATION = set(".,;:!?()-–—\"'/%")
 def decode_subset(text: str) -> str:
     """Decode one string extracted from a subsetted-font run.
 
-    Text that is already legible is returned unchanged. When in doubt, this
-    function does NOT decode: leaving an encoded run undecoded is a loud
-    failure a human will notice; decoding correct text is a silent one that
-    would reach the rubric transcription unnoticed.
+    Text that is already legible is returned unchanged. When a run looks
+    encoded but a post-decode guard rejects the result, this function does
+    NOT decode - but it also does not return the original silently: it
+    prefixes it with UNDECIDED_MARKER, because "I decided not to decode
+    this" is itself information the human reviewing the draft needs. A
+    silent pass-through here is exactly the defect class this decoder
+    exists to eliminate - it looks identical to ordinary correct text.
     """
     if not _looks_encoded(text):
         return text
@@ -67,10 +87,10 @@ def decode_subset(text: str) -> str:
     decoded = "".join(out)
 
     if not _decoded_looks_sane(decoded):
-        return text
+        return UNDECIDED_MARKER + text
 
     if not _decoded_mostly_lowercase(decoded):
-        return text
+        return UNDECIDED_MARKER + text
 
     return decoded
 

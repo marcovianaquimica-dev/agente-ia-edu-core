@@ -1,6 +1,10 @@
 import unittest
 
-from tools.extract_cartilha_enem import UNDECODED_MARKER, decode_subset
+from tools.extract_cartilha_enem import (
+    UNDECIDED_MARKER,
+    UNDECODED_MARKER,
+    decode_subset,
+)
 
 
 class TestCartilhaDecoder(unittest.TestCase):
@@ -46,29 +50,51 @@ class TestCartilhaDecoder(unittest.TestCase):
         decoded = decode_subset("'HPRQVWUD§")
         self.assertIn(UNDECODED_MARKER, decoded)
 
-    def test_leaves_a_number_with_trailing_space_untouched(self):
+    def test_leaves_a_number_with_trailing_space_untouched_via_length_guard(self):
+        # Measured, not assumed: len("200 ") == 4 < 8, so _looks_encoded
+        # rejects it outright on the length guard - same reason as "INEP"
+        # below, not the in-range ratio and not a post-decode guard. No
+        # decode is ever attempted, so no marker is expected either.
         self.assertEqual(decode_subset("200 "), "200 ")
 
-    def test_leaves_a_word_with_a_digit_untouched(self):
-        self.assertEqual(decode_subset("ENEM 2025"), "ENEM 2025")
-
-    def test_leaves_a_parenthesized_year_untouched(self):
-        self.assertEqual(decode_subset("(2025)"), "(2025)")
-
-    def test_leaves_uppercase_words_with_a_space_untouched(self):
-        self.assertEqual(
-            decode_subset("CARTILHA DO PARTICIPANTE"),
-            "CARTILHA DO PARTICIPANTE",
-        )
-
-    def test_leaves_another_uppercase_run_with_a_space_untouched(self):
-        self.assertEqual(decode_subset("VOL TAR PARA "), "VOL TAR PARA ")
-
-    def test_leaves_a_short_run_untouched(self):
+    def test_leaves_a_short_run_untouched_via_length_guard(self):
         self.assertEqual(decode_subset("INEP"), "INEP")
 
-    def test_leaves_another_short_run_untouched(self):
+    def test_leaves_another_short_run_untouched_via_length_guard(self):
         self.assertEqual(decode_subset("SIM"), "SIM")
+
+    def test_leaves_a_parenthesized_year_untouched_via_length_guard(self):
+        # len("(2025)") == 6 < 8: same length guard, verified rather than
+        # assumed.
+        self.assertEqual(decode_subset("(2025)"), "(2025)")
+
+    def test_marks_an_all_caps_run_rejected_by_the_lowercase_guard(self):
+        # "ENEM 2025" passes _looks_encoded and _decoded_looks_sane (it
+        # decodes to the printable-but-wrong "bkbj OMOR"), then is rejected
+        # by _decoded_mostly_lowercase (50% lowercase, below the 0.7
+        # threshold). That used to come back silently unchanged; it must
+        # now carry UNDECIDED_MARKER so a human knows the tool was unsure,
+        # and the original text must still be recoverable from the result.
+        result = decode_subset("ENEM 2025")
+        self.assertTrue(result.startswith(UNDECIDED_MARKER))
+        self.assertIn("ENEM 2025", result)
+
+    def test_marks_a_correct_all_caps_string_rejected_by_the_charset_guard(self):
+        # "CARTILHA DO PARTICIPANTE" is genuinely correct text, but
+        # _looks_encoded accepts it (100% of its letters sit in the shifted
+        # range) and the shift produces punctuation outside
+        # _ACCEPTABLE_PUNCTUATION (e.g. 'A'+29 -> '^'), so it is rejected by
+        # _decoded_looks_sane - a different guard than the lowercase one
+        # above, but the same rejection path and the same fix: mark it,
+        # don't silently return it bare.
+        result = decode_subset("CARTILHA DO PARTICIPANTE")
+        self.assertTrue(result.startswith(UNDECIDED_MARKER))
+        self.assertIn("CARTILHA DO PARTICIPANTE", result)
+
+    def test_marks_another_all_caps_run_rejected_by_the_charset_guard(self):
+        result = decode_subset("VOL TAR PARA ")
+        self.assertTrue(result.startswith(UNDECIDED_MARKER))
+        self.assertIn("VOL TAR PARA ", result)
 
 
 if __name__ == "__main__":
