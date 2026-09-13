@@ -86,6 +86,15 @@ class TestIdentityModels(unittest.IsolatedAsyncioTestCase):
             await session.flush()
             self.assertEqual(user.status, "ACTIVE")
 
+        async with self.session_factory() as session:
+            orphan = User(
+                external_identity_provider="host",
+                external_user_id="host:orphan",
+            )
+            session.add(orphan)
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
     async def test_user_status_is_constrained(self):
         async with self.session_factory() as session:
             school = await self._school(session)

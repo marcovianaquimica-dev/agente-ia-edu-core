@@ -1,4 +1,12 @@
-from .academic import Person, User
+from .academic import (
+    AcademicYear,
+    Class,
+    GradeLevel,
+    Person,
+    SchoolUnit,
+    Segment,
+    User,
+)
 from .official import (
     AnswerKeyEntry,
     AnswerKeyRevision,
@@ -202,4 +210,9 @@ __all__ = [
     "EssayRubricScoringRule",
     "Person",
     "User",
+    "AcademicYear",
+    "Class",
+    "GradeLevel",
+    "SchoolUnit",
+    "Segment",
 ]
