@@ -7,8 +7,8 @@ This package never stores a password, a token or any other secret, and
 REVOGAÇÃO PARCIAL, 2026-09-13 (R0). This module used to state that the host was
 also the source of truth for the academic hierarchy - institution, unit, grade
 level and classroom arrived as external identifiers and were never modelled
-here. That half no longer holds: the core now owns the academic hierarchy, from
-unit through enrollment, modelled in ``db/models/academic.py``.
+here. That half no longer holds: the core now owns the academic hierarchy, modelled in
+``db/models/academic.py``.
 
 The reason is that the REDAÇÃO platform decides authorisation from class
 membership, and deciding authorisation from strings supplied by another system
