@@ -372,6 +372,37 @@ respondendo — para a pessoa errada.
 - **R8** — `RubricView` precisa ser estendida para carregar as regras de pontuação; hoje o teto
   `LIMITA_PONTUACAO` da régua ENEM é dado sem caminho de código que o aplique.
 
+- **R3 e R8 — quantas IAs corrigem, e quando.** Pergunta levantada em 13/09/2026 e ainda
+  em aberto; registrada aqui para não ser redecidida do zero.
+
+  **O core já tem o mecanismo.** `services/classification_consensus.py` existe, é usado por
+  três serviços, e abre declarando o princípio: *a IA propõe, o sistema decide*. Ele roda o
+  mesmo pipeline N vezes (`DEFAULT_N = 3`), é independente de fornecedor — depende só do
+  contrato `TextGenerationProvider` — e não escreve nada no banco, porque cada execução roda
+  em transação revertida. Há também um `ProviderRouter` que roteia entre provedores. **Quem
+  escrever R3 deve reusar isso, não reinventar.**
+
+  **Mas a regra atual não transfere.** O consenso existente exige **unanimidade**, o que
+  funciona para classificar uma questão numa categoria e rejeitaria quase toda redação: três
+  execuções dando 160, 160 e 120 em C1 não são discordância de categoria, são variância num
+  julgamento gradual. A métrica certa já está na spec do produto §16 — *percentual dentro de
+  ±40 pontos*, concordância dentro de um nível, não identidade.
+
+  **Duas perguntas distintas, fáceis de confundir.** Rodar o mesmo modelo N vezes mede
+  **estabilidade**; consultar modelos diferentes mede **concordância**. Um modelo com viés
+  sistemático — generoso em C5, digamos — passa no primeiro teste e falha no segundo. Para
+  calibração contra o Banco Ouro, a segunda é a que importa.
+
+  **Recomendação registrada:** passe único por padrão, com escalonamento por gatilho em vez
+  de sempre-N. Os gatilhos já existem no material construído: `confidence` por competência no
+  contrato do motor, os alertas da régua, divergência grande entre competências, e os casos
+  limítrofes entre níveis que a §16 manda amostrar. Sempre-N triplica o custo por redação;
+  escalonar paga o triplo só onde ele compra algo.
+
+  **Alerta que não pode se perder:** múltiplas IAs **não mudam nada** no quadro regulatório
+  do CNE. Três modelos concordando continua sendo IA atribuindo a nota. Consenso melhora
+  confiabilidade, não conformidade, e tratar um como solução do outro seria um erro caro.
+
 ---
 
 ## 11. Fontes
