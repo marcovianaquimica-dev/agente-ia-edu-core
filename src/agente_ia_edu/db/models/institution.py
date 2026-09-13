@@ -37,6 +37,32 @@ from ..types import JSONBCompatible
 CORRECTION_MODES = ("FORMATIVO", "AVALIATIVO")
 VALIDATION_MODES = ("UMA_A_UMA", "EM_LOTE", "AUTOMATICA")
 
+_HEX_DIGITS = "0123456789abcdef"
+HEX_COLOR_LENGTHS = (4, 7, 9)  # #RGB, #RRGGBB, #RRGGBBAA
+
+
+def hex_color_check(column: str) -> str:
+    """CHECK that ``column`` is NULL or a hexadecimal colour (spec §5.2).
+
+    Written without a regular expression on purpose. PostgreSQL's ``~`` is not
+    parseable by SQLite and SQLite's ``GLOB`` does not exist in PostgreSQL,
+    while every test in this phase builds the schema on SQLite - so a regex
+    CHECK would be a constraint that only one of the two databases has.
+    ``substr``, ``length``, ``lower`` and ``replace`` exist in both: strip every
+    hex digit from the body and what remains must be empty.
+    """
+    stripped = f"lower(substr({column}, 2))"
+    for digit in _HEX_DIGITS:
+        stripped = f"replace({stripped}, '{digit}', '')"
+    lengths = ", ".join(str(n) for n in HEX_COLOR_LENGTHS)
+    return (
+        f"{column} IS NULL OR ("
+        f"substr({column}, 1, 1) = '#' "
+        f"AND length({column}) IN ({lengths}) "
+        f"AND {stripped} = ''"
+        f")"
+    )
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -122,6 +148,10 @@ class SchoolIdentityVersion(Base):
     exactly as it stamps ``rubric_version``.
 
     A published version is immutable. Changing the identity creates a new one.
+
+    Who published it is mandatory, and the composite key makes that author a
+    user OF THIS SCHOOL. The colours are checked as hexadecimal by the database
+    rather than by whoever writes them (spec §3.5, §5.2).
     """
 
     __tablename__ = "school_identity_versions"
@@ -135,6 +165,14 @@ class SchoolIdentityVersion(Base):
         UniqueConstraint("school_id", "version", name="uq_school_identity_versions_version"),
         UniqueConstraint("school_id", "id", name="uq_school_identity_versions_school_id_id"),
         CheckConstraint("version > 0", name="ck_school_identity_versions_version_positive"),
+        CheckConstraint(
+            hex_color_check("primary_color"),
+            name="ck_school_identity_versions_primary_color_hex",
+        ),
+        CheckConstraint(
+            hex_color_check("secondary_color"),
+            name="ck_school_identity_versions_secondary_color_hex",
+        ),
         Index("ix_school_identity_versions_school_id", "school_id"),
     )
 
@@ -150,4 +188,8 @@ class SchoolIdentityVersion(Base):
     published_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
-    published_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    # NOT NULL: the only writer is ``InstitutionSettingsService.publish_identity``
+    # and it requires the author. Declared nullable, the column was structurally
+    # unreachable - never written by anyone, permanently NULL, indistinguishable
+    # from "not informed" to whoever reads it next.
+    published_by_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)

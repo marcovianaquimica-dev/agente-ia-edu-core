@@ -127,7 +127,10 @@ class TenantIsolationCase(unittest.IsolatedAsyncioTestCase):
             school_id=school.id, student_id=student.id, class_id=klass.id
         )
         identity = SchoolIdentityVersion(
-            school_id=school.id, version=1, display_name=f"Colégio {code}"
+            school_id=school.id,
+            version=1,
+            display_name=f"Colégio {code}",
+            published_by_user_id=user.id,
         )
         session.add_all([enrollment, identity])
         await session.flush()

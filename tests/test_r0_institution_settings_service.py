@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import AdminAuditLog, School, SchoolIdentityVersion
+from agente_ia_edu.db.models import (
+    AdminAuditLog,
+    Person,
+    School,
+    SchoolIdentityVersion,
+    User,
+)
 from agente_ia_edu.services.institution_settings import (
     IdentityVersionImmutableError,
     InstitutionSettingsService,
@@ -31,6 +37,21 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
         session.add(school)
         await session.flush()
         return school
+
+    async def _author(self, session, school) -> User:
+        """Publishing an identity requires naming who published it."""
+        person = Person(school_id=school.id, full_name="Diretora Marta")
+        session.add(person)
+        await session.flush()
+        user = User(
+            school_id=school.id,
+            person_id=person.id,
+            external_identity_provider="host",
+            external_user_id="host:marta",
+        )
+        session.add(user)
+        await session.flush()
+        return user
 
     async def test_first_read_creates_a_formative_default(self):
         """A school with no settings row is formative until someone says
@@ -80,12 +101,19 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             school = await self._school(session)
             service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
 
             first = await service.publish_identity(
-                school.id, performed_by_external_id="admin:master", display_name="Colégio A"
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio A",
             )
             second = await service.publish_identity(
-                school.id, performed_by_external_id="admin:master", display_name="Colégio B"
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio B",
             )
 
             self.assertEqual(first.version, 1)
@@ -100,8 +128,12 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             school = await self._school(session)
             service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
             published = await service.publish_identity(
-                school.id, performed_by_external_id="admin:master", display_name="Colégio A"
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio A",
             )
 
             with self.assertRaises(IdentityVersionImmutableError):
@@ -111,8 +143,12 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             school = await self._school(session)
             service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
             await service.publish_identity(
-                school.id, performed_by_external_id="admin:master", display_name="Colégio A"
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio A",
             )
             count = await session.scalar(select(func.count()).select_from(AdminAuditLog))
             self.assertEqual(count, 1)
@@ -121,11 +157,18 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             school = await self._school(session)
             service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
             await service.publish_identity(
-                school.id, performed_by_external_id="admin:master", display_name="Colégio A"
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio A",
             )
             await service.publish_identity(
-                school.id, performed_by_external_id="admin:master", display_name="Colégio B"
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio B",
             )
 
             versions = (await session.execute(
@@ -215,5 +258,104 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.id, initial_id)
 
             # Confirm no audit row was written
+            count = await session.scalar(select(func.count()).select_from(AdminAuditLog))
+            self.assertEqual(count, 0)
+
+    async def test_publishing_records_who_published_it(self):
+        """I3: the audit column used to be structurally unreachable. The only
+        writer neither accepted nor set it, so it was NULL for ever."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
+
+            version = await service.publish_identity(
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio A",
+            )
+            self.assertEqual(version.published_by_user_id, author.id)
+
+    async def test_publishing_without_an_author_is_a_type_error(self):
+        """Required, not optional: an identity nobody published cannot be
+        expressed at all."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            with self.assertRaises(TypeError):
+                await service.publish_identity(
+                    school.id,
+                    performed_by_external_id="admin:master",
+                    display_name="Colégio A",
+                )
+
+    async def test_a_colour_that_is_not_hexadecimal_raises_value_error(self):
+        """I2: the service passed the value straight through, so 'banana' was
+        persisted. The database refuses it too - this is so the caller reads a
+        message naming the field instead of a constraint name."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
+
+            with self.assertRaises(ValueError) as caught:
+                await service.publish_identity(
+                    school.id,
+                    performed_by_external_id="admin:master",
+                    published_by_user_id=author.id,
+                    display_name="Colégio A",
+                    primary_color="banana",
+                )
+            self.assertIn("primary_color", str(caught.exception))
+
+            with self.assertRaises(ValueError) as caught:
+                await service.publish_identity(
+                    school.id,
+                    performed_by_external_id="admin:master",
+                    published_by_user_id=author.id,
+                    display_name="Colégio A",
+                    secondary_color="#GGHHII",
+                )
+            self.assertIn("secondary_color", str(caught.exception))
+
+            # Nothing was written by either refusal.
+            count = await session.scalar(
+                select(func.count()).select_from(SchoolIdentityVersion)
+            )
+            self.assertEqual(count, 0)
+
+    async def test_a_hexadecimal_colour_is_accepted(self):
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            author = await self._author(session, school)
+
+            version = await service.publish_identity(
+                school.id,
+                performed_by_external_id="admin:master",
+                published_by_user_id=author.id,
+                display_name="Colégio A",
+                primary_color="#1A2B3C",
+                secondary_color="#fff",
+            )
+            self.assertEqual(version.primary_color, "#1A2B3C")
+
+    async def test_a_boolean_threshold_is_refused(self):
+        """M1: bool subclasses int, so True passed the isinstance check and the
+        0..1000 range, and was stored as 1. SQLite swallows it; PostgreSQL hands
+        back a raw driver type error - the failure this validation exists to
+        prevent."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            with self.assertRaises(ValueError) as caught:
+                await service.configure(
+                    school.id,
+                    performed_by_external_id="admin:master",
+                    correction_mode="AVALIATIVO",
+                    validation_threshold_points=True,
+                )
+            self.assertIn("validation_threshold_points", str(caught.exception))
             count = await session.scalar(select(func.count()).select_from(AdminAuditLog))
             self.assertEqual(count, 0)

@@ -20,7 +20,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agente_ia_edu.db.models import AdminAuditLog, SchoolIdentityVersion, SchoolSetting
-from agente_ia_edu.db.models.institution import CORRECTION_MODES, VALIDATION_MODES
+from agente_ia_edu.db.models.institution import (
+    CORRECTION_MODES,
+    HEX_COLOR_LENGTHS,
+    VALIDATION_MODES,
+)
 
 _POLICY_FIELDS = ("validation_default", "validation_threshold_points")
 
@@ -86,6 +90,15 @@ class InstitutionSettingsService:
             raise ValueError(f"Unknown validation_default {default!r}")
 
         threshold = changes.get("validation_threshold_points", settings.validation_threshold_points)
+        # bool subclasses int, so True would pass isinstance and be stored as 1.
+        # SQLite would swallow it; PostgreSQL would hand back a raw type error
+        # from the driver - the exact failure mode this validation exists to
+        # replace with a readable message.
+        if isinstance(threshold, bool):
+            raise ValueError(
+                "validation_threshold_points must be an integer, got a boolean "
+                f"({threshold!r}) - a score threshold is not a flag"
+            )
         if threshold is not None and not isinstance(threshold, int):
             raise ValueError(f"validation_threshold_points must be an integer, got {type(threshold).__name__!r}")
         if threshold is not None and not (0 <= threshold <= 1000):
@@ -120,12 +133,25 @@ class InstitutionSettingsService:
         school_id: uuid.UUID,
         *,
         performed_by_external_id: str,
+        published_by_user_id: uuid.UUID,
         display_name: str,
         logo_asset_uri: str | None = None,
         primary_color: str | None = None,
         secondary_color: str | None = None,
     ) -> SchoolIdentityVersion:
-        """Publish a new visual identity and point the school at it."""
+        """Publish a new visual identity and point the school at it.
+
+        ``published_by_user_id`` is required, not optional. It was declared as a
+        column and never written by anyone, which made it permanently NULL - an
+        audit column that cannot be populated is worse than no column, because a
+        later reader sees NULL and concludes the author was simply not supplied.
+        Attribution is mandatory everywhere else in this phase (spec §5.3); it
+        is mandatory here too, and the composite key makes the database check
+        that the author belongs to the school being published.
+        """
+        _validate_hex_color("primary_color", primary_color)
+        _validate_hex_color("secondary_color", secondary_color)
+
         highest = await self.session.scalar(
             select(func.max(SchoolIdentityVersion.version)).where(
                 SchoolIdentityVersion.school_id == school_id
@@ -139,6 +165,7 @@ class InstitutionSettingsService:
             primary_color=primary_color,
             secondary_color=secondary_color,
             published_at=datetime.now(timezone.utc),
+            published_by_user_id=published_by_user_id,
         )
         self.session.add(version)
         await self.session.flush()
@@ -152,7 +179,11 @@ class InstitutionSettingsService:
             action="SCHOOL_IDENTITY_PUBLISHED",
             entity_type="SCHOOL_IDENTITY_VERSION",
             entity_id=str(version.id),
-            metadata_={"version": version.version, "display_name": display_name},
+            metadata_={
+                "version": version.version,
+                "display_name": display_name,
+                "published_by_user_id": str(published_by_user_id),
+            },
         ))
         await self.session.flush()
         return version
@@ -167,6 +198,27 @@ class InstitutionSettingsService:
             f"Identity version {identity_version_id} is published and cannot be edited. "
             "Publish a new version instead - a devolutiva already delivered must keep "
             "the identity it was delivered with."
+        )
+
+
+def _validate_hex_color(field: str, value: str | None) -> None:
+    """Refuse a colour that is not hexadecimal, before the CHECK has to.
+
+    The database refuses it too (spec §3.5 - what has a rule, the database
+    refuses). This exists so the caller gets a readable message naming the
+    field, rather than an IntegrityError naming a constraint.
+    """
+    if value is None:
+        return
+    if (
+        not isinstance(value, str)
+        or len(value) not in HEX_COLOR_LENGTHS
+        or not value.startswith("#")
+        or any(character not in "0123456789abcdefABCDEF" for character in value[1:])
+    ):
+        raise ValueError(
+            f"{field} must be a hexadecimal colour like '#1A2B3C' "
+            f"(#RGB, #RRGGBB or #RRGGBBAA), got {value!r}"
         )
 
 

@@ -27,6 +27,30 @@ depends_on = None
 
 _JSON = sa.JSON().with_variant(sa.dialects.postgresql.JSONB(), "postgresql")
 
+_HEX_DIGITS = "0123456789abcdef"
+
+
+def _hex_color_check(column: str) -> str:
+    """CHECK that ``column`` is NULL or a hexadecimal colour (spec §5.2).
+
+    Spelled out here rather than imported from the model, like every other
+    CHECK in these migrations: a migration is a snapshot of the schema at a
+    point in time, not a view of today's code. It must stay byte-identical to
+    ``hex_color_check`` in ``db/models/institution.py``. No regex, because
+    PostgreSQL's ``~`` is not parseable by SQLite and ``GLOB`` is not
+    PostgreSQL; ``substr``/``length``/``lower``/``replace`` are in both.
+    """
+    stripped = f"lower(substr({column}, 2))"
+    for digit in _HEX_DIGITS:
+        stripped = f"replace({stripped}, '{digit}', '')"
+    return (
+        f"{column} IS NULL OR ("
+        f"substr({column}, 1, 1) = '#' "
+        f"AND length({column}) IN (4, 7, 9) "
+        f"AND {stripped} = ''"
+        f")"
+    )
+
 
 def upgrade() -> None:
     op.create_table(
@@ -39,7 +63,7 @@ def upgrade() -> None:
         sa.Column("primary_color", sa.String(9)),
         sa.Column("secondary_color", sa.String(9)),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("published_by_user_id", sa.Uuid()),
+        sa.Column("published_by_user_id", sa.Uuid(), nullable=False),
         sa.ForeignKeyConstraint(["school_id"], ["schools.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(
             ["school_id", "published_by_user_id"],
@@ -54,6 +78,14 @@ def upgrade() -> None:
             "school_id", "id", name="uq_school_identity_versions_school_id_id"
         ),
         sa.CheckConstraint("version > 0", name="ck_school_identity_versions_version_positive"),
+        sa.CheckConstraint(
+            _hex_color_check("primary_color"),
+            name="ck_school_identity_versions_primary_color_hex",
+        ),
+        sa.CheckConstraint(
+            _hex_color_check("secondary_color"),
+            name="ck_school_identity_versions_secondary_color_hex",
+        ),
     )
     op.create_index(
         "ix_school_identity_versions_school_id", "school_identity_versions", ["school_id"]
