@@ -69,6 +69,9 @@ def decode_subset(text: str) -> str:
     if not _decoded_looks_sane(decoded):
         return text
 
+    if not _decoded_mostly_lowercase(decoded):
+        return text
+
     return decoded
 
 
@@ -76,31 +79,53 @@ def _looks_encoded(text: str) -> bool:
     """A run is encoded when most of its non-space characters sit in the shifted
     range and it contains no accented Portuguese letter.
 
-    Several additional guards bias this heavily toward NOT decoding, because a
-    correct-looking wrong guess is far worse than a loud, marked failure:
+    Short runs (under 8 characters) are genuinely ambiguous and not worth
+    guessing at, so they are rejected outright.
 
-    - a visible ASCII digit is only produced by already-correct text (a
-      plaintext digit maps to a control character under the shift, so it
-      never survives in a genuinely encoded run);
-    - a visible ASCII space is likewise only produced by already-correct
-      text (the space glyph is remapped too in the encoded runs, so those
-      runs read as words jammed together with no space at all);
-    - short runs (under 8 characters) are genuinely ambiguous and not worth
-      guessing at.
+    Digits and literal spaces are NOT used as guards here: an encoded digit
+    is not evidence of correct text (encoded 0x30-0x39 decodes to 'M'-'V',
+    so any genuinely encoded run whose plaintext contains an uppercase
+    letter in that span will itself contain literal ASCII digits - see
+    `'2 DYHVVR GR PHVPR OXJDU'` -> `'O avesso do mesmo lugar'`), and some
+    genuinely encoded runs in this PDF preserve literal spaces between
+    encoded words (see `'%UDVLO PHX QHJR'` -> `'Brasil meu nego'`). The
+    discriminating guard instead runs on the decoded output - see
+    `_decoded_mostly_lowercase`.
     """
     meaningful = [c for c in text if not c.isspace()]
     if not meaningful:
         return False
     if any(c in "áàâãéêíóôõúüçÁÀÂÃÉÊÍÓÔÕÚÜÇ" for c in meaningful):
         return False
-    if any(c.isdigit() for c in text):
-        return False
-    if " " in text:
-        return False
     if len(text) < 8:
         return False
     in_range = sum(1 for c in meaningful if ord(c) in _ENCODED_RANGE or c in _LIGATURES)
     return in_range / len(meaningful) > 0.8
+
+
+def _decoded_mostly_lowercase(decoded: str) -> bool:
+    """Reject a decode whose ASCII letters are not overwhelmingly lowercase.
+
+    This is the guard that actually discriminates genuinely encoded runs
+    from correct text decoded by mistake. Encoded text in this PDF is
+    ordinary Portuguese prose, so it decodes to something overwhelmingly
+    lowercase (isolated capitals at sentence/word starts aside). Correct
+    text put through the shift by mistake produces scattered, roughly
+    even-odds case - measured on the real cases:
+
+    - `'HPRQVWUD` -> `Demonstra`: 8/9 letters lowercase (~89%) - decode.
+    - `LQVX¿FLHQWH` -> `insuficiente`: 100% lowercase - decode.
+    - `2 DYHVVR GR PHVPR OXJDU` -> `O avesso do mesmo lugar`: 18/19 (~95%)
+      - decode.
+    - `ENEM 2025` -> `bkbj OMOR`: 4/8 (50%) - keep original.
+    - a run with no ASCII letters at all carries no evidence either way,
+      so it is rejected too: when in doubt, do not decode.
+    """
+    letters = [c for c in decoded if c.isascii() and c.isalpha()]
+    if not letters:
+        return False
+    lowercase = sum(1 for c in letters if c.islower())
+    return lowercase / len(letters) >= 0.7
 
 
 def _decoded_looks_sane(decoded: str) -> bool:
