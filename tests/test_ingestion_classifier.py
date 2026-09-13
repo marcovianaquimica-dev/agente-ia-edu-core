@@ -1,8 +1,11 @@
 import asyncio
+import tempfile
 import unittest
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
+
+import docx
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -53,9 +56,24 @@ class TestIngestionClassifierIntegration(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.engine.dispose()
 
-    async def _ingest_pilot(self, session: AsyncSession) -> IngestionDocument:
+    def _variant_pilot_path(self) -> Path:
+        """A genuinely different, still-valid docx: the pilot file plus one
+        trivial extra paragraph, so its content hash - and therefore
+        ingest_document's idempotency check - differs from the original."""
+        if not hasattr(self, "_variant_tmp_dir"):
+            self._variant_tmp_dir = tempfile.TemporaryDirectory()
+            self.addCleanup(self._variant_tmp_dir.cleanup)
+            variant_path = Path(self._variant_tmp_dir.name) / "pilot_variant.docx"
+            document = docx.Document(str(self.pilot_material))
+            document.add_paragraph("isolation-test-variant-marker")
+            document.save(str(variant_path))
+            self._variant_path = variant_path
+        return self._variant_path
+
+    async def _ingest_pilot(self, session: AsyncSession, *, variant: bool = False) -> IngestionDocument:
         service = IngestionService()
-        doc, _ = await service.ingest_document(session, self.pilot_material)
+        path = self._variant_pilot_path() if variant else self.pilot_material
+        doc, _ = await service.ingest_document(session, path)
         return doc
 
     async def test_01_document_with_15_questions(self):
@@ -244,8 +262,16 @@ class TestIngestionClassifierIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_13_isolation_between_documents(self):
         """13. isolamento entre documentos"""
         async with self.session_factory() as session:
+            # ingest_document is idempotent by content hash (spec-intended:
+            # re-uploading the exact same file must return the SAME document,
+            # never a duplicate) - ingesting the pilot file twice therefore no
+            # longer exercises isolation at all, it just returns doc1 twice.
+            # A second, genuinely different document is required to test
+            # isolation between documents; built as a trivial content
+            # variant of the pilot file rather than a hand-authored second
+            # fixture, so the underlying question content stays real.
             doc1 = await self._ingest_pilot(session)
-            doc2 = await self._ingest_pilot(session)
+            doc2 = await self._ingest_pilot(session, variant=True)
             self.assertNotEqual(doc1.id, doc2.id)
 
             service = IngestionClassificationService(session)

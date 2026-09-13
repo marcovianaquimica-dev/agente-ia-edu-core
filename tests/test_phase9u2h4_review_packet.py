@@ -87,11 +87,21 @@ class PacketShapeTests(unittest.TestCase):
                     self.assertIn(q["match_source"], {"NONE", "NONE_GENUINE"})
 
     def test_07_all_current_decisions_are_needs_review(self):
-        for q in self.packet["questions"]:
-            self.assertEqual(q["current_decision"], "NEEDS_REVIEW", q["official_number"])
-            self.assertIn(
-                q["binding_status"], {"NONE", "SPURIOUS_BOUND_DEGENERATE_TERM"}
-            )
+        # _curriculum_v2_bindings.py (PHASE 11.21) removed the degenerate bare
+        # "pH" anchor and added real, non-empty-normalizing terms ("potencial
+        # hidrogeniônico", "acidificação", etc.) that genuinely recover Q104
+        # and Q134 from their own STATEMENT text (verified 0 false positives,
+        # 0 losses across all 332 statements - see that module's own
+        # comments) - so those two are no longer NEEDS_REVIEW, and their
+        # binding is no longer the degenerate-term defect. The other four
+        # (95, 105, 112, 129) are unaffected and still correctly pending.
+        by_num = {q["official_number"]: q for q in self.packet["questions"]}
+        for n in (95, 105, 112, 129):
+            self.assertEqual(by_num[n]["current_decision"], "NEEDS_REVIEW", n)
+            self.assertEqual(by_num[n]["binding_status"], "NONE", n)
+        for n in (104, 134):
+            self.assertEqual(by_num[n]["current_decision"], "READY_FOR_INITIAL", n)
+            self.assertEqual(by_num[n]["binding_status"], "BOUND", n)
 
     def test_08_decision_template_all_pending_no_content(self):
         self.assertEqual(len(self.template["decisions"]), 6)
@@ -130,27 +140,43 @@ class PacketShapeTests(unittest.TestCase):
                 )
                 self.assertRegex(q["content_hash"] or "", r"^[0-9a-f]{16,64}$")
 
-    def test_12_degenerate_term_warning_where_expected(self):
+    def test_12_no_question_exposes_the_degenerate_term_defect_anymore(self):
+        # Q104 (pH) and Q134 (rho g h) used to expose the empty-normalizing
+        # defect (a bare anchor term that NFKD/ASCII-normalizes to '',
+        # spuriously "matching" everything). _curriculum_v2_bindings.py
+        # (PHASE 11.21) replaced that anchor with real, non-empty-normalizing
+        # terms - genuinely recovering both questions from their own
+        # STATEMENT text (0 false positives, 0 losses across all 332
+        # statements per that module's own comments). Locks in the fix: none
+        # of the 6 review-packet questions should ever show this defect.
+        for q in self.packet["questions"]:
+            self.assertNotEqual(q["binding_status"], "SPURIOUS_BOUND_DEGENERATE_TERM", q["official_number"])
         by_num = {q["official_number"]: q for q in self.packet["questions"]}
-        # Q104 (pH) and Q134 (ρ g h) currently expose the empty-normalizing defect
         for n in (104, 134):
-            self.assertEqual(by_num[n]["binding_status"], "SPURIOUS_BOUND_DEGENERATE_TERM")
-            self.assertTrue(any("empty string" in w for w in by_num[n]["warnings"]))
-            self.assertEqual(by_num[n]["deterministic_vocabulary_probe"]["statement_real_terms"], [])
-            self.assertNotEqual(
-                by_num[n]["deterministic_vocabulary_probe"]["statement_degenerate_terms"], []
-            )
+            probe = by_num[n]["deterministic_vocabulary_probe"]
+            self.assertNotEqual(probe["statement_real_terms"], [])
+            self.assertEqual(probe["statement_degenerate_terms"], [])
 
-    def test_13_option_only_evidence_flagged_for_104_and_105(self):
+    def test_13_option_only_evidence_flagged_for_105_informational_for_104(self):
         by_num = {q["official_number"]: q for q in self.packet["questions"]}
+        # Both still record that a vocabulary term was seen only in an
+        # alternative, never in the statement itself - that fact doesn't
+        # change with the PHASE 11.21 fix.
         self.assertIn("potencial hidrogeniônico",
                       {t for oh in by_num[104]["option_only_evidence"] for t in oh["terms"]})
         self.assertIn("camada de cera",
                       {t for oh in by_num[105]["option_only_evidence"] for t in oh["terms"]})
-        for n in (104, 105):
-            self.assertTrue(
-                any("ALTERNATIVES" in w or "OPTION_ONLY" in w for w in by_num[n]["warnings"])
-            )
+        # Q105 has no OTHER evidence, so the option-only term is still the
+        # only (unreliable) signal and correctly still blocks it for review.
+        self.assertTrue(
+            any("ALTERNATIVES" in w or "OPTION_ONLY" in w for w in by_num[105]["warnings"])
+        )
+        # Q104 is no longer blocked by it: PHASE 11.21 gave it independent,
+        # genuine evidence directly in the STATEMENT (see test_12), so the
+        # option-only term is now merely informational, not a review reason.
+        self.assertFalse(
+            any("ALTERNATIVES" in w or "OPTION_ONLY" in w for w in by_num[104]["warnings"])
+        )
 
 
 class ValidationTests(unittest.TestCase):
