@@ -37,10 +37,19 @@ _LIGATURES = {
 _ENCODED_RANGE = range(0x21, 0x60)
 
 
+# Punctuation accepted in decoded Portuguese running text, in addition to any
+# Unicode letter, any digit, and whitespace. Anything else surviving a decode
+# is a sign the run was not actually encoded - see _decoded_looks_sane.
+_ACCEPTABLE_PUNCTUATION = set(".,;:!?()-–—\"'/%")
+
+
 def decode_subset(text: str) -> str:
     """Decode one string extracted from a subsetted-font run.
 
-    Text that is already legible is returned unchanged.
+    Text that is already legible is returned unchanged. When in doubt, this
+    function does NOT decode: leaving an encoded run undecoded is a loud
+    failure a human will notice; decoding correct text is a silent one that
+    would reach the rubric transcription unnoticed.
     """
     if not _looks_encoded(text):
         return text
@@ -55,19 +64,57 @@ def decode_subset(text: str) -> str:
             out.append(char)
         else:
             out.append(UNDECODED_MARKER)
-    return "".join(out)
+    decoded = "".join(out)
+
+    if not _decoded_looks_sane(decoded):
+        return text
+
+    return decoded
 
 
 def _looks_encoded(text: str) -> bool:
     """A run is encoded when most of its non-space characters sit in the shifted
-    range and it contains no accented Portuguese letter."""
+    range and it contains no accented Portuguese letter.
+
+    Several additional guards bias this heavily toward NOT decoding, because a
+    correct-looking wrong guess is far worse than a loud, marked failure:
+
+    - a visible ASCII digit is only produced by already-correct text (a
+      plaintext digit maps to a control character under the shift, so it
+      never survives in a genuinely encoded run);
+    - a visible ASCII space is likewise only produced by already-correct
+      text (the space glyph is remapped too in the encoded runs, so those
+      runs read as words jammed together with no space at all);
+    - short runs (under 8 characters) are genuinely ambiguous and not worth
+      guessing at.
+    """
     meaningful = [c for c in text if not c.isspace()]
     if not meaningful:
         return False
     if any(c in "áàâãéêíóôõúüçÁÀÂÃÉÊÍÓÔÕÚÜÇ" for c in meaningful):
         return False
+    if any(c.isdigit() for c in text):
+        return False
+    if " " in text:
+        return False
+    if len(text) < 8:
+        return False
     in_range = sum(1 for c in meaningful if ord(c) in _ENCODED_RANGE or c in _LIGATURES)
     return in_range / len(meaningful) > 0.8
+
+
+def _decoded_looks_sane(decoded: str) -> bool:
+    """Reject a decode that introduces characters outside Portuguese running
+    text - that is a signal the run was not actually encoded and the shift
+    produced garbage instead. UNDECODED_MARKER is stripped first since its
+    own characters are not in the acceptable set and are not the signal this
+    guard is looking for."""
+    stripped = decoded.replace(UNDECODED_MARKER, "")
+    for char in stripped:
+        if char.isspace() or char.isalnum() or char in _ACCEPTABLE_PUNCTUATION:
+            continue
+        return False
+    return True
 
 
 def main(argv: list[str]) -> int:
