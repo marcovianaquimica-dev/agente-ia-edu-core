@@ -127,6 +127,8 @@ class UserSchoolLink(Base):
         Index("ix_user_school_links_external_user_id", "external_user_id"),
         Index("ix_user_school_links_school_id", "school_id"),
         Index("ix_user_school_links_role", "role"),
+        Index("ix_user_school_links_user_id", "user_id"),
+        Index("ix_user_school_links_class_id", "class_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -137,6 +139,24 @@ class UserSchoolLink(Base):
     role: Mapped[str] = mapped_column(String(30), nullable=False)
     scope_type: Mapped[str] = mapped_column(String(30), nullable=False)
     scope_external_id: Mapped[str | None] = mapped_column(String(255))
+    # R0 bridge: the entity this scope points at, when it is already known.
+    # Nullable on purpose - every row written before R0 has only the string,
+    # and consumers migrate one at a time (spec §3.2, §7).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    school_unit_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("school_units.id", ondelete="RESTRICT")
+    )
+    segment_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("segments.id", ondelete="RESTRICT")
+    )
+    grade_level_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("grade_levels.id", ondelete="RESTRICT")
+    )
+    class_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("classes.id", ondelete="RESTRICT")
+    )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
 
