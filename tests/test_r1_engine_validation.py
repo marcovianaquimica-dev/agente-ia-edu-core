@@ -1,10 +1,19 @@
 import unittest
 import uuid
 
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
+from agente_ia_edu.db.base import Base
+from agente_ia_edu.db.models import EssayRubricSignal
 from agente_ia_edu.essay_engine_contract.v1 import CONTRACT_VERSION, EssayEngineOutput
+from agente_ia_edu.rubrics.loader import load_rubric_file
+from agente_ia_edu.services.essay_rubric_seed import EssayRubricSeeder
 from agente_ia_edu.services.essay_engine_validation import (
     EssayEngineOutputRejected,
     RubricView,
+    load_rubric_view,
     validate_engine_output,
 )
 
@@ -92,8 +101,15 @@ class TestEngineValidation(unittest.TestCase):
             validate_engine_output(build_output(), rubric=rubric, text=TEXT)
         self.assertEqual(caught.exception.reason_code, "RUBRIC_VERSION_MISMATCH")
 
-    def test_rejects_an_annotation_on_a_competency_absent_from_the_rubric(self):
-        """Rejection 6."""
+    def test_rejects_a_rationale_on_a_competency_absent_from_the_rubric(self):
+        """Rejection 6, rationales path.
+
+        The rationales loop runs before the annotations loop in
+        ``validate_engine_output``. ``scores=None`` keeps the scores loop
+        (which would otherwise fire first) out of the way, and the default
+        rationales cover all five competencies - including C1, which this
+        rubric lacks - so the rejection can only come from the rationales
+        loop."""
         rubric = RubricView(
             rubric_version="ENEM_2025",
             levels={c: frozenset((0, 40, 80, 120, 160, 200)) for c in ("C2", "C3", "C4", "C5")},
@@ -102,6 +118,40 @@ class TestEngineValidation(unittest.TestCase):
         with self.assertRaises(EssayEngineOutputRejected) as caught:
             validate_engine_output(build_output(scores=None), rubric=rubric, text=TEXT)
         self.assertEqual(caught.exception.reason_code, "UNKNOWN_COMPETENCY")
+        self.assertIn("C1", str(caught.exception))
+
+    def test_rejects_an_annotation_on_a_competency_absent_from_the_rubric(self):
+        """Rejection 6, annotations path.
+
+        Isolated from the rationales loop that precedes it: ``scores=None``
+        removes the scores loop, and the rationales here reference only C2-C5
+        - all present in this rubric - so they raise nothing. C1 appears
+        ONLY on the annotation, so an UNKNOWN_COMPETENCY naming C1 can only
+        have been raised by the annotations loop; asserting the message
+        contains C1 pins that, since no other loop in this payload can ever
+        produce it.
+
+        Verified by isolation: commenting out the annotations-loop
+        UNKNOWN_COMPETENCY check in essay_engine_validation.py makes this
+        test fail (no exception is raised, because nothing else in this
+        payload can trigger one); restoring it makes it pass again. See
+        task-7-report.md for the RED/GREEN run."""
+        rubric = RubricView(
+            rubric_version="ENEM_2025",
+            levels={c: frozenset((0, 40, 80, 120, 160, 200)) for c in ("C2", "C3", "C4", "C5")},
+            signal_keys=RUBRIC.signal_keys,
+        )
+        output = build_output(
+            scores=None,
+            rationales=[
+                {"competency_code": c, "summary": "resumo", "signal_keys": []}
+                for c in ("C2", "C3", "C4", "C5")
+            ],
+        )
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=rubric, text=TEXT)
+        self.assertEqual(caught.exception.reason_code, "UNKNOWN_COMPETENCY")
+        self.assertIn("C1", str(caught.exception))
 
     def test_rejects_an_unknown_signal_key(self):
         """Rejection 7."""
@@ -199,3 +249,101 @@ class TestEngineValidation(unittest.TestCase):
             )
         self.assertEqual(caught.exception.raw_output, raw)
         self.assertEqual(caught.exception.input_hash, "abc123")
+
+
+class TestLoadRubricView(unittest.IsolatedAsyncioTestCase):
+    """``load_rubric_view`` is the only part of the module that touches the
+    database, and it sits directly on the path from the seeded tables to the
+    validator. These tests seed a real in-memory database with the actual
+    ENEM_2025 rubric file - via the real ``EssayRubricSeeder`` and
+    ``load_rubric_file``, not hand-built fixtures - so a join typo, a wrong
+    ``active`` filter, or a missed competency shows up here rather than as a
+    confusing UNKNOWN_COMPETENCY/UNKNOWN_SIGNAL_KEY downstream."""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:", echo=False, poolclass=StaticPool
+        )
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.session_factory = async_sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=False
+        )
+        self.rubric_file = load_rubric_file("enem_2025")
+        async with self.session_factory() as session:
+            await EssayRubricSeeder(session).seed(self.rubric_file)
+            await session.commit()
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def test_the_view_has_all_five_competencies_with_the_six_official_levels(self):
+        async with self.session_factory() as session:
+            view = await load_rubric_view(session, "ENEM_2025")
+        self.assertEqual(set(view.levels), {"C1", "C2", "C3", "C4", "C5"})
+        for code, levels in view.levels.items():
+            self.assertEqual(levels, frozenset((0, 40, 80, 120, 160, 200)), code)
+
+    async def test_the_signal_keys_match_the_active_signals_actually_seeded(self):
+        async with self.session_factory() as session:
+            view = await load_rubric_view(session, "ENEM_2025")
+            active_keys = (
+                await session.scalars(
+                    select(EssayRubricSignal.key).where(EssayRubricSignal.active.is_(True))
+                )
+            ).all()
+        self.assertTrue(active_keys)  # sanity: the rubric file actually declares signals
+        self.assertEqual(view.signal_keys, frozenset(active_keys))
+
+    async def test_a_signal_flipped_to_inactive_is_excluded_from_the_view(self):
+        async with self.session_factory() as session:
+            before = await load_rubric_view(session, "ENEM_2025")
+            target_key = next(iter(before.signal_keys))
+
+            await session.execute(
+                update(EssayRubricSignal)
+                .where(EssayRubricSignal.key == target_key)
+                .values(active=False)
+            )
+            await session.commit()
+
+            after = await load_rubric_view(session, "ENEM_2025")
+
+        self.assertIn(target_key, before.signal_keys)
+        self.assertNotIn(target_key, after.signal_keys)
+        self.assertEqual(len(after.signal_keys), len(before.signal_keys) - 1)
+
+    async def test_an_unknown_rubric_version_raises_value_error(self):
+        async with self.session_factory() as session:
+            with self.assertRaises(ValueError):
+                await load_rubric_view(session, "ENEM_1999")
+
+    async def test_the_returned_view_carries_the_requested_rubric_version(self):
+        async with self.session_factory() as session:
+            view = await load_rubric_view(session, "ENEM_2025")
+        self.assertEqual(view.rubric_version, "ENEM_2025")
+
+    async def test_a_view_loaded_from_the_seeded_database_accepts_a_real_valid_output(self):
+        """Closes the loop the module exists for: a view built by
+        ``load_rubric_view`` from what ``EssayRubricSeeder`` actually wrote
+        must accept an output that is genuinely valid under the real
+        ENEM_2025 rubric. This is the only test in the suite that would
+        catch a mismatch between what the seeder writes and what the
+        validator expects."""
+        async with self.session_factory() as session:
+            view = await load_rubric_view(session, "ENEM_2025")
+
+        output = build_output(
+            annotations=[{
+                "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+                "evidence_kind": "LOCALIZED",
+                "anchor": {
+                    "type": "TEXT_OFFSET", "start": 2, "end": 13, "quote": "valorização"
+                },
+                "short_comment": "curto", "long_comment": "longo",
+                # A real signal key from enem_2025.yaml's C1 block, not the
+                # fictional key used by the module-level RUBRIC fixture.
+                "signal_keys": ["convencoes_da_escrita"],
+            }],
+        )
+        validate_engine_output(output, rubric=view, text=TEXT)
