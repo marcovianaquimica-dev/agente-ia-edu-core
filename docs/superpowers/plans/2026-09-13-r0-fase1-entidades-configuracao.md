@@ -438,19 +438,21 @@ def downgrade() -> None:
 
 Nunca no banco de desenvolvimento. A porta é **5433**.
 
+Use o script do workspace, passando as tabelas que a sua migration cria:
+
 ```bash
-set -a; . /Users/marcoviana/agente-ia-edu-core/.env; set +a
-ENC=$(.venv/bin/python -c "import urllib.parse,os;print(urllib.parse.quote(os.environ['POSTGRES_PASSWORD'],safe=''))")
-export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${ENC}@localhost:5433/agente_ia_edu_r0_migcheck"
-.venv/bin/python -m alembic upgrade head
-.venv/bin/python -m alembic downgrade -1
-.venv/bin/python -m alembic upgrade head
+.venv/bin/python .superpowers/sdd/2026-09-13-r0-fase1-entidades-configuracao/verify-migration.py <tabela> <tabela> ...
 ```
 
-Sem `stamp`: o banco descartável já está carimbado. Nunca ecoe a senha nem a URL montada.
-Reporte apenas se cada comando teve sucesso, e confirme com uma consulta que as tabelas
-desta tarefa aparecem depois do `upgrade` e somem depois do `downgrade` — o código de
-retorno sozinho não prova que a migration fez algo.
+Ele roda `upgrade`, `downgrade -1` e `upgrade` de novo, **contando as tabelas depois de
+cada passo** — porque um código de retorno 0 não prova que a migration fez alguma coisa —
+e confirma ao final que o banco de desenvolvimento não tem nenhuma delas.
+
+O script existe porque o sandbox recusa `source` e `$(...)` contra arquivos fora do
+worktree, e dois implementadores já escreveram o mesmo wrapper por conta própria. Ele
+nunca imprime a senha nem a URL montada, aponta para a porta **5433** e para o banco
+descartável `agente_ia_edu_r0_migcheck`, que já está carimbado — não crie, não reconstrua
+e não carimbe nada.
 
 - [ ] **Step 9: Commit**
 
