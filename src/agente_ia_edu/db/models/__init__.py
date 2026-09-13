@@ -106,6 +106,13 @@ from .question_extraction import (
     ExtractedQuestionOption,
     QuestionExtractionRun,
 )
+from .essay_rubric import (
+    EssayRubric,
+    EssayRubricCompetency,
+    EssayRubricLevel,
+    EssayRubricSignal,
+    EssayRubricZeroRule,
+)
 
 __all__ = [
     "StudySession",
@@ -187,4 +194,9 @@ __all__ = [
     "PedagogicalUniverseCatalogScope",
     "ReceptionCandidate",
     "ModificationProposal",
+    "EssayRubric",
+    "EssayRubricCompetency",
+    "EssayRubricLevel",
+    "EssayRubricSignal",
+    "EssayRubricZeroRule",
 ]
