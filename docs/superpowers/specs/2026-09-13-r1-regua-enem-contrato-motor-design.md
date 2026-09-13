@@ -530,13 +530,27 @@ Levantados durante o brainstorming, fora do escopo de R1:
 
 - **R0** — modo da instituição (`FORMATIVO` / `ASSISTIDO` / `AVALIATIVO`) no `metadata` de
   `SchoolModule`; granularidade de disciplina no entitlement; política de trava.
-- **R3** — fluxo de aprovação docente: uma a uma, em lote, ou automática. A aprovação
-  automática deve ser **condicionada ao modo da instituição** — é a única das três que
-  remove a supervisão humana por completo. Trava configurável por faixa de nota, e também
-  por baixa confiança por competência, divergência grande entre competências e alerta de
-  fuga ao tema, que são os casos que a §16 manda amostrar. Professor altera feedback e nota
-  em qualquer fase, com `ai_score` preservado (§7). Trilha de auditoria de contestação pelo
-  aluno.
+- **R3** — fluxo de aprovação docente. Ao enviar uma proposta para uma turma, o professor
+  ou a coordenação escolhe **se** quer validação manual e **como** ela acontece: aprovando
+  uma a uma, aprovando a turma inteira em lote, ou deixando a aprovação automática. Há
+  trava configurável por faixa de nota, e também por baixa confiança por competência,
+  divergência grande entre competências e alerta de fuga ao tema — os casos que a §16 manda
+  amostrar. O professor altera feedback e nota em qualquer fase, com `ai_score` preservado
+  (§7). Trilha de auditoria de contestação pelo aluno.
+
+  > **Decisão consciente, com o risco à vista.** A opcionalidade da validação foi decidida
+  > pelo usuário em 13/09/2026, depois de levantado o risco regulatório e discutidas as
+  > alternativas. O registro importa: as diretrizes do CNE aprovadas em 01/09/2026 têm, numa
+  > das leituras publicadas, vedação imediata ao uso de IA para atribuir nota sem supervisão
+  > humana, e noutra leitura vedam até a pré-correção que apresenta ao professor uma
+  > sugestão numérica. As leituras divergem e o texto oficial não está publicado. Desligar a
+  > validação coloca a correção no cenário mais exposto das duas.
+  >
+  > **Mitigação exigida, não opcional:** toda escolha de desligar a validação é registrada
+  > com autor, papel, data, turma e proposta, de forma imutável e consultável. Se alguém —
+  > escola, família ou órgão — perguntar quem decidiu que aquela redação não passaria por
+  > um humano, o sistema responde com precisão em vez de "não sabemos". O custo é uma linha
+  > de auditoria por atribuição; o custo de não ter é não conseguir responder.
 - **R0/R4/R5** — **white-label por instituição.** A escola usa a própria logomarca,
   não a da plataforma. Isso não é só o cabeçalho da tela: a identidade visual
   (logo, cores, nome exibido do produto) precisa ser configuração da instituição em
