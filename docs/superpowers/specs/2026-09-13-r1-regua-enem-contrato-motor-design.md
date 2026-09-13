@@ -521,6 +521,17 @@ Levantados durante o brainstorming, fora do escopo de R1:
   fuga ao tema, que são os casos que a §16 manda amostrar. Professor altera feedback e nota
   em qualquer fase, com `ai_score` preservado (§7). Trilha de auditoria de contestação pelo
   aluno.
+- **R0/R4/R5** — **white-label por instituição.** A escola usa a própria logomarca,
+  não a da plataforma. Isso não é só o cabeçalho da tela: a identidade visual
+  (logo, cores, nome exibido do produto) precisa ser configuração da instituição em
+  R0, viajar para o PDF exportado em R4 — que a §8 exige ser uma devolutiva
+  autônoma, lida por quem talvez nunca abra a plataforma — e aparecer nos
+  relatórios de R5. Duas consequências que valem decidir cedo: a identidade usada
+  numa devolutiva **deve ser registrada junto com ela**, pela mesma razão que a
+  régua é (§19) — regerar um PDF histórico depois de a escola trocar de logo não
+  pode reescrever silenciosamente o documento que a família já recebeu; e o
+  armazenamento do arquivo de logo é o primeiro caso real de object storage no
+  core, que hoje só tem cópia local em `services/material_storage.py`.
 - **R5** — percentil do aluno contra a base, por competência. Não consta da spec v1.0, é
   barato com os dados que R5 já terá, e é prática consolidada no mercado.
 - **R5/R8** — cruzamento entre correção de redação e recomendação curricular, usando o
