@@ -233,24 +233,38 @@ CHECK (provenance = 'HEURISTICA_MOTOR' OR source_ref IS NOT NULL)
 CHECK (provenance <> 'HEURISTICA_MOTOR' OR rationale IS NOT NULL)
 ```
 
-### 5.5 `essay_rubric_zero_rules`
+### 5.5 `essay_rubric_scoring_rules`
 
-Situações de anulação e nota zero. São normativas, mas **não são nível de competência** —
-misturá-las em `essay_rubric_levels` quebraria o CHECK de pontos.
+Restrições normativas de pontuação que **não são nível de competência** — misturá-las em
+`essay_rubric_levels` quebraria o CHECK de pontos. Cobre três efeitos: anular a redação,
+zerar uma competência, e **limitar o teto de uma competência**.
 
 | Coluna | Tipo | Notas |
 |---|---|---|
 | `id` | UUID PK | |
 | `rubric_id` | UUID FK | |
-| `key` | VARCHAR(80) | Ex.: `fuga_ao_tema` |
+| `key` | VARCHAR(80) | Ex.: `fuga_ao_tema`, `tangenciamento_teto_c3` |
 | `label` | VARCHAR(255) | |
 | `description` | TEXT | Texto literal quando oficial |
-| `effect` | VARCHAR(30) | CHECK IN (`ANULA_REDACAO`, `ZERA_COMPETENCIA`) |
+| `effect` | VARCHAR(30) | CHECK IN (`ANULA_REDACAO`, `ZERA_COMPETENCIA`, `LIMITA_PONTUACAO`) |
 | `competency_code` | VARCHAR(4) | NULL quando anula a redação inteira |
+| `max_points` | INTEGER | Só para `LIMITA_PONTUACAO`; NULL nos demais |
 | `source_page` | INTEGER | |
 | `provenance` | VARCHAR(30) | |
 
-UNIQUE(`rubric_id`, `key`).
+UNIQUE(`rubric_id`, `key`). Duas CHECKs prendem `max_points` ao seu efeito: ele é NULL a
+menos que `effect = 'LIMITA_PONTUACAO'`, e NOT NULL quando é; e, quando presente, tem de
+ser um dos seis valores oficiais.
+
+> **Por que o terceiro efeito existe.** Esta seção foi ampliada durante a execução, não no
+> desenho original. A cartilha, na p. 27, invoca a Matriz de Referência pelo nome: *"o
+> tangenciamento ao tema, avaliado na Competência II, afeta também a avaliação das
+> Competências III e V, impedindo que a redação receba nota acima de 40 pontos em todas
+> essas competências"*. A metade da C2 já estava no descritor de 40 da própria C2, mas os
+> tetos de C3 e C5 não tinham onde morar, e o vocabulário de dois valores os teria deixado
+> como comentário — exatamente a decoração que a procedência existe para impedir. A tabela
+> foi renomeada junto: uma tabela chamada `zero_rules` guardando um teto de 40 pontos é uma
+> imprecisão que confunde quem chega depois.
 
 ### Separação de responsabilidades
 
