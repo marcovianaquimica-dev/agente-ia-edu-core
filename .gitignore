@@ -22,3 +22,6 @@ scratchpad_*.txt
 
 # Ephemeral fixture output regenerated on each test run.
 tests/_p10tmp/mf_*.json
+
+# Worktrees isolados criados por sessão (nunca versionados).
+.claude/worktrees/
