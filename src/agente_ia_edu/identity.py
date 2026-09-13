@@ -1,13 +1,23 @@
 """External identity contracts for AGENTE IA EDU.
 
-This module intentionally avoids any local user table or host-specific
-credential contract. The hosting platform is the source of truth for
-authentication and credentials. AGENTE IA EDU only receives a verified
-identity context that contains stable external identifiers for the student,
-teacher, institution, unit, grade level and classroom.
+Authentication and credentials remain the hosting platform's responsibility.
+This package never stores a password, a token or any other secret, and
+``db/models/academic.py`` deliberately has no column that could hold one.
 
-The goal is to support multiple host providers in the future without coupling
-this package to JWT, OAuth, SSO, or any other protocol.
+REVOGAÇÃO PARCIAL, 2026-09-13 (R0). This module used to state that the host was
+also the source of truth for the academic hierarchy - institution, unit, grade
+level and classroom arrived as external identifiers and were never modelled
+here. That half no longer holds: the core now owns unit, segment, grade level,
+class and enrollment (``db/models/academic.py``).
+
+The reason is that the REDAÇÃO platform decides authorisation from class
+membership, and deciding authorisation from strings supplied by another system
+fails in a way no test catches. External identifiers survive as a bridge column
+on each entity, not as the entity itself.
+
+A revoked principle is not the same as a forgotten one, which is why this note
+exists instead of a silent deletion. See
+``docs/superpowers/specs/2026-09-13-r0-estrutura-academica-configuracao-design.md`` §3.1.
 """
 
 from __future__ import annotations

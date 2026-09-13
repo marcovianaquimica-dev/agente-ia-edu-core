@@ -1,3 +1,4 @@
+from .academic import Person, User
 from .official import (
     AnswerKeyEntry,
     AnswerKeyRevision,
@@ -199,4 +200,6 @@ __all__ = [
     "EssayRubricLevel",
     "EssayRubricSignal",
     "EssayRubricScoringRule",
+    "Person",
+    "User",
 ]
