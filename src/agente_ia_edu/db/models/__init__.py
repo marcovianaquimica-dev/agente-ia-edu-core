@@ -125,6 +125,7 @@ from .essay_rubric import (
     EssayRubricSignal,
     EssayRubricScoringRule,
 )
+from .institution import SchoolIdentityVersion, SchoolSetting
 
 __all__ = [
     "StudySession",
@@ -211,6 +212,8 @@ __all__ = [
     "EssayRubricLevel",
     "EssayRubricSignal",
     "EssayRubricScoringRule",
+    "SchoolIdentityVersion",
+    "SchoolSetting",
     "Person",
     "User",
     "AcademicYear",
