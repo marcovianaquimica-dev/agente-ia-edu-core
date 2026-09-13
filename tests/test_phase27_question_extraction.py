@@ -190,6 +190,81 @@ class StructureTests(unittest.TestCase):
         self.assertIsNotNone(split)
         self.assertTrue(158 < split < 309)
 
+    def test_two_column_detection_finds_the_true_gutter_over_a_noisier_x0_cluster(self):
+        # Real regression found running PHASE 30 classification against real
+        # OpenAI output: a genuine two-column FUVEST page (Q04/Q05 running
+        # down the LEFT column, Q06 - with two embedded tables of its own -
+        # down the RIGHT) was read in raw top-to-bottom order instead of
+        # column-major, so Q05's and Q06's text interleaved line-by-line
+        # into one unreadable statement (the AI could then never quote a
+        # literal excerpt from it, surfacing as "Invalid classification
+        # evidence" downstream - 30 of the resulting 37 real cases traced
+        # back to this one document). detect_two_column_layout returned
+        # None here because the LEFT column's OWN internal content (a small
+        # 4-city sanitation/vaccination comparison table sitting inside
+        # Q05, using x0s at 87-236) produces several x0-clustering gap
+        # candidates that outrank the true gutter on raw width, and the
+        # truly-least-crossed one (between the left column's real text and
+        # Q06's own table headers on the right) is only ~1.3x cleaner than
+        # the widest false one - short of the 2x margin the ambiguity guard
+        # requires before overriding a width-based leader. But the true
+        # gutter is stronger evidence than any of that: it is a vertical
+        # strip literally no line's [x0, x1) interval ever crosses at
+        # all - not merely less-crossed. Coordinates below are the exact
+        # bounding boxes from the real page (text content is irrelevant to
+        # this function - only geometry is).
+        boxes = [
+            (420.8, 19.2, 563.8, 30.2), (34.0, 40.9, 52.5, 58.2), (34.0, 69.8, 285.6, 79.8),
+            (34.0, 82.0, 189.6, 92.0), (34.0, 154.4, 285.7, 164.4), (34.0, 166.6, 285.7, 176.6),
+            (34.0, 178.8, 181.8, 188.8), (34.0, 397.5, 285.7, 407.5), (34.0, 409.7, 97.5, 419.8),
+            (34.0, 426.4, 60.7, 437.9), (34.0, 438.6, 65.7, 450.2), (34.0, 450.8, 65.7, 462.4),
+            (34.0, 463.0, 65.7, 474.6), (34.1, 475.2, 65.7, 486.8), (34.0, 500.8, 52.5, 518.1),
+            (34.0, 529.7, 285.7, 539.7), (34.0, 541.9, 190.2, 551.9), (87.1, 568.7, 173.9, 578.8),
+            (91.5, 581.0, 169.5, 591.0), (88.0, 593.2, 173.0, 603.2), (192.5, 562.6, 260.4, 572.6),
+            (193.8, 574.9, 259.1, 584.9), (189.2, 587.0, 263.7, 597.1), (205.9, 599.3, 247.1, 609.3),
+            (37.7, 615.8, 72.3, 625.8), (120.7, 613.8, 140.3, 623.9), (216.7, 613.8, 236.2, 623.9),
+            (37.7, 632.3, 75.0, 642.3), (120.7, 630.3, 140.3, 640.4), (216.7, 630.3, 236.2, 640.4),
+            (37.7, 648.8, 77.7, 658.8), (120.7, 646.8, 140.3, 656.9), (216.7, 646.8, 236.2, 656.9),
+            (37.7, 665.3, 78.2, 675.3), (120.7, 663.3, 140.3, 673.4), (216.7, 663.3, 236.2, 673.4),
+            (34.0, 686.0, 285.7, 696.0), (34.0, 698.1, 285.7, 708.2), (34.0, 710.4, 120.7, 720.4),
+            (70.4, 729.0, 100.9, 738.0), (125.0, 729.0, 157.7, 738.0), (180.5, 729.0, 215.5, 738.0),
+            (236.9, 729.0, 272.5, 738.0), (37.1, 750.8, 51.2, 760.8), (62.0, 750.6, 109.3, 759.6),
+            (123.6, 750.6, 159.0, 759.6), (179.4, 750.6, 216.5, 759.6), (242.4, 750.6, 267.0, 759.6),
+            (37.1, 772.4, 50.9, 782.4), (72.8, 772.3, 98.5, 781.3), (127.0, 772.3, 155.6, 781.3),
+            (184.9, 772.3, 211.2, 781.3), (232.0, 772.3, 277.5, 781.3), (314.9, 43.2, 326.3, 53.3),
+            (343.6, 43.1, 383.4, 52.1), (400.5, 43.1, 437.7, 52.1), (463.5, 43.1, 488.2, 52.1),
+            (508.9, 43.1, 556.2, 52.1), (314.9, 65.0, 327.2, 75.0), (345.8, 64.8, 381.2, 73.8),
+            (404.8, 64.8, 433.4, 73.8), (453.9, 64.8, 497.6, 73.8), (519.6, 64.8, 545.3, 73.8),
+            (314.9, 86.6, 325.8, 96.6), (340.7, 86.5, 386.2, 95.5), (396.3, 86.5, 442.0, 95.5),
+            (455.9, 86.5, 495.7, 95.5), (514.0, 86.5, 551.1, 95.5), (311.8, 120.1, 330.3, 137.4),
+            (311.8, 149.0, 563.5, 159.0), (311.8, 161.3, 563.5, 171.3), (311.8, 173.5, 563.4, 183.5),
+            (311.8, 185.7, 548.5, 195.7), (422.2, 200.7, 452.8, 209.7), (346.2, 218.1, 404.4, 227.1),
+            (348.9, 229.1, 401.7, 238.1), (424.3, 218.1, 469.5, 227.1), (430.6, 229.1, 463.2, 238.1),
+            (497.7, 218.1, 520.5, 227.1), (490.0, 229.1, 528.3, 238.1), (346.9, 246.3, 403.7, 255.3),
+            (439.0, 246.3, 454.8, 255.3), (501.3, 246.3, 517.0, 255.3), (347.0, 263.4, 403.6, 272.4),
+            (441.3, 263.4, 452.5, 272.4), (501.3, 263.4, 517.0, 272.4), (347.0, 280.6, 403.5, 289.6),
+            (439.0, 280.6, 454.8, 289.6), (501.3, 280.6, 517.0, 289.6), (346.7, 297.8, 403.9, 306.8),
+            (439.0, 297.8, 454.8, 306.8), (501.3, 297.8, 517.0, 306.8), (311.8, 318.3, 563.4, 328.3),
+            (311.8, 330.5, 563.4, 340.5), (311.8, 342.7, 563.4, 352.7), (311.8, 354.9, 349.4, 364.9),
+            (421.1, 367.0, 453.9, 376.0), (373.8, 384.3, 432.0, 393.3), (376.5, 395.3, 429.3, 404.3),
+            (451.9, 384.3, 499.2, 393.3), (449.8, 395.3, 499.2, 404.3), (374.5, 412.5, 431.4, 421.5),
+            (467.9, 412.5, 481.1, 421.5), (374.6, 429.7, 431.2, 438.7), (467.9, 429.7, 481.1, 438.7),
+            (374.6, 446.8, 431.1, 455.8), (471.2, 446.8, 477.8, 455.8), (374.3, 464.1, 431.5, 473.1),
+            (465.6, 464.1, 483.3, 473.1), (311.8, 484.5, 542.2, 494.6), (314.6, 501.6, 346.6, 513.2),
+            (314.6, 513.9, 353.9, 525.5), (314.7, 526.1, 353.9, 537.7), (314.7, 538.3, 353.9, 549.9),
+            (314.7, 550.5, 353.9, 562.1), (427.8, 505.8, 474.3, 513.8), (427.8, 518.6, 557.1, 526.6),
+            (427.8, 526.8, 553.1, 536.9),
+        ]
+        lines = [
+            TextLine(page=1, x0=x0, y0=y0, x1=x1, y1=y1, text=f"l{i}")
+            for i, (x0, y0, x1, y1) in enumerate(boxes)
+        ]
+        split = detect_two_column_layout(lines, page_width=595.2)
+        self.assertIsNotNone(split)
+        # the true gutter: no line's own extent reaches past 285.7 on the
+        # left or starts before 311.8 on the right
+        self.assertTrue(285.7 < split < 311.8)
+
     def test_two_column_detection_rejects_a_multi_cell_table(self):
         # many distinct x0 (table cells), not a clean bimodal split
         lines = [

@@ -85,6 +85,21 @@ _MIN_X0_CLUSTER_OCCURRENCES = 2
 # former.
 _MIN_GAP_CANDIDATE_CLUSTER_SIZE = 4
 
+# A vertical strip that NO line's [x0, x1) interval ever crosses at all is
+# stronger evidence of a real column gutter than any x0-clustering gap
+# below - "no line straddles it" is exactly what a column boundary means,
+# by definition, not merely a heuristic proxy for it (see
+# detect_two_column_layout's own docstring for the real regression this
+# was measured against: a genuine FUVEST gutter of ~26pt, invisible to
+# the x0-clustering approach because the LEFT column's own internal
+# content produced closer, competing x0 gaps). Measured 24-26pt across
+# the real corpus pages that have one; set with margin below that and
+# comfortably above ordinary inter-line noise (this is an x1-to-x0
+# CONTENT gap, narrower by nature than an x0-to-x0 gap between two
+# columns' own left margins, so reusing _COLUMN_GAP_THRESHOLD here would
+# have missed the very case this constant exists to catch).
+_ZERO_CROSSING_GAP_THRESHOLD = 20.0
+
 # A genuine wrapped-prose column uses most of its own width on most lines.
 # A short item-marker list ("I.", "II.", "III." ...) sitting beside
 # unrelated content produces a band that LOOKS like a column geometrically
@@ -117,6 +132,18 @@ _MIN_GAP_CANDIDATE_CLUSTER_SIZE = 4
 # above this page's own.
 _NARROW_LINE_WIDTH_RATIO = 0.25
 _MAX_NARROW_LINE_FRACTION = 0.75
+
+# A side whose narrow fraction exceeds the limit above is still not a
+# marker/label list if it has a real backbone of substantial content: the
+# UECE marker-column regression the limit exists to catch has exactly ONE
+# non-narrow line (89% narrow) - a single outlier, not a backbone. A real
+# FUVEST question with two embedded tables (mostly short cells: option
+# values, single-word row labels) measured 83% narrow - between the
+# documented legitimate max (69%, a graph-choice question beside a
+# fragment-heavy one) and UECE's 89% - yet has 11 genuinely full-width
+# statement lines, nowhere close to a one-line outlier. Only reject when
+# BOTH the fraction is high AND there is no such backbone.
+_MIN_SUBSTANTIAL_LINES = 4
 
 # Some real exam layouts (found on a real FUVEST booklet) print the question
 # number ALONE on its own line - no "." or ")", no content until the next
@@ -381,6 +408,29 @@ def _large_clusters(lines: list[TextLine], min_size: int) -> list[TextLine]:
     return [ln for group in buckets.values() if len(group) >= min_size for ln in group]
 
 
+def _zero_crossing_gaps(page_lines: list[TextLine]) -> list[tuple[float, float]]:
+    """(gap_width, split_x) for every vertical strip on the page that no
+    line's [x0, x1) interval crosses at all, widest first. Computed by
+    merging every line's own horizontal extent into disjoint covered
+    intervals and reading the empty space between them - never invents a
+    boundary a real line's content actually spans."""
+    intervals = sorted((ln.x0, ln.x1) for ln in page_lines if ln.x1 > ln.x0)
+    if not intervals:
+        return []
+    merged = [list(intervals[0])]
+    for x0, x1 in intervals[1:]:
+        if x0 <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], x1)
+        else:
+            merged.append([x0, x1])
+    gaps = [
+        (start - end, (start + end) / 2)
+        for (_, end), (start, _) in zip(merged, merged[1:])
+        if start - end >= _ZERO_CROSSING_GAP_THRESHOLD
+    ]
+    return sorted(gaps, reverse=True)
+
+
 def detect_two_column_layout(
     page_lines: list[TextLine], *, page_width: float | None = None,
 ) -> float | None:
@@ -412,12 +462,82 @@ def detect_two_column_layout(
     # meant to fix) - so only apply the recurring-x0 filter when acting at
     # real page scope.
     recurring = _recurring_lines(page_lines) if page_width else page_lines
+
+    def _verified_split(candidates: list[tuple[float, float]]) -> float | None:
+        for _gap, split_x in candidates:
+            if page_width and not (page_width * 0.25 < split_x < page_width * 0.75):
+                continue
+            left = [ln for ln in page_lines if ln.x0 < split_x]
+            right = [ln for ln in page_lines if ln.x0 >= split_x]
+            if len(left) < _MIN_LINES_PER_COLUMN or len(right) < _MIN_LINES_PER_COLUMN:
+                continue
+            # The "spans most of the page" evidence must come from the column's
+            # own recurring lines, never from a one-off line (a running page-
+            # number footer, say) that happens to land on this side of the
+            # split purely by x-coordinate - such a stray line can otherwise
+            # stretch a side's apparent range far past its real content and
+            # let a compact same-question answer grid (e.g. options D/E of one
+            # question set beside A/B/C, just 2 lines tall) masquerade as a
+            # genuine full-height column (found on a real ITA exam page).
+            left_recurring = [ln for ln in left if ln in recurring]
+            right_recurring = [ln for ln in right if ln in recurring]
+            if not left_recurring or not right_recurring:
+                continue
+            left_y = (min(ln.y0 for ln in left_recurring), max(ln.y1 for ln in left_recurring))
+            right_y = (min(ln.y0 for ln in right_recurring), max(ln.y1 for ln in right_recurring))
+            overlap = max(0.0, min(left_y[1], right_y[1]) - max(left_y[0], right_y[0]))
+            span = max(left_y[1], right_y[1]) - min(left_y[0], right_y[0])
+            if span <= 0 or (overlap / span) < _MIN_Y_OVERLAP_RATIO:
+                continue
+            ok = True
+            for side in (left, right):
+                widths = [ln.x1 - ln.x0 for ln in side]
+                max_w = max(widths)
+                if max_w <= 0:
+                    ok = False
+                    break
+                non_narrow_count = sum(1 for w in widths if w >= _NARROW_LINE_WIDTH_RATIO * max_w)
+                narrow_fraction = 1 - non_narrow_count / len(widths)
+                if narrow_fraction > _MAX_NARROW_LINE_FRACTION and non_narrow_count < _MIN_SUBSTANTIAL_LINES:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            return split_x
+        return None
+
     # Same page-level-only scoping as the recurring-x0 filter above, and
     # for the same reason: at local (per-question) scope a genuine column
     # can legitimately be evidenced by as few as 2-3 lines, so only a
     # page-level call restricts gap-search candidates to substantial
     # clusters (see _MIN_GAP_CANDIDATE_CLUSTER_SIZE's own docstring).
     gap_search_lines = _large_clusters(recurring, _MIN_GAP_CANDIDATE_CLUSTER_SIZE) if page_width else recurring
+
+    if page_width:
+        # A page-wide vertical strip that NO line's own extent crosses at
+        # all is strictly stronger evidence of a real gutter than any
+        # width-based x0-clustering candidate below - tried first, and
+        # wins outright when it also passes the same structural checks
+        # (see _zero_crossing_gaps and _ZERO_CROSSING_GAP_THRESHOLD's own
+        # docstrings for the real FUVEST regression this fixes). Computed
+        # from the SAME substantial-cluster-filtered lines as the legacy
+        # gap search below, for the same reason: a synthetic multi-cell
+        # table whose every cell recurs only 2-3 times (never a real
+        # column) must not manufacture a spurious empty strip between two
+        # of its own small, filtered-out clusters (regression caught by
+        # this exact real fixture: without the filter, a gap between two
+        # groups of 3-recurring cells passed every remaining check purely
+        # because their fabricated uniform widths never trip the narrow-
+        # line guard either). A table embedded inside one column still has
+        # some line spanning across its own internal sub-gaps (a header
+        # row, a border) - it is never truly page-wide empty - so this
+        # never fires for the embedded-table case the rest of this
+        # function exists to guard against; only a real second column
+        # produces one.
+        zero_crossing_split = _verified_split(_zero_crossing_gaps(gap_search_lines))
+        if zero_crossing_split is not None:
+            return zero_crossing_split
+
     xs = sorted(ln.x0 for ln in gap_search_lines)
     if len(xs) < 2:
         return None
@@ -514,46 +634,7 @@ def detect_two_column_layout(
     if legacy_ambiguous:
         return None
 
-    for _gap, split_x in candidates:
-        if page_width and not (page_width * 0.25 < split_x < page_width * 0.75):
-            continue
-        left = [ln for ln in page_lines if ln.x0 < split_x]
-        right = [ln for ln in page_lines if ln.x0 >= split_x]
-        if len(left) < _MIN_LINES_PER_COLUMN or len(right) < _MIN_LINES_PER_COLUMN:
-            continue
-        # The "spans most of the page" evidence must come from the column's
-        # own recurring lines, never from a one-off line (a running page-
-        # number footer, say) that happens to land on this side of the
-        # split purely by x-coordinate - such a stray line can otherwise
-        # stretch a side's apparent range far past its real content and
-        # let a compact same-question answer grid (e.g. options D/E of one
-        # question set beside A/B/C, just 2 lines tall) masquerade as a
-        # genuine full-height column (found on a real ITA exam page).
-        left_recurring = [ln for ln in left if ln in recurring]
-        right_recurring = [ln for ln in right if ln in recurring]
-        if not left_recurring or not right_recurring:
-            continue
-        left_y = (min(ln.y0 for ln in left_recurring), max(ln.y1 for ln in left_recurring))
-        right_y = (min(ln.y0 for ln in right_recurring), max(ln.y1 for ln in right_recurring))
-        overlap = max(0.0, min(left_y[1], right_y[1]) - max(left_y[0], right_y[0]))
-        span = max(left_y[1], right_y[1]) - min(left_y[0], right_y[0])
-        if span <= 0 or (overlap / span) < _MIN_Y_OVERLAP_RATIO:
-            continue
-        ok = True
-        for side in (left, right):
-            widths = [ln.x1 - ln.x0 for ln in side]
-            max_w = max(widths)
-            if max_w <= 0:
-                ok = False
-                break
-            narrow_fraction = sum(1 for w in widths if w < _NARROW_LINE_WIDTH_RATIO * max_w) / len(widths)
-            if narrow_fraction > _MAX_NARROW_LINE_FRACTION:
-                ok = False
-                break
-        if not ok:
-            continue
-        return split_x
-    return None
+    return _verified_split(candidates)
 
 
 def detect_repeated_page_artifacts(
