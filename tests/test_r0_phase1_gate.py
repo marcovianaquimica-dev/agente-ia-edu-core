@@ -41,12 +41,13 @@ FORBIDDEN_COLUMN_FRAGMENTS = ("password", "token", "secret", "credential", "senh
 #   - pedagogical_classifications.{input,output,total}_tokens are LLM usage
 #     counters (Integer, nullable) written from provider responses - they only
 #     match the "token" fragment because of the plural "tokens". Not secrets.
-#   - user_invitations.token is a real credential (32 random bytes hex-encoded,
-#     String(255), nullable=False, unique, compared in plaintext by
-#     validate_token in invitation.py). It predates R0 entirely and is a known,
-#     accepted gap - not something declared fine. Fixing it means storing a
-#     hash and looking up by hash, a behaviour change with consumer migration
-#     that is out of scope for this phase.
+#   - user_invitations.token is a real credential (32 random bytes, base64url
+#     encoded via secrets.token_urlsafe, String(255), nullable=False, unique,
+#     compared in plaintext by validate_token in
+#     src/agente_ia_edu/services/invitation.py). It predates R0 entirely and
+#     is a known, accepted gap - not something declared fine. Fixing it means
+#     storing a hash and looking up by hash, a behaviour change with consumer
+#     migration that is out of scope for this phase.
 CREDENTIAL_COLUMN_EXCEPTIONS = {
     ("pedagogical_classifications", "input_tokens"): (
         "LLM usage counter (prompt token count), not a secret - false positive "
@@ -63,7 +64,7 @@ CREDENTIAL_COLUMN_EXCEPTIONS = {
     ("user_invitations", "token"): (
         "KNOWN GAP, predates R0: invitation-activation secret stored and "
         "compared in plaintext (see validate_token in "
-        "src/agente_ia_edu/db/models/invitation.py). Not a false positive and "
+        "src/agente_ia_edu/services/invitation.py). Not a false positive and "
         "not fine - just out of scope to fix here, since fixing it means "
         "switching to a hashed lookup with consumer migration."
     ),
@@ -99,9 +100,13 @@ class TestPhase1IsAdditive(unittest.IsolatedAsyncioTestCase):
         offenders = []
         for table_name, table in Base.metadata.tables.items():
             for column in table.columns:
-                lowered = column.name.lower()
+                # Use column.key (not column.name) so this matches assertion 3
+                # below, which checks membership against table.columns and
+                # therefore matches on key too - keeping both assertions
+                # keyed the same way so no mismatch can hide a real column.
+                lowered = column.key.lower()
                 if any(fragment in lowered for fragment in FORBIDDEN_COLUMN_FRAGMENTS):
-                    offenders.append((table_name, column.name))
+                    offenders.append((table_name, column.key))
 
         # 1. Every hit must be an explicitly named, reasoned exception.
         unexplained = [hit for hit in offenders if hit not in CREDENTIAL_COLUMN_EXCEPTIONS]
