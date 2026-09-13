@@ -64,6 +64,10 @@ class InstitutionSettingsService:
         """
         settings = await self.get_settings(school_id)
 
+        # Return early if no changes requested, without writing an audit row.
+        if not changes:
+            return settings
+
         unknown = set(changes) - {
             "correction_mode",
             "validation_default",
@@ -80,6 +84,12 @@ class InstitutionSettingsService:
         default = changes.get("validation_default", settings.validation_default)
         if default is not None and default not in VALIDATION_MODES:
             raise ValueError(f"Unknown validation_default {default!r}")
+
+        threshold = changes.get("validation_threshold_points", settings.validation_threshold_points)
+        if threshold is not None and not isinstance(threshold, int):
+            raise ValueError(f"validation_threshold_points must be an integer, got {type(threshold).__name__!r}")
+        if threshold is not None and not (0 <= threshold <= 1000):
+            raise ValueError(f"validation_threshold_points must be between 0 and 1000 inclusive, got {threshold!r}")
 
         if mode == "FORMATIVO":
             for field in _POLICY_FIELDS:

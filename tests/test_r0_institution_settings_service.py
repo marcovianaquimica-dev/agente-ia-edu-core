@@ -132,3 +132,88 @@ class TestInstitutionSettingsService(unittest.IsolatedAsyncioTestCase):
                 select(SchoolIdentityVersion).order_by(SchoolIdentityVersion.version)
             )).scalars().all()
             self.assertEqual([v.display_name for v in versions], ["Colégio A", "Colégio B"])
+
+    async def test_validate_threshold_points_below_range(self):
+        """validation_threshold_points must be validated before it reaches the
+        database. An out-of-range value should raise ValueError, not IntegrityError."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            with self.assertRaises(ValueError) as caught:
+                await service.configure(
+                    school.id,
+                    performed_by_external_id="admin:master",
+                    correction_mode="AVALIATIVO",
+                    validation_threshold_points=-1,
+                )
+            self.assertIn("validation_threshold_points", str(caught.exception))
+            # Confirm no audit row was written due to validation failure
+            count = await session.scalar(select(func.count()).select_from(AdminAuditLog))
+            self.assertEqual(count, 0)
+
+    async def test_validate_threshold_points_above_range(self):
+        """validation_threshold_points must not exceed 1000."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            with self.assertRaises(ValueError) as caught:
+                await service.configure(
+                    school.id,
+                    performed_by_external_id="admin:master",
+                    correction_mode="AVALIATIVO",
+                    validation_threshold_points=5000,
+                )
+            self.assertIn("validation_threshold_points", str(caught.exception))
+            # Confirm no audit row was written due to validation failure
+            count = await session.scalar(select(func.count()).select_from(AdminAuditLog))
+            self.assertEqual(count, 0)
+
+    async def test_validate_threshold_points_boundary_zero(self):
+        """validation_threshold_points = 0 is valid (boundary value)."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            settings = await service.configure(
+                school.id,
+                performed_by_external_id="admin:master",
+                correction_mode="AVALIATIVO",
+                validation_threshold_points=0,
+            )
+            self.assertEqual(settings.validation_threshold_points, 0)
+
+    async def test_validate_threshold_points_boundary_1000(self):
+        """validation_threshold_points = 1000 is valid (boundary value)."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+            settings = await service.configure(
+                school.id,
+                performed_by_external_id="admin:master",
+                correction_mode="AVALIATIVO",
+                validation_threshold_points=1000,
+            )
+            self.assertEqual(settings.validation_threshold_points, 1000)
+
+    async def test_configure_with_no_changes_writes_no_audit_row(self):
+        """Calling configure with no changes should return the settings unchanged
+        without writing an audit row."""
+        async with self.session_factory() as session:
+            school = await self._school(session)
+            service = InstitutionSettingsService(session)
+
+            # Get the initial settings
+            initial_settings = await service.get_settings(school.id)
+            initial_id = initial_settings.id
+
+            # Call configure with no changes
+            result = await service.configure(
+                school.id,
+                performed_by_external_id="admin:master",
+            )
+
+            # Confirm the same settings object is returned
+            self.assertEqual(result.id, initial_id)
+
+            # Confirm no audit row was written
+            count = await session.scalar(select(func.count()).select_from(AdminAuditLog))
+            self.assertEqual(count, 0)
