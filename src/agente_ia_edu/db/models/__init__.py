@@ -1,10 +1,13 @@
 from .academic import (
     AcademicYear,
     Class,
+    EnrollmentTransition,
     GradeLevel,
     Person,
     SchoolUnit,
     Segment,
+    Student,
+    StudentEnrollment,
     User,
 )
 from .official import (
@@ -215,4 +218,7 @@ __all__ = [
     "GradeLevel",
     "SchoolUnit",
     "Segment",
+    "Student",
+    "StudentEnrollment",
+    "EnrollmentTransition",
 ]

@@ -30,6 +30,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
@@ -254,3 +255,102 @@ class Class(Base):
 
     academic_year: Mapped["AcademicYear"] = relationship(back_populates="classes")
     grade_level: Mapped["GradeLevel"] = relationship(back_populates="classes")
+
+
+ENROLLMENT_STATUSES = ("ACTIVE", "TRANSFERRED", "EXITED", "COMPLETED")
+TRANSITION_KINDS = ("PROMOTED", "RETAINED", "TRANSFERRED", "EXITED")
+
+
+class Student(Base):
+    """Binds a Person to a school as a student."""
+
+    __tablename__ = "students"
+    __table_args__ = (
+        UniqueConstraint("school_id", "external_id", name="uq_students_school_external_id"),
+        UniqueConstraint("school_id", "student_code", name="uq_students_school_code"),
+        CheckConstraint("status IN ('ACTIVE', 'INACTIVE')", name="ck_students_status"),
+        Index("ix_students_school_id", "school_id"),
+        Index("ix_students_person_id", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("schools.id", ondelete="RESTRICT"), nullable=False
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("persons.id", ondelete="RESTRICT"), nullable=False
+    )
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    student_code: Mapped[str | None] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    enrollments: Mapped[list["StudentEnrollment"]] = relationship(back_populates="student")
+
+
+class StudentEnrollment(Base):
+    """One student in one class. At most one row per pair."""
+
+    __tablename__ = "student_enrollments"
+    __table_args__ = (
+        UniqueConstraint("student_id", "class_id", name="uq_student_enrollments_student_class"),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'TRANSFERRED', 'EXITED', 'COMPLETED')",
+            name="ck_student_enrollments_status",
+        ),
+        Index("ix_student_enrollments_student_id", "student_id"),
+        Index("ix_student_enrollments_class_id", "class_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("students.id", ondelete="RESTRICT"), nullable=False
+    )
+    class_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("classes.id", ondelete="RESTRICT"), nullable=False
+    )
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    enrolled_on: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    student: Mapped["Student"] = relationship(back_populates="enrollments")
+
+
+class EnrollmentTransition(Base):
+    """Moving between years is a recorded fact, never an UPDATE that erases the
+    prior state (spec §4.3). ``to_enrollment_id`` is NULL when the student left.
+
+    Same principle that versions the rubric in R1: what happened has to stay
+    readable after things change.
+    """
+
+    __tablename__ = "enrollment_transitions"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('PROMOTED', 'RETAINED', 'TRANSFERRED', 'EXITED')",
+            name="ck_enrollment_transitions_kind",
+        ),
+        Index("ix_enrollment_transitions_from", "from_enrollment_id"),
+        Index("ix_enrollment_transitions_to", "to_enrollment_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    from_enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("student_enrollments.id", ondelete="RESTRICT"), nullable=False
+    )
+    to_enrollment_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("student_enrollments.id", ondelete="RESTRICT")
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
