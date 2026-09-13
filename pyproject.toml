@@ -35,3 +35,10 @@ recovery = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# The editable install pins src/ in the primary checkout, so a worktree would
+# silently import and test the WRONG tree. This puts the checkout's own src/ at
+# the front of sys.path for every pytest run, whichever checkout it runs in.
+pythonpath = ["src"]
+testpaths = ["tests"]
