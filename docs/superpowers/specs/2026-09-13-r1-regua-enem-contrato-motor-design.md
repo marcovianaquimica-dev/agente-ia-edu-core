@@ -562,6 +562,25 @@ Levantados durante o brainstorming, fora do escopo de R1:
   pode reescrever silenciosamente o documento que a família já recebeu; e o
   armazenamento do arquivo de logo é o primeiro caso real de object storage no
   core, que hoje só tem cópia local em `services/material_storage.py`.
+- **R8, e possivelmente um sub-projeto novo** — em 13/09/2026 o usuário forneceu onze
+  documentos de redação. Inventariados: **dois têm camada de texto usável**, nove são
+  imagem ou fonte quebrada e exigiriam o mesmo tratamento de página renderizada que a
+  cartilha do INEP exigiu.
+  - *Cartilha Redação a Mil 8.0 (Poliedro / Lucas Felpi, 2026)*, 52 páginas, texto legível.
+    **Fecha uma pendência aberta:** os três sinais `INTERPRETACAO_PEDAGOGICA` de repertório
+    citam a §17 da spec do produto, que cita este documento, e o implementador da Task 4
+    registrou que não teve como ler a fonte para conferir a redação. Agora é verificável.
+  - *100 redações nota 1000*, 94 páginas, texto legível. Material de Banco de Calibração
+    Ouro para R8. **A §16 exige registrar "origem da evidência e direitos de uso"**, e são
+    publicações comerciais de terceiros — a questão de direitos é do usuário e não pode ser
+    presumida resolvida por quem escrever o plano de R8.
+  - *32 frases argumentativas prontas*, *redação pronta para qualquer tema*, *macetes para
+    redação* e afins. Uso não óbvio e mais valioso que o aparente: são catálogos exatamente
+    daquilo que a cartilha 2025 passou a penalizar. Servem como **corpus negativo** —
+    a lista de construções que o motor deve reconhecer como repertório de bolso e modelo
+    pronto, alimentando o sinal `repertorio_de_bolso` que já está na régua. Valem mais do
+    lado do detector do que do lado do ensino.
+
 - **R5** — percentil do aluno contra a base, por competência. Não consta da spec v1.0, é
   barato com os dados que R5 já terá, e é prática consolidada no mercado.
 - **R5/R8** — cruzamento entre correção de redação e recomendação curricular, usando o
