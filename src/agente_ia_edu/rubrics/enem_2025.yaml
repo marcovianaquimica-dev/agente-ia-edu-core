@@ -1,0 +1,675 @@
+# src/agente_ia_edu/rubrics/enem_2025.yaml
+#
+# Texto normativo da Matriz de Referência do ENEM, transcrito da Cartilha do
+# Participante 2025 do INEP. Cada descritor cita a página do PDF cujo hash está
+# declarado abaixo. Conferido célula a célula contra o documento oficial.
+#
+# NÃO edite um descritor para "melhorar" a redação. Se o INEP mudar a matriz,
+# crie um novo arquivo e uma nova rubric_version.
+#
+# ---------------------------------------------------------------------------
+# COMO LER OS CAMPOS `source_page` E `source_ref`
+# ---------------------------------------------------------------------------
+# Todo número de página neste arquivo é a PÁGINA DO PDF (1-based, como o leitor
+# de PDF numera), NÃO o número impresso no rodapé da cartilha. Os dois diferem
+# em 2: a p. 35 do PDF traz "33" no rodapé. Quem for conferir deve pular para a
+# página do PDF, não procurar o rodapé.
+#
+# Mapa rápido das tabelas de nível (página do PDF -> competência):
+#   16 -> C1   |   28 -> C2   |   32 -> C3   |   35 -> C4   |   39 -> C5
+#
+# ---------------------------------------------------------------------------
+# COMO A TRANSCRIÇÃO FOI FEITA
+# ---------------------------------------------------------------------------
+# A cartilha embute pelo menos três codificações de fonte diferentes. Uma delas
+# não é recuperável: mapeia as letras `a`, `b` e `c` em caracteres de controle,
+# de modo que os descritores da Competência IV para 200, 160, 120 e 80 pontos
+# NÃO existem em forma textual no arquivo (`Articula` sai como `-/$0'`). Por
+# isso a transcrição foi feita LENDO AS PÁGINAS RENDERIZADAS EM IMAGEM, com o
+# texto extraído (tools/extract_cartilha_enem.py) usado apenas como segunda
+# opinião onde ele estava limpo.
+#
+# ---------------------------------------------------------------------------
+# ERRO DO PRÓPRIO INEP — NÃO "CORRIJA"
+# ---------------------------------------------------------------------------
+# Esta é a edição 2025, mas a frase de abertura dos quadros de nível diz
+# "para avaliar a Competência II nas redações do Enem 2024" (p. 28 do PDF) e
+# "para avaliar a Competência IV nas redações do Enem 2024" (p. 35 do PDF).
+# As Competências I, III e V dizem "Enem 2025" (p. 15, 31 e 39). O texto do
+# INEP é esse; não é erro de transcrição. Não altere.
+#
+# ---------------------------------------------------------------------------
+# REGRAS NORMATIVAS QUE FICARAM DE FORA DE `zero_rules` — E POR QUÊ
+# ---------------------------------------------------------------------------
+# 1. Tangenciamento (p. 27 do PDF): "o tangenciamento ao tema, avaliado na
+#    Competência II, afeta também a avaliação das Competências III e V,
+#    impedindo que a redação receba nota acima de 40 pontos em todas essas
+#    competências." É um TETO de nota, não anulação nem zero, e o vocabulário
+#    de `effect` só admite ANULA_REDACAO e ZERA_COMPETENCIA. Fica registrado
+#    aqui para que o motor o trate fora desta lista.
+# 2. Desconto de linhas copiadas (p. 10 do PDF): a cópia da Prova de Redação
+#    e/ou do Caderno de Questões tem as linhas copiadas desconsideradas na
+#    contagem mínima. Também não é anulação nem zero.
+# 3. A p. 24 do PDF reproduz em fac-símile o caderno do Enem 2024, com a sua
+#    própria lista "Receberá nota zero...". É reprodução de outro documento,
+#    não texto normativo da cartilha: as regras abaixo vêm da lista própria da
+#    cartilha, nas p. 9 e 10 do PDF ("Quais as razões para se atribuir nota 0
+#    (zero) a uma redação?").
+
+rubric_version: ENEM_2025
+label: "Matriz de Referência ENEM - Cartilha do Participante 2025"
+effective_year: 2025
+max_total_points: 1000
+official_source_title: "A Redação do Enem 2025 - Cartilha do(a) Participante"
+official_source_url: "https://download.inep.gov.br/publicacoes/institucionais/avaliacoes_e_exames_da_educacao_basica/a_redacao_no_enem_2025_cartilha_do_participante.pdf"
+official_source_sha256: "d8ab44dcbf5af808829d9dee89d23e7efa4f59df022b99102fac87489b870288"
+
+competencies:
+  # =========================================================================
+  # COMPETÊNCIA I — quadro de níveis na p. 16 do PDF (rodapé "14")
+  # =========================================================================
+  - code: C1
+    ordinal: 1
+    official_title: "Demonstrar domínio da modalidade escrita formal da língua portuguesa."
+    source_page: 14
+    levels:
+      - points: 200
+        source_page: 16
+        descriptor: >-
+          Demonstra excelente domínio da modalidade escrita formal da língua
+          portuguesa e de escolha de registro. Desvios gramaticais ou de
+          convenções da escrita serão aceitos somente como excepcionalidade e
+          quando não caracterizarem reincidência.
+      - points: 160
+        source_page: 16
+        descriptor: >-
+          Demonstra bom domínio da modalidade escrita formal da língua
+          portuguesa e de escolha de registro, com poucos desvios gramaticais e
+          de convenções da escrita.
+      - points: 120
+        source_page: 16
+        descriptor: >-
+          Demonstra domínio mediano da modalidade escrita formal da língua
+          portuguesa e de escolha de registro, com alguns desvios gramaticais e
+          de convenções da escrita.
+      - points: 80
+        source_page: 16
+        descriptor: >-
+          Demonstra domínio insuficiente da modalidade escrita formal da língua
+          portuguesa, com muitos desvios gramaticais, de escolha de registro e
+          de convenções da escrita.
+      - points: 40
+        source_page: 16
+        descriptor: >-
+          Demonstra domínio precário da modalidade escrita formal da língua
+          portuguesa, de forma sistemática, com diversificados e frequentes
+          desvios gramaticais, de escolha de registro e de convenções da
+          escrita.
+      - points: 0
+        source_page: 16
+        descriptor: >-
+          Demonstra desconhecimento da modalidade escrita formal da língua
+          portuguesa.
+    # Os cinco sinais abaixo são a lista que a própria cartilha enumera na
+    # p. 15 do PDF: a estrutura sintática e os quatro tipos de desvio.
+    signals:
+      - key: estrutura_sintatica
+        label: "Estrutura sintática"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 15 (PDF)"
+        description: >-
+          Construção das frases do texto. Períodos bem estruturados e completos,
+          com complexidade (orações subordinadas e intercaladas) no nível
+          máximo; períodos truncados e justaposição de palavras, ausência de
+          termos ou excesso de palavras caracterizam a falha.
+      - key: convencoes_da_escrita
+        label: "Desvios de convenções da escrita"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 15 (PDF)"
+        description: >-
+          Acentuação, ortografia, uso de hífen, emprego de letras maiúsculas e
+          minúsculas e separação silábica (translineação).
+      - key: desvios_gramaticais
+        label: "Desvios gramaticais"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 15 (PDF)"
+        description: >-
+          Regência verbal e nominal, concordância verbal e nominal, tempos e
+          modos verbais, pontuação, paralelismos sintático, morfológico e
+          semântico, emprego de pronomes e crase.
+      - key: escolha_de_registro
+        label: "Escolha de registro"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 15 (PDF)"
+        description: >-
+          Adequação à modalidade escrita formal, isto é, ausência de uso de
+          registro informal e/ou de marcas de oralidade.
+      - key: escolha_vocabular
+        label: "Escolha vocabular"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 15 (PDF)"
+        description: >-
+          Emprego de vocabulário preciso, o que significa que as palavras
+          selecionadas são usadas em seu sentido correto e são apropriadas ao
+          contexto em que aparecem.
+
+  # =========================================================================
+  # COMPETÊNCIA II — quadro de níveis na p. 28 do PDF (rodapé "26")
+  # =========================================================================
+  - code: C2
+    ordinal: 2
+    official_title: >-
+      Compreender a proposta de redação e aplicar conceitos das várias áreas de
+      conhecimento para desenvolver o tema dentro dos limites estruturais do
+      texto dissertativo-argumentativo em prosa.
+    source_page: 16
+    levels:
+      - points: 200
+        source_page: 28
+        descriptor: >-
+          Desenvolve o tema por meio de argumentação consistente, a partir de um
+          repertório sociocultural produtivo, e apresenta excelente domínio do
+          texto dissertativo-argumentativo.
+      - points: 160
+        source_page: 28
+        descriptor: >-
+          Desenvolve o tema por meio de argumentação consistente e apresenta bom
+          domínio do texto dissertativo-argumentativo, com proposição,
+          argumentação e conclusão.
+      - points: 120
+        source_page: 28
+        descriptor: >-
+          Desenvolve o tema por meio de argumentação previsível e apresenta
+          domínio mediano do texto dissertativo-argumentativo, com proposição,
+          argumentação e conclusão.
+      - points: 80
+        source_page: 28
+        descriptor: >-
+          Desenvolve o tema recorrendo à cópia de trechos dos textos motivadores
+          ou apresenta domínio insuficiente do texto dissertativo-argumentativo,
+          não atendendo à estrutura com proposição, argumentação e conclusão.
+      - points: 40
+        source_page: 28
+        descriptor: >-
+          Apresenta o assunto, tangenciando o tema, ou demonstra domínio
+          precário do texto dissertativo-argumentativo, com traços constantes de
+          outros tipos textuais.
+      - points: 0
+        source_page: 28
+        descriptor: >-
+          Fuga ao tema/não atendimento à estrutura dissertativo-argumentativa.
+          Nestes casos a redação recebe nota 0 (zero) e é anulada.
+    signals:
+      - key: abordagem_do_tema
+        label: "Abordagem do tema"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 17, 26 e 27 (PDF)"
+        description: >-
+          Atendimento ao recorte temático definido pela proposta. Abordagem
+          parcial baseada somente no assunto mais amplo é tangenciamento
+          (p. 27); não desenvolver nem o assunto mais amplo nem o tema
+          específico é fuga total ao tema (p. 26).
+      - key: estrutura_dissertativo_argumentativa
+        label: "Estrutura dissertativo-argumentativa"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 27 e 28 (PDF)"
+        description: >-
+          Texto organizado com base na defesa de um ponto de vista, com
+          proposição, argumentação e conclusão. Predominância de características
+          de outro tipo textual (narrativo, descritivo) é não atendimento ao
+          tipo textual.
+      - key: repertorio_sociocultural
+        label: "Repertório sociocultural"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 17 (PDF)"
+        description: >-
+          Uma informação, um fato, uma citação ou uma experiência vivida que, de
+          alguma forma, esteja relacionada ao tema e contribua como argumento
+          para a discussão proposta.
+      - key: copia_textos_motivadores
+        label: "Cópia dos textos motivadores"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 17 (PDF)"
+        description: >-
+          A recorrência de cópia é avaliada negativamente e fará com que a
+          redação tenha pontuação mais baixa ou, até mesmo, seja anulada como
+          cópia.
+      # "Repertório de bolso" é um conceito da PRÓPRIA cartilha (p. 18 do PDF,
+      # seção "CUIDADO COM O REPERTÓRIO DE BOLSO!"), por isso OFICIAL_INEP.
+      - key: repertorio_de_bolso
+        label: "Repertório de bolso"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 18 (PDF)"
+        description: >-
+          Referências prontas, memorizadas e frequentemente utilizadas pelos(as)
+          participantes, de forma genérica e pouco aprofundada, sem uma conexão
+          genuína com o tema proposto. Repertório inserido de forma decorada,
+          automática ou forçada pode ser avaliado como não produtivo.
+      # Os três sinais abaixo decompõem o repertório em dimensões separáveis
+      # para o motor. A cartilha trata as três juntas (p. 18: "devem ser
+      # pertinentes ao assunto tratado; ser bem contextualizados e articulados
+      # com os argumentos; mostrar que o(a) participante sabe relacionar o
+      # conhecimento ao problema discutido"); a separação em três sinais
+      # distintos é análise nossa, não texto do INEP.
+      - key: repertorio_legitimidade
+        label: "Repertório: legitimidade"
+        provenance: INTERPRETACAO_PEDAGOGICA
+        source_ref: "REDAÇÃO Especificação Completa v1.0, §17"
+        description: >-
+          O repertório existe de fato e é descrito com correção — a referência
+          não é inventada nem atribuída erroneamente.
+      - key: repertorio_pertinencia
+        label: "Repertório: pertinência"
+        provenance: INTERPRETACAO_PEDAGOGICA
+        source_ref: "REDAÇÃO Especificação Completa v1.0, §17"
+        description: >-
+          O repertório guarda relação real com o recorte temático da proposta, e
+          não apenas com o assunto mais amplo.
+      - key: repertorio_produtividade
+        label: "Repertório: produtividade"
+        provenance: INTERPRETACAO_PEDAGOGICA
+        source_ref: "REDAÇÃO Especificação Completa v1.0, §17"
+        description: >-
+          O repertório é articulado ao argumento e trabalha a favor do ponto de
+          vista defendido, em vez de aparecer solto no texto.
+
+  # =========================================================================
+  # COMPETÊNCIA III — quadro de níveis na p. 32 do PDF (rodapé "30")
+  # =========================================================================
+  - code: C3
+    ordinal: 3
+    official_title: >-
+      Selecionar, relacionar, organizar e interpretar informações, fatos,
+      opiniões e argumentos em defesa de um ponto de vista.
+    source_page: 29
+    levels:
+      - points: 200
+        source_page: 32
+        descriptor: >-
+          Apresenta informações, fatos e opiniões relacionados ao tema proposto,
+          de forma consistente e organizada, configurando autoria, em defesa de
+          um ponto de vista.
+      - points: 160
+        source_page: 32
+        descriptor: >-
+          Apresenta informações, fatos e opiniões relacionados ao tema, de forma
+          organizada, com indícios de autoria, em defesa de um ponto de vista.
+      - points: 120
+        source_page: 32
+        descriptor: >-
+          Apresenta informações, fatos e opiniões relacionados ao tema,
+          limitados aos argumentos dos textos motivadores e pouco organizados,
+          em defesa de um ponto de vista.
+      - points: 80
+        source_page: 32
+        descriptor: >-
+          Apresenta informações, fatos e opiniões relacionados ao tema, mas
+          desorganizados ou contraditórios e limitados aos argumentos dos textos
+          motivadores, em defesa de um ponto de vista.
+      - points: 40
+        source_page: 32
+        descriptor: >-
+          Apresenta informações, fatos e opiniões pouco relacionados ao tema ou
+          incoerentes e sem defesa de um ponto de vista.
+      - points: 0
+        source_page: 32
+        descriptor: >-
+          Apresenta informações, fatos e opiniões não relacionados ao tema e sem
+          defesa de um ponto de vista.
+    # Os quatro fatores de inteligibilidade e o projeto de texto são enumerados
+    # pela cartilha na p. 29 do PDF.
+    signals:
+      - key: projeto_de_texto
+        label: "Projeto de texto"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 29 (PDF)"
+        description: >-
+          Planejamento prévio à escrita, no qual se alicerçam a coerência e a
+          plausibilidade entre as ideias apresentadas.
+      - key: selecao_de_argumentos
+        label: "Seleção de argumentos"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 29 (PDF)"
+        description: "Seleção de argumentos."
+      - key: relacao_de_sentido_entre_partes
+        label: "Relação de sentido entre as partes do texto"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 29 (PDF)"
+        description: "Relação de sentido entre as partes do texto."
+      - key: progressao_tematica
+        label: "Progressão adequada ao desenvolvimento do tema"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 29 (PDF)"
+        description: >-
+          Progressão adequada ao desenvolvimento do tema, revelando que a
+          redação foi planejada e que as ideias desenvolvidas são, pouco a
+          pouco, apresentadas de forma organizada.
+      - key: desenvolvimento_dos_argumentos
+        label: "Desenvolvimento dos argumentos"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 29 (PDF)"
+        description: >-
+          Desenvolvimento dos argumentos, com a explicitação da relevância das
+          ideias apresentadas para a defesa do ponto de vista definido.
+      - key: autoria
+        label: "Autoria"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 32 (PDF), níveis 200 e 160"
+        description: >-
+          Marca que separa o nível 200 ("configurando autoria") do nível 160
+          ("com indícios de autoria") no quadro oficial da Competência III.
+
+  # =========================================================================
+  # COMPETÊNCIA IV — quadro de níveis na p. 35 do PDF (rodapé "33")
+  #
+  # ATENÇÃO AO REVISOR: esta é a competência cujo texto NÃO existe na camada
+  # textual do PDF (a fonte mapeia `a`, `b` e `c` em caracteres de controle).
+  # Os seis descritores abaixo foram lidos da imagem da página renderizada.
+  # Conferir só contra o texto extraído não funciona aqui — abra a p. 35.
+  # =========================================================================
+  - code: C4
+    ordinal: 4
+    official_title: >-
+      Demonstrar conhecimento dos mecanismos linguísticos necessários para a
+      construção da argumentação.
+    source_page: 32
+    levels:
+      - points: 200
+        source_page: 35
+        descriptor: >-
+          Articula bem as partes do texto e apresenta repertório diversificado
+          de recursos coesivos.
+      - points: 160
+        source_page: 35
+        descriptor: >-
+          Articula as partes do texto, com poucas inadequações, e apresenta
+          repertório diversificado de recursos coesivos.
+      - points: 120
+        source_page: 35
+        descriptor: >-
+          Articula as partes do texto, de forma mediana, com inadequações, e
+          apresenta repertório pouco diversificado de recursos coesivos.
+      - points: 80
+        source_page: 35
+        descriptor: >-
+          Articula as partes do texto, de forma insuficiente, com muitas
+          inadequações, e apresenta repertório limitado de recursos coesivos.
+      - points: 40
+        source_page: 35
+        descriptor: "Articula as partes do texto de forma precária."
+      - points: 0
+        source_page: 35
+        descriptor: "Não articula as informações."
+    signals:
+      - key: operadores_argumentativos
+        label: "Operadores argumentativos"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 32 e 33 (PDF)"
+        description: >-
+          Principais termos responsáveis pelas relações semânticas construídas
+          ao longo do texto dissertativo-argumentativo: relações de igualdade,
+          de adversidade, de causa, de consequência, de conclusão.
+      - key: estruturacao_dos_paragrafos
+        label: "Estruturação dos parágrafos"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 33 (PDF)"
+        description: >-
+          Um parágrafo é uma unidade textual formada por uma ideia principal à
+          qual se ligam ideias secundárias. Deve haver articulação explícita
+          entre um parágrafo e outro.
+      - key: estruturacao_dos_periodos
+        label: "Estruturação dos períodos"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 33 e 34 (PDF)"
+        description: >-
+          Os períodos do texto dissertativo-argumentativo são, normalmente,
+          estruturados de modo complexo, formados por duas ou mais orações, para
+          que possam ser expressadas as ideias de causa/consequência,
+          contradição, temporalidade, comparação, conclusão.
+      - key: referenciacao
+        label: "Referenciação"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 34 (PDF)"
+        description: >-
+          Pessoas, coisas, lugares e fatos são apresentados e, depois, retomados
+          à medida que o texto vai progredindo, mediante o uso de pronomes,
+          advérbios, artigos, sinônimos, antônimos, hipônimos, hiperônimos, além
+          de expressões resumitivas, metafóricas ou metadiscursivas.
+      - key: coesao_artificial_ou_excessiva
+        label: "Coesão artificial ou excessiva"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 35 (PDF), quadro ATENÇÃO!"
+        description: >-
+          Uma boa coesão não depende da mera presença de conectivos no texto,
+          muito menos de serem utilizados em grande quantidade — é preciso que
+          esses recursos estabeleçam relações lógicas adequadas entre as ideias
+          apresentadas.
+
+  # =========================================================================
+  # COMPETÊNCIA V — quadro de níveis na p. 39 do PDF (rodapé "37")
+  # =========================================================================
+  - code: C5
+    ordinal: 5
+    official_title: >-
+      Elaborar proposta de intervenção para o problema abordado, respeitando os
+      direitos humanos.
+    source_page: 35
+    levels:
+      - points: 200
+        source_page: 39
+        descriptor: >-
+          Elabora muito bem proposta de intervenção, detalhada, relacionada ao
+          tema e articulada à discussão desenvolvida no texto.
+      - points: 160
+        source_page: 39
+        descriptor: >-
+          Elabora bem proposta de intervenção relacionada ao tema e articulada à
+          discussão desenvolvida no texto.
+      - points: 120
+        source_page: 39
+        descriptor: >-
+          Elabora, de forma mediana, proposta de intervenção relacionada ao tema
+          e articulada à discussão desenvolvida no texto.
+      - points: 80
+        source_page: 39
+        descriptor: >-
+          Elabora, de forma insuficiente, proposta de intervenção relacionada ao
+          tema, ou não articulada com a discussão desenvolvida no texto.
+      - points: 40
+        source_page: 39
+        descriptor: >-
+          Apresenta proposta de intervenção vaga, precária ou relacionada apenas
+          ao assunto.
+      - points: 0
+        source_page: 39
+        descriptor: >-
+          Não apresenta proposta de intervenção ou apresenta proposta não
+          relacionada ao tema ou ao assunto.
+    # A decomposição da proposta de intervenção em cinco elementos é ENUMERADA
+    # PELA PRÓPRIA CARTILHA na p. 36 do PDF ("você deve não apenas propor uma
+    # ação interventiva, mas também apontar o(a) agente social competente para
+    # executá-la [...] Além disso, você deve determinar o meio de execução da
+    # ação e o seu efeito ou a sua finalidade, bem como incluir algum outro
+    # detalhamento") e repetida na p. 41 (item 5 da leitura guiada). Por isso é
+    # OFICIAL_INEP, e não heurística do motor.
+    signals:
+      - key: c5_acao
+        label: "Proposta de intervenção: ação"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 36 e 41 (PDF)"
+        description: >-
+          A ação proposta para intervir no problema focalizado pelo tema é o
+          elemento essencial da proposta de intervenção.
+      - key: c5_agente
+        label: "Proposta de intervenção: agente"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 36 e 41 (PDF)"
+        description: >-
+          O(a) agente social competente para executar a ação, de acordo com o
+          âmbito da ação escolhida: individual, familiar, comunitário, social,
+          político, governamental.
+      - key: c5_meio_modo
+        label: "Proposta de intervenção: meio/modo"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 36 e 41 (PDF)"
+        description: "O meio de execução da ação, isto é, como ela será posta em prática."
+      - key: c5_finalidade
+        label: "Proposta de intervenção: efeito/finalidade"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 36 e 41 (PDF)"
+        description: "O efeito ou a finalidade pretendida pela ação."
+      - key: c5_detalhamento
+        label: "Proposta de intervenção: detalhamento"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 36 e 41 (PDF)"
+        description: >-
+          Algum outro detalhamento que complemente um dos elementos já
+          mencionados (exemplificação, explicação etc.).
+      - key: c5_articulacao_com_o_texto
+        label: "Articulação da proposta com a discussão do texto"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 36 (PDF)"
+        description: >-
+          A proposta precisa estar relacionada ao tema e integrada ao projeto de
+          texto, coerente com o ponto de vista desenvolvido e com os argumentos
+          utilizados.
+      - key: respeito_aos_direitos_humanos
+        label: "Respeito aos direitos humanos"
+        provenance: OFICIAL_INEP
+        source_ref: "Cartilha do Participante 2025, p. 37 (PDF)"
+        description: >-
+          Princípios norteadores pautados no artigo 3.º da Resolução n.º 1 de 30
+          de maio de 2012. São sempre contrárias aos direitos humanos a defesa
+          de tortura, mutilação, execução sumária e qualquer forma de "justiça
+          com as próprias mãos"; a incitação a qualquer tipo de violência
+          motivada por questões de raça, etnia, gênero, credo, opinião política,
+          condição física, origem geográfica ou socioeconômica; a explicitação
+          de qualquer forma de discurso de ódio.
+
+# ===========================================================================
+# SITUAÇÕES DE NOTA 0 (ZERO)
+#
+# As nove primeiras vêm da lista própria da cartilha, "Quais as razões para se
+# atribuir nota 0 (zero) a uma redação?", p. 9 e 10 do PDF. As duas últimas vêm
+# de quadros ATENÇÃO! nas p. 28 e 39.
+# ===========================================================================
+zero_rules:
+  - key: fuga_ao_tema
+    label: "Fuga total ao tema"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Fuga total ao tema. Considera-se que uma redação tenha fugido ao tema
+      quando nem o assunto mais amplo nem o tema específico proposto são
+      desenvolvidos (definição na p. 26 do PDF).
+
+  - key: nao_atendimento_ao_tipo_textual
+    label: "Não obediência ao tipo dissertativo-argumentativo"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Não obediência ao tipo dissertativo-argumentativo. Não atende ao tipo
+      textual a redação em que há predominância de características de outro tipo
+      textual, como o narrativo ou o descritivo (definição na p. 27 do PDF).
+
+  - key: texto_em_branco
+    label: "Em Branco"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Ausência de texto escrito na Folha de Redação, que será considerada "Em
+      Branco".
+
+  - key: texto_insuficiente
+    label: "Texto insuficiente"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Extensão de até 7 (sete) linhas manuscritas, qualquer que seja o conteúdo
+      ou extensão de até 10 (dez) linhas escritas no sistema Braille, situações
+      que configurarão "Texto insuficiente".
+
+  - key: anulacao_proposital
+    label: "Impropérios, desenhos e outras formas propositais de anulação"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Impropérios, desenhos e outras formas propositais de anulação, o que
+      configurará "Anulada".
+
+  - key: parte_desconectada_do_tema
+    label: "Parte deliberadamente desconectada do tema proposto"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Parte deliberadamente desconectada do tema proposto. Consistem em
+      reflexões do(a) participante sobre o próprio processo de escrita, sobre a
+      prova ou sobre o próprio desempenho no exame; bilhetes destinados à banca
+      avaliadora; mensagens políticas ou de protesto, orações, mensagens
+      religiosas; frases desconectadas do corpo do texto que não mantenham
+      relação com o tema ou com a argumentação (definição na p. 10 do PDF).
+
+  - key: identificacao_indevida
+    label: "Identificação fora do espaço destinado"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 9
+    provenance: OFICIAL_INEP
+    description: >-
+      Nome, assinatura, rubrica ou qualquer outra forma de identificação fora do
+      espaço destinado exclusivamente para isso, em qualquer parte da folha de
+      redação, o que configurará "Anulada".
+
+  - key: lingua_estrangeira
+    label: "Texto em língua estrangeira"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 10
+    provenance: OFICIAL_INEP
+    description: "Texto escrito predominantemente ou integralmente em língua estrangeira."
+
+  - key: texto_ilegivel
+    label: "Texto ilegível"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 10
+    provenance: OFICIAL_INEP
+    description: >-
+      Texto ilegível, que impossibilite sua leitura por dois(duas)
+      avaliadores(as) independentes, o que configurará "Anulada".
+
+  - key: predominancia_de_outro_tipo_textual
+    label: "Predominância de características de outro tipo textual"
+    effect: ANULA_REDACAO
+    competency_code: null
+    source_page: 28
+    provenance: OFICIAL_INEP
+    description: >-
+      Será atribuída nota 0 (zero) à redação que apresentar predominância de
+      características de outro tipo textual, mesmo que atenda às exigências dos
+      outros critérios de avaliação. Já redações que apresentem muitas
+      características de outro tipo textual em meio a um texto predominantemente
+      dissertativo-argumentativo não receberão a nota zero total, mas serão
+      penalizadas na Competência II.
+
+  - key: desrespeito_aos_direitos_humanos
+    label: "Desrespeito aos direitos humanos"
+    effect: ZERA_COMPETENCIA
+    competency_code: C5
+    source_page: 39
+    provenance: OFICIAL_INEP
+    description: >-
+      Propostas que desrespeitem os direitos humanos receberão nota 0 (zero) na
+      Competência V.
