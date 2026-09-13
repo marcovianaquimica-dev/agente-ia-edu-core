@@ -12,7 +12,7 @@ from agente_ia_edu.db.models import (
     EssayRubricCompetency,
     EssayRubricLevel,
     EssayRubricSignal,
-    EssayRubricZeroRule,
+    EssayRubricScoringRule,
 )
 
 
@@ -104,12 +104,59 @@ class TestEssayRubricModels(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(IntegrityError):
                 await session.flush()
 
-    async def test_zero_rule_records_its_effect(self):
+    async def test_scoring_rule_records_its_effect(self):
         async with self.session_factory() as session:
             rubric = await self._rubric(session)
-            session.add(EssayRubricZeroRule(
+            session.add(EssayRubricScoringRule(
                 rubric_id=rubric.id, key="fuga_ao_tema",
                 label="Fuga ao tema", effect="ANULA_REDACAO",
                 competency_code=None, source_page=9, provenance="OFICIAL_INEP",
             ))
             await session.flush()
+
+    async def test_limita_pontuacao_rule_accepts_an_official_max_points(self):
+        async with self.session_factory() as session:
+            rubric = await self._rubric(session)
+            session.add(EssayRubricScoringRule(
+                rubric_id=rubric.id, key="tangenciamento_teto_c3",
+                label="Tangenciamento ao tema - teto na Competência III",
+                effect="LIMITA_PONTUACAO", competency_code="C3", max_points=40,
+                source_page=27, provenance="OFICIAL_INEP",
+            ))
+            await session.flush()
+
+    async def test_limita_pontuacao_rule_without_max_points_is_rejected(self):
+        async with self.session_factory() as session:
+            rubric = await self._rubric(session)
+            session.add(EssayRubricScoringRule(
+                rubric_id=rubric.id, key="teto_sem_max_points",
+                label="teto sem max_points", effect="LIMITA_PONTUACAO",
+                competency_code="C3", max_points=None,
+                source_page=27, provenance="OFICIAL_INEP",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
+    async def test_limita_pontuacao_rule_rejects_an_off_scale_max_points(self):
+        async with self.session_factory() as session:
+            rubric = await self._rubric(session)
+            session.add(EssayRubricScoringRule(
+                rubric_id=rubric.id, key="teto_fora_da_escala",
+                label="teto fora da escala", effect="LIMITA_PONTUACAO",
+                competency_code="C3", max_points=137,
+                source_page=27, provenance="OFICIAL_INEP",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
+    async def test_non_limita_pontuacao_rule_with_max_points_is_rejected(self):
+        async with self.session_factory() as session:
+            rubric = await self._rubric(session)
+            session.add(EssayRubricScoringRule(
+                rubric_id=rubric.id, key="anula_com_max_points",
+                label="anula com max_points indevido", effect="ANULA_REDACAO",
+                competency_code=None, max_points=40,
+                source_page=9, provenance="OFICIAL_INEP",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.flush()

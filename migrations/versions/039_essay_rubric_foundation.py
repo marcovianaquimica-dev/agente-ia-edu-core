@@ -120,7 +120,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "essay_rubric_zero_rules",
+        "essay_rubric_scoring_rules",
         sa.Column("id", sa.Uuid(), primary_key=True),
         sa.Column("rubric_id", sa.Uuid(), nullable=False),
         sa.Column("key", sa.String(80), nullable=False),
@@ -128,26 +128,37 @@ def upgrade() -> None:
         sa.Column("description", sa.Text()),
         sa.Column("effect", sa.String(30), nullable=False),
         sa.Column("competency_code", sa.String(4)),
+        sa.Column("max_points", sa.Integer()),
         sa.Column("source_page", sa.Integer()),
         sa.Column("provenance", sa.String(30), nullable=False, server_default="OFICIAL_INEP"),
         sa.ForeignKeyConstraint(["rubric_id"], ["essay_rubrics.id"], ondelete="RESTRICT"),
-        sa.UniqueConstraint("rubric_id", "key", name="uq_essay_rubric_zero_rules_key"),
+        sa.UniqueConstraint("rubric_id", "key", name="uq_essay_rubric_scoring_rules_key"),
         sa.CheckConstraint(
-            "effect IN ('ANULA_REDACAO', 'ZERA_COMPETENCIA')",
-            name="ck_essay_rubric_zero_rules_effect",
+            "effect IN ('ANULA_REDACAO', 'ZERA_COMPETENCIA', 'LIMITA_PONTUACAO')",
+            name="ck_essay_rubric_scoring_rules_effect",
         ),
         sa.CheckConstraint(
             "competency_code IS NULL OR competency_code IN ('C1', 'C2', 'C3', 'C4', 'C5')",
-            name="ck_essay_rubric_zero_rules_competency_code",
+            name="ck_essay_rubric_scoring_rules_competency_code",
+        ),
+        sa.CheckConstraint(
+            "(effect = 'LIMITA_PONTUACAO') = (max_points IS NOT NULL)",
+            name="ck_essay_rubric_scoring_rules_max_points_presence",
+        ),
+        sa.CheckConstraint(
+            "max_points IS NULL OR max_points IN (0, 40, 80, 120, 160, 200)",
+            name="ck_essay_rubric_scoring_rules_max_points_range",
         ),
     )
     op.create_index(
-        "ix_essay_rubric_zero_rules_rubric_id", "essay_rubric_zero_rules", ["rubric_id"]
+        "ix_essay_rubric_scoring_rules_rubric_id",
+        "essay_rubric_scoring_rules",
+        ["rubric_id"],
     )
 
 
 def downgrade() -> None:
-    op.drop_table("essay_rubric_zero_rules")
+    op.drop_table("essay_rubric_scoring_rules")
     op.drop_table("essay_rubric_signals")
     op.drop_table("essay_rubric_levels")
     op.drop_table("essay_rubric_competencies")

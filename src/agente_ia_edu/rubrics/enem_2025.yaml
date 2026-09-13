@@ -39,14 +39,17 @@
 # INEP é esse; não é erro de transcrição. Não altere.
 #
 # ---------------------------------------------------------------------------
-# REGRAS NORMATIVAS QUE FICARAM DE FORA DE `zero_rules` — E POR QUÊ
+# REGRAS NORMATIVAS QUE FICARAM DE FORA DE `scoring_rules` — E POR QUÊ
 # ---------------------------------------------------------------------------
-# 1. Tangenciamento (p. 27 do PDF): "o tangenciamento ao tema, avaliado na
-#    Competência II, afeta também a avaliação das Competências III e V,
-#    impedindo que a redação receba nota acima de 40 pontos em todas essas
-#    competências." É um TETO de nota, não anulação nem zero, e o vocabulário
-#    de `effect` só admite ANULA_REDACAO e ZERA_COMPETENCIA. Fica registrado
-#    aqui para que o motor o trate fora desta lista.
+# 1. Tangenciamento (p. 27 do PDF): "Conforme previsto na Matriz de Referência
+#    para a Redação do Enem, o tangenciamento ao tema, avaliado na Competência
+#    II, afeta também a avaliação das Competências III e V, impedindo que a
+#    redação receba nota acima de 40 pontos em todas essas competências." É um
+#    TETO de nota, não anulação nem zero — por isso o vocabulário de `effect`
+#    foi estendido com LIMITA_PONTUACAO, e a regra ESTÁ representada como dado
+#    abaixo (`tangenciamento_teto_c3` e `tangenciamento_teto_c5`; a metade da
+#    Competência II já está no próprio descritor de 40 pontos de C2). Deixar
+#    de fora seria deixar o motor incapaz de aplicar uma regra normativa.
 # 2. Desconto de linhas copiadas (p. 10 do PDF): a cópia da Prova de Redação
 #    e/ou do Caderno de Questões tem as linhas copiadas desconsideradas na
 #    contagem mínima. Também não é anulação nem zero.
@@ -547,13 +550,14 @@ competencies:
           de qualquer forma de discurso de ódio.
 
 # ===========================================================================
-# SITUAÇÕES DE NOTA 0 (ZERO)
+# SITUAÇÕES DE NOTA 0 (ZERO) E DE TETO DE PONTUAÇÃO
 #
 # As nove primeiras vêm da lista própria da cartilha, "Quais as razões para se
-# atribuir nota 0 (zero) a uma redação?", p. 9 e 10 do PDF. As duas últimas vêm
-# de quadros ATENÇÃO! nas p. 28 e 39.
+# atribuir nota 0 (zero) a uma redação?", p. 9 e 10 do PDF. As duas seguintes
+# vêm de quadros ATENÇÃO! nas p. 28 e 39. As duas últimas (LIMITA_PONTUACAO)
+# vêm do quadro ATENÇÃO! da p. 27 — ver nota 1 acima.
 # ===========================================================================
-zero_rules:
+scoring_rules:
   - key: fuga_ao_tema
     label: "Fuga total ao tema"
     effect: ANULA_REDACAO
@@ -673,3 +677,32 @@ zero_rules:
     description: >-
       Propostas que desrespeitem os direitos humanos receberão nota 0 (zero) na
       Competência V.
+
+  # Quadro ATENÇÃO! da p. 27 do PDF (rodapé "25"), logo após "O QUE É
+  # TANGENCIAR O TEMA?". É a mesma regra para C3 e C5; o modelo guarda um
+  # único competency_code por linha, por isso são duas entradas.
+  - key: tangenciamento_teto_c3
+    label: "Tangenciamento ao tema — teto na Competência III"
+    effect: LIMITA_PONTUACAO
+    competency_code: C3
+    max_points: 40
+    source_page: 27
+    provenance: OFICIAL_INEP
+    description: >-
+      Conforme previsto na Matriz de Referência para a Redação do Enem, o
+      tangenciamento ao tema, avaliado na Competência II, afeta também a
+      avaliação das Competências III e V, impedindo que a redação receba nota
+      acima de 40 pontos em todas essas competências.
+
+  - key: tangenciamento_teto_c5
+    label: "Tangenciamento ao tema — teto na Competência V"
+    effect: LIMITA_PONTUACAO
+    competency_code: C5
+    max_points: 40
+    source_page: 27
+    provenance: OFICIAL_INEP
+    description: >-
+      Conforme previsto na Matriz de Referência para a Redação do Enem, o
+      tangenciamento ao tema, avaliado na Competência II, afeta também a
+      avaliação das Competências III e V, impedindo que a redação receba nota
+      acima de 40 pontos em todas essas competências.

@@ -82,7 +82,7 @@ class EssayRubric(Base):
     competencies: Mapped[list["EssayRubricCompetency"]] = relationship(
         back_populates="rubric"
     )
-    zero_rules: Mapped[list["EssayRubricZeroRule"]] = relationship(
+    scoring_rules: Mapped[list["EssayRubricScoringRule"]] = relationship(
         back_populates="rubric"
     )
 
@@ -192,22 +192,34 @@ class EssayRubricSignal(Base):
     competency: Mapped["EssayRubricCompetency"] = relationship(back_populates="signals")
 
 
-class EssayRubricZeroRule(Base):
-    """Annulment and zero conditions. ``competency_code`` is NULL when the rule
-    annuls the whole essay rather than a single competency."""
+class EssayRubricScoringRule(Base):
+    """Annulment, zero and score-cap conditions. ``competency_code`` is NULL
+    when the rule annuls the whole essay rather than targeting a single
+    competency. ``max_points`` is populated only for ``LIMITA_PONTUACAO``: a
+    cap such as the tangenciamento rule, which limits a competency to at most
+    40 of its 200 points regardless of what its own level descriptor would
+    otherwise award (Cartilha do Participante 2025, p. 27 do PDF)."""
 
-    __tablename__ = "essay_rubric_zero_rules"
+    __tablename__ = "essay_rubric_scoring_rules"
     __table_args__ = (
-        UniqueConstraint("rubric_id", "key", name="uq_essay_rubric_zero_rules_key"),
+        UniqueConstraint("rubric_id", "key", name="uq_essay_rubric_scoring_rules_key"),
         CheckConstraint(
-            "effect IN ('ANULA_REDACAO', 'ZERA_COMPETENCIA')",
-            name="ck_essay_rubric_zero_rules_effect",
+            "effect IN ('ANULA_REDACAO', 'ZERA_COMPETENCIA', 'LIMITA_PONTUACAO')",
+            name="ck_essay_rubric_scoring_rules_effect",
         ),
         CheckConstraint(
             "competency_code IS NULL OR competency_code IN ('C1', 'C2', 'C3', 'C4', 'C5')",
-            name="ck_essay_rubric_zero_rules_competency_code",
+            name="ck_essay_rubric_scoring_rules_competency_code",
         ),
-        Index("ix_essay_rubric_zero_rules_rubric_id", "rubric_id"),
+        CheckConstraint(
+            "(effect = 'LIMITA_PONTUACAO') = (max_points IS NOT NULL)",
+            name="ck_essay_rubric_scoring_rules_max_points_presence",
+        ),
+        CheckConstraint(
+            "max_points IS NULL OR max_points IN (0, 40, 80, 120, 160, 200)",
+            name="ck_essay_rubric_scoring_rules_max_points_range",
+        ),
+        Index("ix_essay_rubric_scoring_rules_rubric_id", "rubric_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -219,9 +231,10 @@ class EssayRubricZeroRule(Base):
     description: Mapped[str | None] = mapped_column(Text)
     effect: Mapped[str] = mapped_column(String(30), nullable=False)
     competency_code: Mapped[str | None] = mapped_column(String(4))
+    max_points: Mapped[int | None] = mapped_column(Integer)
     source_page: Mapped[int | None] = mapped_column(Integer)
     provenance: Mapped[str] = mapped_column(
         String(30), nullable=False, default="OFICIAL_INEP"
     )
 
-    rubric: Mapped["EssayRubric"] = relationship(back_populates="zero_rules")
+    rubric: Mapped["EssayRubric"] = relationship(back_populates="scoring_rules")

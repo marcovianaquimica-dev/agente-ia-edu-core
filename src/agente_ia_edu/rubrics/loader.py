@@ -18,6 +18,10 @@ _RUBRIC_DIR = Path(__file__).parent
 OFFICIAL_LEVEL_POINTS = (0, 40, 80, 120, 160, 200)
 COMPETENCY_CODES = ("C1", "C2", "C3", "C4", "C5")
 PROVENANCES = ("OFICIAL_INEP", "INTERPRETACAO_PEDAGOGICA", "HEURISTICA_MOTOR")
+SCORING_RULE_EFFECTS = ("ANULA_REDACAO", "ZERA_COMPETENCIA", "LIMITA_PONTUACAO")
+# Effects that target a single competency rather than the whole essay, and
+# therefore must name which one.
+_EFFECTS_REQUIRING_COMPETENCY_CODE = ("ZERA_COMPETENCIA", "LIMITA_PONTUACAO")
 
 
 class RubricFileError(ValueError):
@@ -52,12 +56,13 @@ class CompetencyEntry:
 
 
 @dataclass(frozen=True)
-class ZeroRuleEntry:
+class ScoringRuleEntry:
     key: str
     label: str
     description: str | None
     effect: str
     competency_code: str | None
+    max_points: int | None
     source_page: int | None
     provenance: str
 
@@ -72,7 +77,7 @@ class RubricFile:
     official_source_url: str | None
     official_source_sha256: str | None
     competencies: tuple[CompetencyEntry, ...]
-    zero_rules: tuple[ZeroRuleEntry, ...]
+    scoring_rules: tuple[ScoringRuleEntry, ...]
 
 
 def load_rubric_file(name: str) -> RubricFile:
@@ -105,7 +110,9 @@ def parse_rubric_mapping(raw: Any) -> RubricFile:
         official_source_url=raw.get("official_source_url"),
         official_source_sha256=raw.get("official_source_sha256"),
         competencies=competencies,
-        zero_rules=tuple(_parse_zero_rule(entry) for entry in raw.get("zero_rules", [])),
+        scoring_rules=tuple(
+            _parse_scoring_rule(entry) for entry in raw.get("scoring_rules", [])
+        ),
     )
 
 
@@ -172,20 +179,55 @@ def _parse_signal(raw: Any) -> SignalEntry:
     )
 
 
-def _parse_zero_rule(raw: Any) -> ZeroRuleEntry:
+def _parse_scoring_rule(raw: Any) -> ScoringRuleEntry:
     if not isinstance(raw, dict):
-        raise RubricFileError("Each zero rule must be a mapping")
+        raise RubricFileError("Each scoring rule must be a mapping")
+    key = raw.get("key")
     effect = _required(raw, "effect")
-    if effect not in ("ANULA_REDACAO", "ZERA_COMPETENCIA"):
-        raise RubricFileError(f"Unknown zero-rule effect {effect!r}")
-    return ZeroRuleEntry(
+    if effect not in SCORING_RULE_EFFECTS:
+        raise RubricFileError(f"Scoring rule {key!r} declares unknown effect {effect!r}")
+
+    provenance = _required(raw, "provenance")
+    if provenance not in PROVENANCES:
+        raise RubricFileError(
+            f"Scoring rule {key!r} declares unknown provenance {provenance!r}"
+        )
+
+    competency_code = raw.get("competency_code")
+    if competency_code is not None and competency_code not in COMPETENCY_CODES:
+        raise RubricFileError(
+            f"Scoring rule {key!r} declares unknown competency_code {competency_code!r}"
+        )
+    if effect in _EFFECTS_REQUIRING_COMPETENCY_CODE and competency_code is None:
+        raise RubricFileError(
+            f"Scoring rule {key!r} has effect {effect!r} and must declare competency_code"
+        )
+
+    max_points = raw.get("max_points")
+    if effect == "LIMITA_PONTUACAO":
+        if max_points is None:
+            raise RubricFileError(
+                f"Scoring rule {key!r} has effect LIMITA_PONTUACAO and must declare max_points"
+            )
+        if max_points not in OFFICIAL_LEVEL_POINTS:
+            raise RubricFileError(
+                f"Scoring rule {key!r} declares max_points {max_points!r} outside "
+                f"the official scale {OFFICIAL_LEVEL_POINTS}"
+            )
+    elif max_points is not None:
+        raise RubricFileError(
+            f"Scoring rule {key!r} declares max_points but effect is not LIMITA_PONTUACAO"
+        )
+
+    return ScoringRuleEntry(
         key=_required(raw, "key"),
         label=_required(raw, "label"),
         description=raw.get("description"),
         effect=effect,
-        competency_code=raw.get("competency_code"),
+        competency_code=competency_code,
+        max_points=max_points,
         source_page=raw.get("source_page"),
-        provenance=raw.get("provenance", "OFICIAL_INEP"),
+        provenance=provenance,
     )
 
 
@@ -201,7 +243,7 @@ __all__ = [
     "RubricFile",
     "RubricFileError",
     "SignalEntry",
-    "ZeroRuleEntry",
+    "ScoringRuleEntry",
     "load_rubric_file",
     "parse_rubric_mapping",
 ]

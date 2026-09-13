@@ -111,7 +111,7 @@ from .essay_rubric import (
     EssayRubricCompetency,
     EssayRubricLevel,
     EssayRubricSignal,
-    EssayRubricZeroRule,
+    EssayRubricScoringRule,
 )
 
 __all__ = [
@@ -198,5 +198,5 @@ __all__ = [
     "EssayRubricCompetency",
     "EssayRubricLevel",
     "EssayRubricSignal",
-    "EssayRubricZeroRule",
+    "EssayRubricScoringRule",
 ]
