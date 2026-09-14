@@ -20,7 +20,19 @@ from agente_ia_edu.services.external_id_resolution import (
     ResolutionState,
 )
 
-SRC = pathlib.Path(__file__).resolve().parent.parent / "src" / "agente_ia_edu"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# Every directory of this repository where a consumer could actually live.
+# ``src`` alone is not enough: ``scripts/seed_demo_data.py`` already imports
+# from ``agente_ia_edu.services`` today, and a review probe proved a real
+# import there left this gate green. ``tests`` is deliberately absent - the
+# resolver's own tests, this file included, are legitimate importers.
+SCANNED_DIRS = (
+    pathlib.Path("src") / "agente_ia_edu",
+    pathlib.Path("scripts"),
+    pathlib.Path("tools"),
+    pathlib.Path("migrations"),
+)
 
 
 class Fase3AGateTests(unittest.IsolatedAsyncioTestCase):
@@ -28,14 +40,29 @@ class Fase3AGateTests(unittest.IsolatedAsyncioTestCase):
         """The phase's central claim. Consumers arrive in 3B, one at a time,
         each with its own commit and test - not as a side effect of this one."""
         importers = []
-        for path in SRC.rglob("*.py"):
-            if path.name == "external_id_resolution.py":
+        searched = []
+        for relative in SCANNED_DIRS:
+            directory = ROOT / relative
+            if not directory.is_dir():
                 continue
-            text = path.read_text(encoding="utf-8")
-            if "external_id_resolution" in text or "ExternalIdResolver" in text:
-                importers.append(str(path.relative_to(SRC)))
+            searched.append(str(relative))
+            for path in directory.rglob("*.py"):
+                if path.name == "external_id_resolution.py":
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if "external_id_resolution" in text or "ExternalIdResolver" in text:
+                    importers.append(str(path.relative_to(ROOT)))
         self.assertEqual(
-            importers, [], f"o resolvedor ganhou consumidor antes da Fase 3B: {importers}"
+            searched,
+            [str(d) for d in SCANNED_DIRS],
+            f"diretório varrido pelo gate desapareceu da árvore: {searched}",
+        )
+        self.assertEqual(
+            importers,
+            [],
+            "o resolvedor ganhou consumidor antes da Fase 3B: "
+            f"{importers} (varrido: {searched}; 'tests' fica de fora de propósito, "
+            "porque os testes do próprio resolvedor o importam)",
         )
 
     async def test_the_resolver_works_at_all(self):
