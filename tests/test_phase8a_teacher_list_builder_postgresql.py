@@ -18,9 +18,26 @@ from agente_ia_edu.api.dependencies import (
 )
 from agente_ia_edu.api.routes.teacher_materials import router as teacher_materials_router
 from agente_ia_edu.api.routes.catalog import catalog_router
-from agente_ia_edu.db.models import School, UserSchoolLink
+from agente_ia_edu.db.base import Base
+from agente_ia_edu.db.models import School, UserSchoolLink  # noqa: F401  (registers every model on Base.metadata)
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
 from test_phase8a_teacher_list_builder_http import Phase8ATeacherListBuilderHTTP
+
+
+def _create_schema_from_models(database_url):
+    """Build the schema the ORM actually targets, instead of a frozen revision.
+
+    The end-to-end class below exercises today's models, so pinning its schema
+    to an old Alembic revision only proved the code still ran against a schema
+    no deployment has. ``create_all`` keeps the two in step. The test whose
+    subject is the migration chain itself stays on ``command.upgrade`` - see
+    ``Phase8ATeacherListBuilderPostgreSQL.test_upgrade_downgrade_reupgrade``.
+    """
+    engine = create_engine(database_url)
+    try:
+        Base.metadata.create_all(engine)
+    finally:
+        engine.dispose()
 
 
 class Phase8ATeacherListBuilderPostgreSQL(unittest.TestCase):
@@ -108,9 +125,7 @@ class Phase8ATeacherListBuilderPostgreSQLE2E(Phase8ATeacherListBuilderHTTP):
     def setUp(self):
         self._drop_database()
         self._admin_execute(f"CREATE DATABASE {self.database_name}")
-        config = Config("alembic.ini")
-        config.set_main_option("sqlalchemy.url", self.database_url)
-        command.upgrade(config, "021_teacher_list_builder")
+        _create_schema_from_models(self.database_url)
 
         async def setup():
             engine = create_async_engine(self.database_url)

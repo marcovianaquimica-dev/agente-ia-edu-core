@@ -7,6 +7,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import CatalogNode, CatalogNodePrerequisite, PedagogicalClassification, Question, QuestionVersion
 from agente_ia_edu.services.curriculum_classification import ClassificationProposal, ClassificationProposalService
 from agente_ia_edu.services.curriculum_taxonomy import CurriculumTaxonomyService
@@ -41,12 +42,30 @@ class CurriculumTaxonomyPostgreSQLTests(unittest.TestCase):
     def _config(self):
         config = Config("alembic.ini"); config.set_main_option("sqlalchemy.url", self.database_url); return config
 
+    def _create_schema_from_models(self):
+        """Build the schema the ORM actually targets, instead of a frozen revision.
+
+        The behaviour tests below exercise today's models, so a schema pinned to
+        revision 023 only proved the code still ran against a schema no
+        deployment has. ``test_upgrade_downgrade_reupgrade``, whose subject *is*
+        the migration chain, keeps building its database with Alembic.
+        """
+        engine = create_engine(self.database_url)
+        try:
+            Base.metadata.create_all(engine)
+        finally:
+            engine.dispose()
+
     def setUp(self):
-        self._drop(); self._admin(f"CREATE DATABASE {self.database_name}"); command.upgrade(self._config(), "023_curriculum_taxonomy")
+        self._drop(); self._admin(f"CREATE DATABASE {self.database_name}"); self._create_schema_from_models()
 
     def tearDown(self): self._drop()
 
     def test_upgrade_downgrade_reupgrade(self):
+        # Migration-subject test: it needs a database built by Alembic, not by
+        # create_all, so it rebuilds one from an empty database first.
+        self._drop(); self._admin(f"CREATE DATABASE {self.database_name}")
+        command.upgrade(self._config(), "023_curriculum_taxonomy")
         command.downgrade(self._config(), "022_modification_proposals")
         command.upgrade(self._config(), "023_curriculum_taxonomy")
 

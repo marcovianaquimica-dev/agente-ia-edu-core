@@ -4,8 +4,6 @@ import asyncio
 import os
 import unittest
 
-from alembic import command
-from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -19,9 +17,23 @@ from agente_ia_edu.api.dependencies import (
 from agente_ia_edu.api.routes.assessments import router as assessments_router
 from agente_ia_edu.api.routes.attempts import router as attempts_router
 from agente_ia_edu.api.routes.domain_map import domain_map_router
-from agente_ia_edu.db.models import School, UserSchoolLink
+from agente_ia_edu.db.base import Base
+from agente_ia_edu.db.models import School, UserSchoolLink  # noqa: F401  (registers every model on Base.metadata)
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
 from test_phase7_assessment_core_http import Phase7AssessmentCoreHTTP
+
+
+def _create_schema_from_models(database_url):
+    """Build the schema the ORM actually targets, instead of a frozen revision.
+
+    This suite exercises today's models; pinning its schema to an old Alembic
+    revision only proved the code still ran against a schema no deployment has.
+    """
+    engine = create_engine(database_url)
+    try:
+        Base.metadata.create_all(engine)
+    finally:
+        engine.dispose()
 
 
 class Phase7AssessmentPostgreSQLE2E(Phase7AssessmentCoreHTTP):
@@ -51,9 +63,7 @@ class Phase7AssessmentPostgreSQLE2E(Phase7AssessmentCoreHTTP):
     def setUp(self):
         self._drop_database()
         self._admin_execute(f"CREATE DATABASE {self.database_name}")
-        config = Config("alembic.ini")
-        config.set_main_option("sqlalchemy.url", self.database_url)
-        command.upgrade(config, "021_teacher_list_builder")
+        _create_schema_from_models(self.database_url)
 
         async def setup_database():
             engine = create_async_engine(self.database_url)

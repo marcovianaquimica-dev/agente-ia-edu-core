@@ -1,7 +1,5 @@
 """PostgreSQL HTTP proof for Phase 8C proposal creation, cancellation, and acceptance."""
 
-from alembic import command
-from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -34,10 +32,10 @@ class Phase8CQuestionModificationPostgreSQLE2E(
         return Phase8ATeacherListBuilderPostgreSQLE2E.setUpClass.__func__(cls)
 
     def setUp(self):
+        # The base setUp already builds the full schema from Base.metadata, so
+        # the extra upgrade to 022 that used to run here is both redundant and
+        # wrong: it pinned the tables to a revision the ORM no longer matches.
         Phase8ATeacherListBuilderPostgreSQLE2E.setUp(self)
-        config = Config("alembic.ini")
-        config.set_main_option("sqlalchemy.url", self.database_url)
-        command.upgrade(config, "022_modification_proposals")
         self.provider = StructuredProposalFake()
         app = FastAPI()
         app.include_router(teacher_materials_router)
