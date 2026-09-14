@@ -175,6 +175,51 @@ class DisciplineGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(scope.permits(uuid.uuid4()))
         self.assertTrue(scope.permits(None))
 
+    def test_a_wrong_type_raises_instead_of_denying_in_silence(self):
+        """A stringified id used to come back ``False``: a denial with no
+        symptom, which is the failure mode this whole gate exists to avoid.
+        Raising makes the caller's bug immediate and denies nobody quietly.
+
+        Asserted on BOTH an unrestricted and a restricted scope on purpose:
+        every school in production is unrestricted today, so a check placed
+        after the ``unrestricted`` early return would never fire where it
+        matters.
+        """
+        node_id = uuid.uuid4()
+        restricted = DisciplineScope(
+            unrestricted=False,
+            allowed_node_ids=frozenset({node_id}),
+            allowed_codes=frozenset({"CHEMISTRY"}),
+        )
+        for scope in (DisciplineScope.unrestricted_scope(), restricted):
+            with self.subTest(unrestricted=scope.unrestricted):
+                # The id is genuinely allowed - only its type is wrong, so a
+                # silent False would be wrong in the denial direction.
+                with self.assertRaises(TypeError):
+                    scope.permits(str(node_id))
+                with self.assertRaises(TypeError):
+                    scope.permits(123)
+                # None keeps meaning absence, and absence still permits.
+                self.assertTrue(scope.permits(None))
+
+    def test_permits_code_names_the_same_contract(self):
+        """``permits_code`` never denied a wrong type in silence - a non-string
+        already blew up on ``.strip()``. It raises a named ``TypeError`` now
+        for the same reason and with the same shape, and ``None`` still means
+        absence."""
+        for scope in (
+            DisciplineScope.unrestricted_scope(),
+            DisciplineScope(
+                unrestricted=False,
+                allowed_node_ids=frozenset(),
+                allowed_codes=frozenset({"CHEMISTRY"}),
+            ),
+        ):
+            with self.subTest(unrestricted=scope.unrestricted):
+                with self.assertRaises(TypeError):
+                    scope.permits_code(uuid.uuid4())
+                self.assertTrue(scope.permits_code(None))
+
 
 if __name__ == "__main__":
     unittest.main()

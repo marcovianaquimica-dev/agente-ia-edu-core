@@ -37,6 +37,21 @@ class DisciplineScope:
         )
 
     def permits(self, catalog_node_id: uuid.UUID | None) -> bool:
+        # Checked before ``unrestricted``, on purpose: every school in
+        # production is unrestricted today, so a type check placed after that
+        # early return would never fire and the caller's bug would surface
+        # only on the first school that declares a scope.
+        if catalog_node_id is not None and not isinstance(catalog_node_id, uuid.UUID):
+            # Returning False here would be the cheapest-looking option and the
+            # most expensive one: denying access with no symptom is the exact
+            # failure this gate exists to avoid, and a caller handing over a
+            # stringified id would never learn. Raising does not deny anyone in
+            # silence; it makes the caller's mistake immediate. Callers holding
+            # text convert it themselves (``study_search._as_node_id``).
+            raise TypeError(
+                "catalog_node_id must be uuid.UUID or None, got "
+                f"{type(catalog_node_id).__name__}"
+            )
         if self.unrestricted:
             return True
         if catalog_node_id is None:
@@ -50,7 +65,17 @@ class DisciplineScope:
 
         ``pedagogical_classifications.content`` is one of those: it stores the
         code as text, with no foreign key to ``catalog_nodes``.
+
+        The wrong-type check is the same as ``permits``, for the same reason,
+        but it fixes nothing that was broken: a non-string already blew up on
+        ``.strip()`` with an ``AttributeError``, so this method never denied
+        anyone in silence. It raises a named contract instead of an accident.
         """
+        if catalog_code is not None and not isinstance(catalog_code, str):
+            raise TypeError(
+                "catalog_code must be str or None, got "
+                f"{type(catalog_code).__name__}"
+            )
         if self.unrestricted:
             return True
         if not (catalog_code or "").strip():

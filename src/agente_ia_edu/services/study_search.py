@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 def _as_node_id(raw: Any) -> uuid.UUID | None:
     """Coerce a projected catalog node id into the type the gate actually reads.
 
-    ``DisciplineScope.permits`` denies a ``str`` outright - deliberately, so a
-    caller's type bug cannot be papered over inside the gate - and
-    ``KnowledgeService`` stringifies every id it projects. The conversion
-    therefore belongs here, explicit and visible, at the one place that knows
-    both sides.
+    ``DisciplineScope.permits`` raises ``TypeError`` on a ``str`` - it will not
+    paper over a caller's type bug, and it will not deny anyone in silence
+    either - and ``KnowledgeService`` stringifies every id it projects. The
+    conversion therefore belongs here, explicit and visible, at the one place
+    that knows both sides.
 
     A value that is not a usable id is reported as absent, not as a denial: the
     caller then falls back to the classification code and, failing that, to the
