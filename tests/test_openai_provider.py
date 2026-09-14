@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -37,9 +38,14 @@ def client_for(result):
 
 class OpenAIProviderTests(unittest.TestCase):
     def test_requires_key_and_model(self):
-        provider = OpenAIProvider(api_key="", model="test", client=object())
-        with self.assertRaises(ProviderConfigurationError):
-            asyncio.run(provider.generate(TextGenerationRequest(prompt="{}")))
+        # OpenAIProvider.__init__ falls back to os.getenv("OPENAI_API_KEY")
+        # when the constructor arg is falsy - patch it out so a real key in
+        # the developer's own shell environment (e.g. sourced from .env to
+        # run a live classification script) can never mask this check.
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "", "OPENAI_MODEL": ""}):
+            provider = OpenAIProvider(api_key="", model="test", client=object())
+            with self.assertRaises(ProviderConfigurationError):
+                asyncio.run(provider.generate(TextGenerationRequest(prompt="{}")))
 
     def test_returns_json_content_through_provider_router(self):
         response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))])

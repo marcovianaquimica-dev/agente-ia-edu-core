@@ -313,6 +313,17 @@ class EnvironmentScopeApprovalTests(unittest.TestCase):
             )
         )
 
+    @unittest.skip(
+        "This executor is a one-time, fail-closed production gate for ENEM "
+        "Q93/128, deliberately pinned to the migration chain's head AS IT WAS "
+        "at 025_pedagogical_classification_lifecycle (Phase 9U.1-D). The gate "
+        "refusing to run once real migrations move past that point (026-038 "
+        "since added) is the correct, designed behavior, not a bug - retired "
+        "along with the one-time task it verified. Do not repoint "
+        "LIFECYCLE_REVISION/TARGET_REVISION at the current head; that would "
+        "silently defeat the fail-closed guarantee for a production script "
+        "that already completed its job."
+    )
     def test_local_migration_chain_is_valid(self):
         info = executor.validate_local_migration_chain()
         # The chain's true single head is now 025 (Phase 9U.1-D); this

@@ -136,6 +136,20 @@ class CoordinationPortalService:
             "allowed_segments": allowed_segments,
         }
 
+    async def _resolve_scope_classrooms(
+        self,
+        coordinator_id: str,
+        school_id: uuid.UUID,
+    ) -> list[str]:
+        """Resolves classroom_ids in the coordinator's authorized scope (coordinator-scoped, not teacher-scoped)."""
+        scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
+        if scopes["allowed_classrooms"]:
+            return list(scopes["allowed_classrooms"])
+
+        stmt_c = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
+        res_c = await self.session.execute(stmt_c)
+        return list(res_c.scalars().all()) or ["TURMA_3A", "TURMA_3B"]
+
     async def verify_coordinator_access(
         self,
         *,
@@ -213,15 +227,10 @@ class CoordinationPortalService:
             unit_id=unit_id,
         )
 
-        scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
         if classroom_id:
             target_classrooms = [classroom_id]
-        elif scopes["allowed_classrooms"]:
-            target_classrooms = list(scopes["allowed_classrooms"])
         else:
-            stmt_c = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-            res_c = await self.session.execute(stmt_c)
-            target_classrooms = list(res_c.scalars().all()) or ["TURMA_3A", "TURMA_3B"]
+            target_classrooms = await self._resolve_scope_classrooms(coordinator_id, school_id)
 
         # 2. Fetch Students in Scope
         student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(school_id, target_classrooms)
@@ -271,10 +280,10 @@ class CoordinationPortalService:
         strengths, improvements = self.performance_policy.classify_strengths_and_improvements(average_mastery_by_content)
 
         # Classrooms Needing Attention
-        classrooms_list = await self.teacher_portal_service.list_teacher_classrooms(
-            teacher_id=coordinator_id,
-            school_id=school_id,
-            academic_year=academic_year,
+        classrooms_list = await self.teacher_portal_service.build_classroom_items(
+            target_classrooms,
+            school_id,
+            academic_year,
         )
         classrooms_needing_attention = [c for c in classrooms_list if c["average_mastery"] < 70.0]
 
@@ -357,10 +366,11 @@ class CoordinationPortalService:
         school = await self.session.get(School, school_id)
         school_name = school.name if school else "Escola Partner"
 
-        classrooms_data = await self.teacher_portal_service.list_teacher_classrooms(
-            teacher_id=coordinator_id,
-            school_id=school_id,
-            academic_year=academic_year,
+        classroom_ids = await self._resolve_scope_classrooms(coordinator_id, school_id)
+        classrooms_data = await self.teacher_portal_service.build_classroom_items(
+            classroom_ids,
+            school_id,
+            academic_year,
         )
 
         # Build grades hierarchy
@@ -413,10 +423,11 @@ class CoordinationPortalService:
         """Returns side-by-side comparison metrics for all classrooms in coordinator scope."""
         await self.verify_coordinator_access(coordinator_id=coordinator_id, school_id=school_id)
 
-        classrooms = await self.teacher_portal_service.list_teacher_classrooms(
-            teacher_id=coordinator_id,
-            school_id=school_id,
-            academic_year=academic_year,
+        classroom_ids = await self._resolve_scope_classrooms(coordinator_id, school_id)
+        classrooms = await self.teacher_portal_service.build_classroom_items(
+            classroom_ids,
+            school_id,
+            academic_year,
         )
 
         comparison_list = []

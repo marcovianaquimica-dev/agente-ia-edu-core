@@ -87,6 +87,37 @@ class CurriculumTaxonomyPostgreSQLTests(unittest.TestCase):
         asyncio.run(run())
 
     def test_classification_proposal_persists_without_question_mutation(self):
+        # setUp only migrates to 023_curriculum_taxonomy (the revision this
+        # class is scoped to), but ClassificationProposalService.propose has
+        # since grown to persist PedagogicalClassification.lifecycle, added
+        # only by the later 025_classification_lifecycle migration.
+        #
+        # That migration chain runs THROUGH 024_chemistry_kinetics, which is
+        # a DATA migration, not just schema: it inserts a content node under
+        # a REQUIRED, already-existing parent (catalog_node code
+        # CHEMISTRY-PHYSICAL) and fails loudly if that parent is missing -
+        # by design (migrations/versions/024_chemistry_kinetics.py's own
+        # _validate_parent). In every real environment that parent was
+        # seeded long before 024 was authored; nothing in this repo creates
+        # it via a migration, so a from-scratch test database never has it.
+        # Seed the same small reference catalog CurriculumTaxonomyService
+        # itself uses (which creates CHEMISTRY-PHYSICAL, among others)
+        # BEFORE advancing past 023, mirroring what every real deployment's
+        # database already had at that point. seed_reference_fixture() is
+        # idempotent by code, so the SAME call later in this test's own body
+        # simply finds these nodes already present and reuses them.
+        async def seed_reference_catalog():
+            engine = create_async_engine(self.database_url)
+            try:
+                factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+                async with factory() as session:
+                    await CurriculumTaxonomyService(session).seed_reference_fixture()
+            finally:
+                await engine.dispose()
+
+        asyncio.run(seed_reference_catalog())
+        command.upgrade(self._config(), "025_classification_lifecycle")
+
         async def run():
             engine = create_async_engine(self.database_url)
             factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

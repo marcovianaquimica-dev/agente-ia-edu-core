@@ -228,7 +228,9 @@ class PureRegistryTests(unittest.TestCase):
         kb = resolve_registered_initial_binding(KINETICS_TAXONOMY_VERSION)
         self.assertEqual((kb.canonical_code, kb.parent_code), (KIN_CODE, "CHEMISTRY-PHYSICAL"))
         cv2 = [cc for (tv, cc) in cc._DETERMINISTIC_INITIAL_BINDINGS if tv == "curriculum-v2"]
-        self.assertEqual(len(cv2), 19)
+        # 19 at G5; grew to 29 with PHASE 11.21's real-term fix for the
+        # Q104/Q134 degenerate-anchor defect (see test_phase9u2h4_review_packet.py).
+        self.assertEqual(len(cv2), 29)
         # N05 stays deferred while Q107 is HUMAN_REVIEW
         self.assertIsNone(resolve_registered_initial_binding("curriculum-v2", "CHEMISTRY-ORGANIC-FUNCTIONAL-GROUPS"))
         # every curriculum-v2 binding's vocabulary canonical_code matches its content code

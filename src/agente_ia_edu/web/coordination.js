@@ -559,8 +559,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 7. CONTENTS
-  function loadCoordinationContents() {
+  async function loadCoordinationContents() {
     const container = document.getElementById('coord-contents-container');
+    if (!state.dashboardData) {
+      await loadCoordinationDashboard();
+    }
     const d = state.dashboardData;
     if (d && d.average_mastery_by_content && d.average_mastery_by_content.length > 0) {
       container.innerHTML = `
@@ -632,8 +635,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 8. ACTION PLAN
-  function loadCoordinationActionPlan() {
+  async function loadCoordinationActionPlan() {
     const container = document.getElementById('coord-full-action-plan-container');
+    if (!state.dashboardData) {
+      await loadCoordinationDashboard();
+    }
     const d = state.dashboardData;
     if (d && d.action_plan && d.action_plan.length > 0) {
       container.innerHTML = d.action_plan.map(a => `

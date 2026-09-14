@@ -39,6 +39,7 @@ from agente_ia_edu.services.teaching_context import (
     TeachingContextService,
 )
 from agente_ia_edu.services.teaching_context_policies import RecencyPolicy
+from agente_ia_edu.services.video_engine import VideoRecommendationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -371,9 +372,17 @@ class TeacherPortalService:
     ) -> list[dict[str, Any]]:
         """List classrooms in teacher's authorized scope with student counts and class average mastery."""
         classrooms = await self.get_teacher_authorized_classrooms(teacher_id, school_id)
+        return await self.build_classroom_items(classrooms, school_id, academic_year)
 
+    async def build_classroom_items(
+        self,
+        classroom_ids: list[str],
+        school_id: uuid.UUID,
+        academic_year: str = "2026",
+    ) -> list[dict[str, Any]]:
+        """Build classroom summary items (student counts, average mastery, priority contents) for explicit classroom_ids."""
         classroom_items = []
-        for cls_id in classrooms:
+        for cls_id in classroom_ids:
             student_ids = await self._fetch_students_in_classrooms(school_id, [cls_id])
             masteries = await self._fetch_masteries_for_students(student_ids)
 

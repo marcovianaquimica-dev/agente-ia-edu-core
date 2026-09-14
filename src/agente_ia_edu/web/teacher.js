@@ -88,8 +88,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    // 'performance' has no panel of its own - it shares view-contents (and
+    // loadContentsBreakdown() below), since both show the same per-content
+    // mastery breakdown; only the page title/subtitle differ.
+    const targetPanelId = viewName === 'performance' ? 'view-contents' : `view-${viewName}`;
     viewPanels.forEach(p => {
-      if (p.id === `view-${viewName}`) {
+      if (p.id === targetPanelId) {
         p.classList.add('active');
       } else {
         p.classList.remove('active');
@@ -130,6 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.currentView === 'materials') loadMaterials();
     if (state.currentView === 'theory-materials') loadTheoryMaterials();
     if (state.currentView === 'material-ingestion') loadMaterialIngestions();
+    if (state.currentView === 'profile') loadProfileView();
   }
 
   const materialBuilder = document.getElementById('material-builder');
@@ -454,16 +459,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Shared by every view that needs this teacher's authorized classrooms
+  // (Minhas Turmas, Relatórios, Meu Perfil) - one source of truth instead of
+  // each view guessing/hardcoding its own list.
+  async function fetchTeacherClassrooms() {
+    const res = await fetch(`/api/v1/teacher/classrooms?school_id=${state.schoolId}&academic_year=${state.academicYear}`, {
+      headers: { 'Authorization': `Bearer ${state.teacherId}` }
+    });
+    if (!res.ok) throw new Error('Falha ao carregar turmas');
+    return res.json();
+  }
+
   // 2. MINHAS TURMAS LOADER
   async function loadClassroomsList() {
     const container = document.getElementById('classrooms-grid-container');
     try {
       hideAlert();
-      const res = await fetch(`/api/v1/teacher/classrooms?school_id=${state.schoolId}&academic_year=${state.academicYear}`, {
-        headers: { 'Authorization': `Bearer ${state.teacherId}` }
-      });
-      if (!res.ok) throw new Error('Falha ao carregar turmas');
-      const items = await res.json();
+      const items = await fetchTeacherClassrooms();
 
       if (!items || items.length === 0) {
         container.innerHTML = '<p class="empty-text">Nenhuma turma associada ao seu escopo neste ano letivo.</p>';
@@ -857,13 +869,37 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 8. REPORTS VIEW
+  async function loadReportClassroomOptions() {
+    const select = document.getElementById('report-classroom-select');
+    const btnGen = document.getElementById('btn-generate-report');
+    try {
+      const items = await fetchTeacherClassrooms();
+
+      if (!items || items.length === 0) {
+        select.innerHTML = '<option value="">Nenhuma turma disponível</option>';
+        if (btnGen) btnGen.disabled = true;
+        return;
+      }
+      select.innerHTML = items.map(c => `<option value="${c.classroom_id}">${c.name}</option>`).join('');
+      if (btnGen) btnGen.disabled = false;
+    } catch (err) {
+      select.innerHTML = '<option value="">Erro ao carregar turmas</option>';
+      if (btnGen) btnGen.disabled = true;
+    }
+  }
+
   function initReportsView() {
+    loadReportClassroomOptions();
     const btnGen = document.getElementById('btn-generate-report');
     if (btnGen) {
       btnGen.onclick = async () => {
         const classroomId = document.getElementById('report-classroom-select').value;
         const fmt = document.getElementById('report-format-select').value;
         const preview = document.getElementById('report-preview-container');
+        if (!classroomId) {
+          preview.innerHTML = '<p class="empty-text text-danger">Selecione uma turma válida.</p>';
+          return;
+        }
 
         try {
           const res = await fetch(`/api/v1/teacher/classrooms/${classroomId}/export?format=${fmt}&school_id=${state.schoolId}`, {
@@ -886,8 +922,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 9. PROFILE VIEW
-  function loadProfileView() {
+  async function loadProfileView() {
     document.getElementById('prof-profile-id').textContent = state.teacherId;
+    const classroomsEl = document.getElementById('prof-profile-classrooms');
+    try {
+      const items = await fetchTeacherClassrooms();
+      classroomsEl.textContent = items && items.length > 0
+        ? items.map(c => c.name).join(', ')
+        : 'Nenhuma turma autorizada neste ano letivo.';
+    } catch (err) {
+      classroomsEl.textContent = 'Erro ao carregar turmas.';
+    }
   }
 
   // Helper Utilities
