@@ -66,17 +66,31 @@ class Fase2GateTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertTrue(allowed.allowed, "authorization")
 
+            # This database is empty, so ``0`` is the only total either a
+            # filtered or an unfiltered query could return, and
+            # ``resolved_context`` is filled before any row is read. Neither
+            # assertion below can tell an open gate from a closed one; they
+            # only prove these two calls do not raise on a school with no
+            # rows to see. The claim that the school actually sees content is
+            # proved on seeded data by
+            # ``test_the_same_claim_against_content_that_actually_exists``.
             page = await QuestionBankService(session).list_questions(
                 school_id=SCHOOL_WITHOUT_UNIVERSE
             )
-            self.assertEqual(page.total, 0, "question bank ran unfiltered")
+            self.assertEqual(
+                page.total, 0, "question bank does not raise on an empty database"
+            )
 
             found = await StudySearchService.search(
                 "cinetica quimica",
                 session=session,
                 institution_id=SCHOOL_WITHOUT_UNIVERSE,
             )
-            self.assertIn("resolved_context", found, "study search")
+            self.assertIn(
+                "resolved_context",
+                found,
+                "study search does not raise on an empty database",
+            )
 
     async def test_no_consumer_refuses_on_absence(self):
         """The naive gate would raise instead of allowing. This is the test
@@ -219,21 +233,26 @@ class Fase2RestrictedGateTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(page.total, everything.total, "question bank")
             self.assertEqual(page.total, len(page.items), "count and page agree")
 
+            # The brief originally read ``found.get("questions") or []``:
+            # ``search`` nests its hits under ``results``, so that read a key
+            # that never exists and was ``[] == []`` whatever the gate did -
+            # provably inert. Fixed to read the key the service actually
+            # fills, with the UNKNOWN difficulty the fixture rows really
+            # carry (``resolve_context`` defaults to MEDIUM, which returns
+            # nothing even unrestricted and would make this pass for the
+            # wrong reason too).
             found = await StudySearchService.search(
-                maths.code, session=session, institution_id=RESTRICTED_SCHOOL
-            )
-            self.assertEqual(found.get("questions") or [], [], "study search")
-
-            # ``search`` nests its hits under ``results``: the bare
-            # ``questions`` key does not exist, so the assertion above is
-            # ``[] == []`` whatever the gate does. This is the same claim
-            # against the key the service actually fills, with the
-            # unrestricted twin proving the content is reachable at all - and
-            # with the UNKNOWN difficulty the fixture rows really carry.
-            restricted_search = await StudySearchService.search(
                 maths.code, session=session, difficulty="UNKNOWN",
                 institution_id=RESTRICTED_SCHOOL,
             )
+            self.assertEqual(
+                found["results"]["questions"], [],
+                "study search, on the key it fills",
+            )
+
+            # The unrestricted twin: proves the content above is reachable at
+            # all, so the equality above is not vacuously true because the
+            # query never returns anything for anyone.
             unrestricted_search = await StudySearchService.search(
                 maths.code, session=session, difficulty="UNKNOWN",
                 institution_id=None,
@@ -241,10 +260,6 @@ class Fase2RestrictedGateTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(
                 len(unrestricted_search["results"]["questions"]), 0,
                 "mathematics must be reachable at all when unrestricted",
-            )
-            self.assertEqual(
-                restricted_search["results"]["questions"], [],
-                "study search, on the key it fills",
             )
 
     async def test_the_restriction_subtracts_only_the_other_discipline(self):
