@@ -139,7 +139,7 @@ class StudentContentMastery(Base):
     # Content reference
     content_node_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
-        ForeignKey("taxonomy_nodes.id", ondelete="RESTRICT"),
+        ForeignKey("catalog_nodes.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
