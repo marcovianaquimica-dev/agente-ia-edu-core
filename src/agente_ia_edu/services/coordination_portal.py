@@ -28,6 +28,7 @@ from agente_ia_edu.db.models import (
     UserSchoolLink,
 )
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
+from agente_ia_edu.services.external_id_resolution import ExternalIdResolver, ResolutionState
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.learning_path_policies import DifficultyLevel
 from agente_ia_edu.services.recommendation import RecommendationEngine
@@ -128,12 +129,46 @@ class CoordinationPortalService:
                 "allowed_segments": {"Ensino Médio"},
             }
 
+        resolver = ExternalIdResolver(self.session)
+        allowed_units = await self._resolved(resolver, school_id, AdminScopeType.UNIT, allowed_units)
+        allowed_segments = await self._resolved(resolver, school_id, AdminScopeType.SEGMENT, allowed_segments)
+        allowed_grades = await self._resolved(resolver, school_id, AdminScopeType.GRADE_LEVEL, allowed_grades)
+        allowed_classrooms = await self._resolved(resolver, school_id, AdminScopeType.CLASSROOM, allowed_classrooms)
+
         return {
             "is_global": False,
             "allowed_classrooms": allowed_classrooms,
             "allowed_grades": allowed_grades,
             "allowed_units": allowed_units,
             "allowed_segments": allowed_segments,
+        }
+
+    @staticmethod
+    async def _resolved(
+        resolver: "ExternalIdResolver",
+        school_id: uuid.UUID,
+        scope_type: str,
+        codes: set[str],
+    ) -> set[str]:
+        """Keep only the codes that resolve - once this school's hierarchy
+        actually has rows at this level.
+
+        A link's scope_external_id is free text nothing validates at write
+        time, and R0's hierarchy tables are new: no school's existing data
+        was migrated into them yet. Filtering before that backfill happens
+        would strip access from every school that has not been migrated -
+        today, every school. has_any_entities is the guard against that;
+        dropping what does not resolve, once it is safe to check, narrows an
+        allow-set and never widens it.
+        """
+        if not codes:
+            return codes
+        if not await resolver.has_any_entities(school_id, scope_type):
+            return codes
+        resolutions = await resolver.resolve_many(school_id, scope_type, codes)
+        return {
+            code for code in codes
+            if resolutions[code].state == ResolutionState.RESOLVED
         }
 
     async def _resolve_scope_classrooms(
