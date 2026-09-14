@@ -8,6 +8,7 @@ providing a more explicit context object for future SaaS multi-tenant auth.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agente_ia_edu.db.models import SchoolModule, UserSchoolLink
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
+
+from .discipline_gate import DisciplineGate
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +203,23 @@ class AuthorizationService:
         if module_key.upper() in set(context.modules):
             return AuthorizationCheckResult(True, None)
         return AuthorizationCheckResult(False, f"Module '{module_key}' is not enabled for the current school.")
+
+    async def require_discipline(
+        self,
+        context: AuthenticatedUserContext,
+        catalog_node_id: uuid.UUID | None,
+    ) -> AuthorizationCheckResult:
+        """Refuse content outside the school's declared pedagogical scope.
+
+        A school that declared no scope is unrestricted - which is every school
+        in production today, so this must never refuse on absence.
+        """
+        scope = await DisciplineGate(self.session).scope_for_school(context.school_id)
+        if scope.permits(catalog_node_id):
+            return AuthorizationCheckResult(True, None)
+        return AuthorizationCheckResult(
+            False, "This discipline is outside the school's pedagogical scope."
+        )
 
     async def require_scope(
         self,
