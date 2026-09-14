@@ -101,6 +101,33 @@ class DisciplineGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(scope.permits_code("CHEMISTRY"))
         self.assertFalse(scope.permits_code("HISTORY"))
         self.assertTrue(scope.permits_code(None), "unclassified stays visible")
+        self.assertTrue(
+            scope.permits_code("   "),
+            "whitespace-only is absence too, same as None or empty string",
+        )
+
+    async def test_an_area_scope_restricts_too(self):
+        """The gate deliberately honours AREA, DISCIPLINE and CONTENT alike:
+        restricting the query to scope_kind == "DISCIPLINE" would leave a
+        school scoped only to an AREA silently unrestricted. This must fail
+        if that filter is ever added back."""
+        async with self.session_factory() as session:
+            allowed = await self._node(session, "EXACT_SCIENCES")
+            denied = await self._node(session, "HUMANITIES")
+            universe = await self._active_universe(session)
+            session.add(
+                PedagogicalUniverseCatalogScope(
+                    id=uuid.uuid4(), universe_id=universe.id,
+                    catalog_node_id=allowed.id, scope_kind="AREA",
+                    include_descendants=True,
+                )
+            )
+            await session.commit()
+            scope = await DisciplineGate(session).scope_for_school(SCHOOL)
+
+        self.assertFalse(scope.unrestricted)
+        self.assertTrue(scope.permits(allowed.id))
+        self.assertFalse(scope.permits(denied.id))
 
     async def test_a_draft_universe_does_not_restrict(self):
         async with self.session_factory() as session:

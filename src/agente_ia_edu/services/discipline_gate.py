@@ -53,14 +53,13 @@ class DisciplineScope:
         """
         if self.unrestricted:
             return True
-        if not catalog_code:
+        if not (catalog_code or "").strip():
             return True
         return catalog_code in self.allowed_codes
 
 
 class DisciplineGate:
     def __init__(self, session: AsyncSession):
-        self.session = session
         self._universes = PedagogicalUniverseService(session)
 
     async def scope_for_school(
