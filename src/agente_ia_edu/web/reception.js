@@ -145,6 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('session-form').onsubmit = event => {
     event.preventDefault(); state.staffToken = document.getElementById('staff-token').value.trim(); state.schoolId = document.getElementById('school-id').value.trim();
     sessionStorage.setItem('receptionStaffToken', state.staffToken); sessionStorage.setItem('receptionSchoolId', state.schoolId); sessionPanel.hidden = true;
+    clearNotice();
     document.getElementById('session-label').textContent = `Escola ${state.schoolId}`; loadCandidates();
   };
   document.querySelectorAll('[data-open-new]').forEach(button => button.onclick = () => requireSession() && switchView('new'));
@@ -152,9 +153,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-button').forEach(button => button.onclick = () => button.dataset.view === 'new' ? (requireSession() && switchView('new')) : (switchView('dashboard'), loadCandidates()));
   let searchTimer; document.getElementById('search').addEventListener('input', event => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadCandidates(event.target.value.trim()), 250); });
   document.getElementById('candidate-form').onsubmit = async event => {
-    event.preventDefault(); const form = new FormData(event.currentTarget); const payload = Object.fromEntries(form.entries());
+    event.preventDefault(); const formEl = event.currentTarget; const form = new FormData(formEl); const payload = Object.fromEntries(form.entries());
     ['preferred_name', 'birth_date', 'guardian_name', 'classroom_id'].forEach(key => { if (!payload[key]) payload[key] = null; }); payload.school_id = state.schoolId;
-    try { const created = await api('/api/v1/reception/candidates', { method: 'POST', body: JSON.stringify(payload) }); event.currentTarget.reset(); await openCandidate(created.id); showNotice('Pré-cadastro criado e auditado.'); } catch (error) { showNotice(error.message, 'error'); }
+    try { const created = await api('/api/v1/reception/candidates', { method: 'POST', body: JSON.stringify(payload) }); formEl.reset(); await openCandidate(created.id); showNotice('Pré-cadastro criado e auditado.'); } catch (error) { showNotice(error.message, 'error'); }
   };
   if (state.schoolId) document.getElementById('session-label').textContent = `Escola ${state.schoolId}`;
   loadCandidates();

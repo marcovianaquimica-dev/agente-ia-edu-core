@@ -124,6 +124,7 @@ class ReceptionService:
         )
         await self.session.commit()
         await self.session.refresh(candidate)
+        await self.session.refresh(invitation)
         return invitation
 
     async def activate_access(
