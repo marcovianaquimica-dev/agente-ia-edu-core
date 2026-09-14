@@ -333,7 +333,10 @@ respondendo — para a pessoa errada.
 ### Convenções
 
 `unittest.IsolatedAsyncioTestCase` com `sqlite+aiosqlite:///:memory:` e `StaticPool`, o padrão de
-`tests/test_platform_administration.py`. Não existe `conftest.py` no projeto.
+`tests/test_platform_administration.py`. Existe um `tests/conftest.py` (acrescentado na `main`
+depois desta spec ser escrita): ele só monta `DATABASE_URL` a partir do `.env` quando a variável
+não está exportada, para os testes que sobem o app real ou abrem sessão de verdade. Os testes
+desta linha de trabalho não dependem dele — usam sqlite em memória e não tocam em `DATABASE_URL`.
 
 ---
 
