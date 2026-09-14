@@ -234,32 +234,57 @@ class KnowledgeService:
             link_res = await self.session.execute(link_stmt)
             links = link_res.scalars().all()
 
+            # A question version can be linked to several catalog nodes, and this
+            # query is unordered. Emitting the row once with whichever link came
+            # back first would hand a content gate one arbitrary node and hide
+            # the question from a school entitled to it through another - a
+            # denial decided by row order. Every matched node is collected onto
+            # the single projected row instead.
+            rows_by_qv: dict[Any, dict[str, Any]] = {}
+
             for link in links:
                 qv = link.question_version
-                if qv and qv.id not in seen_qv_ids:
-                    question = qv.question
-                    if not self._is_question_visible(
-                        question,
-                        requester_institution_id=requester_institution_id or institution_id,
-                        requester_scope_type=requester_scope_type,
-                        requester_scope_external_id=requester_scope_external_id,
-                    ):
-                        continue
-                    seen_qv_ids.add(qv.id)
-                    questions_list.append({
-                        "question_version_id": str(qv.id),
-                        "statement": qv.statement or qv.canonical_text,
-                        "difficulty_ai": None,
-                        "difficulty_learning_level": qv.recommended_difficulty,
-                        "classification": None,
-                        # These rows are selected *by* their catalog node, so the
-                        # node is known here. Dropping it made the row read as
-                        # unclassified to any consumer that gates on content,
-                        # which is the opposite of the truth: it is classified
-                        # content whose classification lives on the link.
-                        "content_node_id": str(link.content_node_id),
-                        "source_type": "catalog_link",
-                    })
+                if not qv:
+                    continue
+                node_id = str(link.content_node_id)
+                existing = rows_by_qv.get(qv.id)
+                if existing is not None:
+                    if node_id not in existing["gate_content_node_ids"]:
+                        existing["gate_content_node_ids"].append(node_id)
+                    continue
+                if qv.id in seen_qv_ids:
+                    continue
+                question = qv.question
+                if not self._is_question_visible(
+                    question,
+                    requester_institution_id=requester_institution_id or institution_id,
+                    requester_scope_type=requester_scope_type,
+                    requester_scope_external_id=requester_scope_external_id,
+                ):
+                    continue
+                seen_qv_ids.add(qv.id)
+                row = {
+                    "question_version_id": str(qv.id),
+                    "statement": qv.statement or qv.canonical_text,
+                    "difficulty_ai": None,
+                    "difficulty_learning_level": qv.recommended_difficulty,
+                    "classification": None,
+                    # These rows are selected *by* their catalog nodes, so the
+                    # nodes are known here. Dropping them made the row read as
+                    # unclassified to any consumer that gates on content, which
+                    # is the opposite of the truth: it is classified content
+                    # whose classification lives on the links.
+                    #
+                    # The key is deliberately named for the gate rather than
+                    # ``content_node_id``: that name already means "the single
+                    # node this row is about" to the ranking engines, and
+                    # introducing it here would silently switch on scoring
+                    # branches that have never fired.
+                    "gate_content_node_ids": [node_id],
+                    "source_type": "catalog_link",
+                }
+                rows_by_qv[qv.id] = row
+                questions_list.append(row)
 
         return questions_list
 
@@ -353,40 +378,56 @@ class KnowledgeService:
 
         resources_list = []
         seen_res_ids = set()
+        # Same reason as the catalog-link questions above: one resource can be
+        # linked to several matched nodes, and first-link-wins would let an
+        # unordered query decide which discipline the row appears to belong to.
+        rows_by_res: dict[Any, dict[str, Any]] = {}
 
         for link in links:
             res = link.resource
-            if res and res.id not in seen_res_ids:
-                if not self._is_resource_visible(
-                    res,
-                    requester_institution_id=requester_institution_id,
-                    requester_scope_type=requester_scope_type,
-                    requester_scope_external_id=requester_scope_external_id,
-                ):
-                    continue
+            if not res:
+                continue
+            node_id = str(link.content_node_id)
+            existing = rows_by_res.get(res.id)
+            if existing is not None:
+                if node_id not in existing["gate_content_node_ids"]:
+                    existing["gate_content_node_ids"].append(node_id)
+                continue
+            if res.id in seen_res_ids:
+                continue
+            if not self._is_resource_visible(
+                res,
+                requester_institution_id=requester_institution_id,
+                requester_scope_type=requester_scope_type,
+                requester_scope_external_id=requester_scope_external_id,
+            ):
+                continue
 
-                seen_res_ids.add(res.id)
-                resources_list.append({
-                    "resource_id": str(res.id),
-                    # Same reason as the catalog-link questions above: the link
-                    # row this projection is built from already carries the
-                    # content node it was selected by, and consumers that gate
-                    # on content have no other way to know it.
-                    "content_node_id": str(link.content_node_id),
-                    "title": res.title,
-                    "resource_type": res.resource_type,
-                    "origin_type": res.origin_type,
-                    "owner_external_id": res.owner_external_id,
-                    "visibility_scope": res.visibility_scope,
-                    "source_url": res.source_url,
-                    "pedagogical_role": link.pedagogical_role,
-                    "recommended_level": link.recommended_level,
-                    "video_detail": {
-                        "platform": res.video_detail.platform,
-                        "external_video_id": res.video_detail.external_video_id,
-                        "duration_seconds": res.video_detail.duration_seconds,
-                    } if res.video_detail else None,
-                })
+            seen_res_ids.add(res.id)
+            row = {
+                "resource_id": str(res.id),
+                # The link rows this projection is built from already carry the
+                # content nodes they were selected by, and consumers that gate
+                # on content have no other way to know them. Named for the gate
+                # on purpose - ``content_node_id`` is the ranking engines' key
+                # and means something narrower there.
+                "gate_content_node_ids": [node_id],
+                "title": res.title,
+                "resource_type": res.resource_type,
+                "origin_type": res.origin_type,
+                "owner_external_id": res.owner_external_id,
+                "visibility_scope": res.visibility_scope,
+                "source_url": res.source_url,
+                "pedagogical_role": link.pedagogical_role,
+                "recommended_level": link.recommended_level,
+                "video_detail": {
+                    "platform": res.video_detail.platform,
+                    "external_video_id": res.video_detail.external_video_id,
+                    "duration_seconds": res.video_detail.duration_seconds,
+                } if res.video_detail else None,
+            }
+            rows_by_res[res.id] = row
+            resources_list.append(row)
 
         return resources_list
 

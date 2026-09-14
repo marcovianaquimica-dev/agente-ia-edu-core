@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
 import math
 import uuid
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from agente_ia_edu.services.discipline_gate import DisciplineGate
 from agente_ia_edu.services.knowledge import KnowledgeService
+
+logger = logging.getLogger(__name__)
 
 
 def _as_node_id(raw: Any) -> uuid.UUID | None:
@@ -29,6 +34,24 @@ def _as_node_id(raw: Any) -> uuid.UUID | None:
         except ValueError:
             return None
     return None
+
+
+def _as_node_ids(raw: Any) -> list[uuid.UUID]:
+    """Every usable catalog node id a projected row carries.
+
+    A row can be linked to more than one catalog node, so the projection hands
+    over a list. Unusable entries are dropped rather than turned into denials,
+    for the reason in ``_as_node_id``; a row left with no usable id falls back
+    to the classification code, and failing that to the absence rule.
+    """
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        raw = [raw]
+    node_ids = []
+    for entry in raw:
+        node_id = _as_node_id(entry)
+        if node_id is not None and node_id not in node_ids:
+            node_ids.append(node_id)
+    return node_ids
 
 
 class StudySearchService:
@@ -264,13 +287,18 @@ class StudySearchService:
         scope = await DisciplineGate(session).scope_for_school(institution_id)
 
         def _permitted(item: dict[str, Any]) -> bool:
-            # The catalog node id is the stronger evidence and the only one a
+            # The catalog node ids are the stronger evidence and the only one a
             # catalog-linked row or a material carries: those have no
             # ``classification`` block at all, and reading that absence as
             # "unclassified" let another discipline's content straight through.
-            node_id = _as_node_id(item.get("content_node_id"))
-            if node_id is not None:
-                return scope.permits(node_id)
+            #
+            # ``any``, not ``all``: a row linked to several nodes belongs to all
+            # of them. Content that genuinely is mathematics must reach a
+            # mathematics school; that it is also filed under biology is not a
+            # reason to hide it.
+            node_ids = _as_node_ids(item.get("gate_content_node_ids"))
+            if node_ids:
+                return any(scope.permits(node_id) for node_id in node_ids)
             classification = item.get("classification") or {}
             return scope.permits_code(classification.get("content"))
 
@@ -313,8 +341,24 @@ class StudySearchService:
                     }
                     for item in results
                 ]
-            except Exception:
+            # Only the database errors this lookup can actually raise degrade
+            # into an empty list. This branch now carries a discipline
+            # restriction, and a swallowed bug is indistinguishable from a
+            # correct empty result: that is exactly how a plain AttributeError
+            # in the projection below passed for "no results" for an unknown
+            # period. Anything else is logged and allowed to propagate.
+            except SQLAlchemyError:
+                logger.warning(
+                    "study_search: question lookup failed for content=%r", content,
+                    exc_info=True,
+                )
                 questions = []
+            except Exception:
+                logger.exception(
+                    "study_search: unexpected error building questions for content=%r",
+                    content,
+                )
+                raise
 
         if requested_type in {"ALL", "MATERIAL", "VIDEO"}:
             # Materials are gated by the catalog node their link was selected by.
@@ -344,8 +388,19 @@ class StudySearchService:
                     }
                     for item in material_results
                 ]
-            except Exception:
+            # Same rule as the question branch above, and the same reason.
+            except SQLAlchemyError:
+                logger.warning(
+                    "study_search: material lookup failed for content=%r", content,
+                    exc_info=True,
+                )
                 materials = []
+            except Exception:
+                logger.exception(
+                    "study_search: unexpected error building materials for content=%r",
+                    content,
+                )
+                raise
 
         combined = questions if requested_type == "QUESTION" else materials if requested_type in {"MATERIAL", "VIDEO"} else questions + materials
         total = len(combined)
