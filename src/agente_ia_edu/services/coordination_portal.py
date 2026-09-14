@@ -162,19 +162,21 @@ class CoordinationPortalService:
 
         Dropping what does not resolve narrows an allow-set and never widens
         it *inside this function* - but an empty set does not read as "no
-        access" one call up. verify_coordinator_access skips its check when
-        the set is falsy, and _resolve_scope_classrooms falls through to every
-        classroom in the school; both read empty as "not restricted". Turning
-        a narrow-but-stale set into an empty one would therefore widen access
-        at the caller. So when every code at a level fails to resolve, the
-        unfiltered set is kept: a set of codes that match no real entity,
-        which is exactly what this function was handed and exactly what runs
-        in production today. A partial drop - some codes valid, some not -
-        still narrows normally.
+        access" one call up. Before Fase 3C onda 1, verify_coordinator_access
+        skipped its check when the set was falsy, and _resolve_scope_classrooms
+        fell through to every classroom in the school; both read empty as "not
+        restricted". Turning a narrow-but-stale set into an empty one would
+        therefore have widened access at the caller. So when every code at a
+        level fails to resolve, the unfiltered set is kept: a set of codes
+        that match no real entity, which is exactly what this function was
+        handed and exactly what runs in production today. A partial drop -
+        some codes valid, some not - still narrows normally.
 
-        Those two callers decide access and belong to Fase 3C, which is where
-        "empty means no access" gets fixed at the reading end; this phase
-        stays inside the two files its plan scoped it to.
+        Those two callers decide access. Fase 3C onda 1 fixed "empty means no
+        access" at the reading end for both of them: verify_coordinator_access
+        (commit c06b198) now keys off is_global instead of allow-set
+        truthiness, and _resolve_scope_classrooms (commit b6d6a27) no longer
+        falls through to every classroom in the school on an empty allow-set.
         """
         if not codes:
             return codes
@@ -202,9 +204,30 @@ class CoordinationPortalService:
         coordinator_id: str,
         school_id: uuid.UUID,
     ) -> list[str]:
-        """Resolves classroom_ids in the coordinator's authorized scope (coordinator-scoped, not teacher-scoped)."""
+        """Resolves classroom_ids in the coordinator's authorized scope (coordinator-scoped, not teacher-scoped).
+
+        Note (not fixed here): this only reads scopes["allowed_classrooms"].
+        A coordinator whose real scope is GRADE_LEVEL or UNIT - with no
+        CLASSROOM link at all - resolves to [] here even though
+        verify_coordinator_access correctly authorizes them for their
+        grade/unit. Deriving classroom membership from grade/unit through the
+        academic hierarchy is substantial new logic and belongs to a future
+        wave, not this one.
+        """
         scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
         if scopes["is_global"]:
+            # Do not "simplify" this to `return list(scopes["allowed_classrooms"])`.
+            # get_coordinator_authorized_scopes returns allowed_classrooms as a
+            # set, and Python randomizes string hashing per process, so its
+            # iteration order is not stable across runs. The local query below
+            # returns a list in SQL order, which is what
+            # test_a_global_coordinator_still_sees_every_classroom asserts
+            # exactly and what build_classroom_items (see call sites around
+            # lines 429 and 486) turns into API response order. Collapsing
+            # this branch to the set would swap that stable order for an
+            # unstable one - breaking the exact-order test and shuffling the
+            # API payload between requests - unless whoever does it also wraps
+            # the result in sorted(...).
             stmt_c = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
             res_c = await self.session.execute(stmt_c)
             return list(res_c.scalars().all()) or ["TURMA_3A", "TURMA_3B"]

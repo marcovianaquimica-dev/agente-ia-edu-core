@@ -119,14 +119,15 @@ class CoordinatorScopeValidationTests(unittest.IsolatedAsyncioTestCase):
         """Filtering may narrow an allow-set; it may never empty one.
 
         One call up, an empty set does not mean "restricted to nothing" - it
-        means "not restricted": verify_coordinator_access skips its check on a
-        falsy set, and _resolve_scope_classrooms falls through to every
-        classroom in the school. So a coordinator whose only code is stale
-        would go from denied-everywhere to allowed-everywhere. When every code
-        at a level is invalid, the unfiltered set is kept instead: exactly
-        today's behaviour, which never grants more than this phase found on
-        entry. Those two callers are authorization logic and belong to Fase 3C
-        - this phase does not touch them.
+        means "not restricted": before Fase 3C onda 1, verify_coordinator_access
+        skipped its check on a falsy set, and _resolve_scope_classrooms fell
+        through to every classroom in the school. So a coordinator whose only
+        code is stale would go from denied-everywhere to allowed-everywhere.
+        When every code at a level is invalid, the unfiltered set is kept
+        instead: exactly today's behaviour, which never grants more than this
+        phase found on entry. Those two callers are authorization logic, and
+        Fase 3C onda 1 has since fixed both of them (commits c06b198 and
+        b6d6a27) to key off is_global instead of allow-set truthiness.
         """
         async with self.session_factory() as session:
             school = await self._school(session, "3")
