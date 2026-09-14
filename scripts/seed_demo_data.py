@@ -5,8 +5,10 @@ teacher and coordination portal frontends (`teacher.js`/`coordination.js`
 `state.schoolId`), which previously pointed at a School row that did not
 exist - with a teacher, a coordinator, a secretary, eight students split
 across two classrooms, taught lessons, mastery evidence, pedagogical
-context, a published theory material, a distributed exercise list, and
-reception candidates at different funnel stages.
+context, a published theory material, exercise lists built from the
+questions the classification pipeline has already classified
+(PedagogicalClassification, status=CLASSIFIED), and reception candidates
+at different funnel stages.
 
 Goal: let the four web portals (teacher, coordination, reception, student)
 be evaluated against real data instead of empty/fallback state.
@@ -26,7 +28,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from agente_ia_edu.db.models import CatalogNode, QuestionVersion, School, UserSchoolLink
@@ -307,6 +309,77 @@ async def seed_activity(session: AsyncSession) -> None:
     print(f"[activity] '{summary.title}' distributed to TURMA_3A")
 
 
+CLASSIFIED_LISTS = [
+    ("Revisão Classificada — Ciências da Natureza", ("BIOLOGY-", "CHEMISTRY-", "PHYSICS-"), "TURMA_3A"),
+    ("Revisão Classificada — Matemática", ("MATH-",), "TURMA_3B"),
+]
+
+
+async def seed_classified_activities(session: AsyncSession) -> None:
+    """Build real exercise lists out of questions the classification pipeline
+    has already finished classifying (PedagogicalClassification, status=
+    CLASSIFIED, lifecycle=ACTIVE, curriculum-v2) - as opposed to seed_activity()
+    above, which just grabs arbitrary official questions."""
+    from agente_ia_edu.db.models import (
+        Assessment,
+        BookletQuestion,
+        ExamApplication,
+        ExamBooklet,
+        PedagogicalClassification,
+    )
+
+    requester = Requester(external_user_id=TEACHER_ID, school_id=str(SCHOOL_ID), role="TEACHER")
+    for title, content_prefixes, classroom_id in CLASSIFIED_LISTS:
+        existing = await session.scalar(select(Assessment.id).where(Assessment.title == title).limit(1))
+        if existing:
+            print(f"[classified-activity] '{title}' already seeded, skipping")
+            continue
+
+        prefix_filter = or_(*[PedagogicalClassification.content.like(f"{p}%") for p in content_prefixes])
+        # Only official (booklet-linked) versions can go into a QuestionListStore list -
+        # some classified rows point at authorial question_versions, which can't.
+        rows = (await session.execute(
+            select(PedagogicalClassification.question_version_id)
+            .join(
+                BookletQuestion,
+                BookletQuestion.question_version_id == PedagogicalClassification.question_version_id,
+            )
+            .join(ExamBooklet, ExamBooklet.id == BookletQuestion.exam_booklet_id)
+            .join(ExamApplication, ExamApplication.id == ExamBooklet.exam_application_id)
+            .where(
+                PedagogicalClassification.status == "CLASSIFIED",
+                PedagogicalClassification.lifecycle == "ACTIVE",
+                PedagogicalClassification.metadata_["taxonomy_version"].as_string() == "curriculum-v2",
+                prefix_filter,
+            )
+        )).scalars().all()
+        if not rows:
+            print(f"[classified-activity] no classified questions found for '{title}', skipping")
+            continue
+
+        store = QuestionListStore(session)
+        summary = await store.create(
+            configuration=ListConfiguration(
+                title=title,
+                instructions="Questões já classificadas pelo motor de classificação curricular.",
+            ),
+            question_version_ids=list(rows),
+            requester=requester,
+        )
+        await store.finalize(list_id=uuid.UUID(summary.id), requester=requester)
+
+        assign_store = ActivityAssignmentStore(session)
+        await assign_store.create(
+            uuid.UUID(summary.id),
+            requester=requester,
+            target_type="CLASS",
+            target_id=classroom_id,
+            academic_year=ACADEMIC_YEAR,
+        )
+        await session.commit()
+        print(f"[classified-activity] '{title}' ({len(rows)} questões classificadas) distributed to {classroom_id}")
+
+
 async def seed_reception(session: AsyncSession) -> None:
     from agente_ia_edu.db.models import ReceptionCandidate
 
@@ -356,6 +429,7 @@ async def main() -> None:
         await session.commit()
         await seed_material(session, nodes)
         await seed_activity(session)
+        await seed_classified_activities(session)
         await seed_reception(session)
     await engine.dispose()
     print("done.")
