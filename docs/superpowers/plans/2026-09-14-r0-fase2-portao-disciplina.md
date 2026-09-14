@@ -933,10 +933,10 @@ class QuestionBankRestrictedSchoolTests(unittest.IsolatedAsyncioTestCase):
         # a filter applied to only one of the two queries.
         self.assertEqual(restricted.total, len(restricted.items))
         for item in restricted.items:
-            self.assertNotEqual(item.discipline_code, "MATHEMATICS")
+            self.assertNotEqual(item.content_code, "MATH-ALGEBRA-FUNCTIONS")
 ```
 
-**Confirme o nome do atributo antes de escrever a última asserção.** `QuestionBankItem` tem `discipline_code` e `content_code` (`question_bank.py:112-115`); use o que de fato distinga as duas disciplinas do fixture, lendo o que o `_Fixture` grava. Se `restricted.total` e `len(restricted.items)` divergirem numa página só, o filtro está numa consulta e não na outra — que é exatamente o defeito que esta tarefa precisa impedir.
+**Valores verificados antes de escrever este plano, rodando o fixture:** ele semeia **8 questões** em duas disciplinas, e os dois nós são `bio_content` com código `BIOLOGY-ANIMAL-PHYSIOLOGY-ADAPTATIONS` e `math_content` com código `MATH-ALGEBRA-FUNCTIONS`. As 8 cabem numa página só (o default é 20), então `restricted.total == len(restricted.items)` é asserção válida e não um acidente de paginação. Se os dois divergirem, o filtro está numa consulta e não na outra — que é exatamente o defeito que esta tarefa precisa impedir.
 
 - [ ] **Step 2: Rode para ver falhar**
 
