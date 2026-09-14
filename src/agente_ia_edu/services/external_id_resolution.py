@@ -226,6 +226,25 @@ class ExternalIdResolver:
                 resolutions[original] = resolution
         return resolutions
 
+    async def has_any_entities(
+        self, school_id: uuid.UUID | str | None, scope_type: str | None
+    ) -> bool:
+        """Whether this school has at least one real row at this hierarchy level.
+
+        R0's hierarchy tables are additive and new: nothing migrated existing
+        production data into them. A consumer that validates scope codes
+        against these tables must check this first - filtering a level that
+        was never populated would strip access from every school that has not
+        been backfilled yet, which today is every school.
+        """
+        model = _model_for(scope_type)
+        if model is None:
+            return False
+        result = await self.session.execute(
+            select(model.id).where(model.school_id == school_id).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
 
 __all__ = [
     "AcademicScopeEntity",

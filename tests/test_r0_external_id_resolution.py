@@ -159,6 +159,39 @@ class ExternalIdResolutionTests(_ResolverTestCase):
                     self.assertEqual(found.state, ResolutionState.NOT_APPLICABLE)
                     self.assertIsNone(found.entity_id)
 
+    async def test_has_any_entities_is_false_for_an_unpopulated_school(self):
+        """A school whose academic hierarchy was never migrated into R0's new
+        tables - every school today, until someone backfills it - must read as
+        unpopulated, not as broken."""
+        async with self.session_factory() as session:
+            resolver = ExternalIdResolver(session)
+            found = await resolver.has_any_entities(SCHOOL_A, "CLASSROOM")
+        self.assertFalse(found)
+
+    async def test_has_any_entities_is_true_once_one_row_exists(self):
+        async with self.session_factory() as session:
+            await self._seed(session, SCHOOL_A)
+            resolver = ExternalIdResolver(session)
+            found = await resolver.has_any_entities(SCHOOL_A, "CLASSROOM")
+        self.assertTrue(found)
+
+    async def test_has_any_entities_does_not_see_another_schools_rows(self):
+        async with self.session_factory() as session:
+            await self._seed(session, SCHOOL_B)
+            resolver = ExternalIdResolver(session)
+            found = await resolver.has_any_entities(SCHOOL_A, "CLASSROOM")
+        self.assertFalse(found)
+
+    async def test_has_any_entities_is_false_for_platform_and_school(self):
+        """PLATFORM and SCHOOL address no hierarchy level, so there is nothing
+        to be populated - same NOT_APPLICABLE idea as resolve()."""
+        async with self.session_factory() as session:
+            resolver = ExternalIdResolver(session)
+            for scope_type in ("PLATFORM", "SCHOOL"):
+                with self.subTest(scope_type=scope_type):
+                    found = await resolver.has_any_entities(SCHOOL_A, scope_type)
+                    self.assertFalse(found)
+
 
 class ScopeBridgeColumnTests(unittest.TestCase):
     """The map from scope type to the user_school_links column that holds the
