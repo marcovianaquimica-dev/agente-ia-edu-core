@@ -81,10 +81,12 @@
 .qb-wizard-steps li { padding: 6px 12px; border-radius: 999px; background: var(--bg-subtle, #eef2f7); color: var(--text-muted, #64748b); font-size: .8rem; font-weight: 700; }
 .qb-wizard-steps li.active { background: var(--primary, #2563eb); color: #fff; }
 .qb-wizard-panel { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.qb-wizard-panel[hidden] { display: none; }
 .qb-wizard-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 6px; }
 .qb-list-hint { color: var(--text-muted, #64748b); font-size: .85rem; margin: 0; }
 .qb-field textarea { padding: 8px 10px; border: 1px solid var(--border, #d7dde7); border-radius: 8px; font: inherit; }
 .qb-answerkey-options { border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.qb-answerkey-options[hidden] { display: none; }
 .qb-answerkey-options legend { font-weight: 800; font-size: .85rem; padding: 0 6px; }
 .qb-radio { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
 .qb-list-preview { border: 1px solid var(--border, #e2e8f0); border-radius: 12px; padding: 18px; background: #fff; max-height: 62vh; overflow: auto; }
