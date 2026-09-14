@@ -244,17 +244,17 @@ class CoordinationPortalService:
         if scopes["is_global"]:
             return True
 
-        if classroom_id and scopes["allowed_classrooms"] and classroom_id not in scopes["allowed_classrooms"]:
+        if classroom_id and classroom_id not in scopes["allowed_classrooms"]:
             raise ScopeAuthorizationError(
                 f"Coordinator '{coordinator_id}' is not authorized for classroom '{classroom_id}' in school '{school_id}'."
             )
 
-        if grade_level and scopes["allowed_grades"] and grade_level not in scopes["allowed_grades"]:
+        if grade_level and grade_level not in scopes["allowed_grades"]:
             raise ScopeAuthorizationError(
                 f"Coordinator '{coordinator_id}' is not authorized for grade '{grade_level}' in school '{school_id}'."
             )
 
-        if unit_id and scopes["allowed_units"] and unit_id not in scopes["allowed_units"]:
+        if unit_id and unit_id not in scopes["allowed_units"]:
             raise ScopeAuthorizationError(
                 f"Coordinator '{coordinator_id}' is not authorized for unit '{unit_id}' in school '{school_id}'."
             )
