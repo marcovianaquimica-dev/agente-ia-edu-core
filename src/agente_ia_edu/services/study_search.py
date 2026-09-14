@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from agente_ia_edu.services.discipline_gate import DisciplineGate
 from agente_ia_edu.services.knowledge import KnowledgeService
 
 
@@ -232,6 +233,16 @@ class StudySearchService:
         if not content:
             return payload
 
+        # The gate reads the institution_id this method already took and never
+        # used. A school with no universe, no active universe, or an active
+        # universe declaring no catalog scope resolves as unrestricted, which is
+        # every school that exists today.
+        scope = await DisciplineGate(session).scope_for_school(institution_id)
+
+        def _permitted(item: dict[str, Any]) -> bool:
+            classification = item.get("classification") or {}
+            return scope.permits_code(classification.get("content"))
+
         knowledge = KnowledgeService(session)
         questions: list[dict[str, Any]] = []
         materials: list[dict[str, Any]] = []
@@ -249,6 +260,12 @@ class StudySearchService:
                     requester_scope_type=requester_scope_type,
                     requester_scope_external_id=requester_scope_external_id,
                 )
+                if not scope.unrestricted:
+                    # Filtered on the raw rows, which carry the ``classification``
+                    # block: the projection below collapses a missing
+                    # classification into the search term itself, so filtering
+                    # after it would compare the query against catalog codes.
+                    results = [item for item in results if _permitted(item)]
                 questions = [
                     {
                         "id": item.get("question_version_id"),
@@ -264,6 +281,12 @@ class StudySearchService:
                 questions = []
 
         if requested_type in {"ALL", "MATERIAL", "VIDEO"}:
+            # Materials are deliberately not gated here. ``find_resources_by_content``
+            # returns no ``classification`` block and no catalog node id - the only
+            # content-ish field on the projection below is the search term echoed
+            # back, and matching that against catalog codes would hide materials
+            # from schools entitled to them. Gating them needs the resource query
+            # to expose its content node first.
             try:
                 material_results = await knowledge.find_resources_by_content(
                     content,
