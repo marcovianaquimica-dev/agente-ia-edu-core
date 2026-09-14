@@ -139,6 +139,48 @@ class CoordinatorAccessWideningTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertTrue(allowed)
 
+    async def test_a_coordinator_with_only_a_segment_link_sees_no_classrooms(self):
+        """The read-side twin of Task 1's fix: instead of raising, this one
+        returns a list - and an empty, specific scope must return an empty
+        list, not every classroom in the school plus the TURMA_3A scaffold."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "5")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-segment-only-3",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.SEGMENT,
+                school_id=school.id,
+                scope_external_id="SEG-3",
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            classrooms = await portal._resolve_scope_classrooms(
+                "coord-segment-only-3", school.id
+            )
+        self.assertEqual(classrooms, [])
+
+    async def test_a_global_coordinator_still_sees_every_classroom(self):
+        """is_global must keep reaching the TeachingLesson query and its
+        TURMA_3A/3B fallback - that half of the function is correct and stays."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "6")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-global-2",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            classrooms = await portal._resolve_scope_classrooms(
+                "coord-global-2", school.id
+            )
+        self.assertEqual(classrooms, ["TURMA_3A", "TURMA_3B"])
+
 
 if __name__ == "__main__":
     unittest.main()

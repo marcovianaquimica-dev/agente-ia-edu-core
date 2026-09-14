@@ -204,12 +204,11 @@ class CoordinationPortalService:
     ) -> list[str]:
         """Resolves classroom_ids in the coordinator's authorized scope (coordinator-scoped, not teacher-scoped)."""
         scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
-        if scopes["allowed_classrooms"]:
-            return list(scopes["allowed_classrooms"])
-
-        stmt_c = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-        res_c = await self.session.execute(stmt_c)
-        return list(res_c.scalars().all()) or ["TURMA_3A", "TURMA_3B"]
+        if scopes["is_global"]:
+            stmt_c = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
+            res_c = await self.session.execute(stmt_c)
+            return list(res_c.scalars().all()) or ["TURMA_3A", "TURMA_3B"]
+        return list(scopes["allowed_classrooms"])
 
     async def verify_coordinator_access(
         self,
