@@ -252,6 +252,12 @@ class KnowledgeService:
                         "difficulty_ai": None,
                         "difficulty_learning_level": qv.recommended_difficulty,
                         "classification": None,
+                        # These rows are selected *by* their catalog node, so the
+                        # node is known here. Dropping it made the row read as
+                        # unclassified to any consumer that gates on content,
+                        # which is the opposite of the truth: it is classified
+                        # content whose classification lives on the link.
+                        "content_node_id": str(link.content_node_id),
                         "source_type": "catalog_link",
                     })
 
@@ -362,6 +368,11 @@ class KnowledgeService:
                 seen_res_ids.add(res.id)
                 resources_list.append({
                     "resource_id": str(res.id),
+                    # Same reason as the catalog-link questions above: the link
+                    # row this projection is built from already carries the
+                    # content node it was selected by, and consumers that gate
+                    # on content have no other way to know it.
+                    "content_node_id": str(link.content_node_id),
                     "title": res.title,
                     "resource_type": res.resource_type,
                     "origin_type": res.origin_type,

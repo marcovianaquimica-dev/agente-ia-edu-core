@@ -1,10 +1,34 @@
 from __future__ import annotations
 
 import math
+import uuid
 from typing import Any
 
 from agente_ia_edu.services.discipline_gate import DisciplineGate
 from agente_ia_edu.services.knowledge import KnowledgeService
+
+
+def _as_node_id(raw: Any) -> uuid.UUID | None:
+    """Coerce a projected catalog node id into the type the gate actually reads.
+
+    ``DisciplineScope.permits`` denies a ``str`` outright - deliberately, so a
+    caller's type bug cannot be papered over inside the gate - and
+    ``KnowledgeService`` stringifies every id it projects. The conversion
+    therefore belongs here, explicit and visible, at the one place that knows
+    both sides.
+
+    A value that is not a usable id is reported as absent, not as a denial: the
+    caller then falls back to the classification code and, failing that, to the
+    absence rule. A malformed row must not make content silently disappear.
+    """
+    if isinstance(raw, uuid.UUID):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return uuid.UUID(raw)
+        except ValueError:
+            return None
+    return None
 
 
 class StudySearchService:
@@ -240,6 +264,13 @@ class StudySearchService:
         scope = await DisciplineGate(session).scope_for_school(institution_id)
 
         def _permitted(item: dict[str, Any]) -> bool:
+            # The catalog node id is the stronger evidence and the only one a
+            # catalog-linked row or a material carries: those have no
+            # ``classification`` block at all, and reading that absence as
+            # "unclassified" let another discipline's content straight through.
+            node_id = _as_node_id(item.get("content_node_id"))
+            if node_id is not None:
+                return scope.permits(node_id)
             classification = item.get("classification") or {}
             return scope.permits_code(classification.get("content"))
 
@@ -270,8 +301,13 @@ class StudySearchService:
                     {
                         "id": item.get("question_version_id"),
                         "title": (item.get("statement") or "Questão de estudo")[:180],
-                        "content": item.get("classification", {}).get("content") or content,
-                        "discipline": item.get("classification", {}).get("discipline") or resolved.get("discipline"),
+                        # ``classification`` is present but null on catalog-link
+                        # rows, so ``.get("classification", {})`` returns None
+                        # and raises - swallowed by the except below, which
+                        # emptied the whole question list whenever a single
+                        # catalog-linked question matched.
+                        "content": (item.get("classification") or {}).get("content") or content,
+                        "discipline": (item.get("classification") or {}).get("discipline") or resolved.get("discipline"),
                         "difficulty": item.get("difficulty_learning_level") or item.get("difficulty_ai") or resolved.get("difficulty"),
                         "resource_type": "QUESTION",
                     }
@@ -281,12 +317,11 @@ class StudySearchService:
                 questions = []
 
         if requested_type in {"ALL", "MATERIAL", "VIDEO"}:
-            # Materials are deliberately not gated here. ``find_resources_by_content``
-            # returns no ``classification`` block and no catalog node id - the only
-            # content-ish field on the projection below is the search term echoed
-            # back, and matching that against catalog codes would hide materials
-            # from schools entitled to them. Gating them needs the resource query
-            # to expose its content node first.
+            # Materials are gated by the catalog node their link was selected by.
+            # The projection below echoes the search term back as ``content``, so
+            # the filter has to run on the raw rows - matching the query text
+            # against catalog codes would hide materials from schools entitled
+            # to them.
             try:
                 material_results = await knowledge.find_resources_by_content(
                     content,
@@ -295,6 +330,10 @@ class StudySearchService:
                     requester_scope_type=requester_scope_type,
                     requester_scope_external_id=requester_scope_external_id,
                 )
+                if not scope.unrestricted:
+                    material_results = [
+                        item for item in material_results if _permitted(item)
+                    ]
                 materials = [
                     {
                         "id": item.get("resource_id"),
