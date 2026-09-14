@@ -1,7 +1,7 @@
 """R1 - ENEM essay rubric foundation.
 
 Revision ID: 039_essay_rubric_foundation
-Revises: 038_authorial_classification
+Revises: 039_student_mastery_catalog_fk
 
 Purely additive: creates five new tables, touches zero rows in any existing
 table, and alters no existing column, constraint or index. Fully reversible.
@@ -10,13 +10,21 @@ Audit of reuse (spec §5): no table in this schema stores rubric text or scoring
 levels. ``pedagogical_classifications`` carries model/prompt versioning for
 QUESTION classification and is unrelated to essay scoring; reusing it would
 overload a table that already has a distinct lifecycle. Nothing is added to it.
+
+Chained after 039_student_mastery_catalog_fk instead of 038 directly: main
+gained that migration while this R1/R0 stack was being built in parallel, so
+both files declared down_revision = 038, leaving the chain with two heads.
+The two migrations are independent (one repoints a foreign key, this one only
+adds new tables), so the join order is arbitrary; stacking this branch on top
+of main's already-landed migration is the least surprising fix and keeps the
+revision ids as originally written.
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "039_essay_rubric_foundation"
-down_revision = "038_authorial_classification"
+down_revision = "039_student_mastery_catalog_fk"
 branch_labels = None
 depends_on = None
 
