@@ -60,7 +60,7 @@ class TestInitialDiagnostic(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
     async def _seed_catalog_and_questions(self, session: AsyncSession):
-        root = CatalogNode(node_type="DISCIPLINE", name="Química", position=1, active=True)
+        root = CatalogNode(node_type="DISCIPLINE", name="Quimica", position=1, active=True)
         session.add(root)
         await session.flush()
         root.root_id = root.id
@@ -151,7 +151,7 @@ class TestInitialDiagnostic(unittest.IsolatedAsyncioTestCase):
                 student_id="student:independent_alice",
                 school_id=None,
                 grade_level="3ª Série",
-                discipline="Química",
+                discipline="Quimica",
             )
 
             self.assertIsNotNone(diag.id)

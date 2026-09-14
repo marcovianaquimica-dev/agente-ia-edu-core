@@ -215,7 +215,7 @@ class TestDiagnosticHttpSecurity(unittest.TestCase):
 
         async def seed_partner_context():
             async with self.session_factory() as session:
-                chemistry_root = CatalogNode(node_type="DISCIPLINE", name="Química", position=1, active=True)
+                chemistry_root = CatalogNode(node_type="DISCIPLINE", name="Quimica", position=1, active=True)
                 math_root = CatalogNode(node_type="DISCIPLINE", name="Matemática", position=2, active=True)
                 session.add_all([chemistry_root, math_root])
                 await session.flush()

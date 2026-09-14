@@ -108,7 +108,7 @@ class InitialDiagnosticService:
         classroom_id: str | None = None,
         academic_year: str = "2026",
         grade_level: str | None = "3ª Série",
-        discipline: str = "Química",
+        discipline: str = "Quimica",
         diagnostic_version: str = "v1",
         metadata: dict[str, Any] | None = None,
         defer_questions: bool = False,
