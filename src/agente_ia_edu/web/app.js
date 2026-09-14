@@ -319,8 +319,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 4. Materials View
-  function loadMaterialsView() {
+  async function loadMaterialsView() {
     const container = document.getElementById('materials-list-container');
+    if (!state.dashboardData) {
+      await loadDashboardData();
+    }
     const rec = state.dashboardData?.active_recommendation;
     if (rec && rec.primary_resource) {
       const r = rec.primary_resource;
