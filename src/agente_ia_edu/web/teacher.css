@@ -214,6 +214,7 @@
   flex-direction: column;
   gap: 6px;
 }
+.form-group[hidden] { display: none; }
 
 .form-group label {
   font-size: 13px;
@@ -241,6 +242,7 @@
 .material-row p, .question-card p { margin: 5px 0 0; color: var(--text-muted); }
 .material-builder { margin-top: 20px; }
 .material-config { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 760px; }
+.material-config[hidden] { display: none; }
 .curriculum-path { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .difficulty-fields { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .material-total { grid-column: 1 / -1; margin: 0; font-weight: 700; }
@@ -284,6 +286,7 @@
 
 /* PHASE 23 — Meus Materiais (materiais teóricos autorais) */
 .tm-form { display: grid; gap: 12px; background: var(--surface, #fff); border: 1px solid var(--border, #e2e6ee); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.tm-form[hidden] { display: none; }
 .tm-form-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .tm-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .tm-msg { margin: 4px 0 0; font-size: 0.85rem; color: #b3261e; }
@@ -294,6 +297,7 @@
 .tm-row:hover { background: #f5f7fb; }
 .tm-badge { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #eef2ff; color: #33417a; }
 .tm-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 12px; }
+.tm-detail-grid[hidden] { display: none; }
 .tm-section-row, .tm-question-row, .tm-cand-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border, #e2e6ee); border-radius: 8px; margin-bottom: 6px; font-size: 0.88rem; }
 .tm-add-question { display: flex; gap: 8px; margin: 10px 0; }
 .tm-add-question .text-input { flex: 1; }
