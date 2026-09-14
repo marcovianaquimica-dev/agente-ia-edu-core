@@ -16,7 +16,7 @@ class DiagnosticStartRequest(BaseModel):
     classroom_id: Optional[str] = Field(None, description="Optional classroom_id.")
     academic_year: str = Field("2026", description="Academic year e.g. 2026")
     grade_level: Optional[str] = Field("3ª Série", description="Grade level e.g. 3ª Série")
-    discipline: str = Field("Química", description="Discipline name")
+    discipline: str = Field("Quimica", description="Discipline name")
     diagnostic_version: str = Field("v1", description="Algorithm version")
     metadata: Optional[dict[str, Any]] = None
     requested_universe_id: Optional[UUID] = None

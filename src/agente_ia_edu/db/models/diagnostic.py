@@ -59,7 +59,7 @@ class InitialDiagnostic(Base):
     classroom_id: Mapped[str | None] = mapped_column(String(255))
     academic_year: Mapped[str] = mapped_column(String(10), nullable=False, default="2026")
     grade_level: Mapped[str | None] = mapped_column(String(255))
-    discipline: Mapped[str] = mapped_column(String(255), nullable=False, default="Química")
+    discipline: Mapped[str] = mapped_column(String(255), nullable=False, default="Quimica")
     diagnostic_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v1")
 
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="NOT_STARTED")

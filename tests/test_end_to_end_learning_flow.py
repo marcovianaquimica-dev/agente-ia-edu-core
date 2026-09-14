@@ -76,7 +76,7 @@ class TestEndToEndLearningFlow(unittest.IsolatedAsyncioTestCase):
         )
 
         # 2. Catalog Nodes
-        root = CatalogNode(node_type="DISCIPLINE", name="Química", position=1, active=True)
+        root = CatalogNode(node_type="DISCIPLINE", name="Quimica", position=1, active=True)
         session.add(root)
         await session.flush()
         root.root_id = root.id
@@ -276,7 +276,7 @@ class TestEndToEndLearningFlow(unittest.IsolatedAsyncioTestCase):
             diag, q1 = await diag_svc.start_diagnostic(
                 student_id="student:e2e_independent",
                 school_id=None,  # Independent
-                discipline="Química",
+                discipline="Quimica",
             )
             self.assertIsNone(diag.school_id)
 

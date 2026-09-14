@@ -94,12 +94,12 @@ class LearningHistory(Base):
     )
     response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Pedagogical context (from QuestionClassification)
+    # Pedagogical context (from CatalogNode classification)
     content_node_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
-        ForeignKey("taxonomy_nodes.id", ondelete="RESTRICT"),
+        ForeignKey("catalog_nodes.id", ondelete="RESTRICT"),
         nullable=True,
-    )  # TaxonomyNode (skill/competency/subject)
+    )  # CatalogNode (content/subcontent)
 
     # Audit
     created_at: Mapped[datetime] = mapped_column(

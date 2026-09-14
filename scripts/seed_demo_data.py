@@ -413,6 +413,89 @@ async def seed_reception(session: AsyncSession) -> None:
     print(f"[reception] {len(pre_reg)} pré-cadastro(s), {len(released)} diagnóstico liberado")
 
 
+async def seed_content_resource_links(session: AsyncSession) -> None:
+    """Link every published TheoryMaterial's materialized EducationalResource
+    to its content node via ContentResourceLink - the table
+    KnowledgeService.find_resources_by_content actually reads (used by
+    RecommendationEngine to fill "active_recommendation.primary_resource").
+    Without this, a published material never shows up as a recommended
+    resource, even though it exists and is visible in "Materiais"."""
+    from agente_ia_edu.db.models import ContentResourceLink, TheoryMaterial, TheoryMaterialVersion
+    from agente_ia_edu.repositories.catalog import ContentResourceLinkRepository
+    from agente_ia_edu.services.catalog import ContentResourceLinkService
+
+    existing = await session.scalar(select(ContentResourceLink.id).limit(1))
+    if existing:
+        print("[content-resource-links] already seeded, skipping")
+        return
+
+    rows = (await session.execute(
+        select(TheoryMaterial.primary_content_node_id, TheoryMaterialVersion.resource_id)
+        .join(TheoryMaterialVersion, TheoryMaterialVersion.material_id == TheoryMaterial.id)
+        .where(
+            TheoryMaterial.school_id == SCHOOL_ID,
+            TheoryMaterial.primary_content_node_id.isnot(None),
+            TheoryMaterialVersion.resource_id.isnot(None),
+        )
+    )).all()
+
+    service = ContentResourceLinkService(ContentResourceLinkRepository(session))
+    linked = 0
+    for content_node_id, resource_id in rows:
+        try:
+            await service.link(session, content_node_id=content_node_id, resource_id=resource_id, pedagogical_role="THEORY")
+            linked += 1
+        except ValueError:
+            pass
+    await session.commit()
+    print(f"[content-resource-links] linked {linked} published material(s) to their catalog content")
+
+
+async def seed_content_question_links(session: AsyncSession) -> None:
+    """Link every firmly-classified question to its CatalogNode via
+    ContentQuestionLink - the table the diagnostic/practice/recommendation
+    selection system actually reads (QuestionSelectionRepository), as
+    opposed to PedagogicalClassification, which only drives the question
+    bank's display/labeling. Without this, diagnostic/practice/recommendation
+    always show "nenhum recurso disponivel" even for classified questions."""
+    from agente_ia_edu.db.models import ContentQuestionLink, PedagogicalClassification
+    from agente_ia_edu.repositories.catalog import ContentQuestionLinkRepository
+    from agente_ia_edu.services.catalog import ContentQuestionLinkService
+
+    existing = await session.scalar(select(ContentQuestionLink.id).limit(1))
+    if existing:
+        print("[content-question-links] already seeded, skipping")
+        return
+
+    rows = (await session.execute(
+        select(PedagogicalClassification.question_version_id, PedagogicalClassification.content).where(
+            PedagogicalClassification.status == "CLASSIFIED",
+            PedagogicalClassification.lifecycle == "ACTIVE",
+            PedagogicalClassification.metadata_["taxonomy_version"].as_string() == "curriculum-v2",
+        )
+    )).all()
+
+    content_codes = {content for _, content in rows}
+    node_by_code = {
+        n.code: n
+        for n in (await session.scalars(select(CatalogNode).where(CatalogNode.code.in_(content_codes)))).all()
+    }
+
+    service = ContentQuestionLinkService(ContentQuestionLinkRepository(session))
+    linked = 0
+    for question_version_id, content_code in rows:
+        node = node_by_code.get(content_code)
+        if node is None:
+            continue
+        try:
+            await service.link(session, content_node_id=node.id, question_version_id=question_version_id)
+            linked += 1
+        except ValueError:
+            pass
+    await session.commit()
+    print(f"[content-question-links] linked {linked} classified question(s) to their catalog content")
+
+
 async def main() -> None:
     database_url = os.environ["DATABASE_URL"]
     engine = create_async_engine(database_url)
@@ -428,8 +511,10 @@ async def main() -> None:
         await seed_pedagogical_context(session, nodes)
         await session.commit()
         await seed_material(session, nodes)
+        await seed_content_resource_links(session)
         await seed_activity(session)
         await seed_classified_activities(session)
+        await seed_content_question_links(session)
         await seed_reception(session)
     await engine.dispose()
     print("done.")

@@ -559,6 +559,16 @@ class TeacherPortalService:
             student_id=student_id,
         )
 
+        classroom_id = await self.session.scalar(
+            select(UserSchoolLink.scope_external_id).where(
+                UserSchoolLink.external_user_id == student_id,
+                UserSchoolLink.school_id == school_id,
+                UserSchoolLink.role == AdminRole.STUDENT,
+                UserSchoolLink.scope_type == AdminScopeType.CLASSROOM,
+                UserSchoolLink.active.is_(True),
+            )
+        )
+
         # Fetch student's masteries
         masteries = await self._fetch_masteries_for_students([student_id])
 
@@ -605,7 +615,7 @@ class TeacherPortalService:
         return {
             "student_id": student_id,
             "school_id": str(school_id),
-            "classroom_id": "TURMA_3A",
+            "classroom_id": classroom_id or "",
             "accuracy_percentage": round(accuracy, 1),
             "total_questions_answered": tot_ans,
             "total_questions_correct": tot_corr,

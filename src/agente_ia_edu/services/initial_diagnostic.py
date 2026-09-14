@@ -108,7 +108,7 @@ class InitialDiagnosticService:
         classroom_id: str | None = None,
         academic_year: str = "2026",
         grade_level: str | None = "3ª Série",
-        discipline: str = "Química",
+        discipline: str = "Quimica",
         diagnostic_version: str = "v1",
         metadata: dict[str, Any] | None = None,
         defer_questions: bool = False,
@@ -156,6 +156,8 @@ class InitialDiagnosticService:
 
         await self.session.commit()
         await self.session.refresh(diagnostic)
+        if first_q is not None:
+            await self.session.refresh(first_q)
         return diagnostic, first_q
 
     async def save_entry_profile(
@@ -212,6 +214,8 @@ class InitialDiagnosticService:
             next_question = await self._select_next_question_for_diagnostic(diagnostic, position=1)
         await self.session.commit()
         await self.session.refresh(diagnostic)
+        if next_question is not None:
+            await self.session.refresh(next_question)
         return diagnostic, next_question
 
     async def answer_question(
@@ -375,6 +379,7 @@ class InitialDiagnosticService:
 
         await self.session.commit()
         await self.session.refresh(diagnostic)
+        await self.session.refresh(next_q)
         return diagnostic, is_correct, False, next_q
 
     async def _global_sufficiency(self, diagnostic: InitialDiagnostic) -> bool:

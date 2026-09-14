@@ -131,12 +131,14 @@ class ReceptionService:
         self, *, token: str, external_student_id: str
     ) -> ReceptionCandidate:
         invitation = await self.invitation_service.validate_token(token)
+        invitation_id = invitation.id
         candidate = await self.session.scalar(
-            select(ReceptionCandidate).where(ReceptionCandidate.invitation_id == invitation.id)
+            select(ReceptionCandidate).where(ReceptionCandidate.invitation_id == invitation_id)
         )
         if candidate is None:
             raise ValueError("O convite não está associado a um atendimento.")
         await self.invitation_service.activate_invitation(token, external_student_id)
+        await self.session.refresh(candidate)
         candidate.external_student_id = external_student_id
         await self.admin_service.log_action(
             performed_by_external_id=external_student_id,
@@ -144,7 +146,7 @@ class ReceptionService:
             entity_type="RECEPTION_CANDIDATE",
             entity_id=str(candidate.id),
             school_id=candidate.school_id,
-            metadata={"invitation_id": str(invitation.id)},
+            metadata={"invitation_id": str(invitation_id)},
         )
         await self.session.commit()
         await self.session.refresh(candidate)
