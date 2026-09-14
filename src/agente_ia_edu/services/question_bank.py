@@ -33,7 +33,7 @@ from decimal import Decimal
 from typing import Any, Iterable, Sequence
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -48,6 +48,8 @@ from agente_ia_edu.db.models import (
     QuestionOption,
     QuestionVersion,
 )
+
+from .discipline_gate import DisciplineGate
 
 CURRICULUM_TAXONOMY_VERSION = "curriculum-v2"
 OFFICIAL_VERSION_KIND = "official_original"
@@ -427,6 +429,7 @@ class QuestionBankService:
         page_size: int = 20,
         order_by: str = "official_number",
         order_direction: str = "asc",
+        school_id: str | UUID | None = None,
     ) -> QuestionBankPage:
         filters = filters or QuestionBankFilters()
         if filters.classification_state and filters.classification_state.upper() not in _CLASSIFICATION_STATES:
@@ -439,6 +442,40 @@ class QuestionBankService:
         await self._load_catalog()
         pc = aliased(PedagogicalClassification)
 
+        # Resolved once and applied to BOTH queries below. Filtering only the
+        # page query would make `total` lie about how many rows exist.
+        scope = await DisciplineGate(self._session).scope_for_school(school_id)
+        # The gate needs its own alias: `pc` is joined by `_apply_filters` only
+        # when some classification filter asks for it, so neither query is
+        # guaranteed to carry it - and joining the same alias twice collides.
+        pcd = aliased(PedagogicalClassification)
+        # Lifecycle and taxonomy live in the ON clause, never in the WHERE: a
+        # SUPERSEDED row holding a stale code must not hide a permitted
+        # question, and a WHERE would also drop the NULL side of the outer
+        # join, i.e. every unclassified question.
+        pcd_on = (
+            (pcd.question_version_id == QuestionVersion.id)
+            & (pcd.lifecycle == "ACTIVE")
+            & (
+                pcd.metadata_["taxonomy_version"].as_string()
+                == CURRICULUM_TAXONOMY_VERSION
+            )
+        )
+
+        def _apply_discipline_scope(statement: Select) -> Select:
+            if scope.unrestricted:
+                return statement
+            # `outerjoin`, never `join`: an inner join would drop every
+            # unclassified question and change the total for everyone.
+            # `is_(None)` preserves the gate's rule - unclassified content is
+            # not evidence of another discipline.
+            return statement.outerjoin(pcd, pcd_on).where(
+                or_(
+                    pcd.content.is_(None),
+                    pcd.content.in_(sorted(scope.allowed_codes)),
+                )
+            )
+
         count_base = (
             select(func.count(func.distinct(QuestionVersion.id)))
             .select_from(Question)
@@ -448,10 +485,12 @@ class QuestionBankService:
             .join(ExamApplication, ExamApplication.id == ExamBooklet.exam_application_id)
             .where(QuestionVersion.version_kind == OFFICIAL_VERSION_KIND)
         )
-        count_q = self._apply_filters(count_base, filters, pc)
+        count_q = _apply_discipline_scope(self._apply_filters(count_base, filters, pc))
         total = int((await self._session.scalar(count_q)) or 0)
 
-        rows_q = self._apply_filters(self._base_query(), filters, pc)
+        rows_q = _apply_discipline_scope(
+            self._apply_filters(self._base_query(), filters, pc)
+        )
         order_cols = list(_ORDERABLE[order_by])
         order_cols = [c.desc() if descending else c.asc() for c in order_cols]
         # deterministic tiebreaker
