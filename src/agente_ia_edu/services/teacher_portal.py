@@ -39,6 +39,7 @@ from agente_ia_edu.services.teaching_context import (
     TeachingContextService,
 )
 from agente_ia_edu.services.teaching_context_policies import RecencyPolicy
+from agente_ia_edu.services.video_engine import VideoRecommendationEngine
 
 logger = logging.getLogger(__name__)
 
