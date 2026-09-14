@@ -38,9 +38,19 @@ A causa: `tests/test_teacher_portal.py`'s `_seed_data` cria um `UserSchoolLink` 
 
 A correção: **`ExternalIdResolver` ganha um método que verifica se a escola tem alguma linha naquele nível da hierarquia.** Só quando a resposta é sim a validação entra em vigor para aquele nível, naquela escola. Enquanto for não, o código passa como está hoje — sem filtro, sem mudança de comportamento.
 
-## Por que só dois consumidores, quando `scope_external_id` aparece em 26 arquivos
+## Reconciliação com o parágrafo final da §7 (registrada na revisão final de branch, achado 2)
 
-Antes de escrever este plano, li o código real dos 26 arquivos que mencionam `scope_external_id` fora de `db/models` e `.js`. A lista nua sugeria uma divisão simples — "tudo exceto `services/authorization.py`" — e essa divisão está errada.
+A §7 fecha dizendo: *"**Durante a transição**, um `external_id` que não resolve devolve `None` e o chamador segue pelo caminho antigo. A mudança desse regime é o passo 7, não um efeito colateral de nenhum passo anterior."* Lida sozinha, essa frase parece proibir o que esta fase (passo 4) faz: numa escola com hierarquia populada, um código que não resolve **não** segue pelo caminho antigo — ele sai do conjunto de permissões.
+
+A reconciliação é que os dois parágrafos falam de momentos diferentes. "O chamador segue pelo caminho antigo" descreve um consumidor **ainda não migrado**: enquanto ninguém chama o resolvedor, uma resolução falha não muda nada, e é por isso que a ordem da §7 pode ser incremental sem quebrar a transição. Migrar um consumidor é, por definição, o passo em que aquele chamador deixa de seguir o caminho antigo — se migrar não mudasse comportamento nenhum, os passos 3 a 6 não existiriam. O que o passo 7 reserva para si, e que **esta fase não faz**, é transformar a falha de resolução em **erro**: aqui ela nunca levanta exceção, nunca muda tipo de retorno, e só age onde `has_any_entities` prova que a hierarquia daquele nível já existe. Todos os outros consumidores continuam intocados, exatamente como a frase da §7 descreve.
+
+Duas cercas mantêm essa antecipação dentro do que a §7 autoriza, e ambas estão testadas: a guarda de hierarquia populada (nenhuma escola não migrada perde nada) e a regra de que filtrar nunca esvazia um conjunto que tinha entradas (`_resolved` e o bloco equivalente do professor, corrigidos depois da revisão final — ver o achado Critical). Juntas, esta fase nunca concede mais nem nega mais do que encontrou na entrada, exceto no caso estreito e desejado: um código obsoleto ao lado de códigos válidos, numa escola cuja hierarquia já foi backfillada.
+
+## Por que só dois consumidores, quando `scope_external_id` aparece em 27 arquivos
+
+> **Correção da revisão final de branch (achado 6).** A contagem original dizia "26"; `grep -rln --include='*.py' scope_external_id src` devolve **32** arquivos, **27** fora de `db/models`. E quatro deles ficavam sem classificação nenhuma nesta seção, apesar da promessa de exaustividade: `api/routes/catalog.py`, `api/routes/diagnostic.py`, `api/routes/exercise_lists.py` e `api/routes/student.py`. Estão nomeados na lista abaixo.
+
+Antes de escrever este plano, li o código real dos arquivos que mencionam `scope_external_id` fora de `db/models` e `.js`. A lista nua sugeria uma divisão simples — "tudo exceto `services/authorization.py`" — e essa divisão está errada.
 
 **A maior parte desses arquivos não filtra conteúdo: decide quem pode ver o quê.** `teacher_portal.py::verify_student_access`, `teaching_context.py::verify_teacher_classroom_scope` (que levanta `ScopeAuthorizationError`, um `PermissionError`), `coordination_portal.py::get_coordinator_authorized_scopes` em si, `knowledge.py::_is_question_visible`, `question_governance.py` — todos comparam `scope_external_id` para conceder ou negar algo. Isso é autorização, mesmo fora de um arquivo chamado `authorization.py`, e carrega o mesmo risco que a §3.2 atribui à autorização central: *"um erro ali não quebra: mostra dado errado para a pessoa errada."*
 
@@ -54,6 +64,10 @@ A leitura que sustenta a ordem da §7 não é "arquivo `authorization.py` é arr
 - `assessments.py` (rota e serviço), `study_session.py` — já têm `scope_type` alimentado por texto de cliente sem `CHECK` (registrado na Fase 3A). Precisam de decisão de validação na fronteira antes de qualquer resolução fazer sentido.
 - `attempts.py`, `admin.py`, `invitation.py`, `activity_assignment_store.py`, `adaptive_learning_path.py`, `study_search.py` — não lidos linha a linha para este plano; ficam para a próxima onda de 3B.
 - `api/schemas/*.py`, `identity.py` — carregam o campo, não decidem nada com ele. Não são consumidores no sentido da §7.
+- `api/routes/catalog.py` (linhas 505, 570, 607) — repassa `context.scope_external_id` adiante como `requester_scope_external_id`; quem decide é o serviço a jusante, não a rota. Migra junto do serviço que ela alimenta.
+- `api/routes/diagnostic.py:58` — passa o código adiante só quando `scope_type == "CLASSROOM"`, senão `None`. Mesma situação: repasse, não decisão.
+- `api/routes/exercise_lists.py:44` — `scope_external_id=str(auth_context.school_id)`, um **UUID de escola** dentro do campo, com `scope_type="SCHOOL"` (hoje `NOT_APPLICABLE` no resolvedor, portanto inofensivo). Registrado como precedente de formato: o campo não carrega só código de SIS.
+- `api/routes/student.py:156-158` — **atenção para a onda 2**: `requester_scope_external_id` pode ser uma **tupla** de identificadores (student_id, classroom_id, school_code, institution_code, institution_id), reduzida a uma string só quando sobra um elemento. Ela vai para `StudySearchService.search`, e `study_search.py` já está nomeado para a próxima onda. `resolve_many` aceita `Iterable[str | None]`; uma tupla aninhada aqui resolveria como se fosse **um** código, errado. Quem planejar a onda 2 precisa decidir a forma antes de migrar `study_search.py`.
 
 ## Fatos verificados por execução antes de escrever este plano
 
