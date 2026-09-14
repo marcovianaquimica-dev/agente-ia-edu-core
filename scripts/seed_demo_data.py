@@ -413,6 +413,44 @@ async def seed_reception(session: AsyncSession) -> None:
     print(f"[reception] {len(pre_reg)} pré-cadastro(s), {len(released)} diagnóstico liberado")
 
 
+async def seed_content_resource_links(session: AsyncSession) -> None:
+    """Link every published TheoryMaterial's materialized EducationalResource
+    to its content node via ContentResourceLink - the table
+    KnowledgeService.find_resources_by_content actually reads (used by
+    RecommendationEngine to fill "active_recommendation.primary_resource").
+    Without this, a published material never shows up as a recommended
+    resource, even though it exists and is visible in "Materiais"."""
+    from agente_ia_edu.db.models import ContentResourceLink, TheoryMaterial, TheoryMaterialVersion
+    from agente_ia_edu.repositories.catalog import ContentResourceLinkRepository
+    from agente_ia_edu.services.catalog import ContentResourceLinkService
+
+    existing = await session.scalar(select(ContentResourceLink.id).limit(1))
+    if existing:
+        print("[content-resource-links] already seeded, skipping")
+        return
+
+    rows = (await session.execute(
+        select(TheoryMaterial.primary_content_node_id, TheoryMaterialVersion.resource_id)
+        .join(TheoryMaterialVersion, TheoryMaterialVersion.material_id == TheoryMaterial.id)
+        .where(
+            TheoryMaterial.school_id == SCHOOL_ID,
+            TheoryMaterial.primary_content_node_id.isnot(None),
+            TheoryMaterialVersion.resource_id.isnot(None),
+        )
+    )).all()
+
+    service = ContentResourceLinkService(ContentResourceLinkRepository(session))
+    linked = 0
+    for content_node_id, resource_id in rows:
+        try:
+            await service.link(session, content_node_id=content_node_id, resource_id=resource_id, pedagogical_role="THEORY")
+            linked += 1
+        except ValueError:
+            pass
+    await session.commit()
+    print(f"[content-resource-links] linked {linked} published material(s) to their catalog content")
+
+
 async def seed_content_question_links(session: AsyncSession) -> None:
     """Link every firmly-classified question to its CatalogNode via
     ContentQuestionLink - the table the diagnostic/practice/recommendation
@@ -473,6 +511,7 @@ async def main() -> None:
         await seed_pedagogical_context(session, nodes)
         await session.commit()
         await seed_material(session, nodes)
+        await seed_content_resource_links(session)
         await seed_activity(session)
         await seed_classified_activities(session)
         await seed_content_question_links(session)
