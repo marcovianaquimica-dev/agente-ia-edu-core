@@ -151,25 +151,51 @@ class CoordinationPortalService:
         codes: set[str],
     ) -> set[str]:
         """Keep only the codes that resolve - once this school's hierarchy
-        actually has rows at this level.
+        actually has rows at this level, and never to the point of emptying
+        the set.
 
         A link's scope_external_id is free text nothing validates at write
         time, and R0's hierarchy tables are new: no school's existing data
         was migrated into them yet. Filtering before that backfill happens
         would strip access from every school that has not been migrated -
-        today, every school. has_any_entities is the guard against that;
-        dropping what does not resolve, once it is safe to check, narrows an
-        allow-set and never widens it.
+        today, every school. has_any_entities is the guard against that.
+
+        Dropping what does not resolve narrows an allow-set and never widens
+        it *inside this function* - but an empty set does not read as "no
+        access" one call up. verify_coordinator_access skips its check when
+        the set is falsy, and _resolve_scope_classrooms falls through to every
+        classroom in the school; both read empty as "not restricted". Turning
+        a narrow-but-stale set into an empty one would therefore widen access
+        at the caller. So when every code at a level fails to resolve, the
+        unfiltered set is kept: a set of codes that match no real entity,
+        which is exactly what this function was handed and exactly what runs
+        in production today. A partial drop - some codes valid, some not -
+        still narrows normally.
+
+        Those two callers decide access and belong to Fase 3C, which is where
+        "empty means no access" gets fixed at the reading end; this phase
+        stays inside the two files its plan scoped it to.
         """
         if not codes:
             return codes
         if not await resolver.has_any_entities(school_id, scope_type):
             return codes
         resolutions = await resolver.resolve_many(school_id, scope_type, codes)
-        return {
+        resolved = {
             code for code in codes
             if resolutions[code].state == ResolutionState.RESOLVED
         }
+        if not resolved:
+            logger.warning(
+                "No %s scope code resolved for school %s (%d code(s) checked); "
+                "keeping the unfiltered set, because an empty allow-set reads "
+                "as unrestricted downstream.",
+                scope_type,
+                school_id,
+                len(codes),
+            )
+            return codes
+        return resolved
 
     async def _resolve_scope_classrooms(
         self,

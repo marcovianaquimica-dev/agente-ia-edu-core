@@ -198,10 +198,28 @@ class TeacherPortalService:
         resolutions = await resolver.resolve_many(
             school_id, AdminScopeType.CLASSROOM, authorized_classrooms
         )
-        return [
+        resolved = [
             code for code in authorized_classrooms
             if resolutions[code].state == ResolutionState.RESOLVED
         ]
+        # Narrowing this list is the point; emptying it is not. An empty list
+        # does not read as "no classrooms" to every caller - coordination_portal
+        # reaches this function, and _fetch_students_in_classrooms falls back to
+        # an unfiltered student query when the list is empty. If no code
+        # resolves at all, keep the unfiltered list: codes matching no real
+        # Class, which is exactly what this function was handed and exactly
+        # what production returns today. Same rule as
+        # CoordinationPortalService._resolved.
+        if not resolved:
+            logger.warning(
+                "No classroom scope code resolved for school %s (%d code(s) "
+                "checked); keeping the unfiltered list, because an empty list "
+                "reads as unrestricted downstream.",
+                school_id,
+                len(authorized_classrooms),
+            )
+            return list(authorized_classrooms)
+        return resolved
 
     async def verify_student_access(
         self,

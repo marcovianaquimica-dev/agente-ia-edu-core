@@ -115,6 +115,39 @@ class CoordinatorScopeValidationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("TURMA_3A", scopes["allowed_classrooms"])
 
+    async def test_an_all_invalid_level_keeps_its_unfiltered_set(self):
+        """Filtering may narrow an allow-set; it may never empty one.
+
+        One call up, an empty set does not mean "restricted to nothing" - it
+        means "not restricted": verify_coordinator_access skips its check on a
+        falsy set, and _resolve_scope_classrooms falls through to every
+        classroom in the school. So a coordinator whose only code is stale
+        would go from denied-everywhere to allowed-everywhere. When every code
+        at a level is invalid, the unfiltered set is kept instead: exactly
+        today's behaviour, which never grants more than this phase found on
+        entry. Those two callers are authorization logic and belong to Fase 3C
+        - this phase does not touch them.
+        """
+        async with self.session_factory() as session:
+            school = await self._school(session, "3")
+            await self._seed_hierarchy(session, school, "3")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-stale-only",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school.id,
+                scope_external_id="TURMA-VELHA-DE-2025",
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            scopes = await portal.get_coordinator_authorized_scopes(
+                "coord-stale-only", school.id
+            )
+
+        self.assertEqual(scopes["allowed_classrooms"], {"TURMA-VELHA-DE-2025"})
+
     async def test_a_valid_code_of_every_level_survives(self):
         """The four levels - unit, segment, grade, classroom - each go through
         their own has_any_entities + resolve_many call. One test per level

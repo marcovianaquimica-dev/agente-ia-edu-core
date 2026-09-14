@@ -83,6 +83,34 @@ class TeacherScopeValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("TURMA-1", classrooms)
         self.assertNotIn("TURMA-FANTASMA", classrooms)
 
+    async def test_an_all_invalid_list_keeps_its_unfiltered_codes(self):
+        """Dropping every code would return [], and [] does not mean "no
+        classrooms" to every caller: coordination_portal reaches this function
+        and _fetch_students_in_classrooms falls back to an unfiltered student
+        query on an empty list. Narrowing is allowed; emptying is not. With no
+        valid code left, the original list is kept - today's behaviour, which
+        downstream already denies.
+        """
+        async with self.session_factory() as session:
+            school = await self._school(session, "2")
+            await self._seed_hierarchy(session, school, "2")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="teacher-stale-only",
+                role=AdminRole.TEACHER,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school.id,
+                scope_external_id="TURMA-FANTASMA",
+            )
+
+            portal = TeacherPortalService(session, None, None, None)
+            classrooms = await portal.get_teacher_authorized_classrooms(
+                "teacher-stale-only", school.id
+            )
+
+        self.assertEqual(classrooms, ["TURMA-FANTASMA"])
+
     async def test_every_code_survives_when_the_school_has_no_hierarchy_yet(self):
         """This is exactly tests/test_teacher_portal.py's own prof_mendes
         fixture: a real link to scope_external_id="TURMA_3A", no Class row
