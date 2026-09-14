@@ -26,6 +26,7 @@ from agente_ia_edu.services.study_search import StudySearchService
 from tests.test_question_bank_core import _Fixture
 
 SCHOOL_WITHOUT_UNIVERSE = str(uuid.uuid4())
+SCHOOL_WITH_UNSCOPED_UNIVERSE = str(uuid.uuid4())
 RESTRICTED_SCHOOL = str(uuid.uuid4())
 
 
@@ -145,6 +146,74 @@ class Fase2GateTests(unittest.IsolatedAsyncioTestCase):
             for_school = await StudySearchService.search(
                 maths.code, session=session, difficulty="UNKNOWN",
                 institution_id=SCHOOL_WITHOUT_UNIVERSE,
+            )
+            for_nobody = await StudySearchService.search(
+                maths.code, session=session, difficulty="UNKNOWN",
+                institution_id=None,
+            )
+            self.assertGreater(
+                len(for_nobody["results"]["questions"]), 0,
+                "the search must reach this content at all",
+            )
+            self.assertEqual(
+                [q["id"] for q in for_school["results"]["questions"]],
+                [q["id"] for q in for_nobody["results"]["questions"]],
+                "study search",
+            )
+
+
+    async def test_active_universe_with_no_declared_scope_is_unrestricted_in_all_three(
+        self,
+    ):
+        """Absence, third shape: an ACTIVE universe that declares no catalog
+        scope at all - no ``PedagogicalUniverseCatalogScope`` rows.
+
+        This is the shape a naive implementation gets wrong: it has a
+        universe to intersect against, so it is tempted to intersect with the
+        empty set of declared scopes and block everything, rather than read
+        "nothing declared" as "nothing restricted" (``discipline_gate.py``,
+        the comment above the empty-``allowed`` branch). It has unit coverage
+        in ``test_r0_discipline_gate.py`` and
+        ``test_r0_study_search_discipline.py`` already; nothing exercised it
+        through the question bank or through authorization until here.
+        """
+        async with self.session_factory() as session:
+            seeded = await _Fixture().build(session)
+            maths = seeded["nodes"]["math_content"]
+            biology = seeded["nodes"]["bio_content"]
+
+            session.add(
+                PedagogicalUniverse(
+                    id=uuid.uuid4(), external_id="u-unscoped", slug="u-unscoped",
+                    name="u-unscoped", owner_type="SCHOOL",
+                    owner_external_id=SCHOOL_WITH_UNSCOPED_UNIVERSE,
+                    status="ACTIVE",
+                )
+            )
+            await session.commit()
+
+            for node in (maths, biology):
+                with self.subTest(node=node.code):
+                    allowed = await AuthorizationService(session).require_discipline(
+                        _context(SCHOOL_WITH_UNSCOPED_UNIVERSE), node.id
+                    )
+                    self.assertTrue(allowed.allowed, "authorization")
+
+            page = await QuestionBankService(session).list_questions(
+                school_id=SCHOOL_WITH_UNSCOPED_UNIVERSE
+            )
+            everything = await QuestionBankService(session).list_questions()
+            self.assertGreater(everything.total, 0, "the fixture must seed a bank")
+            self.assertEqual(page.total, everything.total, "question bank")
+            self.assertEqual(
+                [item.official_number for item in page.items],
+                [item.official_number for item in everything.items],
+                "the page itself, not only its count",
+            )
+
+            for_school = await StudySearchService.search(
+                maths.code, session=session, difficulty="UNKNOWN",
+                institution_id=SCHOOL_WITH_UNSCOPED_UNIVERSE,
             )
             for_nobody = await StudySearchService.search(
                 maths.code, session=session, difficulty="UNKNOWN",
