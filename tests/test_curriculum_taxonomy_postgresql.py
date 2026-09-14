@@ -73,8 +73,8 @@ class CurriculumTaxonomyPostgreSQLTests(unittest.TestCase):
         migration; it only ever comes from
         CurriculumTaxonomyService.seed_reference_fixture(). In every real
         environment it was seeded long before 024 was authored, so seed it
-        here at exactly that point - after the chain reaches 023, which
-        creates catalog_nodes, and before it advances past it.
+        here at exactly that point - after the chain reaches 023, the last
+        revision before 024 reads the catalog, and before it advances past it.
         """
         config = self._config()
         command.upgrade(config, "023_curriculum_taxonomy")
