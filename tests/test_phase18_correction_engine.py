@@ -55,10 +55,12 @@ from agente_ia_edu.db.models import (
     AnswerKeyRevision,
     BookletQuestion,
     CatalogNode,
+    ContentQuestionLink,
     Exam,
     ExamApplication,
     ExamBooklet,
     Institution,
+    LearningHistory,
     PedagogicalClassification,
     Question,
     QuestionOption,
@@ -184,6 +186,28 @@ class Phase18Tests(unittest.TestCase):
         self.__class__._ctx = ctx
         self.app.dependency_overrides[get_current_authenticated_context] = lambda: ctx
 
+    def _link_content_and_difficulty(self, vids, *, content_code="TESTCONTENT", difficulty="EASY"):
+        """Seed a CatalogNode + ContentQuestionLink + recommended_difficulty for
+        the given question_version_ids, so correct() has what it needs to
+        record LearningHistory (content_node_id + difficulty_level are both
+        NOT NULL there)."""
+        async def _do():
+            async with self.factory() as s:
+                node = (await s.execute(
+                    select(CatalogNode).where(CatalogNode.code == content_code)
+                )).scalar_one_or_none()
+                if node is None:
+                    node = CatalogNode(code=content_code, name=content_code, node_type="CONTENT", active=True)
+                    s.add(node)
+                    await s.flush()
+                for vid in vids:
+                    s.add(ContentQuestionLink(content_node_id=node.id, question_version_id=_uuid.UUID(vid)))
+                    qv = await s.get(QuestionVersion, _uuid.UUID(vid))
+                    qv.recommended_difficulty = difficulty
+                await s.commit()
+                return node.id
+        return self.loop.run_until_complete(_do())
+
     def _seed_link(self, uid, classroom, school="school-1", active=True):
         async def _do():
             async with self.factory() as s:
@@ -279,6 +303,44 @@ class Phase18Tests(unittest.TestCase):
             self.assertEqual(it["correct_option_key"], self.correct_key[ids[i]])
             self.assertEqual(it["status"], "CORRECT" if i < 6 else "INCORRECT")
         self.assertTrue(res["answer_key_visible"])
+
+    # -- correction bridges into LearningHistory (domain-map evidence)
+    def test_correction_records_learning_history_for_classified_questions(self):
+        lid, aid, ids = self._distribute(5, classroom="t-history")
+        node_id = self._link_content_and_difficulty(ids[:3], content_code="TC-HIST", difficulty="EASY")
+        self._seed_link("s_history", "t-history")
+        self._student("s_history")
+
+        def ans(i, k):
+            return k if i % 2 == 0 else self._wrong(k)  # positions 0,2,4 correct
+        self._play(aid, ids, answer=ans)
+        self.assertEqual(self._complete(aid).status_code, 200)
+        self.assertEqual(self._correct(aid).status_code, 200)
+
+        async def _rows():
+            async with self.factory() as s:
+                return (await s.execute(
+                    select(LearningHistory).where(LearningHistory.external_identity_id == "s_history")
+                )).scalars().all()
+        rows = self.loop.run_until_complete(_rows())
+
+        # only the 3 linked+difficulty-tagged questions get a row; the other
+        # 2 (no ContentQuestionLink, no recommended_difficulty) are skipped,
+        # not written with invented data.
+        self.assertEqual(len(rows), 3)
+        by_qv = {str(r.question_version_id): r for r in rows}
+        self.assertEqual(set(by_qv), set(ids[:3]))
+        for i, vid in enumerate(ids[:3]):
+            row = by_qv[vid]
+            self.assertEqual(row.activity_type, "OFFICIAL_ASSESSMENT")
+            self.assertEqual(str(row.content_node_id), str(node_id))
+            self.assertEqual(row.difficulty_level, "EASY")
+            self.assertEqual(row.is_correct, i % 2 == 0)
+
+        # idempotent: a second correct() call must not duplicate history rows
+        self.assertEqual(self._correct(aid).status_code, 200)
+        rows_again = self.loop.run_until_complete(_rows())
+        self.assertEqual(len(rows_again), 3)
 
     # -- 6: an unanswered question -> UNANSWERED (engine-level; PHASE 17
     #       forbids completing with a blank, so we build the COMPLETED

@@ -4,6 +4,14 @@
     correction  = ActivityResult + ActivityResultItem        (this module)
     domain map / trilha / TRI / notas                        = FUTURE - NOT here
 
+For every item with a known content node (ContentQuestionLink) and a known
+difficulty (QuestionVersion.recommended_difficulty), correction also writes a
+LearningHistory row (activity_type=OFFICIAL_ASSESSMENT) - the evidence source
+DomainMapService reads for the student's domain-map view. Items without
+either are skipped, not backfilled with invented data. This is the only
+bridge to LearningHistory added here; the domain-map READ side, trilha, TRI
+and notas remain future work elsewhere.
+
 "A correção é determinística. A IA NÃO participa. O gabarito congelado é a
 autoridade."
 
@@ -41,12 +49,15 @@ from agente_ia_edu.db.models.assessments import (
     ActivityResult,
     ActivityResultItem,
 )
-from agente_ia_edu.db.models.official import BookletQuestion, QuestionOption
+from agente_ia_edu.db.models.catalog import ContentQuestionLink
+from agente_ia_edu.db.models.learning_path import LearningHistory
+from agente_ia_edu.db.models.official import BookletQuestion, QuestionOption, QuestionVersion
 from agente_ia_edu.services.activity_assignment_store import (
     ActivityAssignmentStore,
     AssignmentAuthError,
     AssignmentNotFound,
 )
+from agente_ia_edu.services.learning_path_policies import ActivityType
 from agente_ia_edu.services.question_list_store import (
     ListNotFoundError,
     ListStateError,
@@ -206,10 +217,26 @@ class ActivityCorrectionStore:
         )).all():
             official_number.setdefault(vid, num)
 
+        # batched, same "no per-question query" discipline as above - content
+        # node + difficulty for every item this attempt could produce
+        # LearningHistory evidence for (domain-map reads LearningHistory, not
+        # ActivityResult - see module docstring).
+        content_node_by_qv: dict[UUID, UUID] = {}
+        for vid, node_id in (await self._session.execute(
+            select(ContentQuestionLink.question_version_id, ContentQuestionLink.content_node_id)
+            .where(ContentQuestionLink.question_version_id.in_(qv_ids))
+        )).all():
+            content_node_by_qv.setdefault(vid, node_id)
+        difficulty_by_qv = dict((await self._session.execute(
+            select(QuestionVersion.id, QuestionVersion.recommended_difficulty)
+            .where(QuestionVersion.id.in_(qv_ids), QuestionVersion.recommended_difficulty.isnot(None))
+        )).all())
+
         ans_by_qv = {a.question_version_id: a for a in answers}
 
         correct = incorrect = unanswered = answered = 0
         result_items: list[ActivityResultItem] = []
+        history_rows: list[LearningHistory] = []
         for it in items:
             correct_key = opt_key.get(it.frozen_correct_option_id)
             a = ans_by_qv.get(it.question_version_id)
@@ -235,6 +262,19 @@ class ActivityCorrectionStore:
                 answered=is_answered,
             ))
 
+            content_node_id = content_node_by_qv.get(it.question_version_id)
+            difficulty_level = difficulty_by_qv.get(it.question_version_id)
+            if content_node_id is not None and difficulty_level is not None:
+                history_rows.append(LearningHistory(
+                    external_identity_id=student_id,
+                    activity_type=ActivityType.OFFICIAL_ASSESSMENT.value,
+                    question_version_id=it.question_version_id,
+                    selected_option_id=a.selected_option_id if a else None,
+                    difficulty_level=difficulty_level,
+                    is_correct=is_correct if is_answered else None,
+                    content_node_id=content_node_id,
+                ))
+
         result = ActivityResult(
             attempt_id=attempt.id,
             assignment_id=assignment.id,
@@ -253,6 +293,8 @@ class ActivityCorrectionStore:
         )
         result.items = result_items
         self._session.add(result)
+        if history_rows:
+            self._session.add_all(history_rows)
         await self._session.flush()
         new_id = result.id
         try:
