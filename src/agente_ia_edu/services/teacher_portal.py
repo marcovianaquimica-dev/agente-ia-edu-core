@@ -31,6 +31,7 @@ from agente_ia_edu.db.models import (
     UserSchoolLink,
 )
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
+from agente_ia_edu.services.external_id_resolution import ExternalIdResolver, ResolutionState
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.learning_path_policies import DifficultyLevel
 from agente_ia_edu.services.recommendation import RecommendationEngine
@@ -189,7 +190,18 @@ class TeacherPortalService:
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id:
                     authorized_classrooms.add(link.scope_external_id)
 
-        return list(authorized_classrooms)
+        if not authorized_classrooms:
+            return []
+        resolver = ExternalIdResolver(self.session)
+        if not await resolver.has_any_entities(school_id, AdminScopeType.CLASSROOM):
+            return list(authorized_classrooms)
+        resolutions = await resolver.resolve_many(
+            school_id, AdminScopeType.CLASSROOM, authorized_classrooms
+        )
+        return [
+            code for code in authorized_classrooms
+            if resolutions[code].state == ResolutionState.RESOLVED
+        ]
 
     async def verify_student_access(
         self,
