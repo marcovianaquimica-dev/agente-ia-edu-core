@@ -200,20 +200,32 @@ class PedagogicalUniverseService:
     async def catalog_codes_for(
         self, node_ids: Iterable[uuid.UUID]
     ) -> frozenset[str]:
-        """The codes of these nodes.
+        """The codes of these nodes, minus the ones that have no usable code.
 
         ``pedagogical_classifications`` stores the content CODE as text rather
         than a foreign key, so a consumer filtering classifications needs codes,
         not ids. Translating once here keeps every consumer from inventing its
         own version of this.
+
+        ``catalog_nodes.code`` is nullable, so a node inside a school's scope
+        can carry no code at all. Dropping those here - rather than leaving a
+        ``None`` in a set annotated ``frozenset[str]`` - is what keeps the
+        return type honest: a consumer that sorts the codes to build a SQL
+        ``IN`` would otherwise raise ``TypeError`` comparing ``str`` to
+        ``None``. A node with no code cannot match any classification anyway,
+        so dropping it removes nothing a consumer could have used.
         """
         ids = list(node_ids)
         if not ids:
             return frozenset()
         result = await self.session.execute(
-            select(CatalogNode.code).where(CatalogNode.id.in_(ids))
+            select(CatalogNode.code).where(
+                CatalogNode.id.in_(ids), CatalogNode.code.is_not(None)
+            )
         )
-        return frozenset(result.scalars().all())
+        return frozenset(
+            code for code in result.scalars().all() if (code or "").strip()
+        )
 
     async def _is_descendant(self, node: CatalogNode, ancestor_id: uuid.UUID) -> bool:
         current = node

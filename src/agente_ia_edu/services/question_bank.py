@@ -60,6 +60,36 @@ PROTECTED_QUESTIONS: frozenset[tuple[int, int]] = frozenset(
     {(2020, 91), (2020, 93), (2020, 107), (2020, 128), (2020, 133)}
 )
 
+# Whitespace that has to be folded away before TRIM can see it: TRIM removes
+# spaces only, in SQLite and in PostgreSQL alike.
+_SQL_WHITESPACE: tuple[str, ...] = ("\t", "\n", "\r", "\v", "\f")
+
+
+def _no_declared_content(column: Any) -> Any:
+    """The discipline gate's notion of a classification declaring no content.
+
+    ``DisciplineScope.permits_code`` treats NULL, the empty string and a
+    whitespace-only string alike: all three are absence, and absence permits.
+    The SQL here must say exactly the same thing, or the gate hides questions
+    its own rule allows - and the hidden population is the worst one possible,
+    because ``content = ""`` is precisely what the classification services
+    write when classification FAILED and the question is waiting for a human
+    (``authorial_question_classification_service`` and
+    ``curriculum_classification``, both with ``lifecycle = ACTIVE`` and the
+    taxonomy version this gate joins on). Hiding those would keep them from
+    the only people who can classify them.
+
+    Exotic whitespace outside ``_SQL_WHITESPACE`` (non-breaking space and the
+    rest of the Unicode set, which ``str.strip`` also removes) is not folded:
+    no portable SQL expression matches ``str.strip`` exactly. Nothing writes
+    it, and a row that carried it would merely be judged by the ``IN`` leg.
+    """
+    collapsed = func.coalesce(column, "")
+    for character in _SQL_WHITESPACE:
+        collapsed = func.replace(collapsed, character, " ")
+    return func.trim(collapsed) == ""
+
+
 # ---------------------------------------------------------------------------
 # Deterministic ENEM area derivation
 # ---------------------------------------------------------------------------
@@ -467,11 +497,11 @@ class QuestionBankService:
                 return statement
             # `outerjoin`, never `join`: an inner join would drop every
             # unclassified question and change the total for everyone.
-            # `is_(None)` preserves the gate's rule - unclassified content is
-            # not evidence of another discipline.
+            # `_no_declared_content` preserves the gate's rule - unclassified
+            # content is not evidence of another discipline.
             return statement.outerjoin(pcd, pcd_on).where(
                 or_(
-                    pcd.content.is_(None),
+                    _no_declared_content(pcd.content),
                     pcd.content.in_(sorted(scope.allowed_codes)),
                 )
             )

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
+from agente_ia_edu.db.models import CatalogNode, PedagogicalClassification
 from agente_ia_edu.db.models.pedagogical_universe import (
     PedagogicalUniverse,
     PedagogicalUniverseCatalogScope,
@@ -366,6 +367,86 @@ class Fase2RestrictedGateTests(unittest.IsolatedAsyncioTestCase):
                 len(search["results"]["questions"]), 0,
                 "biology content must survive a biology scope",
             )
+
+    async def test_a_failed_classification_survives_the_restriction(self):
+        """The fourth shape of absence, and the one production actually writes.
+
+        ``authorial_question_classification_service`` and
+        ``curriculum_classification`` both store ``content = ""`` with
+        ``lifecycle = ACTIVE`` and ``taxonomy_version = curriculum-v2`` when
+        classification fails - exactly the row shape this gate joins on. The
+        Python rule (``permits_code``) calls empty and whitespace-only
+        absence and permits them; a SQL gate testing only ``IS NULL`` would
+        match the join, fail both legs, and hide the question. The hidden
+        population is the one waiting for a human classifier.
+
+        Seeded here on question 96, which the sibling test proves is visible
+        to this same restricted school while it carries no classification at
+        all. Whitespace-only is seeded on 160 for the same reason.
+        """
+        async with self.session_factory() as session:
+            seeded = await _Fixture().build(session)
+            await self._scope_to_biology(session, seeded)
+
+            for number, blank in ((96, ""), (160, "   ")):
+                _question, version = seeded["made"][(2024, number)]
+                session.add(
+                    PedagogicalClassification(
+                        question_version_id=version.id,
+                        discipline=blank, content=blank, subcontent=blank,
+                        difficulty="UNKNOWN", reasoning_type="UNSPECIFIED",
+                        prerequisites=[], keywords=[], competencies=[],
+                        skills=[], status="NEEDS_REVIEW", source="ai",
+                        lifecycle="ACTIVE", model_version="m", prompt_version="v1",
+                        provider_name="p",
+                        metadata_={"taxonomy_version": "curriculum-v2"},
+                    )
+                )
+            await session.commit()
+
+            page = await QuestionBankService(session).list_questions(
+                school_id=RESTRICTED_SCHOOL
+            )
+            numbers = sorted(item.official_number for item in page.items)
+            self.assertIn(
+                96, numbers, "content='' is absence, and absence is permitted"
+            )
+            self.assertIn(
+                160, numbers, "whitespace-only content is absence too"
+            )
+            # Unchanged from the sibling test: a blank classification must not
+            # add or remove anything else either.
+            self.assertEqual(numbers, [30, 96, 97, 160], "question bank page")
+            self.assertEqual(page.total, len(page.items), "count and page agree")
+
+    async def test_a_node_without_a_code_does_not_break_the_listing(self):
+        """``catalog_nodes.code`` is nullable, so a school's scope can reach a
+        node with no code. Before the fix ``allowed_codes`` carried that
+        ``None`` into ``sorted()`` inside the bank's SQL builder and the whole
+        listing raised ``TypeError: '<' not supported between instances of
+        'str' and 'NoneType'`` - a 500 on a security path."""
+        async with self.session_factory() as session:
+            seeded = await _Fixture().build(session)
+            await self._scope_to_biology(session, seeded)
+
+            biology = seeded["nodes"]["bio_content"]
+            session.add(
+                CatalogNode(
+                    id=uuid.uuid4(), code=None, name="sem codigo",
+                    node_type="CONTENT", parent_id=biology.id,
+                    root_id=biology.root_id, active=True,
+                )
+            )
+            await session.commit()
+
+            scope = await DisciplineGate(session).scope_for_school(RESTRICTED_SCHOOL)
+            self.assertNotIn(None, scope.allowed_codes, "no None reaches a consumer")
+
+            page = await QuestionBankService(session).list_questions(
+                school_id=RESTRICTED_SCHOOL
+            )
+            numbers = sorted(item.official_number for item in page.items)
+            self.assertEqual(numbers, [30, 96, 97, 160], "question bank page")
 
 
 if __name__ == "__main__":

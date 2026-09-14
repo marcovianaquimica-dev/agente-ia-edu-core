@@ -152,6 +152,32 @@ class UniverseSchoolScopeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(codes, frozenset({"CHEMISTRY", "CHEMISTRY-KINETICS"}))
 
+    async def test_catalog_codes_for_drops_nodes_without_a_usable_code(self):
+        """``catalog_nodes.code`` is nullable, and the return type says
+        ``frozenset[str]``. A ``None`` slipping through made the question
+        bank's ``sorted(allowed_codes)`` raise ``TypeError`` - a 500 on a
+        security path - so it is dropped here, at the one place that knows
+        the column is nullable. A node with no code matches no classification
+        anyway, so nothing a consumer could have used is lost."""
+        async with self.session_factory() as session:
+            root = await self._node(session, "CHEMISTRY")
+            codeless = CatalogNode(
+                id=uuid.uuid4(), code=None, name="sem codigo",
+                node_type="CONTENT", parent_id=root.id,
+            )
+            blank = CatalogNode(
+                id=uuid.uuid4(), code="   ", name="em branco",
+                node_type="CONTENT", parent_id=root.id,
+            )
+            session.add_all([codeless, blank])
+            await session.commit()
+
+            service = PedagogicalUniverseService(session)
+            codes = await service.catalog_codes_for([root.id, codeless.id, blank.id])
+
+        self.assertEqual(codes, frozenset({"CHEMISTRY"}))
+        self.assertNotIn(None, codes)
+
     async def test_catalog_codes_for_nothing_is_empty(self):
         async with self.session_factory() as session:
             service = PedagogicalUniverseService(session)
