@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Iterable, Sequence
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,6 +152,68 @@ class PedagogicalUniverseService:
         if not universe:
             raise ValueError("Pedagogical universe not found")
         return universe
+
+    async def active_school_universe_ids(self, school_id: str) -> list[uuid.UUID]:
+        """Ids of the ACTIVE universes owned by this school.
+
+        DRAFT and ARCHIVED are excluded on purpose: a universe that is still
+        being configured must not restrict anyone yet.
+        """
+        result = await self.session.execute(
+            select(PedagogicalUniverse.id).where(
+                PedagogicalUniverse.owner_type == "SCHOOL",
+                PedagogicalUniverse.owner_external_id == str(school_id),
+                PedagogicalUniverse.status == "ACTIVE",
+            )
+        )
+        return list(result.scalars().all())
+
+    async def expand_catalog_scope_nodes(
+        self, universe_ids: Sequence[uuid.UUID]
+    ) -> frozenset[uuid.UUID]:
+        """Every catalog node these universes reach, descendants included.
+
+        Expanded eagerly, once, so callers can test membership against a set
+        instead of issuing a query per node. That is what makes the gate cheap
+        enough to apply inside a paginated SQL query.
+        """
+        if not universe_ids:
+            return frozenset()
+        scopes = list(
+            (
+                await self.session.execute(
+                    select(PedagogicalUniverseCatalogScope).where(
+                        PedagogicalUniverseCatalogScope.universe_id.in_(list(universe_ids))
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        reachable: set[uuid.UUID] = set()
+        for scope in scopes:
+            reachable.add(scope.catalog_node_id)
+            if scope.include_descendants:
+                reachable.update(await self._collect_descendants(scope.catalog_node_id))
+        return frozenset(reachable)
+
+    async def catalog_codes_for(
+        self, node_ids: Iterable[uuid.UUID]
+    ) -> frozenset[str]:
+        """The codes of these nodes.
+
+        ``pedagogical_classifications`` stores the content CODE as text rather
+        than a foreign key, so a consumer filtering classifications needs codes,
+        not ids. Translating once here keeps every consumer from inventing its
+        own version of this.
+        """
+        ids = list(node_ids)
+        if not ids:
+            return frozenset()
+        result = await self.session.execute(
+            select(CatalogNode.code).where(CatalogNode.id.in_(ids))
+        )
+        return frozenset(result.scalars().all())
 
     async def _is_descendant(self, node: CatalogNode, ancestor_id: uuid.UUID) -> bool:
         current = node
