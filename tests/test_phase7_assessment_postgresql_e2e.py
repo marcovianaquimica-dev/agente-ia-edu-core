@@ -4,6 +4,8 @@ import asyncio
 import os
 import unittest
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -17,23 +19,44 @@ from agente_ia_edu.api.dependencies import (
 from agente_ia_edu.api.routes.assessments import router as assessments_router
 from agente_ia_edu.api.routes.attempts import router as attempts_router
 from agente_ia_edu.api.routes.domain_map import domain_map_router
-from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import School, UserSchoolLink  # noqa: F401  (registers every model on Base.metadata)
+from agente_ia_edu.db.models import School, UserSchoolLink
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
+from agente_ia_edu.services.curriculum_taxonomy import CurriculumTaxonomyService
 from test_phase7_assessment_core_http import Phase7AssessmentCoreHTTP
 
 
-def _create_schema_from_models(database_url):
-    """Build the schema the ORM actually targets, instead of a frozen revision.
+def _migrate_to_head(database_url):
+    """Build the schema from the real migration chain, all the way to head.
 
-    This suite exercises today's models; pinning its schema to an old Alembic
-    revision only proved the code still ran against a schema no deployment has.
+    A suite pinned to an old Alembic revision proved only that the code still
+    ran against a schema no deployment has; ``Base.metadata.create_all``
+    proves only what the models claim, never that a migration wrote it.
+
+    The chain stops once on the way up. 024_chemistry_kinetics is a DATA
+    migration: it inserts a content node under a REQUIRED, already-existing
+    parent (catalog_node code CHEMISTRY-PHYSICAL) and fails loudly if that
+    parent is missing - by design, see the migration's own _validate_parent.
+    Nothing in this repository creates that node in a migration; it only ever
+    comes from CurriculumTaxonomyService.seed_reference_fixture(), and in
+    every real environment it was seeded long before 024 was authored. Seed
+    it at exactly that point: after the chain reaches 023, which is the last
+    revision before 024 reads the catalog, and before it advances past it.
     """
-    engine = create_engine(database_url)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "023_curriculum_taxonomy")
+    asyncio.run(_seed_reference_catalog(database_url))
+    command.upgrade(config, "head")
+
+
+async def _seed_reference_catalog(database_url):
+    engine = create_async_engine(database_url)
     try:
-        Base.metadata.create_all(engine)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with factory() as session:
+            await CurriculumTaxonomyService(session).seed_reference_fixture()
     finally:
-        engine.dispose()
+        await engine.dispose()
 
 
 class Phase7AssessmentPostgreSQLE2E(Phase7AssessmentCoreHTTP):
@@ -63,7 +86,7 @@ class Phase7AssessmentPostgreSQLE2E(Phase7AssessmentCoreHTTP):
     def setUp(self):
         self._drop_database()
         self._admin_execute(f"CREATE DATABASE {self.database_name}")
-        _create_schema_from_models(self.database_url)
+        _migrate_to_head(self.database_url)
 
         async def setup_database():
             engine = create_async_engine(self.database_url)

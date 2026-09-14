@@ -32,9 +32,9 @@ class Phase8CQuestionModificationPostgreSQLE2E(
         return Phase8ATeacherListBuilderPostgreSQLE2E.setUpClass.__func__(cls)
 
     def setUp(self):
-        # The base setUp already builds the full schema from Base.metadata, so
-        # the extra upgrade to 022 that used to run here is both redundant and
-        # wrong: it pinned the tables to a revision the ORM no longer matches.
+        # The base setUp already migrates all the way to head, so the extra
+        # upgrade to 022 that used to run here is both redundant and wrong: it
+        # pinned the tables to a revision no deployment has.
         Phase8ATeacherListBuilderPostgreSQLE2E.setUp(self)
         self.provider = StructuredProposalFake()
         app = FastAPI()
