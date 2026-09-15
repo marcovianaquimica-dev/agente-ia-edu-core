@@ -72,8 +72,13 @@ class TeachingContextService:
             raise ScopeAuthorizationError(f"User '{teacher_id}' has no active school bindings.")
 
         for link in links:
-            if link.role in (AdminRole.PLATFORM_ADMIN, AdminRole.DIRECTOR, AdminRole.COORDINATOR):
+            if link.role == AdminRole.PLATFORM_ADMIN:
                 return True
+
+            if link.role in (AdminRole.DIRECTOR, AdminRole.COORDINATOR):
+                if link.school_id == school_id or link.scope_type == AdminScopeType.PLATFORM:
+                    return True
+                continue
 
             if link.role == AdminRole.TEACHER:
                 if link.school_id and link.school_id != school_id:
