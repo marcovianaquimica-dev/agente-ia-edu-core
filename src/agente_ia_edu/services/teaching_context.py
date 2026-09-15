@@ -76,7 +76,7 @@ class TeachingContextService:
                 return True
 
             if link.role in (AdminRole.DIRECTOR, AdminRole.COORDINATOR):
-                if link.school_id == school_id or link.scope_type == AdminScopeType.PLATFORM:
+                if link.school_id == school_id:
                     return True
                 continue
 

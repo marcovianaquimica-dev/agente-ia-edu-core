@@ -165,7 +165,9 @@ class TeacherPortalService:
 
         authorized_classrooms = set()
         for link in links:
-            if link.role in (AdminRole.PLATFORM_ADMIN, AdminRole.DIRECTOR, AdminRole.COORDINATOR):
+            if link.role == AdminRole.PLATFORM_ADMIN or (
+                link.role in (AdminRole.DIRECTOR, AdminRole.COORDINATOR) and link.school_id == school_id
+            ):
                 # Return all classrooms in school
                 stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
                 res = await self.session.execute(stmt)
