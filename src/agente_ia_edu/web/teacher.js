@@ -172,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!response.ok) throw new Error('Falha ao carregar listas');
       const materials = await response.json();
       materialList.innerHTML = materials.length ? materials.map(material => `
-        <article class="material-row"><div><strong>${material.title}</strong><p>${material.items.length} questões · Rascunho</p></div><button class="btn btn-secondary" data-continue-material="${material.id}">Continuar</button></article>
+        <article class="material-row"><div><strong>${material.title}</strong><p>${material.items.length} questões · ${material.status === 'published' ? 'Publicada' : 'Rascunho'}</p></div><button class="btn btn-secondary" data-continue-material="${material.id}">Continuar</button></article>
       `).join('') : '<p class="empty-text">Nenhuma lista criada ainda.</p>';
       materialList.querySelectorAll('[data-continue-material]').forEach(button => button.onclick = () => openMaterial(button.dataset.continueMaterial));
     } catch (error) {
@@ -185,7 +185,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!response.ok) return showAlert('Não foi possível abrir esta lista.', 'danger');
     state.material = await response.json();
     document.getElementById('material-builder-title').textContent = state.material.title;
-    document.getElementById('material-builder-status').textContent = 'Rascunho salvo';
+    document.getElementById('material-builder-status').textContent =
+      state.material.status === 'published' ? 'Publicada' : 'Rascunho salvo';
     document.getElementById('material-config').hidden = true;
     materialBuilder.hidden = false;
     materialList.hidden = true;

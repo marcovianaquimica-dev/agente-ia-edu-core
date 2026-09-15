@@ -57,8 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (query) params.set('q', query);
       const candidates = await api(`/api/v1/reception/candidates?${params}`);
       body.innerHTML = candidates.length ? candidates.map(candidate => `
-        <tr><td><strong>${escapeHtml(candidate.preferred_name || candidate.full_name)}</strong><small>${escapeHtml(candidate.full_name)}</small></td>
-        <td>${escapeHtml(candidate.phone)}<small>${escapeHtml(candidate.email)}</small></td>
+        <tr><td><strong>${escapeHtml(candidate.preferred_name || candidate.full_name)}</strong><br><small>${escapeHtml(candidate.full_name)}</small></td>
+        <td>${escapeHtml(candidate.phone)}<br><small>${escapeHtml(candidate.email)}</small></td>
         <td><span class="status ${statusClass(candidate.status)}">${escapeHtml(statusLabel(candidate.status))}</span></td>
         <td>${formatDate(candidate.updated_at)}</td><td><button class="row-action" data-candidate="${candidate.id}">Abrir →</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum atendimento encontrado.</td></tr>';
       body.querySelectorAll('[data-candidate]').forEach(button => button.onclick = () => openCandidate(button.dataset.candidate));

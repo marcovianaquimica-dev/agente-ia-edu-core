@@ -1669,7 +1669,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const acc = pathPct(step.accuracy);
     const ev = step.evidence_state === 'OBSERVED'
       ? (acc ? `Aproveitamento: ${acc} (${step.questions_answered} questões)` : `${step.questions_answered} questões respondidas`)
-      : `Evidência: insuficiente (${step.questions_answered} questão${step.questions_answered === 1 ? '' : 's'})`;
+      : `Evidência: insuficiente (${step.questions_answered} ${step.questions_answered === 1 ? 'questão' : 'questões'})`;
     const prereqs = (step.unsatisfied_prerequisites || []).map((p) => escActivity(p.name || p.code)).join(', ');
     const blocks = (step.blocks_contents || []).map((p) => escActivity(p.name || p.code)).join(', ');
     // PHASE 22: real "Praticar agora" when the path says practice is available for
