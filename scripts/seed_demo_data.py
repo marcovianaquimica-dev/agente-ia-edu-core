@@ -420,15 +420,12 @@ async def seed_content_resource_links(session: AsyncSession) -> None:
     RecommendationEngine to fill "active_recommendation.primary_resource").
     Without this, a published material never shows up as a recommended
     resource, even though it exists and is visible in "Materiais"."""
-    from agente_ia_edu.db.models import ContentResourceLink, TheoryMaterial, TheoryMaterialVersion
+    from agente_ia_edu.db.models import TheoryMaterial, TheoryMaterialVersion
     from agente_ia_edu.repositories.catalog import ContentResourceLinkRepository
     from agente_ia_edu.services.catalog import ContentResourceLinkService
 
-    existing = await session.scalar(select(ContentResourceLink.id).limit(1))
-    if existing:
-        print("[content-resource-links] already seeded, skipping")
-        return
-
+    # Same reasoning as seed_content_question_links: no blanket guard, rely on
+    # ContentResourceLinkService.link()'s own ValueError-on-duplicate (caught below).
     rows = (await session.execute(
         select(TheoryMaterial.primary_content_node_id, TheoryMaterialVersion.resource_id)
         .join(TheoryMaterialVersion, TheoryMaterialVersion.material_id == TheoryMaterial.id)
@@ -458,15 +455,15 @@ async def seed_content_question_links(session: AsyncSession) -> None:
     opposed to PedagogicalClassification, which only drives the question
     bank's display/labeling. Without this, diagnostic/practice/recommendation
     always show "nenhum recurso disponivel" even for classified questions."""
-    from agente_ia_edu.db.models import ContentQuestionLink, PedagogicalClassification
+    from agente_ia_edu.db.models import PedagogicalClassification
     from agente_ia_edu.repositories.catalog import ContentQuestionLinkRepository
     from agente_ia_edu.services.catalog import ContentQuestionLinkService
 
-    existing = await session.scalar(select(ContentQuestionLink.id).limit(1))
-    if existing:
-        print("[content-question-links] already seeded, skipping")
-        return
-
+    # No blanket "already seeded" guard here on purpose: ContentQuestionLinkService.link()
+    # already raises ValueError (caught below) for a link that exists, so this is safe
+    # to re-run incrementally as more questions get classified later - a global
+    # "any row exists -> skip everything" guard would silently stop linking newly
+    # classified questions after the first run.
     rows = (await session.execute(
         select(PedagogicalClassification.question_version_id, PedagogicalClassification.content).where(
             PedagogicalClassification.status == "CLASSIFIED",

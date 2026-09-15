@@ -255,6 +255,7 @@ async def create_practice_session(
             )
 
         await session.commit()
+        await session.refresh(practice_session)
 
         return PracticeSessionResponse(
             id=practice_session.id,
@@ -451,6 +452,7 @@ async def answer_practice_question(
 
         await session.flush()
         await session.commit()
+        await session.refresh(selection)
 
         return PracticeQuestionAnswerResponse(
             practice_question_selection_id=selection.id,
@@ -473,7 +475,7 @@ async def answer_practice_question(
 )
 async def complete_practice_session(
     session_id: UUID,
-    request: PracticeSessionCompleteRequest,
+    request: PracticeSessionCompleteRequest = PracticeSessionCompleteRequest(),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> PracticeSessionResult:
@@ -574,6 +576,7 @@ async def complete_practice_session(
             updated_level = mastery.current_level
 
         await session.commit()
+        await session.refresh(practice_session)
 
         return PracticeSessionResult(
             practice_session_id=practice_session.id,
