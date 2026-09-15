@@ -205,7 +205,7 @@ class PracticeSession(Base):
     # Content specification (optional; if null, system will recommend)
     content_node_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
-        ForeignKey("taxonomy_nodes.id", ondelete="RESTRICT"),
+        ForeignKey("catalog_nodes.id", ondelete="RESTRICT"),
         nullable=True,
     )
 
