@@ -192,6 +192,7 @@ class TheoryMaterialResponse(BaseModel):
     visibility_scope: str = "PRIVATE"
     primary_content_node_id: Optional[UUID] = None
     primary_content_code: Optional[str] = None
+    primary_content_name: Optional[str] = None
     curriculum_status: str = "UNMAPPED"
     school_id: Optional[UUID] = None
     created_by_external_identity: Optional[str] = None

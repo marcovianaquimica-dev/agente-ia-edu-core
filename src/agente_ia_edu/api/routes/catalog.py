@@ -218,14 +218,15 @@ async def _build_material_responses(
 
     node_ids = [m.primary_content_node_id for m in materials if m.primary_content_node_id]
     code_by_node = {}
+    name_by_node = {}
     if node_ids:
-        code_by_node = dict(
-            (nid, code) for nid, code in (
-                await session.execute(
-                    select(CatalogNode.id, CatalogNode.code).where(CatalogNode.id.in_(node_ids))
-                )
-            ).all()
-        )
+        for nid, code, name in (
+            await session.execute(
+                select(CatalogNode.id, CatalogNode.code, CatalogNode.name).where(CatalogNode.id.in_(node_ids))
+            )
+        ).all():
+            code_by_node[nid] = code
+            name_by_node[nid] = name
 
     out = []
     for m in materials:
@@ -240,6 +241,7 @@ async def _build_material_responses(
             visibility_scope=m.visibility_scope,
             primary_content_node_id=m.primary_content_node_id,
             primary_content_code=code_by_node.get(m.primary_content_node_id),
+            primary_content_name=name_by_node.get(m.primary_content_node_id),
             curriculum_status="MAPPED" if m.primary_content_node_id else "UNMAPPED",
             school_id=m.school_id,
             created_by_external_identity=m.created_by_external_identity,

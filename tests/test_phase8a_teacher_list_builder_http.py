@@ -29,6 +29,7 @@ from agente_ia_edu.db.models import (
     School,
     UserSchoolLink,
 )
+from agente_ia_edu.db.models.assessments import Assessment, AssessmentItem, AssessmentVersion
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
 
 
@@ -175,6 +176,66 @@ class Phase8ATeacherListBuilderHTTP(unittest.TestCase):
         self.assertEqual(reopened["items"][0]["id"], reordered.json()["items"][0]["id"])
         self.assertEqual(sum(1 for item in reopened["items"] if item["difficulty"] == "EASY"), 7)
         self.assertEqual(sum(1 for item in reopened["items"] if item["difficulty"] == "HARD"), 5)
+
+    def test_material_list_includes_items_without_a_content_link(self):
+        # A list created outside this router's own POST /items route (e.g.
+        # the question-bank list builder, which enforces its own
+        # authorization rather than requiring a ContentQuestionLink here)
+        # can contain a question with no ContentQuestionLink row at all.
+        # The teacher must still see and be able to edit that item - not
+        # have it silently vanish from "Minhas Listas".
+        content_id, candidates, _ = self.seed_candidates()
+        created = self.create_list(content_id, quantity=5, easy=5, medium=0, hard=0)
+        self.assertEqual(created.status_code, 201, created.text)
+        material_id = created.json()["id"]
+        added = self.client.post(
+            f"/api/v1/teacher/materials/{material_id}/items",
+            json={"question_version_id": str(candidates[0])},
+        )
+        self.assertEqual(added.status_code, 201, added.text)
+
+        async def add_orphan_item():
+            async with self.session_factory() as session:
+                version = await session.scalar(
+                    select(AssessmentVersion)
+                    .where(AssessmentVersion.assessment_id == UUID(material_id))
+                    .order_by(AssessmentVersion.version_number.desc())
+                    .limit(1)
+                )
+                question = Question(
+                    question_type="MULTIPLE_CHOICE", school_id=self.school_a,
+                    author_external_id="teacher-a", owner_external_id="teacher-a",
+                    origin_type="TEACHER", status="PUBLISHED", visibility_scope="SCHOOL",
+                    validation_status="approved",
+                )
+                session.add(question)
+                await session.flush()
+                orphan_version = QuestionVersion(
+                    question_id=question.id, version_kind="official_original",
+                    canonical_text="Sem classificacao", statement="Enunciado sem classificacao",
+                    content_hash=uuid4().hex, recommended_difficulty="EASY",
+                )
+                session.add(orphan_version)
+                await session.flush()
+                session.add(AssessmentItem(
+                    assessment_version_id=version.id, question_version_id=orphan_version.id,
+                    position=2,
+                ))
+                await session.commit()
+                return orphan_version.id
+
+        orphan_version_id = asyncio.run(add_orphan_item())
+
+        detail = self.client.get(f"/api/v1/teacher/materials/{material_id}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        items = detail.json()["items"]
+        self.assertEqual(len(items), 2)
+        self.assertIn(str(orphan_version_id), [item["question_version_id"] for item in items])
+
+        listing = self.client.get("/api/v1/teacher/materials")
+        self.assertEqual(listing.status_code, 200, listing.text)
+        by_id = {m["id"]: m for m in listing.json()}
+        self.assertEqual(len(by_id[material_id]["items"]), 2)
 
     def test_quantity_and_scope_protections(self):
         content_id, _, _ = self.seed_candidates()

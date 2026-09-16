@@ -72,12 +72,16 @@ async def _load_material(
 
 async def _question_rows(
     session: AsyncSession, version: AssessmentVersion
-) -> list[tuple[AssessmentItem, QuestionVersion, CatalogNode]]:
+) -> list[tuple[AssessmentItem, QuestionVersion, CatalogNode | None]]:
+    # LEFT JOIN: an item added through a different route (e.g. the
+    # question-bank list builder) can point at a question with no
+    # ContentQuestionLink at all. An inner join here would silently drop
+    # that item from the teacher's list instead of surfacing it.
     result = await session.execute(
         select(AssessmentItem, QuestionVersion, CatalogNode)
         .join(QuestionVersion, QuestionVersion.id == AssessmentItem.question_version_id)
-        .join(ContentQuestionLink, ContentQuestionLink.question_version_id == QuestionVersion.id)
-        .join(CatalogNode, CatalogNode.id == ContentQuestionLink.content_node_id)
+        .outerjoin(ContentQuestionLink, ContentQuestionLink.question_version_id == QuestionVersion.id)
+        .outerjoin(CatalogNode, CatalogNode.id == ContentQuestionLink.content_node_id)
         .where(AssessmentItem.assessment_version_id == version.id)
         .options(selectinload(QuestionVersion.options))
         .order_by(AssessmentItem.position)
@@ -86,7 +90,7 @@ async def _question_rows(
 
 
 def _question_response(
-    *, item_id: UUID, position: int, question: QuestionVersion, content: CatalogNode
+    *, item_id: UUID, position: int, question: QuestionVersion, content: CatalogNode | None
 ) -> TeacherMaterialQuestionResponse:
     return TeacherMaterialQuestionResponse(
         id=item_id,
@@ -100,7 +104,7 @@ def _question_response(
             for option in sorted(question.options, key=lambda option: option.position)
         ],
         difficulty=question.recommended_difficulty or "UNCLASSIFIED",
-        content=content.name,
+        content=content.name if content else "Sem classificação curricular",
         modified=(question.metadata_ or {}).get("origin_type") == "TEACHER_MODIFICATION",
     )
 

@@ -844,6 +844,38 @@ class CatalogApiTests(unittest.TestCase):
         self.assertEqual(detail_resp.status_code, 200)
         self.assertGreaterEqual(len(detail_resp.json()["versions"]), 2)
 
+    def test_material_list_exposes_content_name_not_just_code(self):
+        # "Meus Materiais" shows this in a "Disciplina / Conteúdo" column -
+        # the raw catalog code (e.g. "CHEMISTRY-SOLUTIONS") is not a name a
+        # teacher recognizes; the list response must carry the real name too.
+        discipline_resp = self.client.post(
+            "/api/v1/catalog/disciplines",
+            json={"name": "Quimica Materiais", "node_type": "DISCIPLINE"},
+            headers=_auth("teacher1"),
+        )
+        discipline_id = discipline_resp.json()["id"]
+        content_resp = self.client.post(
+            "/api/v1/catalog/nodes",
+            json={"name": "Soluções e Concentração", "node_type": "CONTENT", "parent_id": discipline_id},
+            headers=_auth("teacher1"),
+        )
+        content_id = content_resp.json()["id"]
+
+        material_resp = self.client.post(
+            "/api/v1/catalog/materials",
+            json={"title": "Material com conteúdo", "primary_content_node_id": content_id},
+            headers={"Authorization": "Bearer teacher:teacher3"},
+        )
+        self.assertEqual(material_resp.status_code, 201, material_resp.text)
+
+        list_resp = self.client.get(
+            "/api/v1/catalog/materials",
+            headers={"Authorization": "Bearer teacher:teacher3"},
+        )
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        row = next(m for m in list_resp.json() if m["id"] == material_resp.json()["id"])
+        self.assertEqual(row["primary_content_name"], "Soluções e Concentração")
+
     def test_material_actions_require_teacher_or_coordinator_role(self):
         create_resp = self.client.post(
             "/api/v1/catalog/materials",
