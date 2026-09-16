@@ -44,6 +44,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const $ = (id) => document.getElementById(id);
   const authHeaders = () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.teacherId}` });
 
+  // The backend's shared authorization service reports failures in English
+  // (an internal/API-contract string, not meant for display) - translate the
+  // known patterns here rather than showing them raw to the user.
+  const ROLE_LABELS = {
+    DIRECTOR: 'Diretor(a)', COORDINATOR: 'Coordenador(a)', SECRETARY: 'Secretaria',
+    TEACHER: 'Professor(a)', STUDENT: 'Aluno(a)', PLATFORM_ADMIN: 'Administrador da Plataforma',
+  };
+  function translateDetail(detail) {
+    if (!detail || typeof detail !== 'string') return detail;
+    const roleMatch = detail.match(/^Role required: (.+)$/);
+    if (roleMatch) {
+      const roles = roleMatch[1].split(', ').map(r => ROLE_LABELS[r] || r).join(', ');
+      return `Perfil de acesso necessário: ${roles}.`;
+    }
+    const scopeMatch = detail.match(/^Scope type mismatch: expected (.+)$/);
+    if (scopeMatch) return `Contexto incompatível: era esperado o escopo ${scopeMatch[1]}.`;
+    const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
+    if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+    const known = {
+      'User account is inactive.': 'A conta do usuário está inativa.',
+      'This user does not belong to a school context.': 'Este usuário não pertence a um contexto de escola.',
+      'User does not have access to the requested school.': 'Este usuário não tem acesso à escola informada.',
+      'Scope mismatch for the requested context.': 'O contexto informado não corresponde ao escopo esperado.',
+    };
+    return known[detail] || detail;
+  }
+
   function showAlert(message, kind) {
     const box = $('qb-alert');
     if (!message) { box.hidden = true; box.textContent = ''; return; }
@@ -324,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `HTTP ${res.status}`);
+        throw new Error(translateDetail(detail.detail) || `HTTP ${res.status}`);
       }
       const data = await res.json();
       $('qb-selection-output').hidden = false;
@@ -378,14 +405,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `HTTP ${res.status}`);
+        throw new Error(translateDetail(detail.detail) || `HTTP ${res.status}`);
       }
       const summary = await res.json();
       state.list.storedId = summary.id;
       state.list.storedStatus = summary.status;
       if (finalize) {
         const fr = await fetch(`${API}/lists/${summary.id}/finalize`, { method: 'POST', headers: authHeaders() });
-        if (!fr.ok) throw new Error((await fr.json().catch(() => ({}))).detail || `HTTP ${fr.status}`);
+        if (!fr.ok) throw new Error(translateDetail((await fr.json().catch(() => ({}))).detail) || `HTTP ${fr.status}`);
         state.list.storedStatus = (await fr.json()).status;
       }
       return summary;
@@ -588,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(translateDetail(data.detail) || `HTTP ${res.status}`);
       const replayed = res.headers.get('x-idempotent-replay') === 'true' || res.status === 200;
       $('qb-dist-done').innerHTML = `
         <p><strong>${replayed ? 'Esta atividade já estava distribuída para esse destinatário.' : 'Atividade distribuída.'}</strong></p>
@@ -766,7 +793,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `HTTP ${res.status}`);
+        throw new Error(translateDetail(detail.detail) || `HTTP ${res.status}`);
       }
       state.list.definition = await res.json();
       return true;

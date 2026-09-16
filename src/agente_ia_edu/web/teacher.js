@@ -148,6 +148,33 @@ document.addEventListener('DOMContentLoaded', () => {
     return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.teacherId}` };
   }
 
+  // The backend's shared authorization service reports failures in English
+  // (an internal/API-contract string, not meant for display) - translate the
+  // known patterns here rather than showing them raw to the user.
+  const ROLE_LABELS = {
+    DIRECTOR: 'Diretor(a)', COORDINATOR: 'Coordenador(a)', SECRETARY: 'Secretaria',
+    TEACHER: 'Professor(a)', STUDENT: 'Aluno(a)', PLATFORM_ADMIN: 'Administrador da Plataforma',
+  };
+  function translateDetail(detail) {
+    if (!detail || typeof detail !== 'string') return detail;
+    const roleMatch = detail.match(/^Role required: (.+)$/);
+    if (roleMatch) {
+      const roles = roleMatch[1].split(', ').map(r => ROLE_LABELS[r] || r).join(', ');
+      return `Perfil de acesso necessário: ${roles}.`;
+    }
+    const scopeMatch = detail.match(/^Scope type mismatch: expected (.+)$/);
+    if (scopeMatch) return `Contexto incompatível: era esperado o escopo ${scopeMatch[1]}.`;
+    const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
+    if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+    const known = {
+      'User account is inactive.': 'A conta do usuário está inativa.',
+      'This user does not belong to a school context.': 'Este usuário não pertence a um contexto de escola.',
+      'User does not have access to the requested school.': 'Este usuário não tem acesso à escola informada.',
+      'Scope mismatch for the requested context.': 'O contexto informado não corresponde ao escopo esperado.',
+    };
+    return known[detail] || detail;
+  }
+
   function updateMaterialTotal() {
     const quantity = Number(document.getElementById('material-quantity').value || 0);
     const distributed = ['easy', 'medium', 'hard'].reduce((total, difficulty) => total + Number(document.getElementById(`material-${difficulty}`).value || 0), 0);
@@ -257,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setModificationView('modification-loading');
     try {
       const response = await fetch(`/api/v1/teacher/questions/${state.modification.item.question_version_id}/modification-proposals`, { method: 'POST', headers: materialHeaders(), body: JSON.stringify({ assessment_item_id: state.modification.item.id, modification_type: state.modification.type, instruction }) });
-      if (!response.ok) throw new Error((await response.json()).detail || 'Não foi possível gerar a modificação. Tente novamente.');
+      if (!response.ok) throw new Error(translateDetail((await response.json()).detail) || 'Não foi possível gerar a modificação. Tente novamente.');
       state.modification.proposal = await response.json();
       document.getElementById('modification-original').innerHTML = questionCard(state.modification.item, '');
       document.getElementById('modification-proposed').innerHTML = proposalCard(state.modification.proposal.proposal);
@@ -290,7 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function addMaterialItem(questionVersionId) {
     const response = await fetch(`/api/v1/teacher/materials/${state.material.id}/items`, { method: 'POST', headers: materialHeaders(), body: JSON.stringify({ question_version_id: questionVersionId }) });
-    if (!response.ok) return showAlert((await response.json()).detail || 'Não foi possível adicionar a questão.', 'danger');
+    if (!response.ok) return showAlert(translateDetail((await response.json()).detail) || 'Não foi possível adicionar a questão.', 'danger');
     state.material.items.push(await response.json());
     renderMaterialItems();
     loadMaterialCandidates();
@@ -354,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
       quantity: Number(document.getElementById('material-quantity').value),
       difficulty_distribution: { EASY: Number(document.getElementById('material-easy').value), MEDIUM: Number(document.getElementById('material-medium').value), HARD: Number(document.getElementById('material-hard').value) },
     }) });
-    if (!response.ok) return showAlert((await response.json()).detail || 'Não foi possível criar o rascunho.', 'danger');
+    if (!response.ok) return showAlert(translateDetail((await response.json()).detail) || 'Não foi possível criar o rascunho.', 'danger');
     state.material = await response.json();
     document.getElementById('material-config').hidden = true;
     materialWorkspace.hidden = false;

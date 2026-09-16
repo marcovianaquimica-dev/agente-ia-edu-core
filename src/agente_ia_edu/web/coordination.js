@@ -701,6 +701,33 @@ document.addEventListener('DOMContentLoaded', () => {
     switchView('dashboard');
   };
 
+  // The backend's shared authorization service reports failures in English
+  // (an internal/API-contract string, not meant for display) - translate the
+  // known patterns here rather than showing them raw to the user.
+  const ROLE_LABELS = {
+    DIRECTOR: 'Diretor(a)', COORDINATOR: 'Coordenador(a)', SECRETARY: 'Secretaria',
+    TEACHER: 'Professor(a)', STUDENT: 'Aluno(a)', PLATFORM_ADMIN: 'Administrador da Plataforma',
+  };
+  function translateDetail(detail) {
+    if (!detail || typeof detail !== 'string') return detail;
+    const roleMatch = detail.match(/^Role required: (.+)$/);
+    if (roleMatch) {
+      const roles = roleMatch[1].split(', ').map(r => ROLE_LABELS[r] || r).join(', ');
+      return `Perfil de acesso necessário: ${roles}.`;
+    }
+    const scopeMatch = detail.match(/^Scope type mismatch: expected (.+)$/);
+    if (scopeMatch) return `Contexto incompatível: era esperado o escopo ${scopeMatch[1]}.`;
+    const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
+    if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+    const known = {
+      'User account is inactive.': 'A conta do usuário está inativa.',
+      'This user does not belong to a school context.': 'Este usuário não pertence a um contexto de escola.',
+      'User does not have access to the requested school.': 'Este usuário não tem acesso à escola informada.',
+      'Scope mismatch for the requested context.': 'O contexto informado não corresponde ao escopo esperado.',
+    };
+    return known[detail] || detail;
+  }
+
   function showAlert(msg, type = 'danger') {
     alertBox.style.display = 'block';
     alertBox.className = `alert-banner alert-${type}`;
@@ -885,7 +912,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.disabled = false;
         if (!res.ok) {
           const d = data.detail || {};
-          csMsg((typeof d === 'string' ? d : d.message) || 'Não foi possível publicar.');
+          csMsg((typeof d === 'string' ? translateDetail(d) : d.message) || 'Não foi possível publicar.');
           return;
         }
         csMsg(`Publicado para ${data.created_or_updated} aluno(s).`, true);
