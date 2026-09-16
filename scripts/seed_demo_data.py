@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from agente_ia_edu.db.models import CatalogNode, QuestionVersion, School, UserSchoolLink
+from agente_ia_edu.db.models import CatalogNode, PedagogicalUniverse, QuestionVersion, School, UserSchoolLink
 from agente_ia_edu.services.activity_assignment_store import ActivityAssignmentStore
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.catalog import TheoryMaterialService
@@ -493,6 +493,53 @@ async def seed_content_question_links(session: AsyncSession) -> None:
     print(f"[content-question-links] linked {linked} classified question(s) to their catalog content")
 
 
+async def seed_pedagogical_universe(session: AsyncSession) -> None:
+    """/api/v1/catalog/nodes (and everything that reuses it - the discipline
+    dropdowns in "Registrar Aula", "Registrar Orientação da Coordenação" and
+    the exercise-list builder) 403s with "No authorized pedagogical universe"
+    for EVERY identity, because TestExternalIdentityProvider never sets
+    ExternalIdentityContext.institution_id - so PedagogicalUniverseService's
+    SCHOOL-scoped binding branch is unreachable in this dev environment, and
+    nothing ever created a universe anyway. Root-caused live, 2026-09-16.
+
+    Works around the unreachable SCHOOL binding by binding EXTERNAL_IDENTITY
+    directly for the staff who actually hit this gate (teacher, coordinator).
+    Scoped to every root catalog node (each discipline) with
+    include_descendants=True, so it covers the whole curriculum without
+    having to enumerate every content node."""
+    from agente_ia_edu.services.pedagogical_universe import PedagogicalUniverseService
+
+    existing = await session.scalar(
+        select(PedagogicalUniverse.id).where(PedagogicalUniverse.external_id == "demo-school-universe")
+    )
+    if existing:
+        print("[pedagogical-universe] already seeded, skipping")
+        return
+
+    svc = PedagogicalUniverseService(session)
+    universe = await svc.create_universe(
+        external_id="demo-school-universe",
+        slug="demo-school-universe",
+        name="Currículo completo — Escola Partner",
+        owner_type="SCHOOL",
+        owner_external_id=str(SCHOOL_ID),
+        performed_by_external_id="admin:seed-script",
+        status="ACTIVE",
+    )
+
+    roots = (await session.execute(
+        select(CatalogNode).where(CatalogNode.parent_id.is_(None), CatalogNode.active.is_(True))
+    )).scalars().all()
+    for root in roots:
+        await svc.add_catalog_scope(universe_id=universe.id, catalog_node_id=root.id, scope_kind="DISCIPLINE")
+
+    for external_user_id in (TEACHER_ID, COORDINATOR_ID):
+        await svc.bind(universe_id=universe.id, subject_type="EXTERNAL_IDENTITY", subject_external_id=external_user_id)
+
+    print(f"[pedagogical-universe] created, scoped to {len(roots)} discipline(s), "
+          f"bound to {TEACHER_ID!r} and {COORDINATOR_ID!r}")
+
+
 async def main() -> None:
     database_url = os.environ["DATABASE_URL"]
     engine = create_async_engine(database_url)
@@ -501,6 +548,8 @@ async def main() -> None:
         await ensure_school(session)
         await session.commit()
         await ensure_roles(session)
+        await seed_pedagogical_universe(session)
+        await session.commit()
         nodes = await get_content_nodes(session)
         await seed_lessons(session, nodes)
         await session.commit()

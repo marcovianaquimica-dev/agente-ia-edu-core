@@ -505,7 +505,9 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadCatalogSelectForContext() {
     const select = document.getElementById('ctx-form-content');
     try {
-      const res = await fetch('/api/v1/catalog/nodes');
+      const res = await fetch('/api/v1/catalog/nodes', {
+        headers: { 'Authorization': `Bearer ${state.coordinatorId}` }
+      });
       if (!res.ok) throw new Error('Falha ao carregar catálogo');
       const nodes = await res.json();
       select.innerHTML = nodes.map(n => `<option value="${n.id}">${n.name} (${n.node_type})</option>`).join('');

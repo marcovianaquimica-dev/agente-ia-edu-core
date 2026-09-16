@@ -160,7 +160,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadCurriculumLevel(selectId, parentId = '') {
     const select = document.getElementById(selectId);
-    const response = await fetch(`/api/v1/catalog/nodes${parentId ? `?parent_id=${parentId}` : ''}`);
+    const response = await fetch(`/api/v1/catalog/nodes${parentId ? `?parent_id=${parentId}` : ''}`, {
+      headers: { 'Authorization': `Bearer ${state.teacherId}` }
+    });
     const nodes = response.ok ? await response.json() : [];
     select.innerHTML = `<option value="">Selecione</option>${nodes.map(node => `<option value="${node.id}">${node.name}</option>`).join('')}`;
     select.disabled = false;
@@ -767,7 +769,9 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadCatalogSelectOptions() {
     const select = document.getElementById('lesson-form-content');
     try {
-      const res = await fetch('/api/v1/catalog/nodes');
+      const res = await fetch('/api/v1/catalog/nodes', {
+        headers: { 'Authorization': `Bearer ${state.teacherId}` }
+      });
       if (!res.ok) throw new Error('Falha ao carregar catálogo');
       const nodes = await res.json();
       state.catalogNodes = nodes;
