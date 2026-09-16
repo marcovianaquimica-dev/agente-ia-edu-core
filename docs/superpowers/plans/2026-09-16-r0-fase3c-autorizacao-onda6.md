@@ -173,11 +173,22 @@ Rode o gate desta fase e a suíte completa contra um banco descartável, compara
 
 ## O que fica para a próxima onda de 3C
 
-Com este plano, `teaching_context.py`, `teacher_portal.py` e `coordination_portal.py` não têm mais nenhum atalho conhecido — nem por formato de id, nem por ausência de vínculo — de "sem relação real = acesso concedido". Restam, do que já foi mapeado:
+**Correção à afirmação original deste plano:** a frase abaixo (mantida riscada, não apagada, porque foi escrita e depois provada falsa pela própria revisão final desta onda — o registro fica) dizia:
+
+> ~~Com este plano, `teaching_context.py`, `teacher_portal.py` e `coordination_portal.py` não têm mais nenhum atalho conhecido — nem por formato de id, nem por ausência de vínculo — de "sem relação real = acesso concedido".~~
+
+Isso é **falso**. A revisão final desta onda achou e provou ao vivo dois atalhos pré-existentes, do mesmo padrão, na PRÓPRIA `teacher_portal.py`:
+
+- **`verify_student_access` (`teacher_portal.py:234-235`)**: quando o **aluno** tem vínculo `SCHOOL`/`PLATFORM` (não `CLASSROOM`), a função retorna `True` sem nunca checar se o **professor** tem qualquer autorização em `school_id`. Provado ao vivo: professor vinculado só à escola B (ou sem vínculo nenhum) leu aluno com vínculo `SCHOOL`-scoped na escola A.
+- **`_fetch_students_in_classrooms` (`teacher_portal.py:670-682`)**: a cláusula `UserSchoolLink.scope_type == AdminScopeType.SCHOOL` dentro do `or_` é independente da lista `classrooms` recebida — mesmo com `classrooms=[]` (professor sem autorização nenhuma), alunos `SCHOOL`-scoped da escola ainda aparecem via `search_students_in_scope` e os agregados de dashboard.
+
+Ambos pré-existentes (não pioraram com esta onda, que só estreitou acesso) e não corrigidos aqui — exigem projetar o que "professor autorizado" significa para os dois casos sem quebrar os cenários legítimos que o gate de 226 testes hoje cobre; não são remoções mecânicas como as seis já feitas nesta fase. Candidatos naturais para a onda 7.
+
+Restam também, do que já foi mapeado antes desta onda:
 
 - As 12 rotas em `catalog.py`/`discovery.py`/`question_bank.py` com `identity` injetada e nunca lida (achado da revisão final da onda 3) — ainda não investigadas linha a linha.
 - A ausência de branch para papel `STUDENT` em `verify_teacher_classroom_scope` (onda 3) — confirmado sem consumidor no repo até a onda 3, não reconfirmado desde então.
 - `coordination_portal.py`'s fallback de dado fabricado ("Prof. Mendes") por volta da linha 598-609 — não é bypass de autorização, é dado de demonstração; fica para quando alguém for limpar placeholders.
 - `knowledge.py::_is_question_visible`, `question_governance.py`, `reception.py`, `teacher_materials.py`, `assessments.py`, `study_session.py` — os seis arquivos nomeados desde a onda 2 desta fase, nunca lidos linha a linha para o mesmo padrão.
 
-Só depois de mapear pelo menos os dois primeiros itens (as 12 rotas e o branch `STUDENT`) faz sentido declarar o passo 5 do §7 da spec fechado e começar o passo 6 (remoção do andaime `TURMA_3A`/`TURMA_3B`).
+Com os dois achados desta revisão, fica ainda mais claro: só depois de mapear pelo menos os itens acima faz sentido declarar o passo 5 do §7 da spec fechado e começar o passo 6 (remoção do andaime `TURMA_3A`/`TURMA_3B`).
