@@ -396,6 +396,33 @@ class Phase16Tests(unittest.TestCase):
         self.assertGreaterEqual(count, 3)
         self.assertLessEqual(queries, 5)   # scope + assignments + assessments batch, constant
 
+    # -- 21  self-initiated PRACTICE assignments are not "Atividades" --
+    def test_practice_origin_excluded_from_student_activities(self):
+        # PHASE 22's AdaptivePracticeService distributes a student's own
+        # practice via this same store (origin="PRACTICE", spec s25), but
+        # "Atividades" is documented to the student as work "distribuídas
+        # pelos seus professores" - a student is not their own professor.
+        lid, _ = self._published_list(title="Regular", school="school-1", owner="prof_a")
+        self._as(_ctx("prof_a", "school-1"))
+        self._assign(lid, "STUDENT", "stu_practice")
+        practice_lid, _ = self._published_list(title="Practice", school="school-1", owner="stu_practice")
+
+        async def run():
+            from agente_ia_edu.services.activity_assignment_store import ActivityAssignmentStore
+            from agente_ia_edu.services.question_list_store import Requester
+            async with self.factory() as s:
+                st = ActivityAssignmentStore(s)
+                req = Requester(external_user_id="stu_practice", school_id=_school_uuid("school-1"),
+                                role="STUDENT")
+                await st.create(_uuid.UUID(practice_lid), requester=req,
+                                target_type="STUDENT", target_id="stu_practice", origin="PRACTICE")
+                return await st.student_activities(requester=req)
+
+        rows = self.loop.run_until_complete(run())
+        titles = {r["title"] for r in rows}
+        self.assertIn("Regular", titles)
+        self.assertNotIn("Practice", titles)
+
     # -- 20  direct-by-id respects the existing authorisation rule --
     def test_direct_by_id_requires_authorisation(self):
         lid, _ = self._published_list(title="ById", school="school-1", owner="prof_a")

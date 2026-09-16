@@ -27,11 +27,37 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   function clearNotice() { notice.hidden = true; }
   function headers(token = state.staffToken) { return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }; }
+  // The backend's shared authorization service reports failures in English
+  // (an internal/API-contract string, not meant for display) - translate the
+  // known patterns here rather than showing them raw to the atendente.
+  const ROLE_LABELS = {
+    DIRECTOR: 'Diretor(a)', COORDINATOR: 'Coordenador(a)', SECRETARY: 'Secretaria',
+    TEACHER: 'Professor(a)', STUDENT: 'Aluno(a)', PLATFORM_ADMIN: 'Administrador da Plataforma',
+  };
+  function translateDetail(detail) {
+    if (!detail) return detail;
+    const roleMatch = detail.match(/^Role required: (.+)$/);
+    if (roleMatch) {
+      const roles = roleMatch[1].split(', ').map(r => ROLE_LABELS[r] || r).join(', ');
+      return `Perfil de acesso necessário: ${roles}.`;
+    }
+    const scopeMatch = detail.match(/^Scope type mismatch: expected (.+)$/);
+    if (scopeMatch) return `Contexto incompatível: era esperado o escopo ${scopeMatch[1]}.`;
+    const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
+    if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+    const known = {
+      'User account is inactive.': 'A conta do usuário está inativa.',
+      'This user does not belong to a school context.': 'Este usuário não pertence a um contexto de escola.',
+      'User does not have access to the requested school.': 'Este usuário não tem acesso à escola informada.',
+      'Scope mismatch for the requested context.': 'O contexto informado não corresponde ao escopo esperado.',
+    };
+    return known[detail] || detail;
+  }
   async function api(path, options = {}) {
     const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'Não foi possível concluir a operação.');
+      throw new Error(translateDetail(error.detail) || 'Não foi possível concluir a operação.');
     }
     return response.json();
   }

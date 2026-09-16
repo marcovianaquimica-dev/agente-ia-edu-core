@@ -80,6 +80,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  const btnStartPath = document.getElementById('btn-start-path');
+  if (btnStartPath) {
+    btnStartPath.onclick = () => switchView('learning-path');
+  }
+
   // Time Period Filter Handler
   timePeriodSelect.addEventListener('change', (e) => {
     state.timePeriod = e.target.value;
@@ -140,6 +145,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (viewName === 'domain') loadDomainView();
     if (viewName === 'study-path') loadStudyPathView();
     if (viewName === 'study-session') loadStudySessionView();
+    if (viewName === 'profile') loadProfileView();
+  }
+
+  function loadProfileView() {
+    const el = document.getElementById('profile-id');
+    if (el) el.textContent = sessionStorage.getItem('studentAccessToken') || `student:${state.studentId}`;
   }
 
   const requestedView = window.location.hash.replace('#', '');
@@ -635,13 +646,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  const DIFFICULTY_LABEL = { EASY: 'Fácil', MEDIUM: 'Médio', HARD: 'Difícil' };
+
   function renderPracticeQuestion(sessionId, question) {
     const area = document.getElementById('practice-interactive-area');
     area.innerHTML = `
       <div class="practice-question-box">
         <div class="card-header">
           <span class="badge badge-primary">Questão ${question.position}</span>
-          <span class="badge badge-accent">Nível ${question.difficulty_level}</span>
+          <span class="badge badge-accent">Nível ${DIFFICULTY_LABEL[question.difficulty_level] || question.difficulty_level}</span>
         </div>
         <div class="question-text">${question.canonical_text}</div>
         <div class="options-list">
@@ -1978,9 +1991,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const text = (s.start_at && s.end_at)
       ? `Seu momento de aprendizado de hoje está programado das ${ssFmtClock(s.start_at)} às ${ssFmtClock(s.end_at)}.`
       : 'Sua coordenação programou um momento de aprendizado para hoje.';
+    const names = (s.target_content_names && s.target_content_names.length)
+      ? s.target_content_names : (s.target_content_codes || []);
     document.getElementById('ss-scheduled-text').textContent = text
-      + (s.target_content_codes && s.target_content_codes.length
-        ? ` Conteúdo${s.target_content_codes.length > 1 ? 's' : ''}: ${s.target_content_codes.join(', ')}.`
+      + (names.length
+        ? ` Conteúdo${names.length > 1 ? 's' : ''}: ${names.join(', ')}.`
         : '');
     ssShow('ss-scheduled');
   }
@@ -2004,7 +2019,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderSsPreview(s) {
-    const contents = (s.target_content_codes || []);
+    const contents = (s.target_content_names && s.target_content_names.length)
+      ? s.target_content_names : (s.target_content_codes || []);
     document.getElementById('ss-preview-sub').textContent = contents.length
       ? `Hoje vamos trabalhar: ${contents.join(', ')}.`
       : 'A plataforma organizou sua sequência de estudo com base no seu domínio atual.';

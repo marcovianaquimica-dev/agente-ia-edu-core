@@ -140,6 +140,7 @@ class StudySessionPlanner:
         target_content_codes: list[str] | None,
         path: dict,
         material_availability: dict[str, dict],
+        catalog_names: dict[str, str] | None = None,
     ) -> dict:
         pol = self.policy
         notes: list[str] = []
@@ -150,7 +151,7 @@ class StudySessionPlanner:
             notes.append("Sessão sem cronômetro rígido: plano organizado para "
                          f"~{effective_minutes} min de referência.")
 
-        contents = self._pick_contents(target_content_codes, path, notes)
+        contents = self._pick_contents(target_content_codes, path, notes, catalog_names or {})
         if not contents:
             return self._empty_plan(effective_minutes, timer_mode, material_availability, notes)
 
@@ -176,6 +177,7 @@ class StudySessionPlanner:
             "break_minutes": brk,
             "total_minutes": eff + brk,
             "target_content_codes": [c.code for c in contents],
+            "target_content_names": [c.name for c in contents],
             "blocks": blocks,
             "notes": notes,
             "policy": pol.as_dict(),
@@ -184,14 +186,17 @@ class StudySessionPlanner:
 
     # ---- content selection -----------------------------------------
 
-    def _pick_contents(self, target_codes, path, notes) -> list[_Content]:
+    def _pick_contents(self, target_codes, path, notes, catalog_names: dict[str, str]) -> list[_Content]:
         steps = {s["content_code"]: s for s in path.get("steps", [])}
         mastered = {m["content_code"]: m for m in path.get("mastered", [])}
 
         def mk(code: str, from_target: bool) -> _Content:
             s = steps.get(code) or mastered.get(code)
             if s is None:
-                return _Content(code=code, name=code, state=_S_INSUFFICIENT, priority=0.5,
+                # Not in this student's learning path yet (e.g. a coordinator
+                # just assigned it with zero prior evidence) - fall back to the
+                # real catalog name rather than the raw code (spec s25).
+                return _Content(code=code, name=catalog_names.get(code, code), state=_S_INSUFFICIENT, priority=0.5,
                                 accuracy=None, questions_answered=0,
                                 unsatisfied_prerequisites=[], from_target=from_target)
             state = s.get("content_state") or (_S_MASTERED if code in mastered else _S_INSUFFICIENT)
@@ -399,7 +404,7 @@ class StudySessionPlanner:
             "planner_version": PLANNER_VERSION, "generated_at": _now_iso(),
             "timer_mode": timer_mode, "effective_study_minutes": blocks[0]["estimated_minutes"],
             "break_minutes": 0, "total_minutes": blocks[0]["estimated_minutes"],
-            "target_content_codes": [], "blocks": blocks, "notes": notes,
+            "target_content_codes": [], "target_content_names": [], "blocks": blocks, "notes": notes,
             "policy": self.policy.as_dict(), "ai_used": False,
         }
 

@@ -291,11 +291,19 @@ class Phase24Tests(unittest.TestCase):
             "end_at": "2026-09-21T15:00:00Z", "content_codes": ["C_A"]})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["target_content_codes"], ["C_A"])
+        self.assertEqual(r.json()["target_content_names"], ["Conteúdo A"])
         sid = r.json()["sessions"][0]["session_id"]
         self._as_student("s_al")
         sview = self.client.get(f"/api/v1/student/study-session/{sid}").json()
         codes = {b.get("content_code") for b in sview["blocks"] if b.get("content_code")}
         self.assertEqual(codes, {"C_A"})
+        self.assertEqual(sview["target_content_names"], ["Conteúdo A"])
+        # No prior evidence for C_A on "s_al" at this point - the block title
+        # must still show the real catalog name, not the raw content code.
+        for b in sview["blocks"]:
+            if b.get("content_code") == "C_A":
+                self.assertIn("Conteúdo A", b["title"])
+                self.assertEqual(b["content_name"], "Conteúdo A")
 
     # -- 7  window with multiple contents, time explainably split --
     def test_coordination_window_multiple_contents(self):

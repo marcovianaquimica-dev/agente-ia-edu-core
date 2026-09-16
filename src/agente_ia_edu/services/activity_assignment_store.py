@@ -373,6 +373,10 @@ class ActivityAssignmentStore:
             .order_by(ActivityAssignment.created_at.desc())
         )
         rows = list((await self._session.scalars(q)).all())
+        # "Atividades" is documented to the student as work distributed by
+        # their teachers - a self-initiated PHASE 22 practice (origin=PRACTICE,
+        # distributed to oneself via this same store) is not that.
+        rows = [r for r in rows if (r.metadata_ or {}).get("origin") != "PRACTICE"]
         if schools:
             rows = [r for r in rows if r.school_id is None or str(r.school_id) in schools]
         if not rows:

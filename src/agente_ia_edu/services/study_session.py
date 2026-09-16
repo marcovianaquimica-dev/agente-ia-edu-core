@@ -303,6 +303,7 @@ class StudySessionService:
             raise StudySessionError("Nenhum aluno encontrado para o destino informado.")
 
         results = []
+        content_names: list[str] = []
         for sid in students:
             row = await self._active_session(sid, only_source=SOURCE_SCHOOL,
                                              on_date=session_date)
@@ -310,6 +311,7 @@ class StudySessionService:
                 sid, self._student_requester(sid, school_id),
                 effective_minutes=effective, timer_mode="TIMED",
                 breaks=norm_breaks, target_content_codes=codes)
+            content_names = plan["target_content_names"]
             if row is None:
                 row = StudySession(student_external_id=sid, source=SOURCE_SCHOOL,
                                    school_id=UUID(str(school_id)))
@@ -343,7 +345,7 @@ class StudySessionService:
             "created_or_updated": len(results),
             "window_minutes": window_minutes, "break_minutes": break_minutes,
             "effective_study_minutes": effective,
-            "target_content_codes": codes, "breaks": norm_breaks,
+            "target_content_codes": codes, "target_content_names": content_names, "breaks": norm_breaks,
             "sessions": results, "ai_used": False,
         }
         await self._session.commit()
@@ -424,6 +426,13 @@ class StudySessionService:
             raise StudySessionError(f"content_code inválido ou inativo: {', '.join(missing)}")
         return clean
 
+    async def _catalog_names(self, codes: list[str]) -> dict[str, str]:
+        if not codes:
+            return {}
+        rows = (await self._session.execute(
+            select(CatalogNode.code, CatalogNode.name).where(CatalogNode.code.in_(codes)))).all()
+        return {code: name for code, name in rows}
+
     async def _build_plan(self, student_external_id: str, requester: Requester, *,
                           effective_minutes: int, timer_mode: str,
                           breaks: list[dict], target_content_codes: list[str]) -> dict:
@@ -442,10 +451,11 @@ class StudySessionService:
             avail = await MaterialAvailabilityService(self._session).resolve_for_content(
                 codes_for_material, requester_school_id=requester.school_id)
             material = {k: v.as_dict() for k, v in avail.items()}
+        catalog_names = await self._catalog_names(list(target_content_codes or []))
         return self._planner.plan(
             effective_minutes=effective_minutes, timer_mode=timer_mode, breaks=breaks,
             target_content_codes=target_content_codes or None, path=path,
-            material_availability=material)
+            material_availability=material, catalog_names=catalog_names)
 
     async def _materialize_practice(self, student_external_id: str, requester: Requester,
                                     content_code: str, requested: int | None) -> dict:
@@ -559,6 +569,7 @@ class StudySessionService:
             "break_minutes": row.break_minutes,
             "effective_study_minutes": row.effective_study_minutes,
             "target_content_codes": row.target_content_codes or [],
+            "target_content_names": (row.plan or {}).get("target_content_names", []),
             "scope_type": row.scope_type,
             "scope_external_id": row.scope_external_id,
             "current_block_index": row.current_block_index,
