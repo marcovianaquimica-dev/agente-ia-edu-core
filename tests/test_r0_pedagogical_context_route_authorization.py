@@ -80,11 +80,12 @@ class PedagogicalContextRouteAuthorizationTests(unittest.IsolatedAsyncioTestCase
         """Not just cross-school - no link at all must also be denied, not
         silently pass because there was nothing to compare against.
 
-        Uses an identity outside verify_teacher_classroom_scope's dev/test
-        fallback (teacher_id starting with "teacher:", or "prof_mendes") -
-        that fallback grants access to ANY school/classroom unconditionally,
-        which is a known pre-existing gap tracked separately, not something
-        this route's fix touches.
+        Uses an identity in the shape verify_teacher_classroom_scope's old
+        dev/test fallback used to match (teacher_id starting with "teacher:",
+        or "prof_mendes") - that fallback used to grant access to ANY
+        school/classroom unconditionally. It was removed in commit b9f59d9
+        on this branch, so this identity is now denied through the same
+        "no active school bindings" path as any other unlinked identity.
         """
         identity = ExternalIdentityContext(provider="test", external_user_id="nobody-at-all")
         async with self.session_factory() as session:
