@@ -47,6 +47,7 @@ class SchoolResponse(BaseModel):
     short_name: Optional[str] = None
     external_identifier: Optional[str] = None
     status: str
+    metadata: Optional[dict[str, Any]] = None
     modules: list[SchoolModuleResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -67,6 +68,7 @@ class UserLinkResponse(BaseModel):
     role: str
     scope_type: str
     scope_external_id: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
     active: bool
     created_at: datetime
 
@@ -103,6 +105,14 @@ class PedagogicalUniverseCatalogScopeRequest(BaseModel):
     catalog_node_id: UUID
     scope_kind: str
     include_descendants: bool = True
+
+
+class PedagogicalUniverseCatalogScopeResponse(BaseModel):
+    id: UUID
+    universe_id: UUID
+    catalog_node_id: UUID
+    scope_kind: str
+    include_descendants: bool
 
 
 class PedagogicalUniverseBindingRequest(BaseModel):

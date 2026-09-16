@@ -23,6 +23,7 @@
 }
 
 .admin-form-row .form-group { flex: 1; min-width: 180px; }
+.admin-form-row .admin-form-row-grow { flex: 2.5; min-width: 260px; }
 
 .admin-form-actions { display: flex; gap: 10px; }
 
@@ -62,3 +63,21 @@
   cursor: pointer;
 }
 .admin-school-row:hover { background: var(--bg-subtle, #f8f9fc); }
+
+.admin-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 4px 0 20px;
+  padding: 14px 16px;
+  background: var(--bg-subtle, #f8f9fc);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+.admin-info-item span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #64748b); margin-bottom: 2px; }
+.admin-info-item strong { font-size: 14px; font-weight: 600; }
+
+.admin-disciplines-box { margin-top: 12px; padding: 12px; border: 1px dashed var(--border-color); border-radius: var(--radius-sm); }
+.admin-disciplines-label { font-weight: 600; font-size: 13px; margin: 0 0 4px; }
+.admin-disciplines-list { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; }
+.admin-discipline-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }

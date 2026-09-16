@@ -96,6 +96,27 @@ class TestPedagogicalUniverse(unittest.IsolatedAsyncioTestCase):
             self.assertIn("PEDAGOGICAL_UNIVERSE_CREATED", actions)
             self.assertIn("PEDAGOGICAL_UNIVERSE_CONFIGURATION_UPDATED", actions)
 
+    async def test_list_catalog_scopes_returns_and_omits_removed_scopes(self):
+        """The admin UI needs to read back which disciplines a universe is
+        currently scoped to (to pre-check the right boxes) - there was no
+        way to list scopes, only add/remove them blind."""
+        async with self.session_factory() as session:
+            area, chemistry, math, content = await self._catalog(session)
+            service = PedagogicalUniverseService(session)
+            universe = await service.create_universe(external_id="NATUREZA2", slug="natureza2", name="Natureza 2", owner_type="PLATFORM", owner_external_id=None, performed_by_external_id="admin", status="ACTIVE")
+
+            self.assertEqual(await service.list_catalog_scopes(universe.id), [])
+
+            scope_chem = await service.add_catalog_scope(universe_id=universe.id, catalog_node_id=chemistry.id, scope_kind="DISCIPLINE")
+            scope_math = await service.add_catalog_scope(universe_id=universe.id, catalog_node_id=math.id, scope_kind="DISCIPLINE")
+
+            scopes = await service.list_catalog_scopes(universe.id)
+            self.assertEqual({s.catalog_node_id for s in scopes}, {chemistry.id, math.id})
+
+            await service.remove_catalog_scope(scope_id=scope_math.id, performed_by_external_id="admin")
+            scopes_after = await service.list_catalog_scopes(universe.id)
+            self.assertEqual({s.catalog_node_id for s in scopes_after}, {chemistry.id})
+
     async def test_candidate_query_filters_competing_eligible_questions_by_universe(self):
         async with self.session_factory() as session:
             area, _, math, chemistry_content = await self._catalog(session)

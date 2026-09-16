@@ -17,7 +17,7 @@
       <header class="page-header">
         <div>
           <h1 id="page-title">Administração da Plataforma</h1>
-          <p class="page-subtitle">Cadastro de escolas, módulos e permissões (PLATFORM_ADMIN)</p>
+          <p class="page-subtitle">Cadastro de escolas, módulos e permissões (Administrador da Plataforma)</p>
         </div>
         <div class="filter-group">
           <span class="filter-label">🆔 Usuário:</span>
@@ -39,7 +39,11 @@
             <div class="form-group"><label for="school-code">Código *</label><input id="school-code" class="text-input" placeholder="ESCOLA_ALPHA" maxlength="50" required></div>
             <div class="form-group"><label for="school-name">Nome *</label><input id="school-name" class="text-input" placeholder="Escola Alpha de Ensino Médio" maxlength="255" required></div>
             <div class="form-group"><label for="school-short-name">Nome curto</label><input id="school-short-name" class="text-input" placeholder="Alpha" maxlength="100"></div>
-            <div class="form-group"><label for="school-external-id">Identificador externo</label><input id="school-external-id" class="text-input" placeholder="opcional" maxlength="255"></div>
+          </div>
+          <div class="admin-form-row">
+            <div class="form-group admin-form-row-grow"><label for="school-address">Endereço</label><input id="school-address" class="text-input" placeholder="Rua, número, bairro, cidade — UF" maxlength="500"></div>
+            <div class="form-group"><label for="school-phone">Telefone</label><input id="school-phone" class="text-input" placeholder="(11) 4000-0000" maxlength="30"></div>
+            <div class="form-group"><label for="school-cnpj">CNPJ</label><input id="school-cnpj" class="text-input" placeholder="00.000.000/0000-00" maxlength="20"></div>
           </div>
           <div class="admin-form-actions">
             <button type="submit" class="btn btn-primary" id="school-save-btn">Criar escola</button>
@@ -58,11 +62,18 @@
           <button class="btn btn-secondary" id="btn-close-school-detail" type="button">← Voltar</button>
         </div>
 
+        <div id="school-detail-info" class="admin-info-grid"></div>
+
         <div class="admin-detail-grid">
           <!-- Modules -->
           <div>
             <h4>Módulos</h4>
             <div id="school-modules" class="admin-modules-list"></div>
+            <div id="school-disciplines-box" class="admin-disciplines-box" hidden>
+              <p class="admin-disciplines-label">Disciplinas incluídas no módulo AGENTE IA EDU</p>
+              <p class="empty-text">Todas vêm marcadas por padrão — desmarque as que esta escola não deve usar.</p>
+              <div id="school-disciplines-list" class="admin-disciplines-list"></div>
+            </div>
           </div>
 
           <!-- Status -->
@@ -70,9 +81,9 @@
             <h4>Status</h4>
             <div class="admin-form-row">
               <select id="school-status-select" class="select-input">
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
-                <option value="SUSPENDED">SUSPENDED</option>
+                <option value="ACTIVE">Ativa</option>
+                <option value="INACTIVE">Inativa</option>
+                <option value="SUSPENDED">Suspensa</option>
               </select>
               <button class="btn btn-secondary" id="btn-save-school-status" type="button">Salvar status</button>
             </div>
@@ -80,27 +91,32 @@
           </div>
         </div>
 
-        <h4 style="margin-top:24px;">Vínculos de usuários (permissões)</h4>
+        <h4 style="margin-top:24px;">Gestão da escola (Diretor / Coordenador / Secretaria)</h4>
         <form id="link-form" class="admin-form">
           <div class="admin-form-row">
-            <div class="form-group"><label for="link-user-id">Identificador do usuário *</label><input id="link-user-id" class="text-input" placeholder="user:coord_b" required></div>
+            <div class="form-group"><label for="link-name">Nome *</label><input id="link-name" class="text-input" placeholder="Nome completo" required></div>
             <div class="form-group"><label for="link-role">Papel *</label>
               <select id="link-role" class="select-input">
-                <option value="DIRECTOR">DIRECTOR</option>
-                <option value="COORDINATOR">COORDINATOR</option>
-                <option value="SECRETARY">SECRETARY</option>
-                <option value="TEACHER">TEACHER</option>
-                <option value="STUDENT">STUDENT</option>
-                <option value="PLATFORM_ADMIN">PLATFORM_ADMIN</option>
+                <option value="DIRECTOR">Diretor(a)</option>
+                <option value="COORDINATOR">Coordenador(a)</option>
+                <option value="SECRETARY">Secretaria</option>
+                <option value="TEACHER">Professor(a)</option>
+                <option value="STUDENT">Aluno(a)</option>
+                <option value="PLATFORM_ADMIN">Administrador da Plataforma</option>
               </select>
             </div>
+            <div class="form-group"><label for="link-phone">Telefone</label><input id="link-phone" class="text-input" placeholder="(11) 90000-0000" maxlength="30"></div>
+            <div class="form-group"><label for="link-email">E-mail</label><input id="link-email" type="email" class="text-input" placeholder="nome@escola.com.br"></div>
+          </div>
+          <div class="admin-form-row">
+            <div class="form-group"><label for="link-user-id">Identificador de acesso *</label><input id="link-user-id" class="text-input" placeholder="user:coord_b" required></div>
             <div class="form-group"><label for="link-scope-type">Escopo</label>
               <select id="link-scope-type" class="select-input">
-                <option value="SCHOOL" selected>SCHOOL (escola toda)</option>
-                <option value="UNIT">UNIT</option>
-                <option value="SEGMENT">SEGMENT</option>
-                <option value="GRADE_LEVEL">GRADE_LEVEL</option>
-                <option value="CLASSROOM">CLASSROOM</option>
+                <option value="SCHOOL" selected>Escola (toda)</option>
+                <option value="UNIT">Unidade</option>
+                <option value="SEGMENT">Segmento</option>
+                <option value="GRADE_LEVEL">Série</option>
+                <option value="CLASSROOM">Turma</option>
               </select>
             </div>
             <div class="form-group"><label for="link-scope-id">ID do escopo</label><input id="link-scope-id" class="text-input" placeholder="ex.: TURMA_3A (se aplicável)"></div>

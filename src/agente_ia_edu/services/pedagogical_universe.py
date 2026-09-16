@@ -48,6 +48,11 @@ class PedagogicalUniverseService:
         await self.session.commit()
         return scope
 
+    async def list_catalog_scopes(self, universe_id: uuid.UUID) -> list[PedagogicalUniverseCatalogScope]:
+        return list((await self.session.execute(
+            select(PedagogicalUniverseCatalogScope).where(PedagogicalUniverseCatalogScope.universe_id == universe_id)
+        )).scalars().all())
+
     async def add_academic_scope(self, *, universe_id: uuid.UUID, segment: str | None = None, grade_level: str | None = None, unit_id: str | None = None) -> PedagogicalUniverseAcademicScope:
         await self.require_universe(universe_id)
         scope = PedagogicalUniverseAcademicScope(universe_id=universe_id, segment=segment, grade_level=grade_level, unit_id=unit_id)

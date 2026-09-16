@@ -18,6 +18,7 @@ from ..schemas.admin import (
     UserLinkResponse,
     PedagogicalUniverseBindingRequest,
     PedagogicalUniverseCatalogScopeRequest,
+    PedagogicalUniverseCatalogScopeResponse,
     PedagogicalUniverseConfigurationRequest,
     PedagogicalUniverseCreateRequest,
     PedagogicalUniverseResponse,
@@ -73,6 +74,7 @@ def _to_school_response(school) -> SchoolResponse:
         short_name=school.short_name,
         external_identifier=school.external_identifier,
         status=school.status,
+        metadata=school.metadata_,
         modules=modules,
         created_at=school.created_at,
         updated_at=school.updated_at,
@@ -218,6 +220,26 @@ async def update_pedagogical_universe_configuration(
             return _to_universe_response(universe)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.get(
+    "/pedagogical-universes/{universe_id}/catalog-scopes",
+    response_model=list[PedagogicalUniverseCatalogScopeResponse],
+)
+async def list_pedagogical_universe_catalog_scopes(
+    universe_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> list[PedagogicalUniverseCatalogScopeResponse]:
+    async with session_factory() as session:
+        scopes = await PedagogicalUniverseService(session).list_catalog_scopes(universe_id)
+        return [
+            PedagogicalUniverseCatalogScopeResponse(
+                id=s.id, universe_id=s.universe_id, catalog_node_id=s.catalog_node_id,
+                scope_kind=s.scope_kind, include_descendants=s.include_descendants,
+            )
+            for s in scopes
+        ]
 
 
 @admin_router.post("/pedagogical-universes/{universe_id}/catalog-scopes", status_code=201)
@@ -393,6 +415,7 @@ async def link_user_to_school(
                 role=link.role,
                 scope_type=link.scope_type,
                 scope_external_id=link.scope_external_id,
+                metadata=link.metadata_,
                 active=link.active,
                 created_at=link.created_at,
             )
@@ -421,6 +444,7 @@ async def list_school_users(
                 role=link.role,
                 scope_type=link.scope_type,
                 scope_external_id=link.scope_external_id,
+                metadata=link.metadata_,
                 active=link.active,
                 created_at=link.created_at,
             )
