@@ -155,14 +155,6 @@ class TeacherPortalService:
         """Returns list of authorized classroom_ids for teacher_id in school_id."""
         links = await self.admin_service.get_user_active_links(teacher_id)
 
-        # Dev / test fallback for test subjects
-        if not links and (teacher_id.startswith("teacher:") or teacher_id in ("prof_mendes", "prof_joao")):
-            # Return all classrooms in school or recorded lessons
-            stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-            res = await self.session.execute(stmt)
-            classrooms = list(res.scalars().all())
-            return classrooms if classrooms else ["TURMA_3A", "TURMA_3B"]
-
         authorized_classrooms = set()
         for link in links:
             if link.role == AdminRole.PLATFORM_ADMIN or (

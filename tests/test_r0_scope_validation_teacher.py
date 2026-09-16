@@ -132,6 +132,17 @@ class TeacherScopeValidationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("TURMA_3A", classrooms)
 
+    async def test_an_unlinked_dev_shaped_identity_gets_no_classrooms(self):
+        """teacher_id="teacher:ghost" (matches the removed dev/test prefix)
+        has ZERO links to this school - it must get an empty list like any
+        other unlinked identity, not every classroom in the school."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "dev-fallback")
+            portal = TeacherPortalService(session, None, None, None)
+            classrooms = await portal.get_teacher_authorized_classrooms("teacher:ghost", school.id)
+
+        self.assertEqual(classrooms, [])
+
 
 if __name__ == "__main__":
     unittest.main()
