@@ -244,6 +244,25 @@ class QuestionBankCoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(one.total, 1)
             self.assertEqual(one.items[0].official_number, 130)
 
+    # free-text search (the bank's own search box: "Busca (número, texto ou
+    # conteúdo)") - the `text` filter was accepted by the frontend and sent
+    # as a query param, but the route never declared it and the filters
+    # dataclass never carried it, so it was silently dropped end to end and
+    # the search box always returned the same unfiltered page regardless of
+    # what was typed.
+    async def test_text_search_matches_statement_content(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            one = await svc.list_questions(QuestionBankFilters(text="Q116"))
+            self.assertEqual(one.total, 1)
+            self.assertEqual(one.items[0].official_number, 116)
+
+            none = await svc.list_questions(QuestionBankFilters(text="nioquelquercoisa-inexistente"))
+            self.assertEqual(none.total, 0)
+
+            all_ = await svc.list_questions(QuestionBankFilters(text="Enunciado oficial"), page_size=50)
+            self.assertEqual(all_.total, 8)
+
     # 7. curriculum-v2 integration + 8/9/10/11 classification states
     async def test_curriculum_v2_integration_and_states(self):
         async with self.factory() as s:

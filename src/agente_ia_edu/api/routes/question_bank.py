@@ -152,6 +152,7 @@ async def list_questions(
     subcontent: str | None = Query(default=None, description="curriculum-v2 SUBCONTENT code"),
     official_number: int | None = Query(default=None, gt=0),
     booklet: str | None = Query(default=None),
+    text: str | None = Query(default=None, description="Free-text search over the question statement"),
     classification_status: str | None = Query(
         default=None,
         description="UNCLASSIFIED | CLASSIFIED | NEEDS_REVIEW | FORCED_CLOSURE | ANY_CLASSIFIED",
@@ -173,7 +174,7 @@ async def list_questions(
     filters = QuestionBankFilters(
         year=year, day=day, enem_area=area, discipline_code=discipline, area_code=area_code,
         content_code=content, subcontent_code=subcontent, official_number=official_number,
-        booklet_code=booklet, classification_state=classification_status,
+        booklet_code=booklet, text=text, classification_state=classification_status,
         classification_source=classification_source, classification_mode=classification_mode,
         has_classification=has_classification, provisional_only=provisional_only,
         visual_dependency=visual_dependency, difficulty=difficulty, protected_only=protected_only,

@@ -230,6 +230,7 @@ class QuestionBankFilters:
     visual_dependency: bool | None = None
     difficulty: str | None = None  # EASY | MEDIUM | HARD (recommended_difficulty)
     protected_only: bool | None = None
+    text: str | None = None  # free-text search over the question's statement
 
 
 _ORDERABLE = {
@@ -356,6 +357,12 @@ class QuestionBankService:
             query = query.where(BookletQuestion.official_number == f.official_number)
         if f.booklet_code:
             query = query.where(ExamBooklet.code == f.booklet_code)
+        if f.text:
+            pattern = f"%{f.text}%"
+            query = query.where(or_(
+                QuestionVersion.canonical_text.ilike(pattern),
+                QuestionVersion.statement.ilike(pattern),
+            ))
         if f.enem_area:
             span = _official_numbers_for_area(f.enem_area.upper())
             if span is None:
