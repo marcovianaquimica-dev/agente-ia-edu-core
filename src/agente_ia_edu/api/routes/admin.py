@@ -22,6 +22,7 @@ from ..schemas.admin import (
     PedagogicalUniverseCreateRequest,
     PedagogicalUniverseResponse,
 )
+from ...db.models import UserSchoolLink
 from ...identity import ExternalIdentityContext
 from ...services.admin import AdminRole, PlatformAdminService
 from ...services.pedagogical_universe import PedagogicalUniverseService
@@ -397,6 +398,59 @@ async def link_user_to_school(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+
+@admin_router.get(
+    "/schools/{school_id}/users",
+    response_model=list[UserLinkResponse],
+    summary="List active user/role links for a school",
+)
+async def list_school_users(
+    school_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> list[UserLinkResponse]:
+    async with session_factory() as session:
+        admin_service = PlatformAdminService(session)
+        links = await admin_service.list_school_users(school_id)
+        return [
+            UserLinkResponse(
+                id=link.id,
+                external_user_id=link.external_user_id,
+                school_id=link.school_id,
+                role=link.role,
+                scope_type=link.scope_type,
+                scope_external_id=link.scope_external_id,
+                active=link.active,
+                created_at=link.created_at,
+            )
+            for link in links
+        ]
+
+
+@admin_router.delete(
+    "/schools/{school_id}/users/{link_id}",
+    status_code=204,
+    summary="Deactivate a user's role/scope link for a school",
+)
+async def deactivate_school_user_link(
+    school_id: UUID,
+    link_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> None:
+    async with session_factory() as session:
+        admin_service = PlatformAdminService(session)
+        existing = await session.get(UserSchoolLink, link_id)
+        if existing is None or existing.school_id != school_id:
+            raise HTTPException(status_code=404, detail="User link not found for this school.")
+        try:
+            await admin_service.deactivate_user_link(
+                performed_by_external_id=identity.external_user_id,
+                link_id=link_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
 
 
 @admin_router.get(

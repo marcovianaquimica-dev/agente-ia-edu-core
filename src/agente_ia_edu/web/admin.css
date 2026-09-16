@@ -1,0 +1,64 @@
+/* Admin Portal Specific CSS Extensions */
+
+.admin-page { max-width: 1080px; margin: 0 auto; }
+
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--bg-subtle, #f8f9fc);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+/* the explicit display:flex above beats the [hidden] UA rule - restore it */
+.admin-form[hidden] { display: none; }
+
+.admin-form-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.admin-form-row .form-group { flex: 1; min-width: 180px; }
+
+.admin-form-actions { display: flex; gap: 10px; }
+
+.admin-msg { font-size: 13px; margin: 0; }
+
+.admin-table-wrap { overflow-x: auto; margin-top: 12px; }
+
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 12px;
+}
+@media (max-width: 720px) {
+  .admin-detail-grid { grid-template-columns: 1fr; }
+}
+
+.admin-modules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-module-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.admin-module-row .badge-off { opacity: 0.6; }
+
+.admin-school-row {
+  cursor: pointer;
+}
+.admin-school-row:hover { background: var(--bg-subtle, #f8f9fc); }

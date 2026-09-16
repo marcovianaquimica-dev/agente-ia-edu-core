@@ -69,6 +69,7 @@ def create_app() -> FastAPI:
         app.mount("/coordination/assets", StaticFiles(directory=str(web_dir), html=False), name="coordination-assets")
         app.mount("/reception/assets", StaticFiles(directory=str(web_dir), html=False), name="reception-assets")
         app.mount("/question-bank/assets", StaticFiles(directory=str(web_dir), html=False), name="question-bank-assets")
+        app.mount("/admin/assets", StaticFiles(directory=str(web_dir), html=False), name="admin-assets")
 
         @app.get("/teacher", include_in_schema=False)
         @app.get("/teacher/", include_in_schema=False)
@@ -95,6 +96,14 @@ def create_app() -> FastAPI:
         @app.get("/question-bank/", include_in_schema=False)
         async def serve_question_bank_professor():
             page = web_dir / "question-bank.html"
+            if page.exists():
+                return FileResponse(page)
+            return FileResponse(web_dir / "index.html")
+
+        @app.get("/admin", include_in_schema=False)
+        @app.get("/admin/", include_in_schema=False)
+        async def serve_admin_portal():
+            page = web_dir / "admin.html"
             if page.exists():
                 return FileResponse(page)
             return FileResponse(web_dir / "index.html")

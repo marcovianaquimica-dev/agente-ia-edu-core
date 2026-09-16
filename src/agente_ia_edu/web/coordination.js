@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // UI References
-  const navItems = document.querySelectorAll('.nav-item');
+  const navItems = document.querySelectorAll('.nav-item[data-view]');
   const viewPanels = document.querySelectorAll('.view-panel');
   const pageTitle = document.getElementById('page-title');
   const pageSubtitle = document.getElementById('page-subtitle');

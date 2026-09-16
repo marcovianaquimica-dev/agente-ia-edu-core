@@ -130,9 +130,9 @@ class PlatformAdminService:
             metadata={"code": clean_code, "name": school.name, "status": norm_status},
         )
 
+        school_id = school.id
         await self.session.commit()
-        await self.session.refresh(school)
-        return school
+        return await self.get_school(school_id)
 
     async def update_school(
         self,
@@ -181,8 +181,7 @@ class PlatformAdminService:
         )
 
         await self.session.commit()
-        await self.session.refresh(school)
-        return school
+        return await self.get_school(school_id)
 
     async def get_school(self, school_id_or_code: uuid.UUID | str) -> School | None:
         """Fetch school by UUID or unique code."""
@@ -388,6 +387,19 @@ class PlatformAdminService:
                 UserSchoolLink.active.is_(True),
             )
             .options(selectinload(UserSchoolLink.school))
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def list_school_users(self, school_id: uuid.UUID) -> list[UserSchoolLink]:
+        """Fetch all active role/scope links for a school."""
+        stmt = (
+            select(UserSchoolLink)
+            .where(
+                UserSchoolLink.school_id == school_id,
+                UserSchoolLink.active.is_(True),
+            )
+            .order_by(UserSchoolLink.created_at.desc())
         )
         res = await self.session.execute(stmt)
         return list(res.scalars().all())

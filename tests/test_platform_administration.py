@@ -255,6 +255,42 @@ class TestPlatformAdministration(unittest.IsolatedAsyncioTestCase):
             roles = {l.role for l in links}
             self.assertEqual(roles, {AdminRole.TEACHER, AdminRole.COORDINATOR})
 
+    async def test_09_list_school_users(self):
+        """9. Listar todos os vínculos ativos de uma escola (tela de admin)."""
+        async with self.session_factory() as session:
+            service = PlatformAdminService(session)
+            school_a = await service.create_school(performed_by_external_id="admin:master", code="SCH_A9", name="Escola A9")
+            school_b = await service.create_school(performed_by_external_id="admin:master", code="SCH_B9", name="Escola B9")
+
+            await service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="user:coord_9",
+                role=AdminRole.COORDINATOR,
+                school_id=school_a.id,
+            )
+            teacher_link = await service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="user:teacher_9",
+                role=AdminRole.TEACHER,
+                school_id=school_a.id,
+            )
+            await service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="user:other_school",
+                role=AdminRole.TEACHER,
+                school_id=school_b.id,
+            )
+
+            links = await service.list_school_users(school_a.id)
+            self.assertEqual(len(links), 2)
+            self.assertEqual({l.external_user_id for l in links}, {"user:coord_9", "user:teacher_9"})
+
+            # deactivating a link removes it from the listing
+            await service.deactivate_user_link(link_id=teacher_link.id, performed_by_external_id="admin:master")
+            links_after = await service.list_school_users(school_a.id)
+            self.assertEqual(len(links_after), 1)
+            self.assertEqual(links_after[0].external_user_id, "user:coord_9")
+
 
 if __name__ == "__main__":
     unittest.main()

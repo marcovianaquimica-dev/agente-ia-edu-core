@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENTE IA EDU — Administração</title>
+  <base href="/admin/assets/">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="teacher.css">
+  <link rel="stylesheet" href="admin.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <main class="content-area admin-page">
+      <header class="page-header">
+        <div>
+          <h1 id="page-title">Administração da Plataforma</h1>
+          <p class="page-subtitle">Cadastro de escolas, módulos e permissões (PLATFORM_ADMIN)</p>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">🆔 Usuário:</span>
+          <input type="text" id="admin-identity-id" class="text-input" value="user:ADMIN" placeholder="user:ADMIN">
+        </div>
+      </header>
+
+      <div id="admin-alert" class="alert-banner" style="display:none;" role="status"></div>
+
+      <!-- ================= SCHOOLS LIST ================= -->
+      <section class="card">
+        <div class="card-header">
+          <h3>🏫 Escolas</h3>
+          <button class="btn btn-primary" id="btn-new-school" type="button">+ Nova Escola</button>
+        </div>
+
+        <form id="school-form" class="admin-form" hidden>
+          <div class="admin-form-row">
+            <div class="form-group"><label for="school-code">Código *</label><input id="school-code" class="text-input" placeholder="ESCOLA_ALPHA" maxlength="50" required></div>
+            <div class="form-group"><label for="school-name">Nome *</label><input id="school-name" class="text-input" placeholder="Escola Alpha de Ensino Médio" maxlength="255" required></div>
+            <div class="form-group"><label for="school-short-name">Nome curto</label><input id="school-short-name" class="text-input" placeholder="Alpha" maxlength="100"></div>
+            <div class="form-group"><label for="school-external-id">Identificador externo</label><input id="school-external-id" class="text-input" placeholder="opcional" maxlength="255"></div>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary" id="school-save-btn">Criar escola</button>
+            <button type="button" class="btn btn-secondary" id="school-cancel-btn">Cancelar</button>
+          </div>
+          <p id="school-form-msg" class="admin-msg" hidden></p>
+        </form>
+
+        <div id="schools-list" class="admin-table-wrap"><p class="empty-text">Carregando escolas…</p></div>
+      </section>
+
+      <!-- ================= SCHOOL DETAIL ================= -->
+      <section class="card" id="school-detail" hidden>
+        <div class="card-header">
+          <h3 id="school-detail-title">Escola</h3>
+          <button class="btn btn-secondary" id="btn-close-school-detail" type="button">← Voltar</button>
+        </div>
+
+        <div class="admin-detail-grid">
+          <!-- Modules -->
+          <div>
+            <h4>Módulos</h4>
+            <div id="school-modules" class="admin-modules-list"></div>
+          </div>
+
+          <!-- Status -->
+          <div>
+            <h4>Status</h4>
+            <div class="admin-form-row">
+              <select id="school-status-select" class="select-input">
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+                <option value="SUSPENDED">SUSPENDED</option>
+              </select>
+              <button class="btn btn-secondary" id="btn-save-school-status" type="button">Salvar status</button>
+            </div>
+            <p id="school-status-msg" class="admin-msg" hidden></p>
+          </div>
+        </div>
+
+        <h4 style="margin-top:24px;">Vínculos de usuários (permissões)</h4>
+        <form id="link-form" class="admin-form">
+          <div class="admin-form-row">
+            <div class="form-group"><label for="link-user-id">Identificador do usuário *</label><input id="link-user-id" class="text-input" placeholder="user:coord_b" required></div>
+            <div class="form-group"><label for="link-role">Papel *</label>
+              <select id="link-role" class="select-input">
+                <option value="DIRECTOR">DIRECTOR</option>
+                <option value="COORDINATOR">COORDINATOR</option>
+                <option value="SECRETARY">SECRETARY</option>
+                <option value="TEACHER">TEACHER</option>
+                <option value="STUDENT">STUDENT</option>
+                <option value="PLATFORM_ADMIN">PLATFORM_ADMIN</option>
+              </select>
+            </div>
+            <div class="form-group"><label for="link-scope-type">Escopo</label>
+              <select id="link-scope-type" class="select-input">
+                <option value="SCHOOL" selected>SCHOOL (escola toda)</option>
+                <option value="UNIT">UNIT</option>
+                <option value="SEGMENT">SEGMENT</option>
+                <option value="GRADE_LEVEL">GRADE_LEVEL</option>
+                <option value="CLASSROOM">CLASSROOM</option>
+              </select>
+            </div>
+            <div class="form-group"><label for="link-scope-id">ID do escopo</label><input id="link-scope-id" class="text-input" placeholder="ex.: TURMA_3A (se aplicável)"></div>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary">Vincular usuário</button>
+          </div>
+          <p id="link-form-msg" class="admin-msg" hidden></p>
+        </form>
+
+        <div id="school-users-list" class="admin-table-wrap"><p class="empty-text">Carregando vínculos…</p></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

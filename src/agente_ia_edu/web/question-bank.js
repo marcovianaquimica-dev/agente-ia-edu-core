@@ -812,6 +812,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function init() {
     populateYears();
+    $('qb-identity-id').addEventListener('change', (e) => {
+      state.teacherId = e.target.value.trim() || 'user:prof_mendes';
+      if (state.view === 'bank') loadList();
+      if (state.view === 'mylists') loadMyLists();
+    });
     $('qb-search-form').addEventListener('submit', (e) => {
       e.preventDefault();
       state.search = $('qb-search-text').value;
