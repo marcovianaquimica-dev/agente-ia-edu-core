@@ -231,7 +231,7 @@ class TeacherPortalService:
             if link.school_id == school_id and link.role == AdminRole.STUDENT:
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id in authorized_classrooms:
                     return True
-                if link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
+                if authorized_classrooms and link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
                     return True
         raise ScopeAuthorizationError(f"Student '{student_id}' is outside teacher '{teacher_id}' authorized scope in school '{school_id}'.")
 
@@ -667,6 +667,8 @@ class TeacherPortalService:
         classrooms: list[str],
     ) -> list[str]:
         """Fetch student IDs bound to classrooms or school."""
+        if not classrooms:
+            return []
         stmt = (
             select(UserSchoolLink.external_user_id)
             .where(

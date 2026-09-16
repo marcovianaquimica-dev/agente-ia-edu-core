@@ -414,6 +414,136 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(students, [])
 
+    async def test_verify_student_access_denies_school_scoped_student_for_unauthorized_teacher(self):
+        """A SCHOOL-scoped student link must not bypass the teacher-side check.
+        Before this fix, ANY teacher (even one with zero authorization in
+        school_id) was granted access to a student holding a SCHOOL or
+        PLATFORM scoped link there."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_A", name="Escola A Scope")
+            school_b = School(id=uuid4(), code="SCH_SCOPE_B", name="Escola B Scope")
+            session.add_all([school_a, school_b])
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="teacher-b-only",
+                role=AdminRole.TEACHER,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school_b.id,
+                scope_external_id="TURMA_B1",
+            )
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-school-scoped-a",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            with self.assertRaises(ScopeAuthorizationError):
+                await portal_svc.verify_student_access(
+                    teacher_id="teacher-b-only",
+                    school_id=school_a.id,
+                    student_id="student-school-scoped-a",
+                )
+
+    async def test_verify_student_access_allows_school_scoped_student_for_real_director(self):
+        """A real DIRECTOR of school_id, with no TeachingLesson rows yet (a
+        fresh school), must still be allowed - authorized_classrooms falls
+        back to a non-empty placeholder for legitimate school-wide roles, so
+        this must not regress alongside the fix above."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_C", name="Escola C Scope")
+            session.add(school_a)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="director-a",
+                role=AdminRole.DIRECTOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-school-scoped-c",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            allowed = await portal_svc.verify_student_access(
+                teacher_id="director-a",
+                school_id=school_a.id,
+                student_id="student-school-scoped-c",
+            )
+            self.assertTrue(allowed)
+
+    async def test_fetch_students_in_classrooms_denies_school_scoped_student_with_no_authorization(self):
+        """The SCHOOL leg of the query's or_ must not match when classrooms
+        is empty - an empty list means the caller has zero authorization in
+        school_id, and a SCHOOL-scoped student must not leak through anyway."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_D", name="Escola D Scope")
+            session.add(school_a)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-school-scoped-d",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            portal = TeacherPortalService(session, None, None, None)
+            students = await portal._fetch_students_in_classrooms(school_a.id, [])
+
+        self.assertEqual(students, [])
+
+    async def test_fetch_students_in_classrooms_allows_school_scoped_student_for_teacher_with_classroom(self):
+        """A teacher with a real, non-empty classroom list must still see
+        SCHOOL-scoped students alongside their own classroom's - the SCHOOL
+        leg is gated on 'classrooms is non-empty', not removed."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_E", name="Escola E Scope")
+            session.add(school_a)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-school-scoped-e",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            portal = TeacherPortalService(session, None, None, None)
+            students = await portal._fetch_students_in_classrooms(school_a.id, ["TURMA_E1"])
+
+        self.assertEqual(students, ["student-school-scoped-e"])
+
 
 if __name__ == "__main__":
     unittest.main()
