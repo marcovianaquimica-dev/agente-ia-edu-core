@@ -33,7 +33,6 @@ from agente_ia_edu.db.models import (
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.external_id_resolution import ExternalIdResolver, ResolutionState
 from agente_ia_edu.services.knowledge import KnowledgeService
-from agente_ia_edu.services.learning_path_policies import DifficultyLevel
 from agente_ia_edu.services.recommendation import RecommendationEngine
 from agente_ia_edu.services.teaching_context import (
     ScopeAuthorizationError,
@@ -96,16 +95,13 @@ class TeacherPerformancePolicy:
         """Generates a deterministic class action plan item."""
         if class_avg < self.low_mastery_threshold:
             priority = "HIGH"
-            level = DifficultyLevel.EASY.value
-            action = f"Revisão conceitual com aula prática + lista de exercícios de nível {level}."
+            action = "Revisão conceitual com aula prática + lista de exercícios de nível fácil."
         elif class_avg < self.medium_mastery_threshold:
             priority = "MEDIUM"
-            level = DifficultyLevel.MEDIUM.value
-            action = f"Treinamento de fixação com exercícios de nível {level} e esclarecimento de dúvidas."
+            action = "Treinamento de fixação com exercícios de nível médio e esclarecimento de dúvidas."
         else:
             priority = "LOW"
-            level = DifficultyLevel.HARD.value
-            action = f"Consolidação de aprendizado com desafios avançados de nível {level}."
+            action = "Consolidação de aprendizado com desafios avançados de nível difícil."
 
         evidence_str = f"Domínio médio de {class_avg:.1f}% ({struggling_count} de {total_students} alunos em nível crítico)."
         if recent_lesson_date:
@@ -504,7 +500,7 @@ class TeacherPortalService:
             c_avg = (sum(c_scores) / len(c_scores)) if c_scores else 0.0
             c_struggles = sum(1 for s in c_scores if s < 50.0)
 
-            rec_act = "Revisão conceitual urgente + prática EASY." if c_avg < 50.0 else ("Prática de fixação nível MEDIUM." if c_avg < 70.0 else "Consolidação concluída. Desafios HARD.")
+            rec_act = "Revisão conceitual urgente + prática fácil." if c_avg < 50.0 else ("Prática de fixação nível médio." if c_avg < 70.0 else "Consolidação concluída. Desafios difíceis.")
 
             recent_contents_taught.append({
                 "content_node_id": str(ctx.content_node_id),

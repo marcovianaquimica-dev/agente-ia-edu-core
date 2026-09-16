@@ -20,7 +20,7 @@ from agente_ia_edu.db.models import (
     VideoResourceDetail,
 )
 from agente_ia_edu.services.knowledge import KnowledgeService
-from agente_ia_edu.services.learning_path_policies import DifficultyLevel
+from agente_ia_edu.services.learning_path_policies import DIFFICULTY_LABEL_PT, DifficultyLevel
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +287,8 @@ class VideoRecommendationEngine:
         dur_str = f" ({res_obj.video_detail.duration_seconds // 60} min)" if res_obj.video_detail and res_obj.video_detail.duration_seconds else ""
         explanation = (
             f"Recomendamos o vídeo '{res_obj.title}'{dur_str} porque ele está diretamente "
-            f"relacionado a '{node.name}', possui nível {target_difficulty} adequado ao seu "
+            f"relacionado a '{node.name}', possui nível "
+            f"{DIFFICULTY_LABEL_PT.get(target_difficulty, target_difficulty)} adequado ao seu "
             f"domínio atual ({mastery_score:.1f}%) e apresenta a melhor pontuação pedagógica."
         )
 

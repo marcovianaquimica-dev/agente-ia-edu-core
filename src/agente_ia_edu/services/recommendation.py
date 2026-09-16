@@ -11,6 +11,8 @@ from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from agente_ia_edu.services.learning_path_policies import DIFFICULTY_LABEL_PT
+
 from agente_ia_edu.db.models import (
     CatalogNode,
     EducationalResource,
@@ -591,25 +593,25 @@ class RecommendationEngine:
 
             reason = (
                 f"Você estudou {node.name} recentemente na escola e seu domínio atual está em {mastery_score:.1f}%. "
-                f"Recomendamos revisar o conteúdo e praticar questões de nível {rec_diff}."
+                f"Recomendamos revisar o conteúdo e praticar questões de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)}."
             )
         elif mastery_score < 70.0:
             rec_type = "PRACTICE"
             reason = (
                 f"Seu domínio em {node.name} está em {mastery_score:.1f}%. "
-                f"Recomendamos praticar questões de nível {rec_diff} para consolidar o aprendizado."
+                f"Recomendamos praticar questões de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)} para consolidar o aprendizado."
             )
         elif mastery_score < 85.0:
             rec_type = "PRACTICE"
             reason = (
                 f"Seu domínio em {node.name} está em nível intermediário ({mastery_score:.1f}%). "
-                f"Recomendamos resolver questões de nível {rec_diff}."
+                f"Recomendamos resolver questões de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)}."
             )
         else:
             rec_type = "REVIEW"
             reason = (
                 f"Você possui alto domínio ({mastery_score:.1f}%) em {node.name}. "
-                f"Manteremos revisões periódicas de nível {rec_diff}."
+                f"Manteremos revisões periódicas de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)}."
             )
 
         # Get question if PRACTICE
@@ -689,19 +691,19 @@ class RecommendationEngine:
                     resource_id = uuid.UUID(target_res["resource_id"])
                 reason = (
                     f"Analisando seu desempenho autônomo, identificamos um domínio de {mastery_score:.1f}% em {node.name}. "
-                    f"Recomendamos revisar o material e praticar questões de nível {rec_diff}."
+                    f"Recomendamos revisar o material e praticar questões de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)}."
                 )
             elif mastery_score < 70.0:
                 rec_type = "PRACTICE"
                 reason = (
                     f"Analisando seu histórico autônomo, seu domínio em {node.name} está em {mastery_score:.1f}%. "
-                    f"Recomendamos praticar questões de nível {rec_diff}."
+                    f"Recomendamos praticar questões de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)}."
                 )
             else:
                 rec_type = "PRACTICE"
                 reason = (
                     f"Seu desempenho em {node.name} é de {mastery_score:.1f}%. "
-                    f"Recomendamos desafios de nível {rec_diff}."
+                    f"Recomendamos desafios de nível {DIFFICULTY_LABEL_PT.get(rec_diff, rec_diff)}."
                 )
 
             if rec_type in ("PRACTICE", "REVIEW"):

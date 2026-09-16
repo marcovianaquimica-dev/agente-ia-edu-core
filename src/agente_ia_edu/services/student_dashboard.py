@@ -18,6 +18,7 @@ from agente_ia_edu.db.models import (
     StudentContentMastery,
 )
 from agente_ia_edu.services.knowledge import KnowledgeService
+from agente_ia_edu.services.learning_path_policies import DIFFICULTY_LABEL_PT
 from agente_ia_edu.services.recommendation import RecommendationEngine
 from agente_ia_edu.services.video_engine import VideoRecommendationEngine
 
@@ -182,10 +183,10 @@ class StudentDashboardService:
             q_count = len(r.get("practice_questions", []))
             steps.append({
                 "step_number": 3,
-                "title": f"Resolver questões de nível {r['recommended_difficulty']}",
+                "title": f"Resolver questões de nível {DIFFICULTY_LABEL_PT.get(r['recommended_difficulty'], r['recommended_difficulty'])}",
                 "step_type": "PRACTICE",
                 "status": "pending" if has_q else "not_available",
-                "description": f"Praticar {q_count} questão(ões) de nível {r['recommended_difficulty']}" if has_q else "Nenhuma questão disponível neste nível",
+                "description": f"Praticar {q_count} questão(ões) de nível {DIFFICULTY_LABEL_PT.get(r['recommended_difficulty'], r['recommended_difficulty'])}" if has_q else "Nenhuma questão disponível neste nível",
                 "question_version_id": r["practice_questions"][0]["question_version_id"] if has_q else None,
             })
 
@@ -362,10 +363,10 @@ class StudentDashboardService:
         q_count = len(r.get("practice_questions", []))
         steps.append({
             "step_number": 3,
-            "title": f"Praticar {q_count} Questões ({r['recommended_difficulty']})",
+            "title": f"Praticar {q_count} Questões ({DIFFICULTY_LABEL_PT.get(r['recommended_difficulty'], r['recommended_difficulty'])})",
             "step_type": "PRACTICE",
             "status": "pending" if has_q else "not_available",
-            "description": f"Resolver questões de nível {r['recommended_difficulty']}",
+            "description": f"Resolver questões de nível {DIFFICULTY_LABEL_PT.get(r['recommended_difficulty'], r['recommended_difficulty'])}",
             "question_version_id": r["practice_questions"][0]["question_version_id"] if has_q else None,
         })
 

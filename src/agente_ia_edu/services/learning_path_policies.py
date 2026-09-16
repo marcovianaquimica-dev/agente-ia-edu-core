@@ -17,6 +17,13 @@ class DifficultyLevel(str, Enum):
     HARD = "HARD"
 
 
+# EASY/MEDIUM/HARD is the internal enum value - callers building a
+# Portuguese sentence for display (a "reason"/"title"/"description" shown
+# to a teacher or student) should render through this, not interpolate
+# the raw enum value.
+DIFFICULTY_LABEL_PT: dict[str, str] = {"EASY": "fácil", "MEDIUM": "médio", "HARD": "difícil"}
+
+
 class ActivityType(str, Enum):
     """Types of learning activities."""
 
@@ -96,9 +103,9 @@ class NextBestActionPolicy:
             target_name = candidate.prerequisite_name or candidate.content_name
             factors.extend(("PREREQUISITE_RELEVANT", "PREREQUISITE_LOW_EVIDENCE"))
             reason = (
-                f"{candidate.content_name} pode depender de {target_name}, mas ainda ha "
-                "pouca evidencia sobre esse pre-requisito; a proxima acao e completar "
-                "essa evidencia antes de avancar."
+                f"{candidate.content_name} pode depender de {target_name}, mas ainda há "
+                "pouca evidência sobre esse pré-requisito; a próxima ação é completar "
+                "essa evidência antes de avançar."
             )
         elif prerequisite_relevant and (
             candidate.prerequisite_mastery_score is not None
@@ -111,50 +118,50 @@ class NextBestActionPolicy:
             target_name = candidate.prerequisite_name or candidate.content_name
             factors.extend(("PREREQUISITE_RELEVANT", "PREREQUISITE_GAP"))
             reason = (
-                f"{candidate.content_name} apresenta um possivel bloqueio em {target_name}, "
-                f"com dominio estimado de {candidate.prerequisite_mastery_score:.1f}%; "
-                "a proxima acao e estudar o pre-requisito antes de avancar."
+                f"{candidate.content_name} apresenta um possível bloqueio em {target_name}, "
+                f"com domínio estimado de {candidate.prerequisite_mastery_score:.1f}%; "
+                "a próxima ação é estudar o pré-requisito antes de avançar."
             )
         elif candidate.evidence_count == 0 or candidate.mastery_score is None:
             action = "COMPLETE_MISSING_EVIDENCE"
             base_score = 90.0
             factors.append("NOT_EVALUATED")
             reason = (
-                f"Ainda nao ha evidencia suficiente para estimar o dominio em "
-                f"{candidate.content_name}; a proxima acao e completar uma atividade diagnostica."
+                f"Ainda não há evidência suficiente para estimar o domínio em "
+                f"{candidate.content_name}; a próxima ação é completar uma atividade diagnóstica."
             )
         elif candidate.confidence < self.minimum_confidence:
             action = "COMPLETE_MISSING_EVIDENCE"
             base_score = 85.0
             factors.append("LOW_CONFIDENCE")
             reason = (
-                f"A estimativa de {candidate.content_name} tem confianca baixa "
-                f"({candidate.confidence:.0%}); a proxima acao e obter mais evidencia."
+                f"A estimativa de {candidate.content_name} tem confiança baixa "
+                f"({candidate.confidence:.0%}); a próxima ação é obter mais evidência."
             )
         elif candidate.mastery_score < self.gap_score:
             action = "PRACTICE_CONTENT"
             base_score = 80.0
             factors.append("LOW_MASTERY")
             reason = (
-                f"{candidate.content_name} apresenta dominio estimado de "
-                f"{candidate.mastery_score:.1f}% com evidencia suficiente; "
-                "a proxima acao e praticar o conteudo."
+                f"{candidate.content_name} apresenta domínio estimado de "
+                f"{candidate.mastery_score:.1f}% com evidência suficiente; "
+                "a próxima ação é praticar o conteúdo."
             )
         elif candidate.mastery_score < self.developing_score:
             action = "REINFORCE_CONTENT"
             base_score = 65.0
             factors.append("DEVELOPING_MASTERY")
             reason = (
-                f"{candidate.content_name} esta em desenvolvimento "
-                f"({candidate.mastery_score:.1f}%); a proxima acao e reforcar o conteudo."
+                f"{candidate.content_name} está em desenvolvimento "
+                f"({candidate.mastery_score:.1f}%); a próxima ação é reforçar o conteúdo."
             )
         elif candidate.trend == "DECLINING":
             action = "REVIEW_CONTENT"
             base_score = 60.0
             factors.append("DECLINING_TREND")
             reason = (
-                f"O desempenho recente em {candidate.content_name} esta em queda; "
-                "a proxima acao e revisar o conteudo."
+                f"O desempenho recente em {candidate.content_name} está em queda; "
+                "a próxima ação é revisar o conteúdo."
             )
         elif (
             candidate.mastery_score >= self.mastered_score
@@ -164,16 +171,16 @@ class NextBestActionPolicy:
             base_score = 30.0
             factors.append("WELL_EVIDENCED_MASTERY")
             reason = (
-                f"{candidate.content_name} apresenta dominio alto e bem evidenciado "
-                f"({candidate.mastery_score:.1f}%); o aluno pode avancar."
+                f"{candidate.content_name} apresenta domínio alto e bem evidenciado "
+                f"({candidate.mastery_score:.1f}%); o aluno pode avançar."
             )
         else:
             action = "REVIEW_CONTENT"
             base_score = 45.0
             factors.append("MASTERY_MAINTENANCE")
             reason = (
-                f"{candidate.content_name} apresenta dominio de "
-                f"{candidate.mastery_score:.1f}%; uma revisao breve preserva a aprendizagem."
+                f"{candidate.content_name} apresenta domínio de "
+                f"{candidate.mastery_score:.1f}%; uma revisão breve preserva a aprendizagem."
             )
 
         source_bonus = max(
