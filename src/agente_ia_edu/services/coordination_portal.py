@@ -79,23 +79,6 @@ class CoordinationPortalService:
         """Returns authorized scope filters for coordinator_id in school_id."""
         links = await self.admin_service.get_user_active_links(coordinator_id)
 
-        # Dev / test fallback
-        if not links and (
-            coordinator_id.startswith("coordinator:")
-            or coordinator_id.startswith("director:")
-            or coordinator_id in ("coord_1", "coord_a", "admin:master")
-        ):
-            stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-            res = await self.session.execute(stmt)
-            classrooms = list(res.scalars().all()) or ["TURMA_3A", "TURMA_3B"]
-            return {
-                "is_global": True,
-                "allowed_classrooms": set(classrooms),
-                "allowed_grades": {"1ª Série", "2ª Série", "3ª Série"},
-                "allowed_units": {"Unidade Principal"},
-                "allowed_segments": {"Ensino Médio"},
-            }
-
         allowed_classrooms = set()
         allowed_grades = set()
         allowed_units = set()
@@ -117,7 +100,7 @@ class CoordinationPortalService:
                 elif link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id:
                     allowed_classrooms.add(link.scope_external_id)
 
-        if is_global or not links:
+        if is_global:
             stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
             res = await self.session.execute(stmt)
             classrooms = set(res.scalars().all()) or {"TURMA_3A", "TURMA_3B"}
@@ -255,12 +238,7 @@ class CoordinationPortalService:
                     f"User '{coordinator_id}' is not authorized as coordinator/director for school '{school_id}'."
                 )
         else:
-            if not (
-                coordinator_id.startswith("coordinator:")
-                or coordinator_id.startswith("director:")
-                or coordinator_id in ("coord_1", "coord_a", "admin:master")
-            ):
-                raise ScopeAuthorizationError(f"User '{coordinator_id}' has no active coordination bindings.")
+            raise ScopeAuthorizationError(f"User '{coordinator_id}' has no active coordination bindings.")
 
         scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
         if scopes["is_global"]:
