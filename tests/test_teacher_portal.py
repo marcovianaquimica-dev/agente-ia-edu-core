@@ -339,6 +339,33 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
                     student_id="student:bob",
                 )
 
+    async def test_verify_student_access_denies_unlinked_student_regardless_of_teacher_scope(self):
+        """A student_id with ZERO active UserSchoolLink rows - e.g. mastery/
+        history data orphaned by a pipeline that never linked the student -
+        must be denied, not granted just because the teacher happens to have
+        at least one authorized classroom somewhere in school_id."""
+        async with self.session_factory() as session:
+            sa_id, _, c_dil_id, _ = await self._seed_data(session)
+            session.add(StudentContentMastery(
+                external_identity_id="orphan-student",
+                content_node_id=c_dil_id,
+                mastery_score=91.0,
+            ))
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            with self.assertRaises(ScopeAuthorizationError):
+                await portal_svc.get_student_detail_for_teacher(
+                    teacher_id="user:prof_mendes",
+                    school_id=sa_id,
+                    student_id="orphan-student",
+                )
+
     async def test_15_report_export_service(self):
         """15. Exportação de relatório da turma em formatos PDF e XLSX."""
         classroom_data = {
