@@ -321,6 +321,36 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(export_xlsx["export_format"], "xlsx")
         self.assertTrue(export_xlsx["filename"].endswith(".xlsx"))
 
+    async def test_fetch_students_in_classrooms_returns_empty_not_other_schools_data(self):
+        """When the school-scoped query finds zero students, the function
+        must return [] - not fall through to an unfiltered query across
+        every school's StudentContentMastery rows."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_MASTERY_A", name="Escola A Mastery")
+            school_b = School(id=uuid4(), code="SCH_MASTERY_B", name="Escola B Mastery")
+            session.add_all([school_a, school_b])
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student:alice-A",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            session.add(StudentContentMastery(
+                external_identity_id="student:alice-A",
+                content_node_id=uuid4(),
+                mastery_score=80.0,
+            ))
+            await session.commit()
+
+            portal = TeacherPortalService(session, None, None, None)
+            students = await portal._fetch_students_in_classrooms(school_b.id, [])
+
+        self.assertEqual(students, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -685,15 +685,7 @@ class TeacherPortalService:
             .distinct()
         )
         res = await self.session.execute(stmt)
-        students = list(res.scalars().all())
-
-        if not students:
-            # Fallback for test/dev environment
-            stmt_mastery = select(StudentContentMastery.external_identity_id).distinct()
-            res_m = await self.session.execute(stmt_mastery)
-            students = list(res_m.scalars().all())
-
-        return students if students else ["student:alice", "student:bob"]
+        return list(res.scalars().all())
 
     async def _fetch_masteries_for_students(self, student_ids: list[str]) -> list[StudentContentMastery]:
         if not student_ids:
