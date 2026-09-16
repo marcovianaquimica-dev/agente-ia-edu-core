@@ -172,6 +172,9 @@ class TeacherPortalService:
                 ).distinct()
                 res_users = await self.session.execute(stmt_users)
                 classrooms.update(res_users.scalars().all())
+                # NOTE: this fallback is relied upon by verify_student_access below —
+                # removing it would silently deny SCHOOL/PLATFORM-scoped students to
+                # legitimate school-wide roles in a school with no TeachingLesson rows yet.
                 return list(classrooms) if classrooms else ["TURMA_3A"]
 
             if link.role == AdminRole.TEACHER:
@@ -180,6 +183,9 @@ class TeacherPortalService:
                 if link.scope_type in (AdminScopeType.PLATFORM, AdminScopeType.SCHOOL):
                     stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
                     res = await self.session.execute(stmt)
+                    # NOTE: this fallback is relied upon by verify_student_access below —
+                    # removing it would silently deny SCHOOL/PLATFORM-scoped students to
+                    # legitimate school-wide roles in a school with no TeachingLesson rows yet.
                     return list(res.scalars().all()) or ["TURMA_3A"]
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id:
                     authorized_classrooms.add(link.scope_external_id)
@@ -231,6 +237,9 @@ class TeacherPortalService:
             if link.school_id == school_id and link.role == AdminRole.STUDENT:
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id in authorized_classrooms:
                     return True
+                # A SCHOOL/PLATFORM-scoped student link alone is not enough — it must be
+                # paired with the teacher's own real authorization in this school, or any
+                # identity could read a school-scoped student's data by name alone.
                 if authorized_classrooms and link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
                     return True
         raise ScopeAuthorizationError(f"Student '{student_id}' is outside teacher '{teacher_id}' authorized scope in school '{school_id}'.")
@@ -666,7 +675,10 @@ class TeacherPortalService:
         school_id: uuid.UUID,
         classrooms: list[str],
     ) -> list[str]:
-        """Fetch student IDs bound to classrooms or school."""
+        """Fetch student IDs bound to classrooms in school; empty classrooms yields empty list."""
+        # Empty classrooms means the caller has zero real authorization in school_id —
+        # the SCHOOL-scope leg below must not match anyway, or an unauthorized caller
+        # could still read every SCHOOL-scoped student in the school.
         if not classrooms:
             return []
         stmt = (
