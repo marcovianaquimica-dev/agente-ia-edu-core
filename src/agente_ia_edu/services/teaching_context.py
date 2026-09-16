@@ -66,9 +66,6 @@ class TeachingContextService:
         # Platform Admin and Directors have global or school-wide access
         links = await self.admin_service.get_user_active_links(teacher_id)
         if not links:
-            # Fallback for dev/test mode where teacher_id matches subject
-            if teacher_id.startswith("teacher:") or teacher_id == "prof_mendes":
-                return True
             raise ScopeAuthorizationError(f"User '{teacher_id}' has no active school bindings.")
 
         for link in links:
@@ -104,15 +101,13 @@ class TeachingContextService:
         """Verify that coordinator_id is authorized for coordination in school_id."""
         links = await self.admin_service.get_user_active_links(coordinator_id)
         if not links:
-            if coordinator_id.startswith("coordinator:") or coordinator_id == "coord_1":
-                return True
             raise ScopeAuthorizationError(f"User '{coordinator_id}' has no active school bindings.")
 
         for link in links:
             if link.role in (AdminRole.PLATFORM_ADMIN, AdminRole.DIRECTOR, AdminRole.COORDINATOR):
                 if link.role == AdminRole.PLATFORM_ADMIN:
                     return True
-                if link.school_id == school_id or link.scope_type == AdminScopeType.PLATFORM:
+                if link.school_id == school_id:
                     return True
 
         raise ScopeAuthorizationError(
