@@ -304,6 +304,10 @@ class TestCoordinationPortal(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(pdf_rep["export_format"], "pdf")
             self.assertTrue(pdf_rep["filename"].endswith(".pdf"))
+            # No classroom_id was passed (whole-school report) - the literal
+            # Python None must never leak into a user-facing title/filename.
+            self.assertNotIn("None", pdf_rep["filename"])
+            self.assertNotIn("None", pdf_rep["title"])
 
             xlsx_rep = await coord_svc.export_coordination_report(
                 coordinator_id="user:coord_a",

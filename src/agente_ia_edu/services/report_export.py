@@ -21,18 +21,23 @@ class ReportExportService:
         if fmt not in ("pdf", "xlsx", "excel"):
             raise ValueError(f"Unsupported export format: {export_format}. Supported: pdf, xlsx.")
 
-        classroom_id = classroom_data.get("classroom_id", "TURMA")
+        # `.get(key, default)` only falls back for a MISSING key - a caller
+        # reporting "no specific classroom" (whole-school scope) passes the
+        # key with value None, which `.get` returns as-is, leaking the
+        # literal Python "None" into the title/filename.
+        classroom_id = classroom_data.get("classroom_id") or None
         now = datetime.now(timezone.utc)
         timestamp_str = now.strftime("%Y%m%d_%H%M%S")
 
-        filename = f"Relatorio_{classroom_id}_{timestamp_str}.{fmt}"
+        filename = f"Relatorio_{classroom_id or 'Geral'}_{timestamp_str}.{fmt}"
         content_type = "application/pdf" if fmt == "pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        title = f"Relatório Pedagógico da Turma {classroom_id}" if classroom_id else "Relatório Pedagógico Geral da Escola"
 
         return {
             "export_format": fmt,
             "filename": filename,
             "content_type": content_type,
-            "title": f"Relatório Pedagógico da Turma {classroom_id}",
+            "title": title,
             "generated_at": now.isoformat(),
             "summary": classroom_data.get("summary", {}),
             "mastery_distribution": classroom_data.get("mastery_distribution", {}),
