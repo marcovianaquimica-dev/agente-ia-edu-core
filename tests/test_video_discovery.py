@@ -362,5 +362,78 @@ class TestVideoDiscoveryLayer(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rec_after["title"], "Diluição de Soluções - Exemplos Práticos")
 
 
+from fastapi.testclient import TestClient
+
+from agente_ia_edu.api.app import app
+from agente_ia_edu.api.dependencies import get_session_factory
+
+
+def _auth(subject: str) -> dict:
+    return {"Authorization": f"Bearer {subject}"}
+
+
+class DiscoveryApiAuthorizationTests(unittest.TestCase):
+    """The three discovery routes curate the shared, platform-wide video
+    catalog - discover_videos, review_candidate, convert_candidate all
+    injected identity and never read it, so any authenticated caller could
+    queue/approve/convert candidates into the catalog. Gated behind
+    require_platform_admin, same dependency already used by admin.py's
+    own routes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = create_async_engine(
+            "sqlite+aiosqlite://",
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+        )
+        cls.session_factory = async_sessionmaker(cls.engine, class_=AsyncSession, expire_on_commit=False)
+
+        async def _init():
+            async with cls.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+        asyncio.run(_init())
+        app.dependency_overrides[get_session_factory] = lambda: cls.session_factory
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides.clear()
+        asyncio.run(cls.engine.dispose())
+
+    def test_discover_videos_denies_non_platform_admin(self):
+        resp = self.client.post(
+            "/api/v1/discovery/search",
+            json={"query": "Diluição de soluções"},
+            headers=_auth("student:someone"),
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_review_candidate_denies_non_platform_admin(self):
+        resp = self.client.post(
+            "/api/v1/discovery/review",
+            json={"candidate_id": str(uuid4()), "action": "APPROVE"},
+            headers=_auth("teacher:someone"),
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_convert_candidate_denies_non_platform_admin(self):
+        resp = self.client.post(
+            "/api/v1/discovery/convert",
+            json={"candidate_id": str(uuid4()), "content_node_id": str(uuid4())},
+            headers=_auth("coordinator:someone"),
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_discover_videos_allows_platform_admin(self):
+        resp = self.client.post(
+            "/api/v1/discovery/search",
+            json={"query": "Diluição de soluções"},
+            headers=_auth("platform_admin:admin"),
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+
 if __name__ == "__main__":
     unittest.main()

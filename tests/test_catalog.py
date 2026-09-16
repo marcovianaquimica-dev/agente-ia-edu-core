@@ -46,6 +46,10 @@ def _auth(user: str) -> dict:
     return {"Authorization": f"Bearer student:{user}"}
 
 
+def _admin_auth() -> dict:
+    return {"Authorization": "Bearer platform_admin:admin"}
+
+
 class CatalogNodeTests(unittest.IsolatedAsyncioTestCase):
     """Discipline / content tree creation and parent-child relationships."""
 
@@ -755,7 +759,7 @@ class CatalogApiTests(unittest.TestCase):
         resp = self.client.post(
             "/api/v1/catalog/disciplines",
             json={"name": "Biologia", "node_type": "DISCIPLINE"},
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         self.assertEqual(resp.status_code, 201, resp.text)
         discipline_id = resp.json()["id"]
@@ -764,11 +768,19 @@ class CatalogApiTests(unittest.TestCase):
         self.assertEqual(list_resp.status_code, 200)
         self.assertIn(discipline_id, [d["id"] for d in list_resp.json()])
 
+    def test_create_discipline_denies_non_platform_admin(self):
+        resp = self.client.post(
+            "/api/v1/catalog/disciplines",
+            json={"name": "Biologia", "node_type": "DISCIPLINE"},
+            headers=_auth("teacher1"),
+        )
+        self.assertEqual(resp.status_code, 403)
+
     def test_create_node_requires_parent(self):
         resp = self.client.post(
             "/api/v1/catalog/nodes",
             json={"name": "Sem pai", "node_type": "CONTENT"},
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         self.assertEqual(resp.status_code, 400)
 
@@ -776,14 +788,14 @@ class CatalogApiTests(unittest.TestCase):
         discipline_resp = self.client.post(
             "/api/v1/catalog/disciplines",
             json={"name": "Geografia", "node_type": "DISCIPLINE"},
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         discipline_id = discipline_resp.json()["id"]
 
         content_resp = self.client.post(
             "/api/v1/catalog/nodes",
             json={"name": "Relevo", "node_type": "CONTENT", "parent_id": discipline_id},
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         content_id = content_resp.json()["id"]
 
@@ -811,13 +823,25 @@ class CatalogApiTests(unittest.TestCase):
                 "resource_id": resource_id,
                 "pedagogical_role": "VIDEO",
             },
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         self.assertEqual(link_resp.status_code, 201, link_resp.text)
 
         resources_resp = self.client.get(f"/api/v1/catalog/nodes/{content_id}/resources")
         self.assertEqual(resources_resp.status_code, 200)
         self.assertEqual(len(resources_resp.json()["links"]), 1)
+
+    def test_create_content_resource_link_denies_non_platform_admin(self):
+        resp = self.client.post(
+            "/api/v1/catalog/content-resource-links",
+            json={
+                "content_node_id": str(uuid4()),
+                "resource_id": str(uuid4()),
+                "pedagogical_role": "VIDEO",
+            },
+            headers=_auth("teacher1"),
+        )
+        self.assertEqual(resp.status_code, 403)
 
     def test_material_creation_and_versioning_via_api(self):
         material_resp = self.client.post(

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..dependencies import get_current_identity, get_session_factory
+from .admin import require_platform_admin
 from ..schemas.admin import AdminAuditLogResponse
 from ..schemas.catalog import (
     CatalogNodeCreateRequest,
@@ -325,7 +326,7 @@ async def _require_material_access(
 )
 async def create_discipline(
     request: CatalogNodeCreateRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
     session_factory=Depends(get_session_factory),
 ) -> CatalogNodeResponse:
     """Create a discipline. A discipline is always a root (no parent_id)."""
@@ -367,7 +368,7 @@ async def list_disciplines(
 )
 async def create_content_node(
     request: CatalogNodeCreateRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
     session_factory=Depends(get_session_factory),
 ) -> CatalogNodeResponse:
     """Create a non-root node. Requires an existing parent_id."""
@@ -623,7 +624,7 @@ async def get_resource_detail(
 )
 async def create_content_resource_link(
     request: ContentResourceLinkCreateRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
     session_factory=Depends(get_session_factory),
 ) -> ContentResourceLinkResponse:
     async with session_factory() as session:
