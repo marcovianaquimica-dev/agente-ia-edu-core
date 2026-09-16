@@ -237,6 +237,14 @@ async def get_classroom_pedagogical_context(
 ) -> list[PedagogicalContextResponse]:
     async with session_factory() as session:
         service = TeachingContextService(session)
+        try:
+            await service.verify_teacher_classroom_scope(
+                teacher_id=identity.external_user_id,
+                school_id=school_id,
+                classroom_id=classroom_id,
+            )
+        except ScopeAuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         contexts = await service.get_active_recent_contexts(
             school_id=school_id,
             classroom_id=classroom_id,
