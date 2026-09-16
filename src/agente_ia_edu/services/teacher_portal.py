@@ -280,14 +280,17 @@ class TeacherPortalService:
         total_masteries = len(masteries)
         class_avg = (sum(float(m.mastery_score) for m in masteries) / total_masteries) if total_masteries > 0 else 0.0
 
-        # Distribution breakdown
-        struggling_cnt = sum(1 for m in masteries if float(m.mastery_score) < 50.0)
-        developing_cnt = sum(1 for m in masteries if 50.0 <= float(m.mastery_score) < 70.0)
-        mastered_cnt = sum(1 for m in masteries if float(m.mastery_score) >= 70.0)
+        # Distribution breakdown - one bucket per DISTINCT student (by their
+        # average across contents), never per mastery row.
+        buckets = self._bucket_students_by_mastery(masteries)
+        struggling_cnt = buckets["struggling"]
+        developing_cnt = buckets["developing"]
+        mastered_cnt = buckets["mastered"]
+        assessed_students = struggling_cnt + developing_cnt + mastered_cnt
 
-        struggling_pct = round((struggling_cnt / total_masteries * 100.0), 1) if total_masteries > 0 else 0.0
-        developing_pct = round((developing_cnt / total_masteries * 100.0), 1) if total_masteries > 0 else 0.0
-        mastered_pct = round((mastered_cnt / total_masteries * 100.0), 1) if total_masteries > 0 else 0.0
+        struggling_pct = round((struggling_cnt / assessed_students * 100.0), 1) if assessed_students > 0 else 0.0
+        developing_pct = round((developing_cnt / assessed_students * 100.0), 1) if assessed_students > 0 else 0.0
+        mastered_pct = round((mastered_cnt / assessed_students * 100.0), 1) if assessed_students > 0 else 0.0
 
         # Content average mastery breakdown
         content_map: dict[uuid.UUID, list[float]] = {}
@@ -701,3 +704,25 @@ class TeacherPortalService:
         stmt = select(StudentContentMastery).where(StudentContentMastery.external_identity_id.in_(student_ids))
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+    @staticmethod
+    def _bucket_students_by_mastery(masteries: list[StudentContentMastery]) -> dict[str, int]:
+        """Buckets DISTINCT students into struggling/developing/mastered by
+        their own average mastery_score across every content they have a
+        StudentContentMastery row for. `masteries` holds one row per
+        (student, content) - counting rows directly (as opposed to students)
+        double-counts any student with more than one content and can make
+        struggling+developing+mastered exceed the real student count."""
+        by_student: dict[str, list[float]] = {}
+        for m in masteries:
+            by_student.setdefault(m.external_identity_id, []).append(float(m.mastery_score))
+        struggling = developing = mastered = 0
+        for scores in by_student.values():
+            avg = sum(scores) / len(scores)
+            if avg < 50.0:
+                struggling += 1
+            elif avg < 70.0:
+                developing += 1
+            else:
+                mastered += 1
+        return {"struggling": struggling, "developing": developing, "mastered": mastered}

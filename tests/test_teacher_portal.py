@@ -138,6 +138,42 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
                     classroom_id="TURMA_3B",
                 )
 
+    async def test_02b_struggling_developing_mastered_count_distinct_students_not_mastery_rows(self):
+        """A student with mastery in multiple contents must be counted once in
+        the dashboard's struggling/developing/mastered buckets (by their
+        average across contents), not once per content row - otherwise the
+        three counts can sum to more than student_count."""
+        async with self.session_factory() as session:
+            sa_id, _, c_dil_id, c_est_id = await self._seed_data(session)
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            # Alice has TWO mastery rows: struggling in one content (30),
+            # mastered in another (90) - average is 60 (developing).
+            session.add(StudentContentMastery(external_identity_id="student:alice", content_node_id=c_dil_id, mastery_score=30.0, questions_answered=5, questions_correct=1))
+            session.add(StudentContentMastery(external_identity_id="student:alice", content_node_id=c_est_id, mastery_score=90.0, questions_answered=5, questions_correct=5))
+            await session.commit()
+
+            dash = await portal_svc.get_teacher_dashboard(
+                teacher_id="user:prof_mendes",
+                school_id=sa_id,
+                classroom_id="TURMA_3A",
+            )
+            self.assertEqual(dash["student_count"], 1)
+            total_bucketed = (
+                dash["students_struggling_count"]
+                + dash["students_developing_count"]
+                + dash["students_mastered_count"]
+            )
+            self.assertEqual(
+                total_bucketed, dash["student_count"],
+                "struggling+developing+mastered must not exceed the real student count",
+            )
+            self.assertEqual(dash["students_developing_count"], 1)
+
     async def test_03_04_coordination_and_multi_tenant_isolation(self):
         """3, 4, 18. Isolamento multi-tenant: Professor da Escola A não acessa Escola B."""
         async with self.session_factory() as session:
