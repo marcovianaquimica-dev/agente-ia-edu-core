@@ -227,20 +227,13 @@ class TeacherPortalService:
 
         # Check student bindings in UserSchoolLink
         links = await self.admin_service.get_user_active_links(student_id)
-        if links:
-            for link in links:
-                if link.school_id == school_id and link.role == AdminRole.STUDENT:
-                    if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id in authorized_classrooms:
-                        return True
-                    if link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
-                        return True
-            raise ScopeAuthorizationError(f"Student '{student_id}' is outside teacher '{teacher_id}' authorized scope in school '{school_id}'.")
-
-        # Fallback check
-        if not authorized_classrooms:
-            raise ScopeAuthorizationError(f"Teacher '{teacher_id}' has no authorized classrooms in school '{school_id}'.")
-
-        return True
+        for link in links:
+            if link.school_id == school_id and link.role == AdminRole.STUDENT:
+                if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id in authorized_classrooms:
+                    return True
+                if link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
+                    return True
+        raise ScopeAuthorizationError(f"Student '{student_id}' is outside teacher '{teacher_id}' authorized scope in school '{school_id}'.")
 
     # -------------------------------------------------------------------------
     # 2. TEACHER DASHBOARD AGGREGATOR
