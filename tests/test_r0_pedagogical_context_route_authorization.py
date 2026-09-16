@@ -14,6 +14,7 @@ identity as a parameter.
 
 import unittest
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -22,6 +23,8 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.api.routes.teaching_context import get_classroom_pedagogical_context
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import School
+from agente_ia_edu.db.models.catalog import CatalogNode
+from agente_ia_edu.db.models.recommendations import PedagogicalContext
 from agente_ia_edu.identity import ExternalIdentityContext
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 
@@ -73,9 +76,16 @@ class PedagogicalContextRouteAuthorizationTests(unittest.IsolatedAsyncioTestCase
             )
         self.assertEqual(ctx.exception.status_code, 403)
 
-    async def test_an_unlinked_identity_is_denied_too(self):
+    async def test_an_unlinked_identity_outside_the_dev_fallback_is_denied(self):
         """Not just cross-school - no link at all must also be denied, not
-        silently pass because there was nothing to compare against."""
+        silently pass because there was nothing to compare against.
+
+        Uses an identity outside verify_teacher_classroom_scope's dev/test
+        fallback (teacher_id starting with "teacher:", or "prof_mendes") -
+        that fallback grants access to ANY school/classroom unconditionally,
+        which is a known pre-existing gap tracked separately, not something
+        this route's fix touches.
+        """
         identity = ExternalIdentityContext(provider="test", external_user_id="nobody-at-all")
         async with self.session_factory() as session:
             _, school_b = await self._two_schools(session)
@@ -92,7 +102,9 @@ class PedagogicalContextRouteAuthorizationTests(unittest.IsolatedAsyncioTestCase
 
     async def test_a_teacher_of_the_classroom_is_allowed(self):
         """The fix must not deny the caller it exists to protect - only
-        strangers to the school."""
+        strangers to the school. Seeds a real context so an authorized call
+        that returns nothing can't be confused with a check that got
+        skipped entirely."""
         async with self.session_factory() as session:
             school_a, _ = await self._two_schools(session)
             admin = PlatformAdminService(session)
@@ -104,6 +116,21 @@ class PedagogicalContextRouteAuthorizationTests(unittest.IsolatedAsyncioTestCase
                 school_id=school_a.id,
                 scope_external_id="TURMA-A1",
             )
+            node = CatalogNode(id=uuid.uuid4(), node_type="CONTENT", name="Diluição de Soluções")
+            session.add(node)
+            await session.flush()
+            context = PedagogicalContext(
+                content_node_id=node.id,
+                source="TEACHER",
+                institution_id=str(school_a.id),
+                classroom_id="TURMA-A1",
+                title="Ensinei Diluição de Soluções",
+                recorded_at=datetime.now(timezone.utc),
+                active=True,
+                metadata_={"academic_year": "2026"},
+            )
+            session.add(context)
+            await session.commit()
             school_a_id = school_a.id
 
         identity = ExternalIdentityContext(provider="test", external_user_id="teacher-a")
@@ -114,7 +141,8 @@ class PedagogicalContextRouteAuthorizationTests(unittest.IsolatedAsyncioTestCase
             identity=identity,
             session_factory=self.session_factory,
         )
-        self.assertEqual(result, [])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].title, "Ensinei Diluição de Soluções")
 
 
 if __name__ == "__main__":
