@@ -254,6 +254,29 @@ class Phase22Tests(unittest.TestCase):
         self.assertTrue(b["selection"]["sufficient"])
         self.assertEqual(b["practice_id"], b["assignment_id"])
 
+    # -- 1b  a school-linked student's practice list must not claim a real
+    #        ENEM institution it has no relationship to - school_id and
+    #        institution_id are two distinct FKs on Assessment, and
+    #        AdaptivePracticeService has no legitimate institution_id to give.
+    #        (SQLite in this suite does not enforce FKs, so a real Postgres
+    #        dev DB is what actually surfaces this as a 500 - assert on the
+    #        stored value directly instead of relying on constraint failure.)
+    def test_practice_list_does_not_borrow_school_id_as_institution_id(self):
+        self._link("s1b"); self._student("s1b")
+        r = self._create("C_MAIN", 10)
+        self.assertEqual(r.status_code, 200, r.text)
+        practice_id = r.json()["practice_id"]
+
+        async def _fetch():
+            from agente_ia_edu.db.models import ActivityAssignment, Assessment
+            async with self.factory() as s:
+                assignment = await s.get(ActivityAssignment, _uuid.UUID(practice_id))
+                return await s.get(Assessment, assignment.assessment_id)
+        assessment = self.loop.run_until_complete(_fetch())
+        self.assertIsNotNone(assessment)
+        self.assertIsNone(assessment.institution_id)
+        self.assertIsNotNone(assessment.school_id)
+
     # -- 2  configurable count 5 / 10 -------------------------------
     def test_configurable_count(self):
         self._link("s2"); self._student("s2")

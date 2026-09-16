@@ -197,6 +197,8 @@ class StudySessionService:
                 block["action_available"] = False
                 block["status"] = BL_SKIPPED
                 block["action_note"] = practice_result["note"]
+                nxt = next((b["index"] for b in blocks if b["status"] == BL_PENDING), None)
+                row.current_block_index = nxt if nxt is not None else len(blocks)
                 row.plan = {**(row.plan or {}), "blocks": blocks}; flag_modified(row, "plan")
                 row.updated_at = _now()
                 view = self._view(row)

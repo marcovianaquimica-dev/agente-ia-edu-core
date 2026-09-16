@@ -211,6 +211,26 @@ class Phase24Tests(unittest.TestCase):
                 await s.commit()
         self.loop.run_until_complete(_do())
 
+    def _force_block_type(self, session_id, index, block_type):
+        """Overwrite one block's block_type in a persisted plan, bypassing the
+        planner's own heuristics - used to deterministically reach a specific
+        start_block code path regardless of how the planner would have typed
+        that content on its own."""
+        from agente_ia_edu.db.models import StudySession
+        from sqlalchemy.orm.attributes import flag_modified
+
+        async def _do():
+            async with self.factory() as s:
+                row = await s.get(StudySession, _uuid.UUID(session_id))
+                blocks = list((row.plan or {}).get("blocks", []))
+                for b in blocks:
+                    if b["index"] == index:
+                        b["block_type"] = block_type
+                row.plan = {**(row.plan or {}), "blocks": blocks}
+                flag_modified(row, "plan")
+                await s.commit()
+        self.loop.run_until_complete(_do())
+
     def _create_free(self, student="s_al", **body):
         self._as_student(student)
         return self.client.post("/api/v1/student/study-session", json=body)
@@ -421,6 +441,45 @@ class Phase24Tests(unittest.TestCase):
         self.assertIsNotNone(block.get("practice_id"))
         practice = self.client.get(f"/api/v1/student/practice/{block['practice_id']}").json()
         self.assertEqual(practice["origin"], "PRACTICE")
+
+    # -- 16b  a block auto-skipped for lack of questions must not strand
+    #         current_block_index on itself - the student needs to be able
+    #         to move on to the next PENDING block without repeatedly
+    #         re-triggering the same failing block.
+    def test_skipped_practice_block_advances_current_index(self):
+        self._clear_sessions("s_skip")
+        self._give_evidence("s_skip", "C_D", 0, 1)  # C_D has zero questions in the fixture
+        self._give_evidence("s_skip", "C_A", 2, 6)
+        sid = self._create_free(
+            "s_skip", available_minutes=60,
+            target_content_codes=["C_D", "C_A"],
+        ).json()["id"]
+        self._as_student("s_skip")
+        self.client.post(f"/api/v1/student/study-session/{sid}/start")
+        blocks = self.client.get(f"/api/v1/student/study-session/{sid}").json()["blocks"]
+        skip_idx = next(b["index"] for b in blocks if b.get("content_code") == "C_D")
+
+        # Force the C_D block to PRACTICE regardless of what the planner's own
+        # evidence heuristics picked for it - this test targets start_block's
+        # failure branch specifically, not the planner's block-type choice.
+        self._force_block_type(sid, skip_idx, "PRACTICE")
+
+        started = self.client.post(
+            f"/api/v1/student/study-session/{sid}/blocks/{skip_idx}/start"
+        ).json()
+        skipped_block = next(b for b in started["blocks"] if b["index"] == skip_idx)
+        self.assertEqual(skipped_block["status"], "SKIPPED")
+        self.assertNotEqual(
+            started["current_block_index"], skip_idx,
+            "current_block_index must move past an auto-skipped block, "
+            "not strand the student on it",
+        )
+        next_block = next(
+            (b for b in started["blocks"] if b["index"] == started["current_block_index"]),
+            None,
+        )
+        self.assertIsNotNone(next_block, "current_block_index must point at a real block")
+        self.assertEqual(next_block["status"], "PENDING")
 
     # -- 17  material available / unavailable ------------------------
     def test_study_block_reflects_material_availability(self):

@@ -227,7 +227,6 @@ class AdaptivePracticeService:
             configuration=config,
             question_version_ids=[UUID(v) for v in selected],
             requester=owner,
-            institution_id=str(requester.school_id) if requester.school_id else None,
         )
         list_id = UUID(str(summary.id))
         await self._lists.finalize(list_id, requester=owner)
@@ -235,7 +234,6 @@ class AdaptivePracticeService:
         view, _existed = await self._assignments.create(
             list_id, requester=owner,
             target_type="STUDENT", target_id=student_external_id,
-            available_from="2000-01-01T00:00:00Z",
             origin=ORIGIN_PRACTICE,
             extra_metadata={"practice": True, "mode": mode, "content_code": content_code},
         )
