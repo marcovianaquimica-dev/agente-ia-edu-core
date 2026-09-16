@@ -84,12 +84,12 @@ class TeacherScopeValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("TURMA-FANTASMA", classrooms)
 
     async def test_an_all_invalid_list_keeps_its_unfiltered_codes(self):
-        """Dropping every code would return [], and [] does not mean "no
-        classrooms" to every caller: coordination_portal reaches this function
-        and _fetch_students_in_classrooms falls back to an unfiltered student
-        query on an empty list. Narrowing is allowed; emptying is not. With no
-        valid code left, the original list is kept - today's behaviour, which
-        downstream already denies.
+        """Dropping every code would return [] - a narrowing, not a widening,
+        since _fetch_students_in_classrooms filters strictly by school_id and
+        an empty classroom list can only narrow what it returns, never
+        broaden it. Still, the rule here is: narrowing is allowed, emptying
+        is not. With no valid code left, the original list is kept - today's
+        behaviour, which downstream already denies.
         """
         async with self.session_factory() as session:
             school = await self._school(session, "2")
