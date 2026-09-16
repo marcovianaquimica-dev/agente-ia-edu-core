@@ -566,7 +566,11 @@ body.sidebar-open {
   border-radius: var(--radius-sm);
   padding: 16px;
   border: 1px solid var(--border-color);
+  border-left: 4px solid var(--border-color);
 }
+.plan-column.column-danger { border-left-color: var(--danger); }
+.plan-column.column-warning { border-left-color: var(--warning); }
+.plan-column.column-success { border-left-color: var(--success); }
 
 .column-header {
   display: flex;

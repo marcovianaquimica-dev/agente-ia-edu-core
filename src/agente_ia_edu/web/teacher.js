@@ -1,5 +1,8 @@
 /* AGENTE IA EDU — Portal do Professor e Coordenação JS (Phase 12C.1) */
 
+const PRIORITY_LABEL = { HIGH: 'Alta', MEDIUM: 'Média', LOW: 'Baixa' };
+const PRIORITY_STYLE = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
+
 document.addEventListener('DOMContentLoaded', () => {
   const state = {
     currentView: 'dashboard',
@@ -449,9 +452,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const planContainer = document.getElementById('dash-action-plan-container');
     if (d.action_plan && d.action_plan.length > 0) {
       planContainer.innerHTML = d.action_plan.map(a => `
-        <div class="plan-column column-${a.priority === 'HIGH' ? 'danger' : 'warning'}" style="margin-bottom:12px;">
+        <div class="plan-column column-${PRIORITY_STYLE[a.priority] || 'warning'}" style="margin-bottom:12px;">
           <div class="column-header">
-            <strong>🔴 Prioridade ${a.priority === 'HIGH' ? 'Alta' : 'Média'}: ${a.content_name}</strong>
+            <strong>🔴 Prioridade ${PRIORITY_LABEL[a.priority] || a.priority}: ${a.content_name}</strong>
           </div>
           <p style="font-size:13px; margin-bottom:6px;"><strong>Evidência:</strong> ${a.evidence}</p>
           <p style="font-size:13px; color:#4f46e5;"><strong>Ação Recomendada:</strong> ${a.recommended_action}</p>
@@ -861,7 +864,7 @@ document.addEventListener('DOMContentLoaded', () => {
       container.innerHTML = d.action_plan.map(a => `
         <div class="card active-rec-card" style="margin-bottom:16px;">
           <div class="card-header">
-            <h3>🔴 Prioridade ${a.priority}: ${a.content_name}</h3>
+            <h3>🔴 Prioridade ${PRIORITY_LABEL[a.priority] || a.priority}: ${a.content_name}</h3>
             <span class="badge badge-primary">Média: ${a.class_average_mastery}%</span>
           </div>
           <p><strong>Evidências:</strong> ${a.evidence}</p>
