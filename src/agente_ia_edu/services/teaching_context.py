@@ -77,6 +77,12 @@ class TeachingContextService:
                     return True
                 continue
 
+            if link.role == AdminRole.STUDENT:
+                # Explicit deny, not accidental fallthrough: a STUDENT link
+                # never authorizes teacher-scoped actions, regardless of
+                # school/classroom match.
+                continue
+
             if link.role == AdminRole.TEACHER:
                 if link.school_id and link.school_id != school_id:
                     continue

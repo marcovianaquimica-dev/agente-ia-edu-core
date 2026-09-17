@@ -200,6 +200,30 @@ class TeacherScopeCrossSchoolTests(unittest.IsolatedAsyncioTestCase):
                     classroom_id="QUALQUER-TURMA-DE-B",
                 )
 
+    async def test_a_student_link_never_authorizes_teacher_scoped_actions(self):
+        """A STUDENT link must be an explicit deny, not an accidental
+        fallthrough - even one that matches school_id and classroom_id
+        exactly must not authorize teacher-scoped actions."""
+        async with self.session_factory() as session:
+            school_a, _ = await self._two_schools(session)
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="student-a",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school_a.id,
+                scope_external_id="TURMA-A1",
+            )
+
+            svc = TeachingContextService(session)
+            with self.assertRaises(ScopeAuthorizationError):
+                await svc.verify_teacher_classroom_scope(
+                    teacher_id="student-a",
+                    school_id=school_a.id,
+                    classroom_id="TURMA-A1",
+                )
+
 
 class AuthorizedClassroomsCrossSchoolTests(unittest.IsolatedAsyncioTestCase):
     """TeacherPortalService.get_teacher_authorized_classrooms carried the same
