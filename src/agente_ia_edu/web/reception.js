@@ -36,6 +36,14 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   function translateDetail(detail) {
     if (!detail) return detail;
+    if (Array.isArray(detail)) {
+      // FastAPI 422 validation errors: a list of {msg, loc, type} - not a
+      // string, so the regex/lookup logic below would throw on it.
+      return detail.map(e => (e && e.msg) || 'Dado inválido.').join(' ');
+    }
+    if (typeof detail === 'object') {
+      return detail.message || 'Não foi possível concluir a operação.';
+    }
     const roleMatch = detail.match(/^Role required: (.+)$/);
     if (roleMatch) {
       const roles = roleMatch[1].split(', ').map(r => ROLE_LABELS[r] || r).join(', ');
