@@ -1104,6 +1104,80 @@ class CatalogApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_create_resource_ignores_spoofed_owner_for_school_origin(self):
+        # A teacher scoped to school A submits owner_external_id = school B's
+        # id: the server must derive ownership from the caller's own resolved
+        # context, not trust the request body, or school B's users would gain
+        # visibility into a resource they have no relationship with (see
+        # KnowledgeService._is_resource_visible: owner_external_id match is a
+        # visibility grant, not just an attribution label).
+        async def _seed():
+            async with self.session_factory() as session:
+                school_a = School(code="RA1", name="Escola Resource A1")
+                school_b = School(code="RB1", name="Escola Resource B1")
+                session.add_all([school_a, school_b])
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id="teacherRA1",
+                    school_id=school_a.id,
+                    role="TEACHER",
+                    scope_type="SCHOOL",
+                    active=True,
+                ))
+                await session.commit()
+                return school_a.id, school_b.id
+
+        import asyncio
+        school_a_id, school_b_id = asyncio.run(_seed())
+
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={
+                "title": "Recurso com owner forjado",
+                "resource_type": "THEORY_MATERIAL",
+                "origin_type": "SCHOOL",
+                "owner_external_id": str(school_b_id),
+            },
+            headers={"Authorization": "Bearer teacher:teacherRA1"},
+        )
+        self.assertEqual(resp.status_code, 201, resp.text)
+        self.assertEqual(resp.json()["owner_external_id"], str(school_a_id))
+        self.assertNotEqual(resp.json()["owner_external_id"], str(school_b_id))
+
+    def test_create_resource_denies_school_origin_without_school_context(self):
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={
+                "title": "Recurso sem escola",
+                "resource_type": "THEORY_MATERIAL",
+                "origin_type": "SCHOOL",
+            },
+            headers={"Authorization": "Bearer teacher:teacherNoSchool1"},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_create_resource_denies_platform_origin_for_non_admin(self):
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={"title": "Recurso global forjado", "resource_type": "VIDEO", "origin_type": "PLATFORM"},
+            headers={"Authorization": "Bearer teacher:teacherRA2"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_create_resource_forces_author_owner_to_caller_identity(self):
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={
+                "title": "Recurso autoral",
+                "resource_type": "THEORY_MATERIAL",
+                "origin_type": "AUTHOR",
+                "owner_external_id": "someone-else-entirely",
+            },
+            headers={"Authorization": "Bearer teacher:teacherRA3"},
+        )
+        self.assertEqual(resp.status_code, 201, resp.text)
+        self.assertEqual(resp.json()["owner_external_id"], "teacherRA3")
+
     def test_get_resources_for_content_filters_out_invisible_resource(self):
         async def _seed():
             async with self.session_factory() as session:

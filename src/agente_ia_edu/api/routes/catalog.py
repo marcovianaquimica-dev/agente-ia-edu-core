@@ -469,6 +469,38 @@ async def create_resource(
                 status_code=403,
                 detail="Creating a resource requires a teacher, coordinator, director, or platform admin role.",
             )
+
+        # owner_external_id decides who a resource is visible to (see
+        # KnowledgeService._is_resource_visible): trusting it verbatim from the
+        # request body would let any teacher/coordinator claim another school's
+        # resource pool, or grant themselves platform-wide visibility, just by
+        # setting origin_type/owner_external_id in the JSON body. Derive it
+        # server-side from the caller's own resolved context instead.
+        origin_type = (request.origin_type or "").upper()
+        owner_external_id = request.owner_external_id
+        if origin_type == "PLATFORM":
+            if not context.is_platform_admin:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only a platform admin may create a PLATFORM-origin resource.",
+                )
+            owner_external_id = None
+        elif origin_type in ("LICENSED", "EXTERNAL"):
+            if not context.is_platform_admin:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Only a platform admin may create a {origin_type.title()}-origin resource.",
+                )
+        elif origin_type == "AUTHOR":
+            owner_external_id = context.user_id
+        elif origin_type == "SCHOOL" and not context.is_platform_admin:
+            if context.school_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Creating a SCHOOL-origin resource requires an active school context.",
+                )
+            owner_external_id = str(context.school_id)
+
         service = EducationalResourceService()
         resource = await service.create_resource(
             session,
@@ -477,7 +509,7 @@ async def create_resource(
             origin_type=request.origin_type,
             description=request.description,
             author=request.author,
-            owner_external_id=request.owner_external_id,
+            owner_external_id=owner_external_id,
             license_reference=request.license_reference,
             source_url=request.source_url,
             storage_uri=request.storage_uri,
