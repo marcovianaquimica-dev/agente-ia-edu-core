@@ -479,5 +479,52 @@ class TestVideoIntelligenceEngine(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(prefs.get("NEEDS_EXAMPLES"), 1)
 
 
+from fastapi.testclient import TestClient
+
+from agente_ia_edu.api.app import app
+from agente_ia_edu.api.dependencies import get_session_factory
+
+
+def _auth(subject: str) -> dict:
+    return {"Authorization": f"Bearer {subject}"}
+
+
+class VideoEventsApiErrorHandlingTests(unittest.TestCase):
+    """POST /api/v1/videos/events delegates to ResourceTrackingService.record_interaction,
+    which raises ValueError for an event_type outside VALID_ACTIONS. The route did not
+    catch it, so an invalid-but-schema-valid payload (event_type is a free string in the
+    Pydantic model, not an enum) used to leak as an unhandled 500."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = create_async_engine(
+            "sqlite+aiosqlite://",
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+        )
+        cls.session_factory = async_sessionmaker(cls.engine, class_=AsyncSession, expire_on_commit=False)
+
+        async def _init():
+            async with cls.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+        asyncio.run(_init())
+        app.dependency_overrides[get_session_factory] = lambda: cls.session_factory
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides.clear()
+        asyncio.run(cls.engine.dispose())
+
+    def test_record_video_event_invalid_event_type_returns_400(self):
+        resp = self.client.post(
+            "/api/v1/videos/events",
+            json={"resource_id": str(uuid4()), "event_type": "BOGUS"},
+            headers=_auth("student:someone"),
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+
+
 if __name__ == "__main__":
     unittest.main()

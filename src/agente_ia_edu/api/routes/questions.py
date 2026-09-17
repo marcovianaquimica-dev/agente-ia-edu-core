@@ -603,6 +603,7 @@ async def review_question_authoring(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         await session.commit()
+        await session.refresh(question)
         version = await service.get_current_version(question_id)
         return QuestionAuthoringResponse(
             question_id=question.id,

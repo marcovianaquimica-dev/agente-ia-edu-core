@@ -126,6 +126,55 @@ class TestBlocoCAuditHTTP(unittest.TestCase):
             app.dependency_overrides.clear()
             asyncio.run(engine.dispose())
 
+    def test_http_07_create_list_with_real_dependency_override_actually_works(self) -> None:
+        """POST /api/v1/exercise-lists must actually succeed end-to-end.
+
+        test_http_01 above only checks that the router object is not None - it
+        never issues a real request, so it can never catch a broken handler.
+        This test drives the real ASGI route with a real AuthenticatedUserContext
+        (the dataclass in agente_ia_edu.identity, which has no ``institution_id``
+        or ``external_user_id`` fields - only ``external_identity_id``) to prove
+        the endpoint doesn't crash with an AttributeError on those fields.
+        """
+
+        async def _setup_db() -> tuple[async_sessionmaker[AsyncSession], AsyncEngine]:
+            engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            return session_factory, engine
+
+        session_factory, engine = asyncio.run(_setup_db())
+
+        school_id = str(uuid.uuid4())
+        app = FastAPI()
+        app.include_router(exercise_router)
+        app.dependency_overrides[get_session_factory] = lambda: session_factory
+        app.dependency_overrides[get_current_authenticated_context] = lambda: AuthenticatedUserContext(
+            user_id="prof-1",
+            external_identity_id="prof-1",
+            role="TEACHER",
+            school_id=school_id,
+            scope_type="SCHOOL",
+            scope_external_id=school_id,
+            is_active=True,
+        )
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/exercise-lists",
+                    json={"title": "Lista de teste", "description": "criada via TDD"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                body = response.json()
+                self.assertEqual(body["title"], "Lista de teste")
+                self.assertEqual(body["school_id"], school_id)
+                self.assertEqual(body["owner_external_id"], "prof-1")
+        finally:
+            app.dependency_overrides.clear()
+            asyncio.run(engine.dispose())
+
     def test_http_04_response_schema_create(self) -> None:
         """POST response includes required fields."""
         # Expected schema for create response:

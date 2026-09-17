@@ -434,6 +434,37 @@ class DiscoveryApiAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
 
+    def test_discover_videos_without_content_node_or_query_returns_400(self):
+        # Neither content_node_id nor query given: VideoDiscoveryService.discover_candidates
+        # raises ValueError("Must provide either a content_node_id or a search query.").
+        # The route did not catch it, so it used to leak as an unhandled 500.
+        resp = self.client.post(
+            "/api/v1/discovery/search",
+            json={},
+            headers=_auth("platform_admin:admin"),
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+
+    def test_review_candidate_not_found_returns_404(self):
+        # VideoDiscoveryService.review_candidate raises ValueError for an unknown id.
+        # The route did not catch it, so it used to leak as an unhandled 500.
+        resp = self.client.post(
+            "/api/v1/discovery/review",
+            json={"candidate_id": str(uuid4()), "action": "APPROVE"},
+            headers=_auth("platform_admin:admin"),
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_convert_candidate_not_found_returns_404(self):
+        # VideoDiscoveryService.approve_and_convert_candidate raises ValueError for an
+        # unknown id. The route did not catch it, so it used to leak as an unhandled 500.
+        resp = self.client.post(
+            "/api/v1/discovery/convert",
+            json={"candidate_id": str(uuid4()), "content_node_id": str(uuid4())},
+            headers=_auth("platform_admin:admin"),
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
 
 if __name__ == "__main__":
     unittest.main()

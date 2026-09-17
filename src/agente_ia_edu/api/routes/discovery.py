@@ -41,13 +41,16 @@ async def discover_videos(
         discovery_service = VideoDiscoveryService(session)
         # Use default mock provider for discovery API
         mock_provider = MockVideoDiscoveryProvider()
-        candidates = await discovery_service.discover_candidates(
-            content_node_id=request.content_node_id,
-            query=request.query,
-            discipline=request.discipline,
-            providers=[mock_provider],
-            limit_per_provider=request.limit_per_provider,
-        )
+        try:
+            candidates = await discovery_service.discover_candidates(
+                content_node_id=request.content_node_id,
+                query=request.query,
+                discipline=request.discipline,
+                providers=[mock_provider],
+                limit_per_provider=request.limit_per_provider,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return [
             ExternalVideoCandidateResponse(
                 id=c.id,
@@ -82,11 +85,15 @@ async def review_candidate(
 ):
     async with session_factory() as session:
         discovery_service = VideoDiscoveryService(session)
-        cand = await discovery_service.review_candidate(
-            candidate_id=request.candidate_id,
-            action=request.action,
-            reasoning=request.reasoning,
-        )
+        try:
+            cand = await discovery_service.review_candidate(
+                candidate_id=request.candidate_id,
+                action=request.action,
+                reasoning=request.reasoning,
+            )
+        except ValueError as exc:
+            status_code = 404 if "not found" in str(exc).lower() else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
         return ExternalVideoCandidateResponse(
             id=cand.id,
             source=cand.source,
@@ -117,14 +124,18 @@ async def convert_candidate(
 ):
     async with session_factory() as session:
         discovery_service = VideoDiscoveryService(session)
-        res, link = await discovery_service.approve_and_convert_candidate(
-            candidate_id=request.candidate_id,
-            content_node_id=request.content_node_id,
-            origin_type=request.origin_type,
-            visibility_scope=request.visibility_scope,
-            owner_external_id=request.owner_external_id,
-            recommended_level=request.recommended_level,
-        )
+        try:
+            res, link = await discovery_service.approve_and_convert_candidate(
+                candidate_id=request.candidate_id,
+                content_node_id=request.content_node_id,
+                origin_type=request.origin_type,
+                visibility_scope=request.visibility_scope,
+                owner_external_id=request.owner_external_id,
+                recommended_level=request.recommended_level,
+            )
+        except ValueError as exc:
+            status_code = 404 if "not found" in str(exc).lower() else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
         return {
             "resource_id": str(res.id),
             "link_id": str(link.id),

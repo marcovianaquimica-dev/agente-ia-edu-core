@@ -382,12 +382,17 @@ class VideoDiscoveryService:
         candidate.status = CandidateStatus.AVAILABLE
         candidate.converted_resource_id = res.id
 
+        # Capture the id BEFORE commit: commit() expires `res` (expire_on_commit=True),
+        # and accessing `res.id` afterwards to build the reload query triggers a
+        # synchronous lazy-load that raises MissingGreenlet in an async context.
+        new_resource_id = res.id
+
         await self.session.commit()
 
         # Reload EducationalResource with video_detail loaded
         stmt_res = (
             select(EducationalResource)
-            .where(EducationalResource.id == res.id)
+            .where(EducationalResource.id == new_resource_id)
             .options(selectinload(EducationalResource.video_detail))
         )
         res_loaded = (await self.session.execute(stmt_res)).scalar_one()

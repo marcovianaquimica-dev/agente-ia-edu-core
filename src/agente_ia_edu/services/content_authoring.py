@@ -55,6 +55,18 @@ class QuestionAuthoringService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    @staticmethod
+    def _normalize_status(value: str | None) -> str:
+        # `Question.validation_status` is also written by other flows with
+        # a different (lowercase) vocabulary - e.g. POST /api/v1/questions
+        # (questions.py) writes "draft", ingestion_classifier.py writes
+        # "extracted", question_bank_importer.py writes "validated". This
+        # service only owns the DRAFT/PENDING_REVIEW/APPROVED/REJECTED/
+        # PUBLISHED/ARCHIVED authoring workflow, so comparisons here must
+        # tolerate case, or a question created through the real API can
+        # never be submitted for review (confirmed live: always a 400).
+        return (value or "").upper()
+
     async def create_question(
         self,
         *,
@@ -144,7 +156,7 @@ class QuestionAuthoringService:
         question = await self.session.get(Question, question_id)
         if question is None:
             raise ValueError("Question not found.")
-        if question.validation_status == QuestionWorkflowStatus.PUBLISHED.value:
+        if self._normalize_status(question.validation_status) == QuestionWorkflowStatus.PUBLISHED.value:
             raise ValueError("Published questions are immutable; create a new question instead.")
 
         latest_version = await self.get_current_version(question_id)
@@ -195,7 +207,7 @@ class QuestionAuthoringService:
         question = await self.session.get(Question, question_id)
         if question is None:
             raise ValueError("Question not found.")
-        if question.validation_status not in {QuestionWorkflowStatus.DRAFT.value, QuestionWorkflowStatus.REJECTED.value}:
+        if self._normalize_status(question.validation_status) not in {QuestionWorkflowStatus.DRAFT.value, QuestionWorkflowStatus.REJECTED.value}:
             raise ValueError("Only draft or rejected questions can be submitted for review.")
         question.validation_status = QuestionWorkflowStatus.PENDING_REVIEW.value
         version = await self.get_current_version(question_id)
@@ -209,7 +221,7 @@ class QuestionAuthoringService:
         question = await self.session.get(Question, question_id)
         if question is None:
             raise ValueError("Question not found.")
-        if question.validation_status != QuestionWorkflowStatus.PENDING_REVIEW.value:
+        if self._normalize_status(question.validation_status) != QuestionWorkflowStatus.PENDING_REVIEW.value:
             raise ValueError("Only questions under review can be approved.")
         question.validation_status = QuestionWorkflowStatus.APPROVED.value
         version = await self.get_current_version(question_id)
@@ -223,7 +235,7 @@ class QuestionAuthoringService:
         question = await self.session.get(Question, question_id)
         if question is None:
             raise ValueError("Question not found.")
-        if question.validation_status != QuestionWorkflowStatus.PENDING_REVIEW.value:
+        if self._normalize_status(question.validation_status) != QuestionWorkflowStatus.PENDING_REVIEW.value:
             raise ValueError("Only questions under review can be rejected.")
         question.validation_status = QuestionWorkflowStatus.REJECTED.value
         version = await self.get_current_version(question_id)
@@ -285,7 +297,7 @@ class QuestionAuthoringService:
         question = await self.session.get(Question, question_id)
         if question is None:
             raise ValueError("Question not found.")
-        if question.validation_status != QuestionWorkflowStatus.APPROVED.value:
+        if self._normalize_status(question.validation_status) != QuestionWorkflowStatus.APPROVED.value:
             raise ValueError("Only approved questions can be published.")
 
         version = await self.get_current_version(question_id)

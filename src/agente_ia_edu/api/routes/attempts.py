@@ -213,6 +213,14 @@ async def start_attempt(
         )
         assignment.status = "IN_PROGRESS"
         await session.commit()
+        # session.commit() expires every ORM object loaded in this session
+        # (expire_on_commit=True, the sessionmaker default - see db/session.py).
+        # Re-fetch before building the response or the next attribute access
+        # does a synchronous lazy-load that raises MissingGreenlet against a
+        # real async Postgres driver (invisible on the SQLite test suite).
+        await session.refresh(attempt)
+        await session.refresh(assignment)
+        await session.refresh(publication)
 
         return AttemptStartResponse(
             id=attempt.id,
@@ -382,6 +390,8 @@ async def save_answer(
             answer.updated_at = datetime.now(timezone.utc)
 
         await session.commit()
+        # same MissingGreenlet pattern as start_attempt above - refresh before reading.
+        await session.refresh(answer)
 
         return AttemptAnswerSaveResponse(
             assessment_item_id=answer.assessment_item_id,
@@ -516,6 +526,8 @@ async def submit_attempt(
             assignment.status = "COMPLETED"
             assignment.completed_at = submitted_at
         await session.commit()
+        # same MissingGreenlet pattern as start_attempt above - refresh before reading.
+        await session.refresh(attempt)
 
         return AttemptSubmitResponse(
             id=attempt.id,

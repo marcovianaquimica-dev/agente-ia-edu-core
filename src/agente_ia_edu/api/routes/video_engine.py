@@ -39,18 +39,21 @@ async def record_video_event(
 
     async with session_factory() as session:
         tracking_service = ResourceTrackingService(session)
-        result = await tracking_service.record_interaction(
-            student_id=student_id,
-            resource_id=request.resource_id,
-            action_type=request.event_type,
-            recommendation_id=request.recommendation_id,
-            content_node_id=request.content_node_id,
-            progress_percentage=request.progress_percentage,
-            feedback_type=request.feedback_type,
-            feedback_reason=request.feedback_reason,
-            event_id=request.event_id,
-            metadata=request.metadata,
-        )
+        try:
+            result = await tracking_service.record_interaction(
+                student_id=student_id,
+                resource_id=request.resource_id,
+                action_type=request.event_type,
+                recommendation_id=request.recommendation_id,
+                content_node_id=request.content_node_id,
+                progress_percentage=request.progress_percentage,
+                feedback_type=request.feedback_type,
+                feedback_reason=request.feedback_reason,
+                event_id=request.event_id,
+                metadata=request.metadata,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return result
 
 
@@ -69,15 +72,18 @@ async def record_video_feedback(
 
     async with session_factory() as session:
         tracking_service = ResourceTrackingService(session)
-        result = await tracking_service.record_interaction(
-            student_id=student_id,
-            resource_id=request.resource_id,
-            action_type="FEEDBACK",
-            recommendation_id=request.recommendation_id,
-            content_node_id=request.content_node_id,
-            feedback_type=request.feedback_type,
-            feedback_reason=request.feedback_reason,
-        )
+        try:
+            result = await tracking_service.record_interaction(
+                student_id=student_id,
+                resource_id=request.resource_id,
+                action_type="FEEDBACK",
+                recommendation_id=request.recommendation_id,
+                content_node_id=request.content_node_id,
+                feedback_type=request.feedback_type,
+                feedback_reason=request.feedback_reason,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return result
 
 
