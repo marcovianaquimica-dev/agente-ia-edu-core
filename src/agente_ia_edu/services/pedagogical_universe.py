@@ -25,6 +25,7 @@ class PedagogicalUniverseService:
         await self.session.flush()
         await self._audit(performed_by_external_id, "PEDAGOGICAL_UNIVERSE_CREATED", universe, {"external_id": universe.external_id})
         await self.session.commit()
+        await self.session.refresh(universe)
         return universe
 
     async def update_configuration(self, *, universe_id: uuid.UUID, configuration: dict, configuration_version: str, performed_by_external_id: str) -> PedagogicalUniverse:
@@ -37,6 +38,7 @@ class PedagogicalUniverseService:
         universe.updated_at = datetime.now(timezone.utc)
         await self._audit(performed_by_external_id, "PEDAGOGICAL_UNIVERSE_CONFIGURATION_UPDATED", universe, {"previous": previous, "current": {"configuration_version": configuration_version, "configuration": configuration}})
         await self.session.commit()
+        await self.session.refresh(universe)
         return universe
 
     async def add_catalog_scope(self, *, universe_id: uuid.UUID, catalog_node_id: uuid.UUID, scope_kind: str, include_descendants: bool = True) -> PedagogicalUniverseCatalogScope:
@@ -46,6 +48,7 @@ class PedagogicalUniverseService:
         scope = PedagogicalUniverseCatalogScope(universe_id=universe_id, catalog_node_id=catalog_node_id, scope_kind=scope_kind.upper(), include_descendants=include_descendants)
         self.session.add(scope)
         await self.session.commit()
+        await self.session.refresh(scope)
         return scope
 
     async def list_catalog_scopes(self, universe_id: uuid.UUID) -> list[PedagogicalUniverseCatalogScope]:
@@ -58,6 +61,7 @@ class PedagogicalUniverseService:
         scope = PedagogicalUniverseAcademicScope(universe_id=universe_id, segment=segment, grade_level=grade_level, unit_id=unit_id)
         self.session.add(scope)
         await self.session.commit()
+        await self.session.refresh(scope)
         return scope
 
     async def bind(self, *, universe_id: uuid.UUID, subject_type: str, subject_external_id: str, priority: int = 0) -> PedagogicalUniverseBinding:
@@ -65,6 +69,7 @@ class PedagogicalUniverseService:
         binding = PedagogicalUniverseBinding(universe_id=universe_id, subject_type=subject_type.upper(), subject_external_id=subject_external_id, priority=priority)
         self.session.add(binding)
         await self.session.commit()
+        await self.session.refresh(binding)
         return binding
 
     async def list_universes(self) -> list[PedagogicalUniverse]:
@@ -80,6 +85,7 @@ class PedagogicalUniverseService:
         universe.updated_at = datetime.now(timezone.utc)
         await self._audit(performed_by_external_id, "PEDAGOGICAL_UNIVERSE_STATUS_UPDATED", universe, {"previous": previous, "current": target})
         await self.session.commit()
+        await self.session.refresh(universe)
         return universe
 
     async def remove_catalog_scope(self, *, scope_id: uuid.UUID, performed_by_external_id: str) -> None:

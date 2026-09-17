@@ -292,7 +292,7 @@ class StudySessionPlanner:
                 extra={"material_count": int(avail.get("material_count") or 0),
                        "material_id": avail.get("material_id"),
                        "material_title": avail.get("material_title"),
-                       "reason": f"Construção de base em {c.name} (estado {c.state})."}))
+                       "reason": f"Construção de base em {c.name}."}))
 
         practice_m = int(round(raw[BLOCK_PRACTICE]))
         if practice_m >= pol.minutes_per_question:

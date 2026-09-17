@@ -85,7 +85,9 @@ async def _load_question_for_manage(
     identity: ExternalIdentityContext,
     question_id: UUID,
 ) -> tuple[Question, object]:
-    question = await session.get(Question, question_id)
+    question = await session.get(
+        Question, question_id, options=[selectinload(Question.versions)]
+    )
     if question is None:
         raise HTTPException(status_code=404, detail="Question not found")
 
@@ -384,6 +386,8 @@ async def create_question_authoring(
 
         question.updated_at = datetime.now(timezone.utc)
         await session.commit()
+        await session.refresh(question)
+        await session.refresh(version)
         return QuestionAuthoringResponse(
             question_id=question.id,
             version_id=version.id,
@@ -404,9 +408,14 @@ async def create_question_version(
         if latest is None:
             raise HTTPException(status_code=404, detail="Question has no official version to revise")
 
+        # version_kind="official_original" is at most one row per question
+        # (uq_question_versions_official_original) - a revision is its own
+        # kind, chained off the official version via parent_version_id, the
+        # same convention question_modification_proposals.py uses for a
+        # teacher-authored edit of a question.
         version = QuestionVersion(
             question_id=question.id,
-            version_kind="official_original",
+            version_kind="teacher_modification",
             parent_version_id=latest.id,
             canonical_text=(request.statement or "").strip(),
             statement=(request.statement or "").strip(),
@@ -439,6 +448,8 @@ async def create_question_version(
 
         question.updated_at = datetime.now(timezone.utc)
         await session.commit()
+        await session.refresh(question)
+        await session.refresh(version)
         return QuestionAuthoringResponse(
             question_id=question.id,
             version_id=version.id,
@@ -483,6 +494,8 @@ async def transition_question_status(
             session.add(approval)
 
         await session.commit()
+        await session.refresh(record)
+        await session.refresh(question)
         return QuestionStatusTransitionResponse(
             id=record.id,
             question_id=question.id,
@@ -533,6 +546,8 @@ async def question_approval(
         )
         session.add(approval)
         await session.commit()
+        await session.refresh(approval)
+        await session.refresh(question)
         return QuestionApprovalResponse(
             id=approval.id,
             question_id=question.id,

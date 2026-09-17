@@ -204,6 +204,8 @@ async def create_teacher_material(
         )
         session.add(version)
         await session.commit()
+        await session.refresh(material)
+        await session.refresh(version)
         return await _material_response(session, material, version)
 
 
@@ -341,7 +343,11 @@ async def add_teacher_material_item(
         )
         session.add(item)
         await session.commit()
+        await session.refresh(item)
         question, content = candidate
+        await session.refresh(question)
+        await session.refresh(question, attribute_names=["options"])
+        await session.refresh(content)
         return _question_response(item_id=item.id, position=item.position, question=question, content=content)
 
 
@@ -395,4 +401,6 @@ async def reorder_teacher_material_items(
         for position, item_id in enumerate(payload.item_ids, start=1):
             by_id[item_id].position = position
         await session.commit()
+        await session.refresh(material)
+        await session.refresh(version)
         return await _material_response(session, material, version)

@@ -377,14 +377,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const checkedIds = new Set(allIds.filter((id) => id !== nodeId || checked));
         state.schoolUniverse = await ensureSchoolUniverse(allIds, checkedIds);
       } else if (checked) {
-        await fetch(`${API}/pedagogical-universes/${state.schoolUniverse.id}/catalog-scopes`, {
+        const res = await fetch(`${API}/pedagogical-universes/${state.schoolUniverse.id}/catalog-scopes`, {
           method: 'POST', headers: authHeaders(),
           body: JSON.stringify({ catalog_node_id: nodeId, scope_kind: 'DISCIPLINE', include_descendants: true }),
         });
+        if (!res.ok) throw new Error(await errorDetail(res));
       } else {
         const scope = state.schoolUniverseScopes.find((sc) => sc.catalog_node_id === nodeId);
         if (scope) {
-          await fetch(`${API}/pedagogical-universes/catalog-scopes/${scope.id}`, { method: 'DELETE', headers: authHeaders() });
+          const res = await fetch(`${API}/pedagogical-universes/catalog-scopes/${scope.id}`, { method: 'DELETE', headers: authHeaders() });
+          if (!res.ok) throw new Error(await errorDetail(res));
         }
       }
       const scopeRes = await fetch(`${API}/pedagogical-universes/${state.schoolUniverse.id}/catalog-scopes`, { headers: authHeaders() });

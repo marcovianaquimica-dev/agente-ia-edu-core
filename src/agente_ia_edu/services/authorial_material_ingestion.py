@@ -147,6 +147,10 @@ class AuthorialMaterialIngestionService:
             parsed_override=parsed,
             document_type_override=None if filepath.suffix.lower() in (".docx", ".pdf") else "OTHER",
         )
+        # ingest_document() commits internally, expiring `doc` - every
+        # attribute below (id, title, filename, ...) would otherwise trigger
+        # a lazy sync reload that crashes in this async context.
+        await self._session.refresh(doc)
 
         # PHASE 26 (ESTENDER, additive): populate the new content_text column
         # with the full extracted body - ingest_document() itself is
@@ -191,6 +195,7 @@ class AuthorialMaterialIngestionService:
         )
         self._session.add(review)
         await self._session.commit()
+        await self._session.refresh(review)
         return review, True
 
     async def _review_for_document(self, document_id: UUID) -> IngestionMaterialReview | None:
@@ -281,6 +286,7 @@ class AuthorialMaterialIngestionService:
         review.reviewed_by_external_identity = reviewed_by
         review.reviewed_at = datetime.now(timezone.utc)
         await self._session.commit()
+        await self._session.refresh(review)
         return review
 
     # ------------------------------------------------------------------
@@ -299,6 +305,7 @@ class AuthorialMaterialIngestionService:
         review.reviewed_by_external_identity = reviewed_by
         review.reviewed_at = datetime.now(timezone.utc)
         await self._session.commit()
+        await self._session.refresh(review)
         return review
 
     async def reject(self, review_id: UUID, *, reviewed_by: str, reason: str | None = None) -> IngestionMaterialReview:
@@ -309,6 +316,7 @@ class AuthorialMaterialIngestionService:
         if reason:
             review.notes = reason
         await self._session.commit()
+        await self._session.refresh(review)
         return review
 
     # ------------------------------------------------------------------
@@ -418,6 +426,7 @@ class AuthorialMaterialIngestionService:
         review.reviewed_by_external_identity = published_by
         review.reviewed_at = datetime.now(timezone.utc)
         await self._session.commit()
+        await self._session.refresh(review)
         return review
 
 

@@ -344,6 +344,7 @@ async def create_discipline(
             metadata=request.metadata,
         )
         await session.commit()
+        await session.refresh(node)
         return _node_to_response(node)
 
 
@@ -392,6 +393,7 @@ async def create_content_node(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         await session.commit()
+        await session.refresh(node)
         return _node_to_response(node)
 
 
@@ -476,6 +478,7 @@ async def create_resource(
             metadata=request.metadata,
         )
         await session.commit()
+        await session.refresh(resource)
         return _resource_to_response(resource)
 
 
@@ -645,6 +648,7 @@ async def create_content_resource_link(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         await session.commit()
+        await session.refresh(link)
         return _link_to_response(link)
 
 
@@ -1441,6 +1445,7 @@ async def create_resource_grant(
             grantee_external_id=request.grantee_external_id,
         )
         await session.commit()
+        await session.refresh(grant)
         return ResourceAccessGrantResponse(
             id=grant.id,
             resource_id=grant.resource_id,
