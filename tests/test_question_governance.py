@@ -116,6 +116,42 @@ class TestQuestionGovernancePhase2(unittest.TestCase):
         allowed = QuestionAuthorizationService.can_view_question(context, question)
         self.assertTrue(allowed)
 
+    def test_authorization_service_does_not_crash_on_classroom_question_with_no_metadata(self):
+        """Regression test for a real bug found auditing question_governance.py:
+        can_view_question's CLASSROOM branch (TEACHER and STUDENT roles) did
+        ``question.metadata_.get("classroom_id")`` guarded only by
+        ``hasattr(question, "metadata_")`` - which is always True for a mapped
+        column regardless of its value. Question.metadata_ is nullable with no
+        default (db/models/official.py), so any CLASSROOM-visibility question
+        created without an explicit metadata_ dict (e.g. via
+        ``Question(validation_status="extracted")`` as ingestion_classifier.py
+        does) has metadata_=None, and this raised
+        ``AttributeError: 'NoneType' object has no attribute 'get'`` -
+        uncaught by routes/questions.py's list/detail/eligibility endpoints,
+        turning a routine visibility check into a 500. This reproduces on
+        SQLite/plain objects (no DB needed), unlike the MissingGreenlet class
+        of bugs in this session."""
+        school_id = uuid4()
+        question = Question(
+            id=uuid4(),
+            school_id=school_id,
+            visibility_scope="CLASSROOM",
+            status="PUBLISHED",
+            metadata_=None,
+        )
+        for role in ("TEACHER", "STUDENT"):
+            context = AuthenticatedUserContext(
+                user_id="u-1",
+                external_identity_id="u-1",
+                role=role,
+                school_id=str(school_id),
+                scope_type="CLASSROOM",
+                scope_external_id="CLASS-9",
+            )
+            # Must not raise, and must deny (no classroom_id in metadata to match).
+            allowed = QuestionAuthorizationService.can_view_question(context, question)
+            self.assertFalse(allowed)
+
 
 if __name__ == "__main__":
     unittest.main()

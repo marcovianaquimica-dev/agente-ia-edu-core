@@ -384,6 +384,15 @@ class PracticeSessionService:
 
         await self.mark_completed(session, practice_session)
         await session.commit()
+        # PHASE 30-style MissingGreenlet fix: session.commit() expires
+        # practice_session (expire_on_commit=True is the app's real default -
+        # see db/session.py); any attribute access by the caller right after
+        # this return (e.g. building an API response) would otherwise try a
+        # sync lazy-load in an async context and blow up with
+        # sqlalchemy.exc.MissingGreenlet. Invisible under the test suite's
+        # SQLite sessions (created with expire_on_commit=False) - only
+        # reproduces live against real Postgres. Refresh before returning.
+        await session.refresh(practice_session)
         return practice_session
 
     async def mark_abandoned(

@@ -214,7 +214,7 @@ class QuestionAuthorizationService:
                 return True
             if question.visibility_scope == "CLASSROOM":
                 return context.scope_external_id == question.visibility_scope or (
-                    hasattr(question, "metadata_") and question.metadata_.get("classroom_id") == context.scope_external_id
+                    (question.metadata_ or {}).get("classroom_id") == context.scope_external_id
                 )
             return False
 
@@ -224,7 +224,7 @@ class QuestionAuthorizationService:
                 return True
             if question.visibility_scope == "CLASSROOM":
                 return context.scope_external_id == question.visibility_scope or (
-                    hasattr(question, "metadata_") and question.metadata_.get("classroom_id") == context.scope_external_id
+                    (question.metadata_ or {}).get("classroom_id") == context.scope_external_id
                 )
             return False
 

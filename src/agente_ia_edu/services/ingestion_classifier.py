@@ -219,6 +219,17 @@ class IngestionClassificationService:
                 continue
 
         await self.session.commit()
+        # The commit above expires every ORM object already loaded in this
+        # session (expire_on_commit=True in production - see db/session.py),
+        # including every item in `classifications` - both the ones just
+        # created via `self.session.add(...)` above and any `existing` rows
+        # fetched earlier in the loop and appended as-is. Any caller that
+        # reads an attribute off these objects after this method returns
+        # (e.g. to build an API response) would hit MissingGreenlet against
+        # real Postgres; this is invisible under the test suite's SQLite
+        # fixtures, which set expire_on_commit=False.
+        for classification in classifications:
+            await self.session.refresh(classification)
         return classifications
 
     async def _ensure_question_version(

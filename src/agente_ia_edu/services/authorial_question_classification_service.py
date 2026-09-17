@@ -379,6 +379,12 @@ class AuthorialQuestionClassificationService:
         self.session.add(new)
         await self.session.commit()
         await self.session.refresh(new)
+        if old is not None:
+            # `old` was loaded (and mutated in-place) before the commit above,
+            # which expires every object in the session - refresh it too,
+            # otherwise the snapshot below hits the same expired-attribute
+            # MissingGreenlet against real Postgres.
+            await self.session.refresh(old)
         await self._record_review_event(
             new, action="MANUAL_CLASSIFY", actor=actor, actor_type=actor_type,
             previous_value=self._snapshot(old), new_value=self._snapshot(new), reason=reason)
@@ -456,6 +462,14 @@ class AuthorialQuestionClassificationService:
         )
         self.session.add(event)
         await self.session.commit()
+        # This commit expires every ORM object already loaded in the session
+        # (expire_on_commit=True in production - see db/session.py), including
+        # `record`, which every caller of this method returns to its route
+        # for response serialization right after. Without this refresh, the
+        # very next attribute access on that returned object raises
+        # MissingGreenlet against real Postgres (invisible under the test
+        # suite's SQLite fixtures, which set expire_on_commit=False).
+        await self.session.refresh(record)
 
     @staticmethod
     def _snapshot(record: PedagogicalClassification | None) -> dict | None:
