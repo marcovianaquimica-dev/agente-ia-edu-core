@@ -875,13 +875,13 @@ class CatalogApiTests(unittest.TestCase):
         discipline_resp = self.client.post(
             "/api/v1/catalog/disciplines",
             json={"name": "Quimica Materiais", "node_type": "DISCIPLINE"},
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         discipline_id = discipline_resp.json()["id"]
         content_resp = self.client.post(
             "/api/v1/catalog/nodes",
             json={"name": "Soluções e Concentração", "node_type": "CONTENT", "parent_id": discipline_id},
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         content_id = content_resp.json()["id"]
 
