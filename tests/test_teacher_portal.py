@@ -544,6 +544,30 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(students, ["student-school-scoped-e"])
 
+    async def test_fetch_students_in_classrooms_includes_platform_scoped_student(self):
+        """verify_student_access already authorizes a teacher to see a
+        PLATFORM-scoped student (same as SCHOOL-scoped); the aggregate query
+        must include them too, not just the individual-lookup path."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_F", name="Escola F Scope")
+            session.add(school_a)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-platform-scoped-f",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.PLATFORM,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            portal = TeacherPortalService(session, None, None, None)
+            students = await portal._fetch_students_in_classrooms(school_a.id, ["TURMA_F1"])
+
+        self.assertEqual(students, ["student-platform-scoped-f"])
+
 
 if __name__ == "__main__":
     unittest.main()
