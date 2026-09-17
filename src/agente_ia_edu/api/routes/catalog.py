@@ -461,6 +461,14 @@ async def create_resource(
     session_factory=Depends(get_session_factory),
 ) -> EducationalResourceResponse:
     async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        role_check = await authz.require_role(context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+        if not role_check.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Creating a resource requires a teacher, coordinator, director, or platform admin role.",
+            )
         service = EducationalResourceService()
         resource = await service.create_resource(
             session,
@@ -660,14 +668,28 @@ async def create_content_resource_link(
 )
 async def get_resources_for_content(
     content_node_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> ContentResourcesResponse:
     async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        school_context_id = str(context.school_id) if context.school_id is not None else None
         query_service = ContentCatalogQueryService()
         links = await query_service.get_resources_for_content(session, content_node_id)
+        visible_links = []
+        for link in links:
+            resource = await session.get(EducationalResource, link.resource_id)
+            if resource is not None and KnowledgeService._is_resource_visible(
+                resource,
+                school_context_id,
+                requester_scope_type=context.scope_type,
+                requester_scope_external_id=context.scope_external_id,
+            ):
+                visible_links.append(link)
         return ContentResourcesResponse(
             content_node_id=content_node_id,
-            links=[_link_to_response(link) for link in links],
+            links=[_link_to_response(link) for link in visible_links],
         )
 
 

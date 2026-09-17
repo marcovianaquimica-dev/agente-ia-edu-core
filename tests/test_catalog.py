@@ -20,6 +20,7 @@ from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
     AdminAuditLog,
     CatalogNode,
+    ContentResourceLink,
     EducationalResource,
     Question,
     QuestionVersion,
@@ -811,7 +812,7 @@ class CatalogApiTests(unittest.TestCase):
                 "resource_type": "VIDEO",
                 "origin_type": "PLATFORM",
             },
-            headers=_auth("teacher1"),
+            headers=_admin_auth(),
         )
         self.assertEqual(resource_resp.status_code, 201)
         resource_id = resource_resp.json()["id"]
@@ -1094,6 +1095,64 @@ class CatalogApiTests(unittest.TestCase):
             headers={"Authorization": "Bearer student:alice3"},
         )
         self.assertEqual(blocked.status_code, 403)
+
+    def test_create_resource_denies_student(self):
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={"title": "Recurso indevido", "resource_type": "VIDEO", "origin_type": "PLATFORM"},
+            headers={"Authorization": "Bearer student:carlos"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_get_resources_for_content_filters_out_invisible_resource(self):
+        async def _seed():
+            async with self.session_factory() as session:
+                school_a = School(code="A4", name="Escola A4")
+                school_b = School(code="B4", name="Escola B4")
+                session.add_all([school_a, school_b])
+                await session.flush()
+
+                session.add(UserSchoolLink(
+                    external_user_id="dana4",
+                    school_id=school_a.id,
+                    role="STUDENT",
+                    scope_type="SCHOOL",
+                    active=True,
+                ))
+
+                content = CatalogNode(node_type="DISCIPLINE", name="Física GRFC")
+                session.add(content)
+                await session.flush()
+
+                visible_resource = EducationalResource(
+                    title="Vídeo público", resource_type="VIDEO",
+                    origin_type="PLATFORM", visibility_scope="PUBLIC", status="active",
+                )
+                hidden_resource = EducationalResource(
+                    title="Material privado da escola B", resource_type="THEORY_MATERIAL",
+                    origin_type="SCHOOL", owner_external_id=str(school_b.id),
+                    visibility_scope="PRIVATE", status="active",
+                )
+                session.add_all([visible_resource, hidden_resource])
+                await session.flush()
+
+                session.add_all([
+                    ContentResourceLink(content_node_id=content.id, resource_id=visible_resource.id, pedagogical_role="VIDEO"),
+                    ContentResourceLink(content_node_id=content.id, resource_id=hidden_resource.id, pedagogical_role="THEORY"),
+                ])
+                await session.commit()
+                return content.id, visible_resource.id
+
+        import asyncio
+        content_id, visible_id = asyncio.run(_seed())
+
+        resp = self.client.get(
+            f"/api/v1/catalog/nodes/{content_id}/resources",
+            headers={"Authorization": "Bearer student:dana4"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        resource_ids = {link["resource_id"] for link in resp.json()["links"]}
+        self.assertEqual(resource_ids, {str(visible_id)})
 
     def test_material_history_records_valid_editorial_events(self):
         material_resp = self.client.post(
