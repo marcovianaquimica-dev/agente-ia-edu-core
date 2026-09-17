@@ -685,7 +685,7 @@ class TeacherPortalService:
                 UserSchoolLink.active.is_(True),
                 or_(
                     UserSchoolLink.scope_external_id.in_(classrooms),
-                    UserSchoolLink.scope_type == AdminScopeType.SCHOOL,
+                    UserSchoolLink.scope_type.in_((AdminScopeType.SCHOOL, AdminScopeType.PLATFORM)),
                 ),
             )
             .distinct()
