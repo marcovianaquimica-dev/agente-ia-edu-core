@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import get_current_identity, get_session_factory
+from .admin import require_platform_admin
 from ..schemas.discovery import (
     ExternalVideoCandidateResponse,
     VideoCandidateConvertRequest,
@@ -33,7 +34,7 @@ discovery_router = APIRouter(
 )
 async def discover_videos(
     request: VideoDiscoveryRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
     session_factory=Depends(get_session_factory),
 ):
     async with session_factory() as session:
@@ -76,7 +77,7 @@ async def discover_videos(
 )
 async def review_candidate(
     request: VideoCandidateReviewRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
     session_factory=Depends(get_session_factory),
 ):
     async with session_factory() as session:
@@ -111,7 +112,7 @@ async def review_candidate(
 )
 async def convert_candidate(
     request: VideoCandidateConvertRequest,
-    identity: ExternalIdentityContext = Depends(get_current_identity),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
     session_factory=Depends(get_session_factory),
 ):
     async with session_factory() as session:
