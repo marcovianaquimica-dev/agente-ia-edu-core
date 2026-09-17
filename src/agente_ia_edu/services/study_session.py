@@ -539,7 +539,17 @@ class StudySessionService:
                                    target_id: str) -> list[str]:
         tt = (target_type or "CLASSROOM").upper()
         if tt == "STUDENT":
-            return [str(target_id)]
+            # target_id alone proves nothing - without a real UserSchoolLink
+            # membership check, a coordinator scoped to school_id could write
+            # a StudySession for any student in any other school.
+            rows = (await self._session.execute(
+                select(UserSchoolLink.external_user_id).where(
+                    UserSchoolLink.school_id == UUID(str(school_id)),
+                    UserSchoolLink.external_user_id == str(target_id),
+                    UserSchoolLink.role == "STUDENT",
+                    UserSchoolLink.active.is_(True),
+                ))).scalars().all()
+            return list(rows)
         rows = (await self._session.execute(
             select(UserSchoolLink.external_user_id).where(
                 UserSchoolLink.school_id == UUID(str(school_id)),

@@ -36,6 +36,7 @@ from agente_ia_edu.db.models import (
 )
 from agente_ia_edu.db.models.admin import School, UserSchoolLink
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
+from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.study_session import StudySessionService
 from agente_ia_edu.services.study_session_planner import StudySessionPlanner, StudySessionPlanPolicy
 
@@ -619,6 +620,75 @@ class Phase24Tests(unittest.TestCase):
         self._create_free("s_final", available_minutes=30)
         after = self.loop.run_until_complete(_counts())
         self.assertEqual(before, after)
+
+
+class StudentTargetCrossSchoolTests(unittest.IsolatedAsyncioTestCase):
+    """_students_for_target's STUDENT branch used to return target_id verbatim,
+    with no UserSchoolLink membership check - a coordinator scoped to
+    school_id could write a StudySession for a student belonging to a
+    completely different school."""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:", echo=False, poolclass=StaticPool
+        )
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.session_factory = async_sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=False
+        )
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def test_student_target_denies_student_of_another_school(self):
+        async with self.session_factory() as session:
+            school_a = School(id=_uuid.uuid4(), code="SCH-CROSS-A", name="school-a")
+            school_b = School(id=_uuid.uuid4(), code="SCH-CROSS-B", name="school-b")
+            session.add_all([school_a, school_b])
+            await session.commit()
+
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="student-of-school-b",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school_b.id,
+                scope_external_id="TURMA-B1",
+            )
+            await session.commit()
+
+            svc = StudySessionService(session)
+            students = await svc._students_for_target(
+                str(school_a.id), "STUDENT", "student-of-school-b"
+            )
+
+        self.assertEqual(students, [])
+
+    async def test_student_target_allows_student_of_same_school(self):
+        async with self.session_factory() as session:
+            school_a = School(id=_uuid.uuid4(), code="SCH-CROSS-C", name="school-a")
+            session.add(school_a)
+            await session.commit()
+
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="student-of-school-a",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school_a.id,
+                scope_external_id="TURMA-A1",
+            )
+            await session.commit()
+
+            svc = StudySessionService(session)
+            students = await svc._students_for_target(
+                str(school_a.id), "STUDENT", "student-of-school-a"
+            )
+
+        self.assertEqual(students, ["student-of-school-a"])
 
 
 if __name__ == "__main__":
