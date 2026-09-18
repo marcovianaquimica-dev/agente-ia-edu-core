@@ -23,7 +23,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .assets import AssetAssociation, associate_assets, unassociated_images
-from .boundary import ExtractedQuestionDraft, QuestionBoundary, classify_and_extract, cut_at_answer_key, detect_boundaries
+from .boundary import (
+    ExtractedQuestionDraft,
+    QuestionBoundary,
+    classify_and_extract,
+    cut_at_answer_key,
+    detect_boundaries,
+    extract_resolutions_by_question,
+)
 from .reconstruction import reconstruct_question, review_reasons_for
 from .structure import DocumentStructure, PageImage, TextLine, extract_structure
 from .validation import CONFIDENCE_REVIEW_THRESHOLD, ValidationReport, review_status_for, validate
@@ -42,6 +49,14 @@ class ExtractedQuestionResult:
     reconstructed_text: str = ""
     reconstruction_applied: bool = False
     review_reasons: list[str] = field(default_factory=list)
+    # PHASE 31 (additive) - the source PDF's own "Resolução" section text
+    # for this question number, ONLY when extract_resolutions_by_question()
+    # could segment it unambiguously. None/"NONE" for practically every
+    # question in the current real corpus (spec: no ENEM pilot PDF has a
+    # resolution section at all) - a forward-compatible capture path, never
+    # invented.
+    resolution_raw_text: str | None = None
+    resolution_status: str = "NONE"
 
 
 @dataclass
@@ -152,6 +167,11 @@ def _extract_questions_single_pass(
     structure = extract_structure(pdf_path, use_column_detection=use_column_detection)
     full_text = structure.text()
     main_text, cut_offset = cut_at_answer_key(full_text)
+    # PHASE 31 (additive) - never affects boundary detection/classification
+    # above (unchanged, still runs over main_text alone); this only ever
+    # ADDS resolution_raw_text/resolution_status onto a result below, and
+    # only for a number that also has a real detected question.
+    resolutions_by_number = extract_resolutions_by_question(full_text, cut_offset)
 
     boundaries = detect_boundaries(main_text)
     drafts = [classify_and_extract(b, main_text) for b in boundaries]
@@ -194,10 +214,13 @@ def _extract_questions_single_pass(
             draft.flags.add("column_reconstructed")
 
         reconstructions[draft.number] = recon
+        resolution_text = resolutions_by_number.get(draft.number)
         results.append(ExtractedQuestionResult(
             draft=draft, source_page_start=page_start, source_page_end=page_end,
             cross_page=cross_page, reconstructed_text=recon.reconstructed_text,
             reconstruction_applied=recon.reconstruction_applied,
+            resolution_raw_text=resolution_text,
+            resolution_status="PENDING_REVIEW" if resolution_text else "NONE",
         ))
 
     asset_map = associate_assets(structure, question_lines)

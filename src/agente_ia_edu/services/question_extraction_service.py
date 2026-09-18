@@ -192,6 +192,15 @@ class QuestionExtractionService:
                 flags=sorted(q.draft.flags) or None, review_status=q.review_status,
                 source_page_start=q.source_page_start, source_page_end=q.source_page_end,
                 cross_page=q.cross_page, school_id=school_id,
+                # PHASE 31 (additive) - captured by
+                # extract_resolutions_by_question() and wired onto the
+                # engine result; "NONE"/None for practically every question
+                # in the current real corpus (no ENEM pilot PDF has a
+                # resolution section), explicit here rather than relying
+                # only on the model's own default so the persisted row
+                # always reflects THIS run's actual finding.
+                resolution_raw_text=q.resolution_raw_text,
+                resolution_status=q.resolution_status,
             ))
         self._session.add_all(question_rows)
         await self._session.flush()  # one flush for every question - not per-row
@@ -225,6 +234,12 @@ class QuestionExtractionService:
         if asset_rows:
             self._session.add_all(asset_rows)
         await self._session.commit()
+        # commit expires every attribute (incl. PK, on the real session -
+        # expire_on_commit=True) and the route (run_extraction handler)
+        # reads run.id right after this call returns with no intervening
+        # await, then serialises run via _run_to_dict - both would raise
+        # MissingGreenlet without this refresh.
+        await self._session.refresh(run)
         return run, True
 
     # ------------------------------------------------------------------
@@ -370,6 +385,16 @@ class QuestionExtractionService:
         question.review_status = "IN_REVIEW"
         question.reviewed_by_external_identity = reviewer
         await self._session.commit()
+        # commit expires every attribute (incl. scalar columns and PK - the
+        # real Postgres/production session has expire_on_commit=True) - the
+        # caller (route) builds its response dict right after this returns,
+        # with no further await in between, so a bare attribute access would
+        # raise MissingGreenlet. refresh(attribute_names=[...]) reloads ONLY
+        # the names given (NOT scalars too) - a bare refresh() call for
+        # scalars, then a second call for the relationships the route's
+        # _question_to_dict(with_options=True, with_assets=True) reads.
+        await self._session.refresh(question)
+        await self._session.refresh(question, attribute_names=["options", "assets"])
         return question
 
     async def update_question(
@@ -421,12 +446,18 @@ class QuestionExtractionService:
             question.review_status = "VALIDATED"
         question.reviewed_by_external_identity = reviewed_by
         await self._session.commit()
-        if options is not None:
-            # the ORM's in-memory ``options`` collection was loaded (via
-            # get_question's selectinload) BEFORE this replace - refresh it
-            # so callers reading question.options see the new set, not a
-            # stale snapshot from before the edit.
-            await self._session.refresh(question, attribute_names=["options"])
+        # commit expires every attribute (scalars included - production runs
+        # with expire_on_commit=True) and the route builds its response dict
+        # right after this returns, with no further await in between - a
+        # bare attribute access would raise MissingGreenlet. refresh(
+        # attribute_names=[...]) reloads ONLY the names given (not scalars
+        # too), so a bare refresh() first for scalars, then a second call
+        # for the relationships the route's _question_to_dict(with_options=
+        # True, with_assets=True) reads (options is reloaded unconditionally
+        # too, since get_question's earlier selectinload is stale either way
+        # once this method has run at all).
+        await self._session.refresh(question)
+        await self._session.refresh(question, attribute_names=["options", "assets"])
         return question
 
     def _approval_blockers(
@@ -474,6 +505,10 @@ class QuestionExtractionService:
         question.review_status = "APPROVED"
         question.reviewed_by_external_identity = reviewed_by
         await self._session.commit()
+        # see start_review's comment - commit expires scalars too (real
+        # session has expire_on_commit=True) and the route reads them right
+        # after this returns with no intervening await.
+        await self._session.refresh(question)
         return question
 
     async def reject_question(
@@ -492,6 +527,101 @@ class QuestionExtractionService:
         if notes:
             question.notes = notes
         await self._session.commit()
+        # see start_review's comment.
+        await self._session.refresh(question)
+        return question
+
+    # ------------------------------------------------------------------
+    # PHASE 31 - RESOLUTION REVIEW (spec: step-by-step resolution capture).
+    # resolution_status is INDEPENDENT of review_status - a question can be
+    # APPROVED with its resolution still PENDING_REVIEW or entirely absent
+    # (NONE). This mirrors the statement's edit/approve/reject pattern
+    # (update_question/approve_question/reject_question above) as its own,
+    # parallel state machine: NONE|PENDING_REVIEW|REJECTED -> PENDING_REVIEW
+    # (edit) -> APPROVED|REJECTED. Unlike the statement's TERMINAL_STATUSES
+    # gate, there is no blanket "can't edit a REJECTED/APPROVED resolution"
+    # rule: a reviewer fixing a mistake (including one caught AFTER
+    # approval) is expected and always reopens review - see update_resolution.
+    # ------------------------------------------------------------------
+    async def update_resolution(
+        self, question_id: UUID, *, resolution_reviewed_text: str, reviewed_by: str,
+    ) -> ExtractedQuestion:
+        """Edits the human-reviewed resolution text. Design decision: ANY
+        edit (whatever the current resolution_status - NONE, PENDING_REVIEW,
+        APPROVED, or REJECTED) moves resolution_status to PENDING_REVIEW.
+        Unlike update_question (which only forwards REVIEW_REQUIRED/
+        IN_REVIEW -> VALIDATED and leaves an already-APPROVED question
+        untouched by a later edit), an APPROVED resolution is a certification
+        that the *current* resolution_reviewed_text was checked - editing it
+        invalidates that certification, so it must go back through review
+        rather than silently keep an APPROVED label on unreviewed text.
+        Never touches resolution_raw_text (spec: raw capture vs. human
+        review are always kept separate, same discipline as raw_text/
+        reviewed_text for the statement)."""
+        question = await self.get_question(question_id)
+        from_resolution_status = question.resolution_status
+        question.resolution_reviewed_text = resolution_reviewed_text
+        question.resolution_status = "PENDING_REVIEW"
+        record_review_event(
+            question, event="RESOLUTION_TEXT_EDIT", actor=reviewed_by,
+            detail={"length": len(resolution_reviewed_text),
+                    "from_resolution_status": from_resolution_status,
+                    "to_resolution_status": "PENDING_REVIEW"},
+        )
+        await self._session.commit()
+        # see start_review's comment - commit expires scalars too (real
+        # session has expire_on_commit=True) and the route reads them right
+        # after this returns with no intervening await.
+        await self._session.refresh(question)
+        return question
+
+    async def approve_resolution(self, question_id: UUID, *, reviewed_by: str) -> ExtractedQuestion:
+        """Validation: never approve an empty/absent resolution (mirrors
+        _approval_blockers's empty-statement check). Falls back to
+        resolution_raw_text when no human edit exists yet, same fallback
+        order used to display the statement (reviewed_text or
+        reconstructed_text or normalized_text)."""
+        question = await self.get_question(question_id)
+        text = question.resolution_reviewed_text or question.resolution_raw_text
+        if not text or not text.strip():
+            raise QuestionExtractionError(
+                "RESOLUTION_APPROVAL_VALIDATION_FAILED", "A resolução está vazia.")
+        # NOTE: record_review_event's own ``to_status`` param pairs with
+        # ``from_status=question.review_status`` (the STATEMENT's status) -
+        # passing it here would misleadingly log a review_status transition
+        # that never happened. The resolution transition goes in ``detail``
+        # instead.
+        record_review_event(
+            question, event="RESOLUTION_STATUS_CHANGE", actor=reviewed_by,
+            detail={"from_resolution_status": question.resolution_status, "to_resolution_status": "APPROVED"},
+        )
+        question.resolution_status = "APPROVED"
+        await self._session.commit()
+        # see start_review's comment.
+        await self._session.refresh(question)
+        return question
+
+    async def reject_resolution(
+        self, question_id: UUID, *, reviewed_by: str, reason: str | None = None,
+    ) -> ExtractedQuestion:
+        """No fixed reason enum (unlike reject_question/REJECTION_REASONS) -
+        resolution capture is a new, rarer path (spec: real ENEM source
+        PDFs almost never carry a resolution section), so ``reason`` is a
+        free-form note recorded on the audit trail rather than a structured
+        column - there is no resolution_rejection_reason column in the
+        schema (migration 047 only adds resolution_raw_text/
+        resolution_reviewed_text/resolution_status)."""
+        question = await self.get_question(question_id)
+        # see approve_resolution's note on why ``to_status`` is not used here.
+        record_review_event(
+            question, event="RESOLUTION_STATUS_CHANGE", actor=reviewed_by,
+            detail={"from_resolution_status": question.resolution_status,
+                    "to_resolution_status": "REJECTED", "reason": reason},
+        )
+        question.resolution_status = "REJECTED"
+        await self._session.commit()
+        # see start_review's comment.
+        await self._session.refresh(question)
         return question
 
     # ------------------------------------------------------------------
@@ -521,6 +651,9 @@ class QuestionExtractionService:
         record_review_event(question, event="ASSET_ASSOCIATED", actor=reviewed_by,
                       detail={"asset_id": str(asset.id), "source_page": asset.source_page})
         await self._session.commit()
+        # see start_review's comment - the route's _asset_to_dict reads
+        # scalar attributes right after this returns.
+        await self._session.refresh(asset)
         return asset
 
     async def ignore_asset(self, question_id: UUID, asset_id: UUID, *, reviewed_by: str) -> ExtractedQuestionAsset:
@@ -532,4 +665,6 @@ class QuestionExtractionService:
         record_review_event(question, event="ASSET_IGNORED", actor=reviewed_by,
                       detail={"asset_id": str(asset.id), "source_page": asset.source_page})
         await self._session.commit()
+        # see start_review's comment.
+        await self._session.refresh(asset)
         return asset

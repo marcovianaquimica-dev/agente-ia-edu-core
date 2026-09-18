@@ -48,6 +48,7 @@ _REJECTION_REASONS = (
     "UNUSABLE_CONTENT", "OTHER",
 )
 _ASSET_STATUSES = ("ASSOCIATED", "UNASSOCIATED", "IGNORED")
+_RESOLUTION_STATUSES = ("NONE", "PENDING_REVIEW", "APPROVED", "REJECTED")
 
 
 class QuestionExtractionRun(Base):
@@ -116,6 +117,10 @@ class ExtractedQuestion(Base):
             f"rejection_reason IS NULL OR rejection_reason IN {_REJECTION_REASONS!r}",
             name="ck_extracted_questions_rejection_reason",
         ),
+        CheckConstraint(
+            f"resolution_status IN {_RESOLUTION_STATUSES!r}",
+            name="ck_extracted_questions_resolution_status",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -141,6 +146,15 @@ class ExtractedQuestion(Base):
     reviewed_text: Mapped[str | None] = mapped_column(Text)
     # PHASE 29 (additive) - structured reason recorded on REJECTED (spec s12).
     rejection_reason: Mapped[str | None] = mapped_column(String(30))
+    # PHASE 31 (additive) - step-by-step resolution capture, independent of
+    # review_status: a question can be APPROVED with its resolution still
+    # PENDING_REVIEW or absent (NONE) entirely. raw_text is verbatim from the
+    # source PDF's own "Resolução" section when the engine can unambiguously
+    # associate it to this question number - never invented, mirrors the
+    # raw/normalized separation used for the question statement itself.
+    resolution_raw_text: Mapped[str | None] = mapped_column(Text)
+    resolution_reviewed_text: Mapped[str | None] = mapped_column(Text)
+    resolution_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NONE")
     # PHASE 29 (additive) - where this staging row was promoted to in the
     # OFFICIAL Question Bank, once PUBLISHED. NULL until then. This FK is
     # SET NULL on delete (never RESTRICT) - deleting an official question

@@ -276,6 +276,201 @@ class Phase27ServiceTests(unittest.TestCase):
         self.assertEqual(r.status_code, 403)
         self._as("prof_a")
 
+    # -- PHASE 31: resolution review (edit/approve/reject) - independent of
+    #    review_status - see question_extraction_service's resolution
+    #    section ----------------------------------------------------------
+    def _seed_question_with_resolution(self, *, resolution_status: str = "NONE",
+                                        resolution_raw_text: str | None = "Passo 1: ...; Passo 2: resposta C.",
+                                        resolution_reviewed_text: str | None = None) -> _uuid.UUID:
+        """Simulates what the parallel capture agent's extraction would
+        produce - a staged question with resolution_raw_text already
+        populated by the engine, resolution_status set accordingly. Inserted
+        directly (no dependency on that agent's code, per the task brief)."""
+        path = self.tmp / f"doc_resolution_{_uuid.uuid4().hex[:8]}.pdf"
+        _make_pdf(path, 1)
+        doc_id = self._seed_document(path, f"res-{_uuid.uuid4().hex[:8]}")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                run1, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                questions = await svc.list_questions(run1.id)
+                q = questions[0]
+                q.resolution_raw_text = resolution_raw_text
+                q.resolution_reviewed_text = resolution_reviewed_text
+                q.resolution_status = resolution_status
+                await s.commit()
+                return q.id
+        return self.loop.run_until_complete(run())
+
+    def test_update_resolution_sets_text_and_moves_to_pending_review(self):
+        question_id = self._seed_question_with_resolution(resolution_status="NONE")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.update_resolution(
+                    question_id, resolution_reviewed_text="Passo 1 revisado; resposta correta: C.",
+                    reviewed_by="prof_a")
+        updated = self.loop.run_until_complete(run())
+        self.assertEqual(updated.resolution_status, "PENDING_REVIEW")
+        self.assertEqual(updated.resolution_reviewed_text, "Passo 1 revisado; resposta correta: C.")
+        self.assertEqual(updated.status_history[-1]["event"], "RESOLUTION_TEXT_EDIT")
+
+    def test_update_resolution_after_approval_reopens_review(self):
+        """Design decision (documented in update_resolution's docstring):
+        editing an already-APPROVED resolution invalidates that
+        certification and always returns to PENDING_REVIEW - unlike the
+        statement's update_question, which leaves an APPROVED question's
+        status untouched on a later edit."""
+        question_id = self._seed_question_with_resolution(
+            resolution_status="APPROVED", resolution_reviewed_text="versão antiga aprovada")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.update_resolution(
+                    question_id, resolution_reviewed_text="correção pós-aprovação", reviewed_by="prof_a")
+        updated = self.loop.run_until_complete(run())
+        self.assertEqual(updated.resolution_status, "PENDING_REVIEW")
+        self.assertEqual(updated.resolution_reviewed_text, "correção pós-aprovação")
+
+    def test_approve_resolution_success(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="PENDING_REVIEW", resolution_reviewed_text="resposta revisada: C.")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.approve_resolution(question_id, reviewed_by="prof_a")
+        updated = self.loop.run_until_complete(run())
+        self.assertEqual(updated.resolution_status, "APPROVED")
+        self.assertEqual(updated.status_history[-1]["event"], "RESOLUTION_STATUS_CHANGE")
+        self.assertEqual(updated.status_history[-1]["detail"]["to_resolution_status"], "APPROVED")
+
+    def test_approve_empty_resolution_is_rejected_with_clear_error_not_500(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="NONE", resolution_raw_text=None, resolution_reviewed_text=None)
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.approve_resolution(question_id, reviewed_by="prof_a")
+        with self.assertRaises(QuestionExtractionError) as ctx:
+            self.loop.run_until_complete(run())
+        self.assertEqual(ctx.exception.code, "RESOLUTION_APPROVAL_VALIDATION_FAILED")
+
+    def test_approve_whitespace_only_resolution_is_rejected(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="PENDING_REVIEW", resolution_raw_text=None, resolution_reviewed_text="   \n  ")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.approve_resolution(question_id, reviewed_by="prof_a")
+        with self.assertRaises(QuestionExtractionError) as ctx:
+            self.loop.run_until_complete(run())
+        self.assertEqual(ctx.exception.code, "RESOLUTION_APPROVAL_VALIDATION_FAILED")
+
+    def test_approve_resolution_falls_back_to_raw_text_when_no_reviewed_text(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="PENDING_REVIEW",
+            resolution_raw_text="Passo 1: ...; resposta B.", resolution_reviewed_text=None)
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.approve_resolution(question_id, reviewed_by="prof_a")
+        updated = self.loop.run_until_complete(run())
+        self.assertEqual(updated.resolution_status, "APPROVED")
+
+    def test_reject_resolution_with_reason(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="PENDING_REVIEW", resolution_reviewed_text="resposta duvidosa")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.reject_resolution(
+                    question_id, reviewed_by="prof_a", reason="resposta incompatível com o gabarito oficial")
+        updated = self.loop.run_until_complete(run())
+        self.assertEqual(updated.resolution_status, "REJECTED")
+        self.assertEqual(
+            updated.status_history[-1]["detail"]["reason"], "resposta incompatível com o gabarito oficial")
+
+    def test_reject_resolution_without_reason(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="PENDING_REVIEW", resolution_reviewed_text="resposta duvidosa")
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                return await svc.reject_resolution(question_id, reviewed_by="prof_a")
+        updated = self.loop.run_until_complete(run())
+        self.assertEqual(updated.resolution_status, "REJECTED")
+
+    def test_resolution_status_independent_of_review_status(self):
+        """An APPROVED question (statement) can have its resolution still
+        PENDING_REVIEW or entirely absent - the two state machines never
+        interfere with each other."""
+        question_id = self._seed_question_with_resolution(
+            resolution_status="NONE", resolution_raw_text=None, resolution_reviewed_text=None)
+
+        async def run():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                q = await svc.get_question(question_id)
+                edited = await svc.update_question(
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                approved = await svc.approve_question(q.id, reviewed_by="prof_a")
+                return approved
+        approved = self.loop.run_until_complete(run())
+        self.assertEqual(approved.review_status, "APPROVED")
+        self.assertEqual(approved.resolution_status, "NONE")
+
+    # -- resolution review via HTTP ---------------------------------------
+    def test_resolution_review_via_api_edit_then_approve(self):
+        question_id = self._seed_question_with_resolution(resolution_status="NONE")
+        self._as("prof_a")
+        r = self.client.patch(
+            f"/api/v1/catalog/question-extraction/questions/{question_id}/resolution",
+            json={"resolution_reviewed_text": "Passo a passo revisado via API."})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["resolution_status"], "PENDING_REVIEW")
+
+        r2 = self.client.post(
+            f"/api/v1/catalog/question-extraction/questions/{question_id}/resolution/approve")
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.json()["resolution_status"], "APPROVED")
+
+    def test_resolution_approve_empty_via_api_is_422_not_500(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="NONE", resolution_raw_text=None, resolution_reviewed_text=None)
+        self._as("prof_a")
+        r = self.client.post(
+            f"/api/v1/catalog/question-extraction/questions/{question_id}/resolution/approve")
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "RESOLUTION_APPROVAL_VALIDATION_FAILED")
+
+    def test_resolution_reject_via_api(self):
+        question_id = self._seed_question_with_resolution(
+            resolution_status="PENDING_REVIEW", resolution_reviewed_text="texto a rejeitar")
+        self._as("prof_a")
+        r = self.client.post(
+            f"/api/v1/catalog/question-extraction/questions/{question_id}/resolution/reject",
+            json={"reason": "gabarito incorreto"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["resolution_status"], "REJECTED")
+
+    def test_resolution_review_tenant_isolation_via_api(self):
+        question_id = self._seed_question_with_resolution(resolution_status="NONE")
+        self._as("prof_b")
+        r = self.client.patch(
+            f"/api/v1/catalog/question-extraction/questions/{question_id}/resolution",
+            json={"resolution_reviewed_text": "tentativa de outra escola"})
+        self.assertEqual(r.status_code, 403)
+        self._as("prof_a")
+
     # -- 5. no N+1: batched persistence as question count grows -----------
     def test_no_n_plus_1_as_question_count_grows(self):
         counts = {}

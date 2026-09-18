@@ -38,6 +38,7 @@ from agente_ia_edu.db.models import (
     AnswerKeyRevision,
     BookletQuestion,
     QuestionOption,
+    QuestionVersion,
 )
 from agente_ia_edu.services.question_bank import QuestionBankItem, QuestionBankService
 
@@ -229,6 +230,9 @@ class ListGeneratorService:
         answer_keys = (
             await self._authoritative_answer_keys(ordered_ids) if include_key else {}
         )
+        resolutions = (
+            await self._official_resolutions(ordered_ids) if include_resolution else {}
+        )
 
         items: list[GeneratedListItem] = []
         for position, vid in enumerate(ordered_ids, start=1):
@@ -236,7 +240,8 @@ class ListGeneratorService:
             answer_view = None
             if include_key:
                 answer_view = self._answer_key_view(
-                    bank_item, answer_keys.get(vid), config, include_resolution
+                    bank_item, answer_keys.get(vid), config, include_resolution,
+                    resolutions.get(vid),
                 )
             items.append(self._to_generated_item(position, bank_item, answer_view))
 
@@ -306,12 +311,34 @@ class ListGeneratorService:
             })
         return out
 
+    async def _official_resolutions(
+        self, version_ids: Sequence[UUID]
+    ) -> dict[UUID, str]:
+        """One batched query: QuestionVersion.resolution_text per
+        question_version_id (PHASE 31 - only present when a captured
+        resolution was reviewed and approved at publish time; NULL/empty
+        for the rest of the corpus, same pattern as
+        :meth:`_authoritative_answer_keys`, never N+1)."""
+        ids = list(version_ids)
+        if not ids:
+            return {}
+        q = select(QuestionVersion.id, QuestionVersion.resolution_text).where(
+            QuestionVersion.id.in_(ids),
+            QuestionVersion.resolution_text.is_not(None),
+        )
+        out: dict[UUID, str] = {}
+        for version_id, text in (await self._session.execute(q)).all():
+            if text and text.strip():
+                out[version_id] = text
+        return out
+
     @staticmethod
     def _answer_key_view(
         bank_item: QuestionBankItem,
         official: dict | None,
         config: ListConfiguration,
         include_resolution: bool,
+        resolution_text: str | None = None,
     ) -> AnswerKeyView:
         # official answer-key entry is authoritative; option flag is a cross-check
         flagged = [o for o in bank_item.options if o.is_valid_option]
@@ -336,15 +363,27 @@ class ListGeneratorService:
 
         resolution = None
         if include_resolution:
-            resolution = ResolutionView(
-                available=False,
-                style=config.resolution_style,
-                text=None,
-                unavailable_reason=(
-                    "Não há resolução oficial passo a passo armazenada para esta questão. "
-                    "A geração de resolução por IA é uma fase futura e não é usada aqui."
-                ),
-            )
+            if resolution_text:
+                # PHASE 31 - the captured/reviewed resolution is stored and
+                # shown verbatim; there is no automatic SUMMARY vs
+                # STEP_BY_STEP formatting in this phase, so both styles
+                # surface the exact same text rather than inventing one.
+                resolution = ResolutionView(
+                    available=True,
+                    style=config.resolution_style,
+                    text=resolution_text,
+                    unavailable_reason=None,
+                )
+            else:
+                resolution = ResolutionView(
+                    available=False,
+                    style=config.resolution_style,
+                    text=None,
+                    unavailable_reason=(
+                        "Não há resolução oficial passo a passo armazenada para esta questão. "
+                        "A geração de resolução por IA é uma fase futura e não é usada aqui."
+                    ),
+                )
         return AnswerKeyView(
             correct_option_key=key,
             correct_option_id=option_id,
@@ -400,10 +439,13 @@ def config_options() -> dict:
             {"value": RESOLUTION_SUMMARY, "label": "Resolução resumida"},
             {"value": RESOLUTION_STEP_BY_STEP, "label": "Resolução passo a passo"},
         ],
-        "resolution_availability": "UNAVAILABLE",
+        "resolution_availability": "PER_QUESTION",
         "resolution_note": (
-            "Não há resoluções oficiais armazenadas no sistema. As opções de estilo ficam "
-            "disponíveis para uma fase futura; nesta fase a resolução é marcada como indisponível."
+            "A disponibilidade da resolução é por questão, não mais uma flag global bloqueada: "
+            "quando uma resolução foi capturada e aprovada na revisão, ela é exibida (o mesmo "
+            "texto para os dois estilos, pois esta fase não gera 'resumida' e 'passo a passo' "
+            "automaticamente); quando não há resolução capturada para a questão, ela continua "
+            "marcada como indisponível."
         ),
     }
 

@@ -166,7 +166,9 @@ class Phase14ListGeneratorTests(unittest.TestCase):
         co = self.client.get("/api/v1/question-bank/lists/config-options", headers=AUTH).json()
         self.assertEqual(co["activity_modes"]["supported"], ["EXERCISE_LIST"])
         self.assertIn("SIMULADO", co["activity_modes"]["reserved_future"])
-        self.assertEqual(co["resolution_availability"], "UNAVAILABLE")
+        # PHASE 31 - availability is now per-question (captured + approved
+        # resolution), not a permanently blocked global flag.
+        self.assertEqual(co["resolution_availability"], "PER_QUESTION")
         self.assertEqual([p["value"] for p in co["answer_key_presentations"]],
                          ["NONE", "KEY_AT_END", "KEY_AND_RESOLUTION_AT_END"])
 
@@ -309,6 +311,44 @@ class Phase14ListGeneratorTests(unittest.TestCase):
         # constant-ish (catalog cached on 2nd call); never proportional to N
         self.assertLessEqual(q5, q2 + 1)
         self.assertLessEqual(q5, 8)
+
+    # -- PHASE 31 - resolution shown when QuestionVersion.resolution_text exists --
+    def test_resolution_available_when_question_version_has_resolution_text(self):
+        vid_with = self.made[130]["question_version_id"]
+        vid_without = self.made[131]["question_version_id"]
+        sample_text = "Passo 1: isolar a incógnita. Passo 2: substituir e concluir."
+
+        async def _set(text):
+            async with self.factory() as s:
+                v = await s.get(QuestionVersion, __import__("uuid").UUID(vid_with))
+                v.resolution_text = text
+                await s.commit()
+
+        self.loop.run_until_complete(_set(sample_text))
+        try:
+            d = self._gen([vid_with, vid_without],
+                          answer_key_presentation=ANSWER_KEY_AND_RESOLUTION_AT_END,
+                          resolution_style="STEP_BY_STEP").json()
+            items = {i["question_version_id"]: i for i in d["items"]}
+
+            res_with = items[vid_with]["answer_key"]["resolution"]
+            self.assertTrue(res_with["available"])
+            self.assertEqual(res_with["text"], sample_text)
+            self.assertIsNone(res_with["unavailable_reason"])
+            self.assertEqual(res_with["style"], "STEP_BY_STEP")
+
+            # both styles surface the exact same captured text - no synthetic summary
+            summ = self._gen([vid_with], answer_key_presentation=ANSWER_KEY_AND_RESOLUTION_AT_END,
+                             resolution_style="SUMMARY").json()
+            self.assertEqual(summ["items"][0]["answer_key"]["resolution"]["text"], sample_text)
+
+            # current/default behaviour is untouched for a question without one
+            res_without = items[vid_without]["answer_key"]["resolution"]
+            self.assertFalse(res_without["available"])
+            self.assertIsNone(res_without["text"])
+            self.assertIsNotNone(res_without["unavailable_reason"])
+        finally:
+            self.loop.run_until_complete(_set(None))  # never leave fixture state mutated
 
     # -- acceptance walk: 10+ questions is out of fixture range, but the pipeline shape holds --
     def test_full_pipeline_shape(self):

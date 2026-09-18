@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import ExtractedQuestion, IngestionDocument, Question
+from agente_ia_edu.db.models import ExtractedQuestion, IngestionDocument, Question, QuestionVersion
 from agente_ia_edu.db.models.admin import School, UserSchoolLink
 from agente_ia_edu.services.question_extraction_service import (
     QuestionExtractionError,
@@ -478,7 +478,28 @@ class Phase29ReviewTests(unittest.TestCase):
                 await svc.approve_question(q2.id, reviewed_by="prof_a")
                 result2 = await pub.publish_run(run2.id, published_by="prof_a", school_id=_SCHOOL_A)
 
-                official = (await s.execute(select(Question).where(Question.origin_type == "AUTHORIAL"))).scalars().all()
+                # Scoped to THIS test's own content_hash, not a blanket
+                # table scan: setUpClass shares one in-memory DB across
+                # every test method in this class, so counting every
+                # AUTHORIAL Question ever created here breaks as soon as any
+                # other test method also publishes one (order-dependent).
+                # Filtering by content_hash (rather than by result1's own
+                # official_question_id, which would trivially always be 1
+                # regardless of whether duplicate detection worked) still
+                # catches a real regression: a second official Question for
+                # the same content would carry the same content_hash on its
+                # QuestionVersion.
+                official_version = await s.get(
+                    QuestionVersion, _uuid.UUID(result1["published"][0]["official_version_id"])
+                )
+                official = (await s.execute(
+                    select(Question)
+                    .join(QuestionVersion, QuestionVersion.question_id == Question.id)
+                    .where(
+                        Question.origin_type == "AUTHORIAL",
+                        QuestionVersion.content_hash == official_version.content_hash,
+                    )
+                )).scalars().all()
                 refreshed_q2 = await svc.get_question(q2.id)
                 return result1, result2, len(official), refreshed_q2.review_status
         result1, result2, official_count, q2_status = self._run(go())
@@ -487,6 +508,88 @@ class Phase29ReviewTests(unittest.TestCase):
         self.assertEqual(result2["duplicate_count"], 1)
         self.assertEqual(official_count, 1)  # never a second official Question for identical content
         self.assertEqual(q2_status, "DUPLICATE_REVIEW")  # never silently discarded
+
+    # -- PHASE 31. publicação copia resolução aprovada para o oficial --------
+    def test_publish_copies_approved_resolution_to_official_version(self):
+        path = self.tmp / "pub_resolution.pdf"
+        _make_pdf(path, 1, tag=" (pub-resolution)")
+        doc_id = self._seed_document(path, "pub_resolution")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                pub = QuestionPublicationService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                await svc.update_question(
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                await svc.approve_question(q.id, reviewed_by="prof_a")
+                # simulate the (separate, in-progress) resolution review flow
+                # directly, as instructed: populate reviewed_text + APPROVED.
+                stored = await s.get(ExtractedQuestion, q.id)
+                stored.resolution_raw_text = "Passo 1: ... Passo 2: ..."
+                stored.resolution_reviewed_text = "Passo 1: isolar x. Passo 2: substituir e resolver."
+                stored.resolution_status = "APPROVED"
+                await s.commit()
+
+                result = await pub.publish_run(run.id, published_by="prof_a", school_id=_SCHOOL_A)
+                version_id = result["published"][0]["official_version_id"]
+                version = await s.get(QuestionVersion, _uuid.UUID(version_id))
+                return result, version.resolution_text
+        result, resolution_text = self._run(go())
+        self.assertEqual(result["published_count"], 1)
+        self.assertEqual(resolution_text, "Passo 1: isolar x. Passo 2: substituir e resolver.")
+
+    def test_publish_without_approved_resolution_leaves_resolution_text_none(self):
+        path = self.tmp / "pub_no_resolution.pdf"
+        _make_pdf(path, 1, tag=" (pub-no-resolution)")
+        doc_id = self._seed_document(path, "pub_no_resolution")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                pub = QuestionPublicationService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                await svc.update_question(
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                await svc.approve_question(q.id, reviewed_by="prof_a")
+                # no resolution captured at all (the current-corpus norm:
+                # resolution_status stays 'NONE', matching real ENEM PDFs)
+                result = await pub.publish_run(run.id, published_by="prof_a", school_id=_SCHOOL_A)
+                version_id = result["published"][0]["official_version_id"]
+                version = await s.get(QuestionVersion, _uuid.UUID(version_id))
+                return result, version.resolution_text
+        result, resolution_text = self._run(go())
+        self.assertEqual(result["published_count"], 1)
+        self.assertIsNone(resolution_text)
+
+    def test_publish_ignores_resolution_pending_or_rejected(self):
+        path = self.tmp / "pub_resolution_pending.pdf"
+        _make_pdf(path, 1, tag=" (pub-resolution-pending)")
+        doc_id = self._seed_document(path, "pub_resolution_pending")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                pub = QuestionPublicationService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                await svc.update_question(
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                await svc.approve_question(q.id, reviewed_by="prof_a")
+                stored = await s.get(ExtractedQuestion, q.id)
+                stored.resolution_raw_text = "rascunho ainda não revisado"
+                stored.resolution_reviewed_text = "rascunho ainda não revisado"
+                stored.resolution_status = "PENDING_REVIEW"  # not yet APPROVED
+                await s.commit()
+
+                result = await pub.publish_run(run.id, published_by="prof_a", school_id=_SCHOOL_A)
+                version_id = result["published"][0]["official_version_id"]
+                version = await s.get(QuestionVersion, _uuid.UUID(version_id))
+                return version.resolution_text
+        resolution_text = self._run(go())
+        self.assertIsNone(resolution_text)  # PENDING_REVIEW never leaks into the official row
 
     # -- 23. publicar REVIEW_REQUIRED nunca acontece -------------------------
     def test_publish_never_includes_review_required_questions(self):

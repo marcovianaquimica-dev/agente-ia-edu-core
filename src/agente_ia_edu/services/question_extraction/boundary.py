@@ -167,6 +167,77 @@ def cut_at_answer_key(text: str) -> tuple[str, int]:
     return text, len(text)
 
 
+def extract_resolutions_by_question(text: str, cut_offset: int) -> dict[int, str]:
+    """PHASE 31 - segment the answer-key/resolution tail (whatever
+    ``cut_at_answer_key`` excluded from the main question text, starting at
+    ``cut_offset`` into the ORIGINAL ``text``) into one resolution body per
+    question number. Reuses the EXACT SAME marker conventions as boundary
+    detection (``_all_markers`` - "1.", "1)", "(1)", "Questão 1", ...): a
+    real source PDF's own "Resolução"/"Gabarito comentado" section, when it
+    exists, is numbered the same way as the questions it resolves.
+
+    Golden rule: only return an association when the segmentation is
+    UNAMBIGUOUS - never invented, never guessed (spec s9/s10's "never
+    invent" principle, extended to segmentation confidence itself). This is
+    deliberately an ALL-OR-NOTHING decision, not per-entry: any one signal
+    of ambiguity anywhere in the tail (a repeated question number - which
+    occurrence is the real one? - a marker that is not part of a strictly
+    ascending sequence - more likely a coincidental digit line, a page
+    number, a stray list item, than a genuine per-question resolution
+    boundary - or a marker with nothing before the next one) means the
+    WHOLE tail is untrustworthy, so an empty dict is returned rather than a
+    partially-guessed mapping a caller might trust as complete.
+
+    The real ENEM pilot PDFs this project's extraction pipeline is
+    currently run against (var/inep-pilot/*.pdf) carry NO resolution
+    section at all - confirmed by extracting their real text - so for
+    practically every real document today ``cut_offset == len(text)`` (no
+    answer-key heading found at all) and this returns {} immediately. This
+    is a forward-compatible capture path for a FUTURE source document that
+    genuinely has a "Resolução" section, not a retrofit of today's corpus.
+    """
+    if cut_offset >= len(text):
+        return {}
+    tail = text[cut_offset:]
+    candidates = _all_markers(tail)
+    if not candidates:
+        return {}
+
+    numbers = [c[0] for c in candidates]
+    # Ambiguous: the SAME question number appears more than once in the
+    # tail - unlike boundary detection over the MAIN text (which has a
+    # documented, deliberate tie-break for a duplicate number - preceded-by-
+    # paragraph-break, then longer body, then option-completeness), a
+    # resolution body has no equivalent independent signal to pick the
+    # right occurrence, so this never guesses.
+    if len(numbers) != len(set(numbers)):
+        return {}
+    # Ambiguous: not a strictly ascending sequence. A genuine numbered
+    # resolution section is always written in the same order as the
+    # questions it resolves (it may skip numbers - not every question need
+    # have a resolution - but it never goes backward or repeats a run).
+    # Anything else is a stronger signal of a coincidental digit line than
+    # of a real per-question boundary.
+    if any(b <= a for a, b in zip(numbers, numbers[1:])):
+        return {}
+
+    resolutions: dict[int, str] = {}
+    for i, (number, body_start, _match_start, _style) in enumerate(candidates):
+        body_end = candidates[i + 1][2] if i + 1 < len(candidates) else len(tail)
+        body = tail[body_start:body_end].strip()
+        if not body:
+            # A marker immediately followed by nothing (up to the next
+            # marker or the end of the tail) is not a confidently-bounded
+            # resolution body - all-or-nothing means this voids the WHOLE
+            # segmentation, not just this one entry (spec's "never invent"
+            # extends to never silently dropping just the empty one and
+            # keeping the rest, which would misrepresent the mapping as
+            # complete).
+            return {}
+        resolutions[number] = body
+    return resolutions
+
+
 def _all_markers(text: str) -> list[tuple[int, int, int, str]]:
     """(number, start_of_body, match_start, style) for every candidate,
     across all supported numbering conventions."""

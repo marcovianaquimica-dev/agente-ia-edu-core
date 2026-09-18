@@ -59,6 +59,14 @@ class RejectQuestionRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class UpdateResolutionRequest(BaseModel):
+    resolution_reviewed_text: str = Field(min_length=1, max_length=20000)
+
+
+class RejectResolutionRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+
 async def _authorize(identity: ExternalIdentityContext, session):
     authz = AuthorizationService(session)
     context = await authz.resolve_context(identity)
@@ -131,6 +139,11 @@ def _question_to_dict(q: ExtractedQuestion, *, with_options: bool = False, with_
         "reconstruction_applied": q.reconstruction_applied,
         "review_reasons": q.review_reasons or [],
         "status_history": q.status_history or [],
+        # PHASE 31 - independent of review_status above (see
+        # question_extraction_service's resolution review section).
+        "resolution_raw_text": q.resolution_raw_text,
+        "resolution_reviewed_text": q.resolution_reviewed_text,
+        "resolution_status": q.resolution_status,
         "orphan_text_candidate": _orphan_text_candidate(q),
         "published_question_id": str(q.published_question_id) if q.published_question_id else None,
         "published_version_id": str(q.published_version_id) if q.published_version_id else None,
@@ -371,6 +384,68 @@ async def reject_question(
             updated = await svc.reject_question(
                 question_id, reviewed_by=identity.external_user_id,
                 reason=payload.reason, notes=payload.notes,
+            )
+            return _question_to_dict(updated)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_error(exc) from exc
+
+
+@qe_router.patch("/questions/{question_id}/resolution",
+                summary="Edit the step-by-step resolution's human-reviewed text (independent of review_status)")
+async def update_resolution(
+    question_id: UUID,
+    payload: UpdateResolutionRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        context = await _authorize(identity, session)
+        svc = QuestionExtractionService(session)
+        try:
+            q = await svc.get_question(question_id)
+            _require_scope(context, q.school_id)
+            updated = await svc.update_resolution(
+                question_id, resolution_reviewed_text=payload.resolution_reviewed_text,
+                reviewed_by=identity.external_user_id,
+            )
+            return _question_to_dict(updated)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_error(exc) from exc
+
+
+@qe_router.post("/questions/{question_id}/resolution/approve", summary="Approve the resolution (never approves empty content)")
+async def approve_resolution(
+    question_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        context = await _authorize(identity, session)
+        svc = QuestionExtractionService(session)
+        try:
+            q = await svc.get_question(question_id)
+            _require_scope(context, q.school_id)
+            updated = await svc.approve_resolution(question_id, reviewed_by=identity.external_user_id)
+            return _question_to_dict(updated)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_error(exc) from exc
+
+
+@qe_router.post("/questions/{question_id}/resolution/reject", summary="Reject the resolution (free-form optional reason)")
+async def reject_resolution(
+    question_id: UUID,
+    payload: RejectResolutionRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        context = await _authorize(identity, session)
+        svc = QuestionExtractionService(session)
+        try:
+            q = await svc.get_question(question_id)
+            _require_scope(context, q.school_id)
+            updated = await svc.reject_resolution(
+                question_id, reviewed_by=identity.external_user_id, reason=payload.reason,
             )
             return _question_to_dict(updated)
         except Exception as exc:  # noqa: BLE001

@@ -54,6 +54,19 @@ def _canonical_text(question: ExtractedQuestion) -> str:
     return question.reviewed_text or question.reconstructed_text or question.normalized_text
 
 
+def _resolution_text(question: ExtractedQuestion) -> str | None:
+    """PHASE 31 - copy the human-reviewed resolution to the official
+    QuestionVersion only when it was actually approved (spec: publication
+    is the only writer of official rows, and it copies verbatim - no
+    generation/formatting happens here). Any other resolution_status
+    (NONE/PENDING_REVIEW/REJECTED) or an empty reviewed text yields None,
+    which is exactly today's behaviour (gabarito sem resolução)."""
+    if question.resolution_status != "APPROVED":
+        return None
+    text = (question.resolution_reviewed_text or "").strip()
+    return text or None
+
+
 class QuestionPublicationService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -148,6 +161,7 @@ class QuestionPublicationService:
                         canonical_text=canonical_text, statement=canonical_text,
                         content_hash=content_hash, created_by_type="TEACHER",
                         created_by_id=published_by, metadata_={"provenance": provenance},
+                        resolution_text=_resolution_text(question),
                     )
                     self._session.add(version)
                     await self._session.flush()

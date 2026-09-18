@@ -267,6 +267,11 @@ class QuestionVersion(Base):
     recommended_difficulty: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )  # EASY, MEDIUM, HARD; null = not yet classified
+    # PHASE 31 (additive) - copied from an APPROVED ExtractedQuestion's
+    # resolution_reviewed_text at publish time. NULL for the entire current
+    # official corpus (real ENEM source booklets carry no resolution
+    # content) - the answer-key view already renders "unavailable" for NULL.
+    resolution_text: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )

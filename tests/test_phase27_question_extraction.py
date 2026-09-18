@@ -27,6 +27,7 @@ from agente_ia_edu.services.question_extraction.boundary import (
     classify_and_extract,
     cut_at_answer_key,
     detect_boundaries,
+    extract_resolutions_by_question,
 )
 from agente_ia_edu.services.question_extraction.engine import (
     ExtractedQuestionResult,
@@ -940,6 +941,81 @@ class BoundaryDetectionTests(unittest.TestCase):
         self.assertTrue(0.0 <= d1.confidence <= 1.0)
 
 
+class ResolutionCaptureTests(unittest.TestCase):
+    """PHASE 31 - captures a source PDF's own numbered 'Resolução' section
+    into a question_number -> resolution_text mapping, reusing the exact
+    same marker conventions as question boundary detection. Golden rule:
+    an empty dict whenever the segmentation is anything less than
+    unambiguous - never an invented or partial guess (spec s9/s10 extended
+    to segmentation confidence itself)."""
+
+    def test_clearly_numbered_resolution_section_is_captured_per_question(self):
+        text = (
+            "1.   Primeira questão com enunciado suficientemente longo.\n\n"
+            "2.   Segunda questão com enunciado suficientemente longo.\n\n"
+            "Resolução:\n\n"
+            "1. Explicação detalhada do raciocínio da questão um.\n"
+            "2. Explicação detalhada do raciocínio da questão dois.\n"
+        )
+        main_text, cut = cut_at_answer_key(text)
+        self.assertNotIn("Explicação detalhada", main_text)
+        resolutions = extract_resolutions_by_question(text, cut)
+        self.assertEqual(
+            resolutions,
+            {
+                1: "Explicação detalhada do raciocínio da questão um.",
+                2: "Explicação detalhada do raciocínio da questão dois.",
+            },
+        )
+
+    def test_no_answer_key_section_at_all_returns_empty_dict(self):
+        # Mirrors the real ENEM pilot PDFs (var/inep-pilot/*.pdf): no
+        # 'Resolução'/'Gabarito' heading exists anywhere in the document,
+        # so cut_at_answer_key never cuts (cut == len(text)) and there is
+        # no tail to segment at all.
+        text = (
+            "1.   Primeira questão com enunciado suficientemente longo.\n\n"
+            "2.   Segunda questão com enunciado suficientemente longo.\n"
+        )
+        main_text, cut = cut_at_answer_key(text)
+        self.assertEqual(cut, len(text))
+        resolutions = extract_resolutions_by_question(text, cut)
+        self.assertEqual(resolutions, {})
+
+    def test_unnumbered_prose_after_gabarito_heading_returns_empty_dict(self):
+        text = (
+            "1.   Primeira questão com enunciado suficientemente longo.\n\n"
+            "Gabarito:\n\n"
+            "As respostas corretas estão detalhadas em texto corrido, sem "
+            "nenhuma numeração associando cada trecho a uma questão específica.\n"
+        )
+        main_text, cut = cut_at_answer_key(text)
+        resolutions = extract_resolutions_by_question(text, cut)
+        self.assertEqual(resolutions, {})
+
+    def test_duplicate_question_number_in_resolution_section_is_ambiguous(self):
+        text = (
+            "1.   Primeira questão com enunciado suficientemente longo.\n\n"
+            "Resolução:\n\n"
+            "1. Primeira tentativa de explicação, depois corrigida abaixo.\n"
+            "1. Segunda tentativa de explicação, a que realmente vale.\n"
+        )
+        main_text, cut = cut_at_answer_key(text)
+        resolutions = extract_resolutions_by_question(text, cut)
+        self.assertEqual(resolutions, {})
+
+    def test_out_of_order_markers_in_resolution_section_are_not_trusted(self):
+        text = (
+            "1.   Primeira questão com enunciado suficientemente longo.\n\n"
+            "Resolução:\n\n"
+            "2. Explicação fora de ordem da questão dois.\n"
+            "1. Explicação fora de ordem da questão um.\n"
+        )
+        main_text, cut = cut_at_answer_key(text)
+        resolutions = extract_resolutions_by_question(text, cut)
+        self.assertEqual(resolutions, {})
+
+
 class ValidationTests(unittest.TestCase):
     def test_sequence_gap_and_missing_are_reported(self):
         from agente_ia_edu.services.question_extraction.boundary import ExtractedQuestionDraft
@@ -1126,6 +1202,43 @@ class DeterminismTests(unittest.TestCase):
         shape2 = [(q.draft.number, q.draft.raw_text, q.draft.confidence, [o.text for o in q.draft.options])
                   for q in r2.questions]
         self.assertEqual(shape1, shape2)
+
+
+class ResolutionEngineWiringTests(unittest.TestCase):
+    """PHASE 31 - end-to-end: extract_questions() wires
+    extract_resolutions_by_question()'s output onto each
+    ExtractedQuestionResult, never inventing when no confident segmentation
+    exists (which is the real case for every ENEM pilot PDF today - spec's
+    own documented current-corpus behaviour)."""
+
+    def test_confidently_numbered_resolution_section_reaches_the_result(self):
+        tmp = Path("/tmp/phase31_resolution_wiring.pdf")
+        _make_pdf(tmp, [
+            (72, 72, "1.   Primeira questão com enunciado razoavelmente longo.", 10),
+            (72, 100, "2.   Segunda questão com enunciado razoavelmente longo.", 10),
+            (72, 160, "Resolução:", 10),
+            (72, 188, "1. Explicação detalhada da questão um.", 10),
+            (72, 210, "2. Explicação detalhada da questão dois.", 10),
+        ])
+        result = extract_questions(tmp, expected_question_count=2, use_column_detection=False)
+        by_number = {q.draft.number: q for q in result.questions}
+        self.assertEqual(by_number[1].resolution_status, "PENDING_REVIEW")
+        self.assertIn("questão um", by_number[1].resolution_raw_text)
+        self.assertEqual(by_number[2].resolution_status, "PENDING_REVIEW")
+        self.assertIn("questão dois", by_number[2].resolution_raw_text)
+
+    def test_no_answer_key_section_leaves_every_resolution_none(self):
+        # Mirrors var/inep-pilot/*.pdf: no resolution/gabarito section at
+        # all - the overwhelming majority case for the real corpus today.
+        tmp = Path("/tmp/phase31_resolution_wiring_none.pdf")
+        _make_pdf(tmp, [
+            (72, 72, "1.   Primeira questão com enunciado razoavelmente longo.", 10),
+            (72, 100, "2.   Segunda questão com enunciado razoavelmente longo.", 10),
+        ])
+        result = extract_questions(tmp, expected_question_count=2, use_column_detection=False)
+        for q in result.questions:
+            self.assertEqual(q.resolution_status, "NONE")
+            self.assertIsNone(q.resolution_raw_text)
 
 
 class AIGuardTests(unittest.TestCase):
