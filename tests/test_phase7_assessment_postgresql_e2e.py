@@ -18,6 +18,7 @@ from agente_ia_edu.api.dependencies import (
 )
 from agente_ia_edu.api.routes.assessments import router as assessments_router
 from agente_ia_edu.api.routes.attempts import router as attempts_router
+from tests._postgres_test_db import create_database, drop_database
 from agente_ia_edu.api.routes.domain_map import domain_map_router
 from agente_ia_edu.db.models import School, UserSchoolLink
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
@@ -85,7 +86,7 @@ class Phase7AssessmentPostgreSQLE2E(Phase7AssessmentCoreHTTP):
 
     def setUp(self):
         self._drop_database()
-        self._admin_execute(f"CREATE DATABASE {self.database_name}")
+        create_database(self.admin_url, self.database_name)
         _migrate_to_head(self.database_url)
 
         async def setup_database():
@@ -163,14 +164,7 @@ class Phase7AssessmentPostgreSQLE2E(Phase7AssessmentCoreHTTP):
 
     @classmethod
     def _drop_database(cls):
-        try:
-            cls._admin_execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                f"WHERE datname = '{cls.database_name}' AND pid <> pg_backend_pid()"
-            )
-            cls._admin_execute(f"DROP DATABASE IF EXISTS {cls.database_name}")
-        except Exception:
-            pass
+        drop_database(cls.admin_url, cls.database_name)
 
 
 if __name__ == "__main__":

@@ -669,10 +669,46 @@ async def get_resource_detail(
 )
 async def create_content_resource_link(
     request: ContentResourceLinkCreateRequest,
-    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> ContentResourceLinkResponse:
     async with session_factory() as session:
+        # CatalogNode is genuinely global, but EducationalResource is not:
+        # it carries its own owner_external_id/visibility_scope (create_resource
+        # forces a SCHOOL-origin resource's owner to the caller's own school).
+        # ContentResourceLink itself has no owner column, so attaching a
+        # school-owned resource to the shared curriculum tree can only be
+        # expressed through this route - requiring PLATFORM_ADMIN blocked a
+        # teacher from linking a resource they legitimately own. Role alone
+        # is not enough either: ContentResourceLinkService.link() does no
+        # ownership check, so a role-only gate would let any teacher attach
+        # another school's PRIVATE resource to the shared node. Require role
+        # AND (for non-admins) that the resource is actually visible to the
+        # caller - same check get_resource_detail/get_resources_for_content
+        # already use to gate reads.
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        role_check = await authz.require_role(context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+        if not role_check.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Linking a resource to content requires a teacher, coordinator, director, or platform admin role.",
+            )
+        if not context.is_platform_admin:
+            resource = await session.get(EducationalResource, request.resource_id)
+            if resource is None:
+                raise HTTPException(status_code=404, detail="Resource not found")
+            school_context_id = str(context.school_id) if context.school_id is not None else None
+            if not KnowledgeService._is_resource_visible(
+                resource,
+                school_context_id,
+                requester_scope_type=context.scope_type,
+                requester_scope_external_id=context.scope_external_id,
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="This resource is not visible to the current user's school scope.",
+                )
         service = ContentResourceLinkService()
         try:
             link = await service.link(

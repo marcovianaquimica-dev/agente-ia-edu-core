@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from agente_ia_edu.db.models import CatalogNode, CatalogNodePrerequisite, PedagogicalClassification, Question, QuestionVersion
 from agente_ia_edu.services.curriculum_classification import ClassificationProposal, ClassificationProposalService
 from agente_ia_edu.services.curriculum_taxonomy import CurriculumTaxonomyService
+from tests._postgres_test_db import create_database, drop_database
 
 
 class CurriculumTaxonomyPostgreSQLTests(unittest.TestCase):
@@ -33,10 +34,7 @@ class CurriculumTaxonomyPostgreSQLTests(unittest.TestCase):
 
     @classmethod
     def _drop(cls):
-        try:
-            cls._admin(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{cls.database_name}' AND pid <> pg_backend_pid()")
-            cls._admin(f"DROP DATABASE IF EXISTS {cls.database_name}")
-        except Exception: pass
+        drop_database(cls.admin_url, cls.database_name)
 
     def _config(self):
         config = Config("alembic.ini"); config.set_main_option("sqlalchemy.url", self.database_url); return config
@@ -82,7 +80,7 @@ class CurriculumTaxonomyPostgreSQLTests(unittest.TestCase):
         command.upgrade(config, "head")
 
     def setUp(self):
-        self._drop(); self._admin(f"CREATE DATABASE {self.database_name}"); self._upgrade_to_head()
+        self._drop(); create_database(self.admin_url, self.database_name); self._upgrade_to_head()
 
     def tearDown(self): self._drop()
 

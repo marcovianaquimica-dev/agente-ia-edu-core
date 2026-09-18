@@ -22,6 +22,7 @@ from agente_ia_edu.db.models import School, UserSchoolLink
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
 from agente_ia_edu.services.curriculum_taxonomy import CurriculumTaxonomyService
 from test_phase8a_teacher_list_builder_http import Phase8ATeacherListBuilderHTTP
+from tests._postgres_test_db import create_database, drop_database
 
 
 def _migrate_to_head(database_url):
@@ -82,7 +83,7 @@ class Phase8ATeacherListBuilderPostgreSQL(unittest.TestCase):
 
     def setUp(self):
         self._drop_database()
-        self._admin_execute(f"CREATE DATABASE {self.database_name}")
+        create_database(self.admin_url, self.database_name)
         command.upgrade(self._config(), "021_teacher_list_builder")
 
     def tearDown(self):
@@ -108,14 +109,7 @@ class Phase8ATeacherListBuilderPostgreSQL(unittest.TestCase):
 
     @classmethod
     def _drop_database(cls):
-        try:
-            cls._admin_execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                f"WHERE datname = '{cls.database_name}' AND pid <> pg_backend_pid()"
-            )
-            cls._admin_execute(f"DROP DATABASE IF EXISTS {cls.database_name}")
-        except Exception:
-            pass
+        drop_database(cls.admin_url, cls.database_name)
 
     def test_upgrade_downgrade_reupgrade(self):
         command.downgrade(self._config(), "020_assessment_core_alignment")
@@ -144,7 +138,7 @@ class Phase8ATeacherListBuilderPostgreSQLE2E(Phase8ATeacherListBuilderHTTP):
 
     def setUp(self):
         self._drop_database()
-        self._admin_execute(f"CREATE DATABASE {self.database_name}")
+        create_database(self.admin_url, self.database_name)
         _migrate_to_head(self.database_url)
 
         async def setup():

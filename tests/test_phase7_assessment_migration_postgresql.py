@@ -7,6 +7,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
+from tests._postgres_test_db import create_database, drop_database
+
 
 class Phase7AssessmentMigrationPostgreSQL(unittest.TestCase):
     database_name = "agente_ia_edu_phase7_migration_test"
@@ -30,7 +32,7 @@ class Phase7AssessmentMigrationPostgreSQL(unittest.TestCase):
 
     def setUp(self):
         self._drop_database()
-        self._admin_execute(f"CREATE DATABASE {self.database_name}")
+        create_database(self.admin_url, self.database_name)
 
     def tearDown(self):
         self._drop_database()
@@ -50,14 +52,7 @@ class Phase7AssessmentMigrationPostgreSQL(unittest.TestCase):
 
     @classmethod
     def _drop_database(cls):
-        try:
-            cls._admin_execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                f"WHERE datname = '{cls.database_name}' AND pid <> pg_backend_pid()"
-            )
-            cls._admin_execute(f"DROP DATABASE IF EXISTS {cls.database_name}")
-        except Exception:
-            pass
+        drop_database(cls.admin_url, cls.database_name)
 
     def config(self):
         config = Config("alembic.ini")
