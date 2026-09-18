@@ -844,6 +844,90 @@ class CatalogApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_create_content_resource_link_allows_teacher_for_own_school_resource(self):
+        async def _seed_link_teacher():
+            async with self.session_factory() as session:
+                school = School(code="CRL1", name="Escola Link CRL1")
+                session.add(school)
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id="teacherCRL1", school_id=school.id, role="TEACHER",
+                    scope_type="SCHOOL", active=True,
+                ))
+                await session.commit()
+
+        import asyncio
+        asyncio.run(_seed_link_teacher())
+
+        discipline_resp = self.client.post(
+            "/api/v1/catalog/disciplines",
+            json={"name": "Historia CRL1", "node_type": "DISCIPLINE"},
+            headers=_admin_auth(),
+        )
+        content_resp = self.client.post(
+            "/api/v1/catalog/nodes",
+            json={"name": "Idade Media", "node_type": "CONTENT", "parent_id": discipline_resp.json()["id"]},
+            headers=_admin_auth(),
+        )
+        content_id = content_resp.json()["id"]
+
+        resource_resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={"title": "Slides proprios", "resource_type": "THEORY_MATERIAL", "origin_type": "SCHOOL"},
+            headers={"Authorization": "Bearer teacher:teacherCRL1"},
+        )
+        self.assertEqual(resource_resp.status_code, 201, resource_resp.text)
+        resource_id = resource_resp.json()["id"]
+
+        link_resp = self.client.post(
+            "/api/v1/catalog/content-resource-links",
+            json={"content_node_id": content_id, "resource_id": resource_id, "pedagogical_role": "THEORY"},
+            headers={"Authorization": "Bearer teacher:teacherCRL1"},
+        )
+        self.assertEqual(link_resp.status_code, 201, link_resp.text)
+
+    def test_create_content_resource_link_denies_teacher_for_other_schools_private_resource(self):
+        async def _seed():
+            async with self.session_factory() as session:
+                school_a = School(code="CRL2A", name="Escola Link CRL2A")
+                school_b = School(code="CRL2B", name="Escola Link CRL2B")
+                session.add_all([school_a, school_b])
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id="teacherCRL2", school_id=school_a.id, role="TEACHER",
+                    scope_type="SCHOOL", active=True,
+                ))
+                other_schools_resource = EducationalResource(
+                    title="Material privado da escola B", resource_type="THEORY_MATERIAL",
+                    origin_type="SCHOOL", owner_external_id=str(school_b.id),
+                    visibility_scope="PRIVATE", status="active",
+                )
+                session.add(other_schools_resource)
+                await session.commit()
+                return other_schools_resource.id
+
+        import asyncio
+        resource_id = asyncio.run(_seed())
+
+        discipline_resp = self.client.post(
+            "/api/v1/catalog/disciplines",
+            json={"name": "Geografia CRL2", "node_type": "DISCIPLINE"},
+            headers=_admin_auth(),
+        )
+        content_resp = self.client.post(
+            "/api/v1/catalog/nodes",
+            json={"name": "Relevo CRL2", "node_type": "CONTENT", "parent_id": discipline_resp.json()["id"]},
+            headers=_admin_auth(),
+        )
+        content_id = content_resp.json()["id"]
+
+        link_resp = self.client.post(
+            "/api/v1/catalog/content-resource-links",
+            json={"content_node_id": content_id, "resource_id": str(resource_id), "pedagogical_role": "THEORY"},
+            headers={"Authorization": "Bearer teacher:teacherCRL2"},
+        )
+        self.assertEqual(link_resp.status_code, 403, link_resp.text)
+
     def test_material_creation_and_versioning_via_api(self):
         material_resp = self.client.post(
             "/api/v1/catalog/materials",
