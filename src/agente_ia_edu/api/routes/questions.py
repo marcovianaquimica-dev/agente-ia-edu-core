@@ -588,6 +588,19 @@ async def review_question_authoring(
 ) -> QuestionAuthoringResponse:
     async with session_factory() as session:
         question, context = await _load_question_for_manage(session, identity, question_id)
+        # _load_question_for_manage only checks can_manage_question, which is
+        # ownership-based - correct for "submit" (the author submitting their
+        # own draft), but approve/reject/archive are a review decision and
+        # must not be gradable by the same person who owns the question, or
+        # the four-eyes guarantee can_transition_status already enforces for
+        # Question.status (the parallel governance field) is undermined here.
+        if request.action in ("approve", "reject", "archive") and context.role not in (
+            "DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN",
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Approving, rejecting, or archiving a question requires a director, coordinator, or platform admin role.",
+            )
         service = QuestionAuthoringService(session)
         try:
             if request.action == "submit":
