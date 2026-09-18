@@ -96,6 +96,22 @@ class TestPedagogicalUniverse(unittest.IsolatedAsyncioTestCase):
             self.assertIn("PEDAGOGICAL_UNIVERSE_CREATED", actions)
             self.assertIn("PEDAGOGICAL_UNIVERSE_CONFIGURATION_UPDATED", actions)
 
+    async def test_add_catalog_scope_rejects_invalid_scope_kind(self):
+        """add_catalog_scope() used to pass any scope_kind straight through to
+        the INSERT, so an invalid value (e.g. from a bad admin API request)
+        only failed at the DB's CHECK constraint - an unhandled IntegrityError
+        that the admin.py route did not catch, leaking as a raw 500 instead of
+        a 400 with a clear message. Verified live: POST
+        /api/v1/admin/pedagogical-universes/{id}/catalog-scopes with
+        scope_kind="INCLUDE" returned HTTP 500 against real Postgres before
+        this validation was added."""
+        async with self.session_factory() as session:
+            area, chemistry, math, content = await self._catalog(session)
+            service = PedagogicalUniverseService(session)
+            universe = await service.create_universe(external_id="NATUREZA3", slug="natureza3", name="Natureza 3", owner_type="PLATFORM", owner_external_id=None, performed_by_external_id="admin", status="ACTIVE")
+            with self.assertRaises(ValueError):
+                await service.add_catalog_scope(universe_id=universe.id, catalog_node_id=area.id, scope_kind="INCLUDE")
+
     async def test_list_catalog_scopes_returns_and_omits_removed_scopes(self):
         """The admin UI needs to read back which disciplines a universe is
         currently scoped to (to pre-check the right boxes) - there was no

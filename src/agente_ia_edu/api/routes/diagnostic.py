@@ -225,10 +225,15 @@ async def start_diagnostic_entry(
             defer_questions=True,
         )
         entry = diagnostic.metadata_.get("entry_profile", {})
+        # A diagnostic resumed here may have been created by the non-entry
+        # /diagnostic/start endpoint (defer_questions=False), whose metadata
+        # never carries entry_status/entry_step. Treat that as an entry
+        # conversation that's already effectively done, since a question was
+        # selected immediately without ever going through the welcome form.
         return DiagnosticEntryResponse(
             diagnostic_id=diagnostic.id,
-            entry_status=diagnostic.metadata_["entry_status"],
-            step=diagnostic.metadata_["entry_step"],
+            entry_status=diagnostic.metadata_.get("entry_status", "COMPLETED"),
+            step=diagnostic.metadata_.get("entry_step", "COMPLETED"),
             preferred_name=entry.get("preferred_name"),
             is_independent=diagnostic.school_id is None,
             next_question=await _to_diagnostic_question_response(session, next_question),

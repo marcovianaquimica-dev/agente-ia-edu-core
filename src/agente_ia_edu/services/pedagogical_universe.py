@@ -12,6 +12,8 @@ from agente_ia_edu.identity import ExternalIdentityContext
 
 
 class PedagogicalUniverseService:
+    CATALOG_SCOPE_KINDS = {"AREA", "DISCIPLINE", "CONTENT"}
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -43,9 +45,12 @@ class PedagogicalUniverseService:
 
     async def add_catalog_scope(self, *, universe_id: uuid.UUID, catalog_node_id: uuid.UUID, scope_kind: str, include_descendants: bool = True) -> PedagogicalUniverseCatalogScope:
         await self.require_universe(universe_id)
+        norm_scope_kind = scope_kind.upper()
+        if norm_scope_kind not in self.CATALOG_SCOPE_KINDS:
+            raise ValueError(f"Invalid scope_kind: {scope_kind}")
         if not await self.session.get(CatalogNode, catalog_node_id):
             raise ValueError("Catalog node not found")
-        scope = PedagogicalUniverseCatalogScope(universe_id=universe_id, catalog_node_id=catalog_node_id, scope_kind=scope_kind.upper(), include_descendants=include_descendants)
+        scope = PedagogicalUniverseCatalogScope(universe_id=universe_id, catalog_node_id=catalog_node_id, scope_kind=norm_scope_kind, include_descendants=include_descendants)
         self.session.add(scope)
         await self.session.commit()
         await self.session.refresh(scope)
