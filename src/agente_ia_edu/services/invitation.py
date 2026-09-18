@@ -232,7 +232,6 @@ class InvitationService:
             f"Invitation {invitation.id} activated for {external_user_id} "
             f"in school {invitation.school_id}"
         )
-        await self.session.commit()
         return invitation, link
 
     async def expire_invitation(self, invitation_id: UUID) -> UserInvitation:
