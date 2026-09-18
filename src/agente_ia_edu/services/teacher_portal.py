@@ -168,9 +168,12 @@ class TeacherPortalService:
                 ).distinct()
                 res_users = await self.session.execute(stmt_users)
                 classrooms.update(res_users.scalars().all())
-                # NOTE: this fallback is relied upon by verify_student_access below —
-                # removing it would silently deny SCHOOL/PLATFORM-scoped students to
-                # legitimate school-wide roles in a school with no TeachingLesson rows yet.
+                # Placeholder classroom id, display purposes only (e.g. search_students
+                # below): a school with no TeachingLesson rows yet still needs a
+                # non-empty value here for callers that render a classroom_id.
+                # verify_student_access does NOT depend on this list being non-empty
+                # any more - see _teacher_is_school_wide_authorized - so this fallback
+                # is safe to remove independently, ahead of the R0 spec's own step 6.
                 return list(classrooms) if classrooms else ["TURMA_3A"]
 
             if link.role == AdminRole.TEACHER:
@@ -179,9 +182,7 @@ class TeacherPortalService:
                 if link.scope_type in (AdminScopeType.PLATFORM, AdminScopeType.SCHOOL):
                     stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
                     res = await self.session.execute(stmt)
-                    # NOTE: this fallback is relied upon by verify_student_access below —
-                    # removing it would silently deny SCHOOL/PLATFORM-scoped students to
-                    # legitimate school-wide roles in a school with no TeachingLesson rows yet.
+                    # Same placeholder, same note: display-only now, see above.
                     return list(res.scalars().all()) or ["TURMA_3A"]
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id:
                     authorized_classrooms.add(link.scope_external_id)
@@ -217,6 +218,32 @@ class TeacherPortalService:
             return list(authorized_classrooms)
         return resolved
 
+    @staticmethod
+    def _teacher_is_school_wide_authorized(links, school_id: uuid.UUID) -> bool:
+        """True exactly when the teacher's own role grants school-wide (not
+        classroom-scoped) authorization at school_id - the same condition
+        get_teacher_authorized_classrooms uses to fall back to a placeholder
+        classroom list (["TURMA_3A"]) when the school has no TeachingLesson
+        rows yet. Kept as its own check, over the teacher's real
+        UserSchoolLink role/scope, so verify_student_access's SCHOOL/PLATFORM
+        branch authorizes on real membership - never on whether that
+        placeholder list happened to be non-empty. The R0 spec (§7, step 6)
+        plans to remove the placeholder once authorization hardening is
+        closed; this keeps that removal from being an authorization change.
+        """
+        for link in links:
+            if link.role == AdminRole.PLATFORM_ADMIN:
+                return True
+            if link.role in (AdminRole.DIRECTOR, AdminRole.COORDINATOR) and link.school_id == school_id:
+                return True
+            if (
+                link.role == AdminRole.TEACHER
+                and link.school_id in (None, school_id)
+                and link.scope_type in (AdminScopeType.PLATFORM, AdminScopeType.SCHOOL)
+            ):
+                return True
+        return False
+
     async def verify_student_access(
         self,
         *,
@@ -226,6 +253,8 @@ class TeacherPortalService:
     ) -> bool:
         """Verifies that student_id is in teacher's authorized classrooms in school_id."""
         authorized_classrooms = await self.get_teacher_authorized_classrooms(teacher_id, school_id)
+        teacher_links = await self.admin_service.get_user_active_links(teacher_id)
+        school_wide = self._teacher_is_school_wide_authorized(teacher_links, school_id)
 
         # Check student bindings in UserSchoolLink
         links = await self.admin_service.get_user_active_links(student_id)
@@ -236,7 +265,7 @@ class TeacherPortalService:
                 # A SCHOOL/PLATFORM-scoped student link alone is not enough — it must be
                 # paired with the teacher's own real authorization in this school, or any
                 # identity could read a school-scoped student's data by name alone.
-                if authorized_classrooms and link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
+                if school_wide and link.scope_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM):
                     return True
         raise ScopeAuthorizationError(f"Student '{student_id}' is outside teacher '{teacher_id}' authorized scope in school '{school_id}'.")
 
