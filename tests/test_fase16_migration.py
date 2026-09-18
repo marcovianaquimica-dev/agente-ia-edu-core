@@ -21,6 +21,8 @@ from alembic.config import Config
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
 
+from tests._postgres_test_db import create_database, drop_database
+
 
 class TestFase16Migration(unittest.TestCase):
     """Test UserInvitation migration against PostgreSQL.
@@ -55,48 +57,16 @@ class TestFase16Migration(unittest.TestCase):
         """Drop the test database after each test."""
         self._drop_test_database()
 
+    _ADMIN_URL = "postgresql+psycopg://agenteedu:agenteedu_dev@localhost:5433/postgres"
+
     def _recreate_test_database(self):
         """Drop and recreate the test database."""
-        # Connect to default postgres database to drop/create the test DB
-        # Use isolation_level=AUTOCOMMIT because DROP DATABASE must run outside transaction
-        from psycopg import sql
-        default_url = "postgresql+psycopg://agenteedu:agenteedu_dev@localhost:5433/postgres"
-        engine = create_engine(
-            default_url,
-            connect_args={"autocommit": True},
-            execution_options={"isolation_level": "AUTOCOMMIT"}
-        )
-        
-        with engine.connect() as conn:
-            # Terminate existing connections to the test database
-            conn.execute(text(
-                "SELECT pg_terminate_backend(pg_stat_activity.pid) "
-                "FROM pg_stat_activity "
-                "WHERE datname = 'agente_ia_edu_test' AND pid <> pg_backend_pid();"
-            ))
-            
-            # Drop test database if it exists
-            conn.execute(text("DROP DATABASE IF EXISTS agente_ia_edu_test"))
-            
-            # Create fresh test database
-            conn.execute(text("CREATE DATABASE agente_ia_edu_test"))
+        drop_database(self._ADMIN_URL, "agente_ia_edu_test")
+        create_database(self._ADMIN_URL, "agente_ia_edu_test")
 
     def _drop_test_database(self):
         """Drop the test database."""
-        default_url = "postgresql+psycopg://agenteedu:agenteedu_dev@localhost:5433/postgres"
-        engine = create_engine(
-            default_url,
-            connect_args={"autocommit": True},
-            execution_options={"isolation_level": "AUTOCOMMIT"}
-        )
-        
-        with engine.connect() as conn:
-            conn.execute(text(
-                "SELECT pg_terminate_backend(pg_stat_activity.pid) "
-                "FROM pg_stat_activity "
-                "WHERE datname = 'agente_ia_edu_test' AND pid <> pg_backend_pid();"
-            ))
-            conn.execute(text("DROP DATABASE IF EXISTS agente_ia_edu_test"))
+        drop_database(self._ADMIN_URL, "agente_ia_edu_test")
 
     def test_migration_upgrade_creates_user_invitations_table(self):
         """Test that upgrade creates user_invitations table with correct schema."""

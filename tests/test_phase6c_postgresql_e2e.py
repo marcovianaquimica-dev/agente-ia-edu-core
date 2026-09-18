@@ -38,6 +38,7 @@ from agente_ia_edu.db.models import (
     TaxonomyNode,
 )
 from agente_ia_edu.identity import ExternalIdentityContext
+from tests._postgres_test_db import create_database, drop_database
 
 
 class Phase6CPostgreSQLE2E(unittest.TestCase):
@@ -60,7 +61,7 @@ class Phase6CPostgreSQLE2E(unittest.TestCase):
         except Exception as exc:
             raise unittest.SkipTest("PostgreSQL de teste indisponivel para Phase 6C") from exc
         cls._drop_database()
-        cls._admin_execute(f"CREATE DATABASE {cls.database_name}")
+        create_database(cls.admin_url, cls.database_name)
         cls.engine = create_async_engine(cls.async_database_url)
         cls.session_factory = async_sessionmaker(
             cls.engine, class_=AsyncSession, expire_on_commit=False
@@ -107,14 +108,7 @@ class Phase6CPostgreSQLE2E(unittest.TestCase):
 
     @classmethod
     def _drop_database(cls):
-        try:
-            cls._admin_execute(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                f"WHERE datname = '{cls.database_name}' AND pid <> pg_backend_pid()"
-            )
-            cls._admin_execute(f"DROP DATABASE IF EXISTS {cls.database_name}")
-        except Exception:
-            pass
+        drop_database(cls.admin_url, cls.database_name)
 
     @classmethod
     async def _seed(cls):
