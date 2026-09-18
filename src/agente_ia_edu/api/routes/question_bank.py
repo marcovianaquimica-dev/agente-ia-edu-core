@@ -69,6 +69,8 @@ from agente_ia_edu.services.question_list_store import (
     QuestionListStore,
     Requester,
 )
+from agente_ia_edu.services.authorization import AuthorizationService
+from agente_ia_edu.services.discipline_gate import DisciplineGate
 from agente_ia_edu.services.question_bank import (
     QuestionBankFilters,
     QuestionBankItem,
@@ -180,11 +182,13 @@ async def list_questions(
         visual_dependency=visual_dependency, difficulty=difficulty, protected_only=protected_only,
     )
     async with session_factory() as session:
+        context = await AuthorizationService(session).resolve_context(identity)
         service = QuestionBankService(session)
         try:
             page_result = await service.list_questions(
                 filters, page=page, page_size=page_size,
                 order_by=order_by, order_direction=order_direction,
+                school_id=context.school_id,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -204,8 +208,18 @@ async def get_question(
     session_factory=Depends(get_session_factory),
 ) -> QBQuestion:
     async with session_factory() as session:
+        context = await AuthorizationService(session).resolve_context(identity)
         service = QuestionBankService(session)
         item = await service.get_question(question_id)
+        if item is not None:
+            scope = await DisciplineGate(session).scope_for_school(context.school_id)
+            code = item.classification.content_code if item.classification else None
+            if not scope.permits_code(code):
+                # Same posture as list_questions' SQL filter: a question outside
+                # the caller's declared discipline scope is treated as absent,
+                # not refused - existence of out-of-scope content is not
+                # something to reveal via a different status code.
+                item = None
     if item is None:
         raise HTTPException(status_code=404, detail="Question not found")
     return _to_schema(item)
@@ -220,10 +234,12 @@ async def preview_selection(
     """Validate + order a list of official ``question_version_id`` values for the
     future list generator. Pure read: nothing is persisted."""
     async with session_factory() as session:
+        context = await AuthorizationService(session).resolve_context(identity)
         service = QuestionBankService(session)
         try:
             selection = await service.build_selection(
-                payload.question_version_ids, source=payload.source
+                payload.question_version_ids, source=payload.source,
+                school_id=context.school_id,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -275,9 +291,12 @@ async def generate_list(
         resolution_style=payload.resolution_style,
     )
     async with session_factory() as session:
+        context = await AuthorizationService(session).resolve_context(identity)
         service = ListGeneratorService(session)
         try:
-            definition = await service.generate(payload.question_version_ids, configuration)
+            definition = await service.generate(
+                payload.question_version_ids, configuration, school_id=context.school_id
+            )
         except ListGenerationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     return QBGeneratedListDefinition.model_validate(_definition_to_dict(definition))
