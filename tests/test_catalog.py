@@ -1104,6 +1104,19 @@ class CatalogApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_content_material_availability_denies_student(self):
+        # This endpoint answers a platform-wide, unfiltered-by-school question
+        # (deliberately - it's a staff catalog-gap signal, see
+        # MaterialAvailabilityService.for_content_code's own docstring on why
+        # that's unsafe for a student specifically) - so a STUDENT must never
+        # reach it, regardless of which content_code they ask about.
+        resp = self.client.get(
+            "/api/v1/catalog/content-materials",
+            params={"content_code": "ANY-CODE"},
+            headers={"Authorization": "Bearer student:carlos"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
     def test_create_resource_ignores_spoofed_owner_for_school_origin(self):
         # A teacher scoped to school A submits owner_external_id = school B's
         # id: the server must derive ownership from the caller's own resolved

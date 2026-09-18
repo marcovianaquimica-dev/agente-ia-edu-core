@@ -1419,7 +1419,21 @@ async def content_material_availability(
     session_factory=Depends(get_session_factory),
 ) -> MaterialContentAvailabilityResponse:
     async with session_factory() as session:
-        # any authenticated identity may read this derived, non-sensitive count
+        # Staff-facing signal, deliberately unfiltered by school (catalog gap
+        # analysis needs the platform-wide answer) - but MaterialAvailabilityService
+        # .for_content_code() itself documents that this makes it unsafe for a
+        # student: it doesn't check visibility_scope/school_id, so a PRIVATE or
+        # another school's SCHOOL-scoped material would count. The role gate is
+        # what keeps this endpoint's intended audience (staff) from also being
+        # any authenticated identity, students included.
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        role_check = await authz.require_role(context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+        if not role_check.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail="Reading material availability requires a teacher, coordinator, director, or platform admin role.",
+            )
         availability = await MaterialAvailabilityService(session).for_content_code(content_code)
         return MaterialContentAvailabilityResponse(**availability.as_dict())
 
