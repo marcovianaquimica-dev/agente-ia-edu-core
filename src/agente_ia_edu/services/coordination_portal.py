@@ -580,18 +580,6 @@ class CoordinationPortalService:
                 "recent_lessons_count": len(lessons),
             })
 
-        if not teachers_payload:
-            # Fallback for dev/test mode
-            teachers_payload = [{
-                "teacher_id": "user:prof_mendes",
-                "name": "Prof. Mendes",
-                "school_id": str(school_id),
-                "assigned_classrooms": ["TURMA_3A", "TURMA_3B"],
-                "total_students": 25,
-                "classrooms_average_mastery": 64.0,
-                "recent_lessons_count": 2,
-            }]
-
         return teachers_payload
 
     # -------------------------------------------------------------------------

@@ -260,6 +260,24 @@ class TestCoordinationPortal(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(len(teachers), 0)
             self.assertEqual(teachers[0]["teacher_id"], "user:prof_mendes")
 
+    async def test_08b_teachers_oversight_empty_when_school_has_no_teachers(self):
+        """8b. Escola sem professores vinculados deve retornar lista vazia, sem dado fabricado."""
+        async with self.session_factory() as session:
+            _, sb_id, _, _ = await self._seed_data(session)
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            t_portal = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+            coord_svc = CoordinationPortalService(session, ks, t_svc, t_portal, rec_eng)
+
+            # School B has no TEACHER links in _seed_data.
+            teachers = await coord_svc.list_coordination_teachers(
+                coordinator_id="user:coord_b",
+                school_id=sb_id,
+            )
+            self.assertEqual(teachers, [])
+
     async def test_09_10_11_12_pedagogical_contexts_and_strengths_improvements(self):
         """9, 10, 11, 12, 22. Contexto pedagógico, pontos fortes/melhoria e prioridade TEACHER > COORDINATION > SCHOOL_PLAN > AUTONOMOUS."""
         async with self.session_factory() as session:
