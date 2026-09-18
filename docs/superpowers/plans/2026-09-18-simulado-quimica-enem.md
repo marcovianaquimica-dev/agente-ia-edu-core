@@ -18,7 +18,7 @@
 - Uma `Attempt` finalizada não aceita mais respostas; o mesmo e-mail pode iniciar quantas tentativas novas quiser (retomada/repetição ilimitada).
 - Sessão do aluno é resolvida por cookie (um por simulado em andamento, não por login).
 - Admin é um único usuário fixo via variável de ambiente — sem tela de cadastro de outros admins.
-- `assunto` da questão nunca é serializado nas respostas públicas (catálogo, questão, resultado) — só usado para agregação interna do feedback.
+- `assunto` da questão nunca aparece durante a prova (catálogo, tela de lead, questão, mapa de progresso) — o aluno não sabe o assunto de cada questão enquanto responde. Ele **é** exibido, agregado por assunto, na tela de resultado e na mensagem de WhatsApp, como o feedback pedagógico descrito no spec §5 (ex.: "Você foi bem em Estequiometria (4/4)").
 - Envio de WhatsApp (Z-API) roda em background após finalizar; falha não bloqueia nem aparece como erro pro aluno.
 - Sem integração com `agente-ia-edu-core`, sem múltiplos admins, sem CRM externo no v1.
 
