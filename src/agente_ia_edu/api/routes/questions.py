@@ -163,6 +163,16 @@ async def list_questions(
                 stmt = stmt.where(Question.visibility_scope == "PUBLIC")
             elif context.school_id is not None:
                 stmt = stmt.where((Question.school_id == context.school_id) | (Question.visibility_scope == "PUBLIC"))
+            elif not context.is_platform_admin:
+                # TEACHER/COORDINATOR/DIRECTOR is reachable with school_id=None
+                # (AuthorizationService.resolve_context's role_hint fallback,
+                # e.g. no active UserSchoolLink yet) - no real school
+                # relationship, same fail-closed default STUDENT already gets
+                # above. Without this branch the WHERE gets no tenant clause
+                # at all: individual rows still come back filtered by
+                # can_view_question below, but total/total_pages would leak
+                # an unfiltered, cross-tenant count.
+                stmt = stmt.where(Question.visibility_scope == "PUBLIC")
 
             # Apply governance filters
             if status:
