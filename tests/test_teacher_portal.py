@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -458,9 +459,10 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
 
     async def test_verify_student_access_allows_school_scoped_student_for_real_director(self):
         """A real DIRECTOR of school_id, with no TeachingLesson rows yet (a
-        fresh school), must still be allowed - authorized_classrooms falls
-        back to a non-empty placeholder for legitimate school-wide roles, so
-        this must not regress alongside the fix above."""
+        fresh school), must still be allowed. This no longer depends on
+        get_teacher_authorized_classrooms's ["TURMA_3A"] placeholder fallback -
+        see _teacher_is_school_wide_authorized - but the end-to-end outcome
+        must not regress either way."""
         async with self.session_factory() as session:
             admin_service = PlatformAdminService(session)
             school_a = School(id=uuid4(), code="SCH_SCOPE_C", name="Escola C Scope")
@@ -494,6 +496,52 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
                 school_id=school_a.id,
                 student_id="student-school-scoped-c",
             )
+            self.assertTrue(allowed)
+
+    async def test_verify_student_access_survives_removal_of_the_turma_3a_placeholder(self):
+        """Proves the decoupling directly: even if get_teacher_authorized_classrooms
+        returned [] (e.g. once the R0 spec's step 6 removes the ["TURMA_3A"]
+        placeholder fallback), a real DIRECTOR must still be authorized for a
+        SCHOOL-scoped student - because verify_student_access's SCHOOL/PLATFORM
+        branch now checks the teacher's own UserSchoolLink role directly,
+        never the classroom list's emptiness."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_NOPLACEHOLDER", name="Escola Sem Placeholder")
+            session.add(school_a)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="director-noplaceholder",
+                role=AdminRole.DIRECTOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-noplaceholder",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            with unittest.mock.patch.object(
+                TeacherPortalService, "get_teacher_authorized_classrooms",
+                return_value=[],
+            ):
+                allowed = await portal_svc.verify_student_access(
+                    teacher_id="director-noplaceholder",
+                    school_id=school_a.id,
+                    student_id="student-noplaceholder",
+                )
             self.assertTrue(allowed)
 
     async def test_fetch_students_in_classrooms_denies_school_scoped_student_with_no_authorization(self):

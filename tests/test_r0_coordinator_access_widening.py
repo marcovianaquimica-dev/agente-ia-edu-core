@@ -161,6 +161,52 @@ class CoordinatorAccessWideningTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(classrooms, [])
 
+    async def test_a_grade_level_only_coordinator_sees_no_classrooms(self):
+        """Same shape as the SEGMENT case above, for GRADE_LEVEL specifically -
+        reachable in production today (a platform admin can link a COORDINATOR
+        with scope_type=GRADE_LEVEL and no CLASSROOM link via the admin API),
+        and _resolve_scope_classrooms's own docstring flags this exact
+        combination as untested: deriving classroom membership from a grade
+        level is deferred, new logic - the fail-closed [] here is correct and
+        must stay [], not silently widen to every classroom in the school."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "7")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-grade-only",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.GRADE_LEVEL,
+                school_id=school.id,
+                scope_external_id="GRADE-3",
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            classrooms = await portal._resolve_scope_classrooms(
+                "coord-grade-only", school.id
+            )
+        self.assertEqual(classrooms, [])
+
+    async def test_a_unit_only_coordinator_sees_no_classrooms(self):
+        """Same as above, for UNIT."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "8")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-unit-only",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.UNIT,
+                school_id=school.id,
+                scope_external_id="UNIT-3",
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            classrooms = await portal._resolve_scope_classrooms(
+                "coord-unit-only", school.id
+            )
+        self.assertEqual(classrooms, [])
+
     async def test_a_global_coordinator_still_sees_every_classroom(self):
         """is_global must keep reaching the TeachingLesson query and its
         TURMA_3A/3B fallback - that half of the function is correct and stays."""
