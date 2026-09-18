@@ -633,12 +633,15 @@ class QuestionBankService:
         return out
 
     async def build_selection(
-        self, question_version_ids: Sequence[UUID], *, source: str = "manual"
+        self, question_version_ids: Sequence[UUID], *, source: str = "manual",
+        school_id: str | UUID | None = None,
     ) -> QuestionSelection:
         """Validate a list of official ``question_version_id`` values and return
         an ordered :class:`QuestionSelection` (input order preserved). No
         persistence, no IA, no PDF. Raises ``ValueError`` on any unknown or
-        non-official version id or on a duplicate.
+        non-official version id, on a duplicate, or - same error bucket, same
+        "hide existence" posture as an unknown id - on an id whose classified
+        content falls outside ``school_id``'s declared discipline scope.
         """
         ids = list(question_version_ids)
         if len(set(ids)) != len(ids):
@@ -657,10 +660,17 @@ class QuestionBankService:
             )
         )
         found = {r[0]: r for r in (await self._session.execute(q)).all()}
-        missing = [str(i) for i in ids if i not in found]
+        classifications = await self._active_classifications(list(found))
+        scope = await DisciplineGate(self._session).scope_for_school(school_id)
+        missing = [
+            str(i) for i in ids
+            if i not in found
+            or not scope.permits_code(
+                classifications[i].content if i in classifications else None
+            )
+        ]
         if missing:
             raise ValueError(f"unknown or non-official question_version_id(s): {missing}")
-        classifications = await self._active_classifications(ids)
         entries: list[QuestionSelectionEntry] = []
         for position, vid in enumerate(ids, start=1):
             _, question_id, year, official_number = found[vid]

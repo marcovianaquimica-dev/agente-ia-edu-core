@@ -200,6 +200,7 @@ class ListGeneratorService:
         configuration: ListConfiguration,
         *,
         source_label: str = "professor-list-generator",
+        school_id: str | UUID | None = None,
     ) -> GeneratedListDefinition:
         config = configuration.validated()
 
@@ -210,7 +211,7 @@ class ListGeneratorService:
             raise ListGenerationError(f"A lista suporta no máximo {_MAX_QUESTIONS} questões.")
         # reuse PHASE 12 validation verbatim: existence, official_original, no dup, order
         try:
-            selection = await self._bank.build_selection(ids, source=source_label)
+            selection = await self._bank.build_selection(ids, source=source_label, school_id=school_id)
         except ValueError as exc:
             raise ListGenerationError(str(exc)) from exc
         ordered_ids = selection.question_version_ids
