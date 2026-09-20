@@ -112,7 +112,14 @@ class AuthorizationService:
             scope_type = selected.scope_type
             context_scope = selected.scope_external_id or scope_external_id
             modules = tuple(sorted(await self._school_modules(school_id_value)))
-            is_platform_admin = selected.role == "PLATFORM_ADMIN"
+            # Whether this person holds a real platform-admin link at all -
+            # not whether the link an explicit school_id/role_hint narrowed
+            # `selected` to happens to be one. A real admin who also holds
+            # another link (e.g. a TEACHER link for testing) must not lose
+            # is_platform_admin just because a caller passed that other
+            # link's school_id (PlatformAdminService.is_platform_admin
+            # already checks this the same way, via any(...)).
+            is_platform_admin = any(link.role == "PLATFORM_ADMIN" for link in links)
 
             return AuthenticatedUserContext(
                 user_id=external_user_id,
