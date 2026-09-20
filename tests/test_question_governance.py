@@ -116,6 +116,68 @@ class TestQuestionGovernancePhase2(unittest.TestCase):
         allowed = QuestionAuthorizationService.can_view_question(context, question)
         self.assertTrue(allowed)
 
+    def test_classroom_question_denies_teacher_with_no_classroom_scope(self):
+        # Regression: (question.metadata_ or {}).get("classroom_id") ==
+        # context.scope_external_id evaluated None == None -> True whenever
+        # neither side was set - a SCHOOL-scoped (or fallback, no-link)
+        # TEACHER with scope_external_id=None could view ANY CLASSROOM
+        # question that carries no classroom_id in its metadata, with no
+        # real classroom relationship at all.
+        school_id = uuid4()
+        question = Question(
+            id=uuid4(), school_id=school_id, visibility_scope="CLASSROOM", status="PUBLISHED",
+        )
+        context = AuthenticatedUserContext(
+            user_id="teacher-noclass", external_identity_id="teacher-noclass", role="TEACHER",
+            school_id=str(school_id), scope_type="SCHOOL", scope_external_id=None,
+        )
+        self.assertFalse(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_classroom_question_allows_teacher_with_matching_classroom_scope(self):
+        school_id = uuid4()
+        question = Question(
+            id=uuid4(), school_id=school_id, visibility_scope="CLASSROOM", status="PUBLISHED",
+            metadata_={"classroom_id": "CLASS-7"},
+        )
+        context = AuthenticatedUserContext(
+            user_id="teacher-class7", external_identity_id="teacher-class7", role="TEACHER",
+            school_id=str(school_id), scope_type="CLASSROOM", scope_external_id="CLASS-7",
+        )
+        self.assertTrue(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_classroom_question_denies_teacher_with_different_classroom_scope(self):
+        school_id = uuid4()
+        question = Question(
+            id=uuid4(), school_id=school_id, visibility_scope="CLASSROOM", status="PUBLISHED",
+            metadata_={"classroom_id": "CLASS-7"},
+        )
+        context = AuthenticatedUserContext(
+            user_id="teacher-class8", external_identity_id="teacher-class8", role="TEACHER",
+            school_id=str(school_id), scope_type="CLASSROOM", scope_external_id="CLASS-8",
+        )
+        self.assertFalse(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_school_less_platform_question_denies_self_declared_director(self):
+        # A DIRECTOR/COORDINATOR role is reachable with no real UserSchoolLink
+        # via AuthorizationService.resolve_context's fallback path - this must
+        # not be enough to view a school-less, non-PUBLIC question. Only a
+        # real platform admin (is_platform_admin=True, checked earlier in
+        # can_view_question) may.
+        question = Question(id=uuid4(), school_id=None, visibility_scope="SCHOOL", status="PUBLISHED")
+        context = AuthenticatedUserContext(
+            user_id="self-declared-director", external_identity_id="self-declared-director",
+            role="DIRECTOR", school_id=None, scope_type="PLATFORM", is_platform_admin=False,
+        )
+        self.assertFalse(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_school_less_platform_question_allows_real_platform_admin(self):
+        question = Question(id=uuid4(), school_id=None, visibility_scope="SCHOOL", status="PUBLISHED")
+        context = AuthenticatedUserContext(
+            user_id="real-admin", external_identity_id="real-admin",
+            role="PLATFORM_ADMIN", school_id=None, scope_type="PLATFORM", is_platform_admin=True,
+        )
+        self.assertTrue(QuestionAuthorizationService.can_view_question(context, question))
+
 
 if __name__ == "__main__":
     unittest.main()
