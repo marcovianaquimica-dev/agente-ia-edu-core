@@ -1275,6 +1275,115 @@ class CatalogApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 201, resp.text)
         self.assertEqual(resp.json()["owner_external_id"], "teacherRA3")
 
+    def test_create_resource_denies_public_visibility_for_non_admin(self):
+        # visibility_scope="PUBLIC"/"SHARED" is KnowledgeService._is_resource_visible's
+        # own unconditional grant - it bypasses owner_external_id entirely, so
+        # constraining owner_external_id alone (test above) is not enough.
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={
+                "title": "Recurso publico forjado",
+                "resource_type": "THEORY_MATERIAL",
+                "origin_type": "AUTHOR",
+                "visibility_scope": "PUBLIC",
+            },
+            headers={"Authorization": "Bearer teacher:teacherRA4"},
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_create_resource_denies_shared_visibility_for_non_admin(self):
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={
+                "title": "Recurso compartilhado forjado",
+                "resource_type": "THEORY_MATERIAL",
+                "origin_type": "AUTHOR",
+                "visibility_scope": "SHARED",
+            },
+            headers={"Authorization": "Bearer teacher:teacherRA5"},
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_create_resource_allows_public_visibility_for_admin(self):
+        resp = self.client.post(
+            "/api/v1/catalog/resources",
+            json={
+                "title": "Recurso publico legitimo",
+                "resource_type": "THEORY_MATERIAL",
+                "origin_type": "PLATFORM",
+                "visibility_scope": "PUBLIC",
+            },
+            headers=_admin_auth(),
+        )
+        self.assertEqual(resp.status_code, 201, resp.text)
+
+    def _seed_school_owned_resource_and_other_school_link(self, code_prefix, role):
+        """Seeds a resource owned by school A, plus a `role` link for
+        `f"{code_prefix.lower()}-caller"` at a DIFFERENT school B - the exact
+        shape that exercises resource.owner_external_id != context.school_id
+        in the resource-grant routes."""
+        async def _seed():
+            async with self.session_factory() as session:
+                school_a = School(code=f"{code_prefix}A", name=f"Escola {code_prefix}A")
+                school_b = School(code=f"{code_prefix}B", name=f"Escola {code_prefix}B")
+                session.add_all([school_a, school_b])
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id=f"{code_prefix.lower()}-caller", school_id=school_b.id,
+                    role=role, scope_type="SCHOOL", active=True,
+                ))
+                resource = EducationalResource(
+                    title=f"Recurso {code_prefix}", resource_type="THEORY_MATERIAL",
+                    origin_type="SCHOOL", owner_external_id=str(school_a.id),
+                    visibility_scope="SCHOOL", status="active",
+                )
+                session.add(resource)
+                await session.commit()
+                return resource.id
+
+        import asyncio
+        return asyncio.run(_seed())
+
+    def test_create_resource_grant_succeeds_for_coordinator_of_different_school(self):
+        # Exercises the exact `await x.y(...).allowed` call site this test
+        # proves is no longer a bug: a COORDINATOR IS in the allowed role set,
+        # so a real Python AttributeError here (pre-fix) would 500 instead of
+        # ever reaching a role decision.
+        resource_id = self._seed_school_owned_resource_and_other_school_link("CRG1", "COORDINATOR")
+        resp = self.client.post(
+            f"/api/v1/catalog/resources/{resource_id}/grants",
+            json={"grantee_type": "SCHOOL", "grantee_external_id": "some-classroom"},
+            headers={"Authorization": "Bearer coordinator:crg1-caller"},
+        )
+        self.assertEqual(resp.status_code, 201, resp.text)
+
+    def test_create_resource_grant_denies_teacher_of_different_school(self):
+        # A TEACHER is NOT in the allowed role set for a cross-school resource
+        # - must get a clean 403, not a 500 from the coroutine/.allowed bug.
+        resource_id = self._seed_school_owned_resource_and_other_school_link("CRG2", "TEACHER")
+        resp = self.client.post(
+            f"/api/v1/catalog/resources/{resource_id}/grants",
+            json={"grantee_type": "SCHOOL", "grantee_external_id": "some-classroom"},
+            headers={"Authorization": "Bearer teacher:crg2-caller"},
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_list_resource_grants_succeeds_for_director_of_different_school(self):
+        resource_id = self._seed_school_owned_resource_and_other_school_link("LRG1", "DIRECTOR")
+        resp = self.client.get(
+            f"/api/v1/catalog/resources/{resource_id}/grants",
+            headers={"Authorization": "Bearer director:lrg1-caller"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def test_list_resource_grants_denies_teacher_of_different_school(self):
+        resource_id = self._seed_school_owned_resource_and_other_school_link("LRG2", "TEACHER")
+        resp = self.client.get(
+            f"/api/v1/catalog/resources/{resource_id}/grants",
+            headers={"Authorization": "Bearer teacher:lrg2-caller"},
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
     def test_get_resources_for_content_filters_out_invisible_resource(self):
         async def _seed():
             async with self.session_factory() as session:
