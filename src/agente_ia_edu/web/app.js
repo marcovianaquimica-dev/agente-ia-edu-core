@@ -922,7 +922,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function startActivityPlayer(assignmentId) {
-    // a fresh entry into the player - never carry over state from a previous activity
+    // a fresh entry into the player - never carry over state from a previous activity.
+    // This includes any debounced persistPosition() timer still in flight for the
+    // PREVIOUS activity: left running, it would fire later against the assignmentId
+    // we are about to set below and corrupt this new attempt's current_position.
+    if (positionTimer) { clearTimeout(positionTimer); positionTimer = null; }
     player.assignmentId = assignmentId;
     player.state = null;
     player.index = 0;
@@ -956,6 +960,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function closePlayer() {
+    // cancel any debounced persistPosition() PUT still pending for THIS activity -
+    // once player.assignmentId is cleared below, a late-firing timer would either
+    // 404 against "activities/null/..." or, worse, silently write a stale question
+    // index onto whichever OTHER activity is opened next in this same player.
+    if (positionTimer) { clearTimeout(positionTimer); positionTimer = null; }
     if (PLAYER_EL.root()) PLAYER_EL.root().hidden = true;
     if (PLAYER_EL.listCard()) PLAYER_EL.listCard().hidden = false;
     player.assignmentId = null;
@@ -1356,6 +1365,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function closeResultScreen() {
+    // same stale-timer hazard as closePlayer(): by the time the result screen is
+    // reached the attempt is already COMPLETED (position no longer matters for it),
+    // but player.assignmentId is about to be reused for whatever opens next.
+    if (positionTimer) { clearTimeout(positionTimer); positionTimer = null; }
     const card = document.getElementById('activity-result');
     if (card) card.hidden = true;
     resultView.data = null;

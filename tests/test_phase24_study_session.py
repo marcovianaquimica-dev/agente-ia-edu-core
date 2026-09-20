@@ -575,6 +575,36 @@ class Phase24Tests(unittest.TestCase):
         self.assertGreaterEqual(resumed["blocks_done"], 1)
         self.assertEqual(resumed["blocks"][0]["status"], "DONE")
 
+    # -- 23b  /today keeps showing a session completed earlier today ----
+    def test_today_reflects_completed_session_same_day(self):
+        """Once the student finishes today's Momento de Aprendizado, GET
+        .../today must keep surfacing it (status COMPLETED) so the frontend's
+        'sessão concluída' screen (renderSsDone) can render on a fresh page
+        load - not silently forget it and re-prompt for a new session, which
+        would let has_session flip back to False for the rest of the day."""
+        self._clear_sessions("s_done_today")
+        self._give_evidence("s_done_today", "C_A", 2, 6)
+        sid = self._create_free("s_done_today", available_minutes=45,
+                                target_content_codes=["C_A"]).json()["id"]
+        self._as_student("s_done_today")
+        self.client.post(f"/api/v1/student/study-session/{sid}/start")
+        blocks = self.client.get(f"/api/v1/student/study-session/{sid}").json()["blocks"]
+        for b in blocks:
+            self.client.post(
+                f"/api/v1/student/study-session/{sid}/blocks/{b['index']}/complete",
+                json={"skipped": True})
+        finished = self.client.post(f"/api/v1/student/study-session/{sid}/complete").json()
+        self.assertEqual(finished["status"], "COMPLETED")
+
+        # simulate "closing the tab and reopening the Study Session view later
+        # the same day" - the real frontend call is GET .../today, not the
+        # by-id endpoint used by test_resume_after_disconnect above.
+        today = self.client.get("/api/v1/student/study-session/today").json()
+        self.assertTrue(today["has_session"],
+                        "a session completed earlier today must still be reported by /today")
+        self.assertEqual(today["session"]["id"], sid)
+        self.assertEqual(today["session"]["status"], "COMPLETED")
+
     # -- 24  no N+1 (scaling contents) ---------------------------------
     def test_no_n_plus_1_scaling_targets(self):
         self._clear_sessions("s_scale")

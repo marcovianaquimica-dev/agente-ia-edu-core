@@ -172,3 +172,36 @@ test('the player anticipates none of the correction / score phases', () => {
   // it never reads a correctness field from the payload
   assert.doesNotMatch(PLAYER_CODE, /is_correct|correct_option|is_valid_option|answer_key(?!_visible)/);
 });
+
+// bug found by live-testing (2026-09-20): persistPosition() debounces the
+// PUT .../attempt/position by 400ms in a MODULE-level `positionTimer`, and
+// reads the CURRENT `player.assignmentId` only when the timer fires - not
+// when it was scheduled. startActivityPlayer() resets every other player.*
+// field "never carry over state from a previous activity", but left this
+// timer running: if the student navigates to a question and then finishes
+// (or exits) within that 400ms window, the stale timeout later fires against
+// whatever `player.assignmentId` is current at that moment - which, if the
+// student has since opened a DIFFERENT activity, silently persists a leftover
+// question index onto that unrelated attempt's current_position.
+test('leaving the player cancels the pending position-persist debounce timer', () => {
+  const closePlayerFn = appJs.slice(
+    appJs.indexOf('function closePlayer()'),
+    appJs.indexOf('function applyPlayerState'));
+  assert.match(
+    closePlayerFn, /clearTimeout\(positionTimer\)/,
+    'closePlayer() must cancel positionTimer - otherwise a debounced position PUT ' +
+    'scheduled just before exit can fire later against a different activity',
+  );
+});
+
+test('starting a player run cancels any leftover position-persist timer from a previous activity', () => {
+  const startFn = appJs.slice(
+    appJs.indexOf('async function startActivityPlayer'),
+    appJs.indexOf('function openPlayerShell'));
+  assert.match(
+    startFn, /clearTimeout\(positionTimer\)/,
+    'startActivityPlayer() must cancel any pending positionTimer BEFORE reassigning ' +
+    'player.assignmentId, so a stale debounced write from the previous activity never ' +
+    'lands on the new one',
+  );
+});

@@ -85,6 +85,15 @@ class StudySessionService:
         self._authz_self(student_external_id, requester)
         row = await self._active_session(student_external_id, prefer_source=SOURCE_SCHOOL)
         if row is None:
+            # No SCHEDULED/READY/IN_PROGRESS row left - but a session finished
+            # (or cancelled) earlier TODAY must still be reported, or the
+            # frontend's "sessão concluída" screen (renderSsDone) can never be
+            # reached again after a page reload: has_session would silently
+            # flip back to False and the student would be re-prompted as if
+            # nothing had happened today (s16 - resume/reload must be lossless).
+            row = await self._active_session(
+                student_external_id, prefer_source=SOURCE_SCHOOL, statuses=None)
+        if row is None:
             return {"student_external_id": student_external_id, "has_session": False,
                     "prompt_for_time": True, "session": None}
         return {"student_external_id": student_external_id, "has_session": True,
@@ -395,12 +404,15 @@ class StudySessionService:
 
     async def _active_session(self, student_external_id: str, *, only_source: str | None = None,
                               prefer_source: str | None = None,
-                              on_date: str | None = None) -> StudySession | None:
+                              on_date: str | None = None,
+                              statuses: tuple[str, ...] | None = _ACTIVE_STATUSES,
+                              ) -> StudySession | None:
         q = select(StudySession).where(
             StudySession.student_external_id == student_external_id,
             StudySession.session_date == (on_date or _today()),
-            StudySession.status.in_(_ACTIVE_STATUSES),
         )
+        if statuses:
+            q = q.where(StudySession.status.in_(statuses))
         if only_source:
             q = q.where(StudySession.source == only_source)
         rows = (await self._session.execute(q.order_by(StudySession.created_at.desc()))).scalars().all()
