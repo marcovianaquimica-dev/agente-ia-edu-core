@@ -213,7 +213,20 @@ async def get_question(
         item = await service.get_question(question_id)
         if item is not None:
             scope = await DisciplineGate(session).scope_for_school(context.school_id)
-            code = item.classification.content_code if item.classification else None
+            # item.classification.content_code is the resolved CONTENT-level
+            # ANCESTOR code (QuestionBankService._resolve_curriculum_path
+            # walks a SUBCONTENT code up to its parent CONTENT code) - not
+            # the raw value stored on the classification. list_questions'
+            # SQL gate compares the raw pc.content directly, which can BE a
+            # SUBCONTENT code. A universe scoped to a CONTENT node with
+            # include_descendants=False permits that CONTENT code but not
+            # its SUBCONTENT children - using content_code alone here let a
+            # SUBCONTENT-classified question, correctly hidden by
+            # list_questions, through get_question anyway. subcontent_code,
+            # when set, is exactly that raw value.
+            code = None
+            if item.classification:
+                code = item.classification.subcontent_code or item.classification.content_code
             if not scope.permits_code(code):
                 # Same posture as list_questions' SQL filter: a question outside
                 # the caller's declared discipline scope is treated as absent,
