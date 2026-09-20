@@ -162,3 +162,31 @@ class TestDiagnosticSegmentE2E(unittest.TestCase):
         self.assertEqual(profile["free_text"], "quero estudar matemática também")
         blocked = self.client.post("/api/v1/student/diagnostic/entry/start", json={"requested_universe_id": str(outside_id)})
         self.assertEqual(blocked.status_code, 403)
+
+    def test_result_response_mastery_map_includes_coverage_status(self):
+        # app.js (renderDiagnosticResult) reads item.coverage_status on every
+        # mastery_map entry to decide the "stronger" vs "developing" copy shown
+        # to the student. The service already computes it (initial_diagnostic.py
+        # get_diagnostic_result), but the HTTP response_model must declare the
+        # field too, or FastAPI/pydantic silently strips it before it reaches
+        # the frontend.
+        async def seed():
+            async with self.factory() as session:
+                math = await self._root(session, "Matemática", 1)
+                await self._seed_question(session, math, "Álgebra única")
+                await session.commit()
+
+        asyncio.run(seed())
+        self.identity = ExternalIdentityContext(provider="test", external_user_id="coverage-status-learner")
+        diagnostic_id, first = self._start_and_complete_entry()
+        self._answer(diagnostic_id, first)
+
+        result = self.client.get(f"/api/v1/student/diagnostic/{diagnostic_id}/result")
+        self.assertEqual(result.status_code, 200)
+        mastery_map = result.json()["mastery_map"]
+        self.assertGreater(len(mastery_map), 0)
+        for item in mastery_map:
+            self.assertIn("coverage_status", item)
+        # a single answered question can never satisfy the coverage policy's
+        # minimum evidence/difficulty-diversity thresholds
+        self.assertEqual(mastery_map[0]["coverage_status"], "INSUFFICIENT_EVIDENCE")

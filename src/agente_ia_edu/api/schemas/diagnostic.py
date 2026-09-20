@@ -90,6 +90,13 @@ class ContentMasteryEstimate(BaseModel):
     content_name: str
     estimated_mastery: float
     confidence: float
+    # NOT_EVALUATED | IN_PROGRESS | INSUFFICIENT_EVIDENCE | SUFFICIENT_EVIDENCE
+    # | CONSOLIDATED | POSSIBLE_GAP (DiagnosticCoveragePolicy.assess). The
+    # student portal's result screen (app.js renderDiagnosticResult) reads
+    # this to decide the "stronger"/"developing" copy - keep it declared here
+    # or FastAPI/pydantic silently drops it from the HTTP response.
+    coverage_status: Optional[str] = None
+    is_inconsistent: bool = False
     recommended_difficulty: str
     evidence_origin: str = "INITIAL_DIAGNOSTIC"
 

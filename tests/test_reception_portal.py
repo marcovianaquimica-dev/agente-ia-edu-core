@@ -414,6 +414,44 @@ class TestReceptionPortalHTTP(unittest.TestCase):
         self.assertEqual(payload["result"]["status"], "COMPLETED")
         self.assertEqual(payload["result"]["evidence_count"], 1)
 
+    def test_diagnostic_access_activation_errors_are_localized(self):
+        # reception.js has no way to translate an error message it has never
+        # seen: InvitationService raises internal English strings ("Invalid
+        # invitation token", "Invitation has already been activated") that
+        # must not reach the atendente's screen verbatim.
+        created = self.create_candidate()
+        released = self.client.post(
+            f"/api/v1/reception/candidates/{created['id']}/diagnostic-release"
+        ).json()
+        token = released["activation_token"]
+
+        unknown_token = self.client.post(
+            "/api/v1/reception/diagnostic-access/activate",
+            json={"token": "x" * 32},
+        )
+        self.assertEqual(unknown_token.status_code, 400)
+        unknown_detail = unknown_token.json()["detail"]
+        self.assertNotEqual(unknown_detail, "Invalid invitation token")
+        self.assertIn("inválido", unknown_detail.lower())
+
+        self.identity["value"] = ExternalIdentityContext(
+            provider="test",
+            external_user_id="student-reuse",
+            roles=("student",),
+        )
+        first_activation = self.client.post(
+            "/api/v1/reception/diagnostic-access/activate", json={"token": token}
+        )
+        self.assertEqual(first_activation.status_code, 200, first_activation.text)
+
+        reused_token = self.client.post(
+            "/api/v1/reception/diagnostic-access/activate", json={"token": token}
+        )
+        self.assertEqual(reused_token.status_code, 400)
+        reused_detail = reused_token.json()["detail"]
+        self.assertNotEqual(reused_detail, "Invitation has already been activated")
+        self.assertIn("ativado", reused_detail.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,12 +34,43 @@ document.addEventListener('DOMContentLoaded', () => {
     DIRECTOR: 'Diretor(a)', COORDINATOR: 'Coordenador(a)', SECRETARY: 'Secretaria',
     TEACHER: 'Professor(a)', STUDENT: 'Aluno(a)', PLATFORM_ADMIN: 'Administrador da Plataforma',
   };
+  // Labels for ReceptionCandidateCreate's fields, matching the "Novo
+  // atendimento" form - used to build a readable message out of a pydantic
+  // 422 validation error item.
+  const FIELD_LABELS = {
+    full_name: 'Nome completo', preferred_name: 'Nome preferido', birth_date: 'Data de nascimento',
+    guardian_name: 'Responsável', phone: 'Telefone', email: 'E-mail', academic_year: 'Ano letivo',
+    unit_id: 'Unidade', segment_id: 'Segmento', grade_level: 'Série', classroom_id: 'Turma',
+    school_id: 'Escola',
+  };
+  function translateValidationItem(item) {
+    const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+    const label = FIELD_LABELS[field] || field;
+    const rawMsg = (item && item.msg) || 'Dado inválido.';
+    // Our own field_validators already raise Portuguese messages, but
+    // pydantic still prefixes them with the English literal "Value error, ".
+    const valueErrorMatch = rawMsg.match(/^Value error,\s*(.+)$/);
+    if (valueErrorMatch) return valueErrorMatch[1];
+    if (item.type === 'string_too_short') {
+      return `${label}: deve ter pelo menos ${item.ctx?.min_length} caracteres.`;
+    }
+    if (item.type === 'string_too_long') {
+      return `${label}: deve ter no máximo ${item.ctx?.max_length} caracteres.`;
+    }
+    if (item.type === 'missing') {
+      return `${label ? label + ': ' : ''}campo obrigatório.`;
+    }
+    return label ? `${label}: ${rawMsg}` : rawMsg;
+  }
   function translateDetail(detail) {
     if (!detail) return detail;
     if (Array.isArray(detail)) {
       // FastAPI 422 validation errors: a list of {msg, loc, type} - not a
-      // string, so the regex/lookup logic below would throw on it.
-      return detail.map(e => (e && e.msg) || 'Dado inválido.').join(' ');
+      // string, so the regex/lookup logic below would throw on it. Each
+      // item's raw msg is either plain English (built-in pydantic
+      // constraints) or "Value error, <mensagem em português>" (our own
+      // field_validators) - never show either verbatim to the atendente.
+      return detail.map(translateValidationItem).join(' ');
     }
     if (typeof detail === 'object') {
       return detail.message || 'Não foi possível concluir a operação.';

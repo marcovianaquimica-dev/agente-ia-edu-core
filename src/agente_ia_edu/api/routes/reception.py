@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +27,43 @@ from agente_ia_edu.services.reception import ReceptionService
 
 
 reception_router = APIRouter(prefix="/api/v1/reception", tags=["reception"])
+
+# InvitationService (services/invitation.py) is shared with other portals
+# (teacher/coordination invite flows) and raises plain internal English
+# ValueError strings - it is not this route's place to change that shared
+# contract. But reception.js has no translation entry for these messages
+# (unlike the AuthorizationService ones it already knows), so left alone
+# they leak straight onto the atendente's screen. Translate the ones
+# reachable from the diagnostic-access activation flow before they leave
+# this router.
+_INVITATION_STATUS_LABELS = {
+    "activated": "ativado",
+    "expired": "expirado",
+    "cancelled": "cancelado",
+    "pending": "pendente",
+    "accepted": "aceito",
+}
+
+
+def _translate_invitation_error(detail: str) -> str:
+    if detail == "Invalid invitation token":
+        return "Token de acesso inválido ou não encontrado."
+    if detail == "Invitation has expired":
+        return "O convite expirou."
+    already_match = re.fullmatch(r"Invitation has already been (\w+)", detail)
+    if already_match:
+        status_word = already_match.group(1)
+        label = _INVITATION_STATUS_LABELS.get(status_word, status_word)
+        return f"O convite já foi {label}."
+    cannot_activate_match = re.fullmatch(r"Cannot activate invitation in (\w+) status", detail)
+    if cannot_activate_match:
+        status_word = cannot_activate_match.group(1)
+        label = _INVITATION_STATUS_LABELS.get(status_word, status_word)
+        return f"Não é possível ativar um convite com status {label}."
+    invalid_status_match = re.fullmatch(r"Invitation is in an invalid status: (.+)", detail)
+    if invalid_status_match:
+        return f"O convite está em um status inválido: {invalid_status_match.group(1)}."
+    return detail
 
 
 async def _require_reception_access(
@@ -208,7 +246,7 @@ async def activate_candidate_diagnostic_access(
                 token=request.token, external_student_id=identity.external_user_id
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=_translate_invitation_error(str(exc)))
         return DiagnosticAccessActivationResponse(
             candidate_id=candidate.id,
             school_id=candidate.school_id,

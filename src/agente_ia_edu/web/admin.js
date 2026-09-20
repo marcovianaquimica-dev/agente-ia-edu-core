@@ -52,7 +52,18 @@ document.addEventListener('DOMContentLoaded', () => {
   async function errorDetail(res) {
     const body = await res.json().catch(() => ({}));
     const d = body.detail;
-    return (typeof d === 'string' ? d : (d && d.message)) || `HTTP ${res.status}`;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) {
+      // FastAPI/Pydantic validation error shape: a list of
+      // {loc, msg, type}. Surface the field(s) and message instead of a
+      // bare "HTTP 422" that leaves the admin guessing what was invalid.
+      const parts = d.map((item) => {
+        const field = Array.isArray(item.loc) ? item.loc.slice(1).join('.') : '';
+        return field ? `${field}: ${item.msg}` : item.msg;
+      }).filter(Boolean);
+      if (parts.length) return parts.join('; ');
+    }
+    return (d && d.message) || `HTTP ${res.status}`;
   }
 
   function formatDate(isoStr) {
