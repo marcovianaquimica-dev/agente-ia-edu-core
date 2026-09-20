@@ -115,6 +115,43 @@ class TestExternalIdentityProviderTests(unittest.TestCase):
         self.assertTrue(callable(provider.resolve))
         self.assertEqual(provider.resolve.__qualname__.split(".")[0], "TestExternalIdentityProvider")
 
+    def test_resolve_warns_once_per_process_not_the_test_provider_is_active(self):
+        """A real request reaching TestExternalIdentityProvider.resolve() must
+        log a loud warning - the only visible signal that a host forgot to
+        call set_identity_provider() before serving traffic - but only once
+        per process, since a legitimate test/dev run calls this thousands of
+        times per suite."""
+        import agente_ia_edu.api.dependencies as deps
+        deps._warned_test_provider_in_use = False
+        try:
+            async def run_test():
+                provider = TestExternalIdentityProvider()
+                request = ExternalIdentityRequest(
+                    provider="test", external_user_id="alice", subject="student:alice",
+                )
+                with self.assertLogs("agente_ia_edu.api.dependencies", level="WARNING") as logs:
+                    await provider.resolve(request)
+                self.assertTrue(any("TestExternalIdentityProvider" in m for m in logs.output))
+
+                # Second call in the same process: no new warning - assertLogs
+                # itself would raise AssertionError if nothing were logged, so
+                # assert on a fresh logger capture that nothing arrives instead.
+                import logging
+                handler = logging.Handler()
+                records = []
+                handler.emit = records.append
+                target_logger = logging.getLogger("agente_ia_edu.api.dependencies")
+                target_logger.addHandler(handler)
+                try:
+                    await provider.resolve(request)
+                finally:
+                    target_logger.removeHandler(handler)
+                self.assertEqual(records, [])
+
+            asyncio.run(run_test())
+        finally:
+            deps._warned_test_provider_in_use = False
+
     def test_provider_handles_unformatted_subject(self):
         """Test provider handles subjects without role:id format."""
         async def run_test():
