@@ -77,6 +77,7 @@ class InstitutionSettingsService:
             "validation_default",
             "validation_teacher_can_disable",
             "validation_threshold_points",
+            "transcription_enabled",
         }
         if unknown:
             raise ValueError(f"Unknown setting(s): {sorted(unknown)}")

@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
-from .contracts import TextGenerationProvider
+from .contracts import EssayTranscriptionProvider, TextGenerationProvider
 from .errors import ProviderConfigurationError
 from .router import ProviderRouter
 
@@ -71,3 +71,45 @@ def build_text_provider(name: str | None = None) -> ProviderRouter:
         )
     provider = builder()
     return ProviderRouter(text_providers=[provider], embedding_providers=[])
+
+
+def _build_openai_transcriber() -> EssayTranscriptionProvider:
+    from .adapters.openai import OpenAIProvider
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    vision_model = os.getenv("OPENAI_VISION_MODEL")
+    if not api_key:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=openai but OPENAI_API_KEY is not configured"
+        )
+    if not vision_model:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=openai but OPENAI_VISION_MODEL is not configured"
+        )
+    return OpenAIProvider(api_key=api_key, vision_model=vision_model)
+
+
+# name -> builder returning a single EssayTranscriptionProvider.
+# Same extension story as _BUILDERS above: a new vendor is one adapter + one
+# entry here, no call-site change (this is what "replaceable in the future"
+# means in this codebase).
+_TRANSCRIBER_BUILDERS: dict[str, Callable[[], EssayTranscriptionProvider]] = {
+    "openai": _build_openai_transcriber,
+}
+
+
+def build_essay_transcriber(name: str | None = None) -> EssayTranscriptionProvider:
+    """Build the configured essay-page transcription provider.
+
+    ``name`` overrides ``AI_PROVIDER`` (tests / explicit callers). Raises
+    :class:`ProviderConfigurationError` when the selected backend's required
+    configuration is missing.
+    """
+    selected = (name or os.getenv("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+    builder = _TRANSCRIBER_BUILDERS.get(selected)
+    if builder is None:
+        raise ProviderConfigurationError(
+            f"Unsupported AI_PROVIDER {selected!r} for essay transcription; "
+            f"supported: {sorted(_TRANSCRIBER_BUILDERS)}"
+        )
+    return builder()

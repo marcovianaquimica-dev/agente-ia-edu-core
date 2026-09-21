@@ -126,6 +126,13 @@ from .essay_rubric import (
     EssayRubricScoringRule,
 )
 from .institution import SchoolIdentityVersion, SchoolSetting
+from .essay_proposal import (
+    EssayPrompt,
+    PromptMaterial,
+    PromptAssignment,
+    EssaySubmission,
+    EssaySubmissionPage,
+)
 
 __all__ = [
     "StudySession",
@@ -214,6 +221,11 @@ __all__ = [
     "EssayRubricScoringRule",
     "SchoolIdentityVersion",
     "SchoolSetting",
+    "EssayPrompt",
+    "PromptMaterial",
+    "PromptAssignment",
+    "EssaySubmission",
+    "EssaySubmissionPage",
     "Person",
     "User",
     "AcademicYear",

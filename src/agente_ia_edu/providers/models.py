@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -38,3 +39,24 @@ class EmbeddingResult:
     provider: str
     model: str
     dimensions: int
+
+
+@dataclass(frozen=True)
+class EssayPageTranscriptionRequest:
+    image_path: Path
+    mime_type: str
+
+
+@dataclass(frozen=True)
+class EssayOcrToken:
+    text: str
+    confidence: float
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class EssayPageTranscriptionResult:
+    tokens: tuple[EssayOcrToken, ...]
+    provider: str
+    model: str
