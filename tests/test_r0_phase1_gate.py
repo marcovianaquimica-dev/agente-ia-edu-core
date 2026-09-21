@@ -70,6 +70,13 @@ CREDENTIAL_COLUMN_EXCEPTIONS = {
         "not fine - just out of scope to fix here, since fixing it means "
         "switching to a hashed lookup with consumer migration."
     ),
+    ("essay_submission_pages", "ocr_tokens"): (
+        "OCR transcription output (R2): a JSONB list of "
+        "{text, confidence, start, end} per recognized word/token in a "
+        "submitted essay page image - not a secret, not an auth token. "
+        "False positive of the 'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
 }
 
 
