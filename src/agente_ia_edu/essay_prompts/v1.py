@@ -100,8 +100,8 @@ _RULES_COMMON = (
 
 _RULES_TEXT_OFFSET = (
     "ANCHOR_RULES: cada annotation com evidence_kind=LOCALIZED usa um "
-    "anchor {{\"type\": \"TEXT_OFFSET\", \"start\": int, \"end\": int, "
-    "\"quote\": string}}: start e end sao indices de caractere dentro de "
+    "anchor {\"type\": \"TEXT_OFFSET\", \"start\": int, \"end\": int, "
+    "\"quote\": string}: start e end sao indices de caractere dentro de "
     "TEXT (0-based, end exclusivo), e quote deve ser EXATAMENTE igual a "
     "TEXT[start:end], caractere por caractere."
 )

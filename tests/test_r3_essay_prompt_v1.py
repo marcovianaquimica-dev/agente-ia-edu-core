@@ -88,6 +88,30 @@ class EssayPromptV1Tests(unittest.TestCase):
         self.assertIn("scores", prompt)
         self.assertIn("null", prompt.split("SCORING_MODE:")[1])
 
+    def test_text_offset_anchor_shape_uses_single_braces_not_doubled(self):
+        """TEXT_OFFSET anchor rules must emit valid JSON with single braces."""
+        artifact = get_essay_prompt("essay_correction_v1")
+        prompt = artifact.build(
+            anchor_mode="TEXT_OFFSET", essay_statement="Disserte.", rubric=self.rubric,
+            include_scores=True, text="Um texto.",
+        )
+        # Valid JSON syntax with single braces must appear
+        self.assertIn('{"type": "TEXT_OFFSET"', prompt)
+        # Malformed doubled braces must NOT appear
+        self.assertNotIn('{{"type"', prompt)
+
+    def test_image_region_anchor_shape_uses_single_braces_not_doubled(self):
+        """IMAGE_REGION anchor rules must emit valid JSON with single braces after format()."""
+        artifact = get_essay_prompt("essay_correction_v1")
+        prompt = artifact.build(
+            anchor_mode="IMAGE_REGION", essay_statement="Disserte.", rubric=self.rubric,
+            include_scores=True, page_count=2,
+        )
+        # Valid JSON syntax with single braces must appear
+        self.assertIn('{"type": "IMAGE_REGION"', prompt)
+        # Malformed doubled braces must NOT appear
+        self.assertNotIn('{{"type"', prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
