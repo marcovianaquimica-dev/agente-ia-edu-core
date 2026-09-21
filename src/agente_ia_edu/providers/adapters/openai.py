@@ -14,6 +14,7 @@ from ..errors import (
     ProviderUnavailableError,
 )
 from ..models import (
+    EssayImageCorrectionRequest,
     EssayOcrToken,
     EssayPageTranscriptionRequest,
     EssayPageTranscriptionResult,
@@ -105,6 +106,46 @@ class OpenAIProvider:
             return EssayPageTranscriptionResult(
                 tokens=tokens, provider=self.provider, model=self._vision_model
             )
+        except ProviderInvalidResponseError:
+            raise
+        except Exception as exc:
+            raise self._map_error(exc) from exc
+
+    async def correct_from_images(
+        self, request: EssayImageCorrectionRequest
+    ) -> TextGenerationResult:
+        if not self._api_key:
+            raise ProviderConfigurationError("OpenAI is not configured")
+        model = request.model or self._vision_model
+        if not model:
+            raise ProviderConfigurationError("OpenAI vision model is not configured")
+        try:
+            client = self._client or self._create_client()
+            content: list[dict] = [{"type": "text", "text": request.prompt}]
+            for image_path in request.image_paths:
+                image_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{request.mime_type};base64,{image_b64}"},
+                    }
+                )
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Return only valid JSON. Follow the user prompt exactly.",
+                    },
+                    {"role": "user", "content": content},
+                ],
+                response_format={"type": "json_object"},
+                timeout=self._timeout_seconds,
+            )
+            text = response.choices[0].message.content
+            if not text:
+                raise ProviderInvalidResponseError("OpenAI returned an empty response")
+            return TextGenerationResult(text=text, provider=self.provider, model=model)
         except ProviderInvalidResponseError:
             raise
         except Exception as exc:

@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
-from .contracts import EssayTranscriptionProvider, TextGenerationProvider
+from .contracts import EssayImageCorrectionProvider, EssayTranscriptionProvider, TextGenerationProvider
 from .errors import ProviderConfigurationError
 from .router import ProviderRouter
 
@@ -111,5 +111,43 @@ def build_essay_transcriber(name: str | None = None) -> EssayTranscriptionProvid
         raise ProviderConfigurationError(
             f"Unsupported AI_PROVIDER {selected!r} for essay transcription; "
             f"supported: {sorted(_TRANSCRIBER_BUILDERS)}"
+        )
+    return builder()
+
+
+def _build_openai_image_corrector() -> EssayImageCorrectionProvider:
+    from .adapters.openai import OpenAIProvider
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    vision_model = os.getenv("OPENAI_VISION_MODEL")
+    if not api_key:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=openai but OPENAI_API_KEY is not configured"
+        )
+    if not vision_model:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=openai but OPENAI_VISION_MODEL is not configured"
+        )
+    return OpenAIProvider(api_key=api_key, vision_model=vision_model)
+
+
+# name -> builder returning a single EssayImageCorrectionProvider. Same
+# extension story as _BUILDERS/_TRANSCRIBER_BUILDERS above.
+_IMAGE_CORRECTOR_BUILDERS: dict[str, Callable[[], EssayImageCorrectionProvider]] = {
+    "openai": _build_openai_image_corrector,
+}
+
+
+def build_essay_image_corrector(name: str | None = None) -> EssayImageCorrectionProvider:
+    """Build the configured image-based essay-correction provider (IMAGE_REGION
+    submissions - no canonical text, correction runs directly off the page
+    images). Raises :class:`ProviderConfigurationError` when the selected
+    backend's required configuration is missing."""
+    selected = (name or os.getenv("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+    builder = _IMAGE_CORRECTOR_BUILDERS.get(selected)
+    if builder is None:
+        raise ProviderConfigurationError(
+            f"Unsupported AI_PROVIDER {selected!r} for essay image correction; "
+            f"supported: {sorted(_IMAGE_CORRECTOR_BUILDERS)}"
         )
     return builder()
