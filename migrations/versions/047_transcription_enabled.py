@@ -1,6 +1,6 @@
 """R2 - school_settings gains transcription_enabled.
 
-Revision ID: 047_school_settings_transcription_enabled
+Revision ID: 047_transcription_enabled
 Revises: 046_practice_sessions_catalog_fk
 
 Purely additive: one nullable-never column on an existing table, backfilled
@@ -11,7 +11,7 @@ via server_default so every existing row gets the conservative default
 from alembic import op
 import sqlalchemy as sa
 
-revision = "047_school_settings_transcription_enabled"
+revision = "047_transcription_enabled"
 down_revision = "046_practice_sessions_catalog_fk"
 branch_labels = None
 depends_on = None
