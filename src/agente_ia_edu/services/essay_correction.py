@@ -27,11 +27,19 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment
-from ..essay_engine_contract.v1 import CONTRACT_VERSION
+from ..db.models import (
+    AdminAuditLog,
+    EssayCorrection,
+    EssayPrompt,
+    EssaySubmission,
+    EssaySubmissionPage,
+    PromptAssignment,
+)
+from ..essay_engine_contract.v1 import CONTRACT_VERSION, Feedback, Scores
 from ..essay_prompts import get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
@@ -186,6 +194,97 @@ class EssayCorrectionService:
         await self._apply_review_policy(correction, submission)
         await self.session.flush()
         return correction
+
+    async def approve(
+        self, essay_correction_id: uuid.UUID, *, reviewed_by_external_identity: str,
+        final_scores: dict | None = None, final_feedback: dict | None = None,
+    ) -> EssayCorrection:
+        correction = await self.session.get(EssayCorrection, essay_correction_id)
+        if correction is None:
+            raise ValueError(f"EssayCorrection not found: {essay_correction_id}")
+        if correction.status != "PENDING_REVIEW":
+            raise ValueError(
+                f"EssayCorrection {essay_correction_id} is {correction.status}, not "
+                "PENDING_REVIEW - only a pending correction can be approved."
+            )
+        edits: dict[str, dict] = {}
+        if final_scores is not None:
+            try:
+                Scores.model_validate(final_scores)
+            except ValidationError as exc:
+                raise ValueError(f"final_scores is not a valid Scores payload: {exc}") from exc
+            edits["final_scores"] = {"before": correction.final_scores, "after": final_scores}
+            correction.final_scores = final_scores
+        if final_feedback is not None:
+            try:
+                Feedback.model_validate(final_feedback)
+            except ValidationError as exc:
+                raise ValueError(f"final_feedback is not a valid Feedback payload: {exc}") from exc
+            edits["final_feedback"] = {"before": correction.final_feedback, "after": final_feedback}
+            correction.final_feedback = final_feedback
+
+        correction.status = "APPROVED"
+        correction.reviewed_by_external_identity = reviewed_by_external_identity
+        correction.reviewed_at = _utcnow()
+        correction.published_at = _utcnow()
+        self.session.add(AdminAuditLog(
+            school_id=correction.school_id, performed_by_external_id=reviewed_by_external_identity,
+            action="ESSAY_CORRECTION_APPROVED", entity_type="ESSAY_CORRECTION",
+            entity_id=str(correction.id), metadata_=edits or None,
+        ))
+        await self.session.flush()
+        return correction
+
+    async def reject(
+        self, essay_correction_id: uuid.UUID, *, reviewed_by_external_identity: str,
+    ) -> EssayCorrection:
+        correction = await self.session.get(EssayCorrection, essay_correction_id)
+        if correction is None:
+            raise ValueError(f"EssayCorrection not found: {essay_correction_id}")
+        if correction.status != "PENDING_REVIEW":
+            raise ValueError(
+                f"EssayCorrection {essay_correction_id} is {correction.status}, not "
+                "PENDING_REVIEW - only a pending correction can be rejected."
+            )
+        correction.status = "REJECTED"
+        correction.reviewed_by_external_identity = reviewed_by_external_identity
+        correction.reviewed_at = _utcnow()
+        self.session.add(AdminAuditLog(
+            school_id=correction.school_id, performed_by_external_id=reviewed_by_external_identity,
+            action="ESSAY_CORRECTION_REJECTED", entity_type="ESSAY_CORRECTION",
+            entity_id=str(correction.id), metadata_=None,
+        ))
+        await self.session.flush()
+        return correction
+
+    async def bulk_approve(
+        self, essay_correction_ids: list[uuid.UUID], *, reviewed_by_external_identity: str,
+    ) -> tuple[list[EssayCorrection], dict[uuid.UUID, str]]:
+        """Best-effort: each id is attempted independently via approve() (spec
+        §5: no decision logic differs from a single approve), so one
+        correction a race already moved out of PENDING_REVIEW never blocks
+        the rest of the batch. Returns (approved, failures) - failures maps
+        the id to why it failed."""
+        approved: list[EssayCorrection] = []
+        failures: dict[uuid.UUID, str] = {}
+        for correction_id in essay_correction_ids:
+            try:
+                approved.append(
+                    await self.approve(
+                        correction_id, reviewed_by_external_identity=reviewed_by_external_identity
+                    )
+                )
+            except ValueError as exc:
+                failures[correction_id] = str(exc)
+        return approved, failures
+
+    async def list_by_status(self, school_id: uuid.UUID, *, status: str) -> list[EssayCorrection]:
+        result = await self.session.execute(
+            select(EssayCorrection)
+            .where(EssayCorrection.school_id == school_id, EssayCorrection.status == status)
+            .order_by(EssayCorrection.created_at)
+        )
+        return list(result.scalars().all())
 
     async def _apply_review_policy(
         self, correction: EssayCorrection, submission: EssaySubmission
