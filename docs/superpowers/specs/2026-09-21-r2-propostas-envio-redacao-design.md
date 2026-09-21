@@ -156,7 +156,8 @@ Uma linha por página, para os modos `PHOTO`/`PDF`. Não existe para `TYPED`.
 | `page_number` | int | 1-based |
 | `storage_uri` | string | via `MaterialStorage.store()` |
 | `width` / `height` | float, nullable | dimensões da página, necessárias se `anchor_mode=IMAGE_REGION` mais tarde alcançar esta página (mesmo campo que `ImageRegionAnchor` já exige) |
-| `ocr_tokens` | JSONB, nullable | lista de `{text, confidence, start, end}` — offset no texto transcrito desta página, não coordenada de imagem; preenchido só quando a escola habilita transcrição |
+| `ocr_tokens` | JSONB, nullable | lista de `{text, confidence, start, end}` — offset no texto transcrito desta página, não coordenada de imagem; preenchido só quando a escola habilita transcrição; bruto e imutável, nunca reescrito pela revisão do aluno |
+| `reviewed_text` | TEXT, nullable | texto desta página depois da revisão do aluno (§5.2 passo 3); pré-populado no cliente a partir de `ocr_tokens`, mas só gravado aqui quando o aluno confirma a página via `PATCH /essay-submissions/{id}/pages/{page_number}`; null até lá; é o único texto usado para montar o texto canônico na confirmação final |
 
 ---
 
@@ -199,15 +200,32 @@ para `SUBMITTED`.
 2. OCR roda automaticamente por página — texto bruto, **sem sugerir correção
    ortográfica/gramatical** (é a redação do aluno que está sendo avaliada, não uma versão
    corrigida dela), com confiança por token e o offset de cada token no texto transcrito
-   daquela página. Grava em `EssaySubmissionPage.ocr_tokens`. Status:
+   daquela página. Grava em `EssaySubmissionPage.ocr_tokens` — registro bruto e imutável, só
+   para auditoria (comparar o que a IA leu com o que o aluno confirmou). Status:
    `PENDING_CONFIRMATION`.
-3. O aluno vê o texto transcrito por página, com todo token de confiança abaixo de 80%
-   destacado. Ele confirma ou corrige especificamente esses trechos — não precisa reler o
-   texto inteiro.
-4. **Só na confirmação final** — nunca antes — o texto (já revisado pelo aluno) concatenado
-   nas páginas em ordem vira o texto canônico: `normalize_essay_text()` +
-   `essay_text_hash()` rodam a única vez que rodam, `anchor_mode="TEXT_OFFSET"`. Status:
-   `SUBMITTED`.
+3. O aluno revisa **texto livre por página**, não token a token. O cliente pré-popula um campo
+   editável por página com a concatenação de `ocr_tokens.text` na ordem dos offsets — esse
+   texto pré-populado é exatamente o que o OCR leu, sem nenhuma etapa de correção
+   ortográfica/gramatical entre o OCR e a tela. `start`/`end`/`confidence` de cada token servem
+   só para pintar em vermelho, no cliente, todo trecho abaixo de 80% de confiança; não são
+   unidade de edição. O aluno edita a página inteira como texto livre, mas só aquela página —
+   não precisa reler as outras.
+   - `GET /essay-submissions/{id}/pages` — retorna cada página com `page_number`,
+     `ocr_tokens` (para pintar), `reviewed_text` (null até a página ser revisada).
+   - `PATCH /essay-submissions/{id}/pages/{page_number}` — corpo `{reviewed_text: str}`.
+     Grava o texto revisado daquela página em `EssaySubmissionPage.reviewed_text` (novo campo,
+     `TEXT`, nullable). Idempotente — o aluno pode reabrir e reeditar antes da confirmação
+     final.
+   - Enquanto o status geral for `PENDING_TRANSCRIPTION` ou `PENDING_CONFIRMATION`, um novo
+     upload no mesmo `page_number` substitui a página inteira (novo `storage_uri`,
+     `ocr_tokens` recalculado, `reviewed_text` volta a `null`) — mesmo cuidado do passo 1 de
+     nunca escrever `storage_uri` antes do arquivo estar efetivamente armazenado. Cobre o caso
+     de foto ilegível/OCR de qualidade ruim numa página específica.
+4. **Só na confirmação final** — nunca antes — `POST /essay-submissions/{id}/confirm` roda.
+   Recusa com 409 se alguma página ainda tiver `reviewed_text` nulo. Concatena
+   `reviewed_text` de cada página em ordem de `page_number` (separador `\n\n`) para formar o
+   texto canônico: `normalize_essay_text()` + `essay_text_hash()` rodam a única vez que rodam,
+   `anchor_mode="TEXT_OFFSET"`. Status: `SUBMITTED`.
 
 ### 5.3 Foto / PDF — escola SEM transcrição habilitada
 
