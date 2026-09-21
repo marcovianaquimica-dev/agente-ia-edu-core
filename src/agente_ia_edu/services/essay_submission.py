@@ -223,6 +223,31 @@ class EssaySubmissionService:
         finally:
             doc.close()
 
+    async def list_pages(self, essay_submission_id: uuid.UUID) -> list[EssaySubmissionPage]:
+        result = await self.session.execute(
+            select(EssaySubmissionPage)
+            .where(EssaySubmissionPage.essay_submission_id == essay_submission_id)
+            .order_by(EssaySubmissionPage.page_number)
+        )
+        return list(result.scalars().all())
+
+    async def review_page(
+        self, *, essay_submission_id: uuid.UUID, page_number: int, reviewed_text: str
+    ) -> EssaySubmissionPage:
+        page = await self.session.scalar(
+            select(EssaySubmissionPage).where(
+                EssaySubmissionPage.essay_submission_id == essay_submission_id,
+                EssaySubmissionPage.page_number == page_number,
+            )
+        )
+        if page is None:
+            raise ValueError(
+                f"No page {page_number} on submission {essay_submission_id}"
+            )
+        page.reviewed_text = reviewed_text
+        await self.session.flush()
+        return page
+
 
 def _guess_mime(path: Path) -> str:
     guessed, _ = mimetypes.guess_type(str(path))
