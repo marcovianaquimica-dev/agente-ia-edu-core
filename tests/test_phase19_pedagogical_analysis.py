@@ -505,6 +505,56 @@ class Phase19Tests(unittest.TestCase):
         self.assertIn(self.client.get(
             f"/api/v1/question-bank/assignments/{aid}/results/analysis").status_code, (403, 404))
 
+    # -- PHASE perf audit: analyze_for_manager must not scale with class size --
+    def test_manager_analysis_query_count_vs_student_count(self):
+        """analyze_for_manager() batches its per-student item loading and
+        question-bank resolution via `_build_many` (one `result_id IN (...)`
+        query for every student's items, one batched question-bank resolve
+        for the whole class) instead of calling `_build(r)` in a Python loop
+        - which used to issue its own `_load_items` query plus its own
+        `get_questions_by_version_ids` batch PER student (an N+1 at the
+        *student* grain, proportional to class size; before this fix, 2
+        students -> 12 queries and 17 students -> 72 queries)."""
+        lid, aid, ids = self._distribute(list(range(6)), classroom="t-mgrn1")
+        enrolled = {"n": 0}
+
+        def add_students(count: int) -> None:
+            for i in range(count):
+                uid = f"s_mgrn1_{enrolled['n']}"
+                enrolled["n"] += 1
+                self._link(uid, "t-mgrn1")
+                self._student(uid)
+                self._run(aid, ids, correct_idx=set(range(6)))
+
+        def measure() -> int:
+            n_calls = {"c": 0}
+
+            @event.listens_for(self.engine.sync_engine, "before_cursor_execute")
+            def _c(*_a):  # noqa: ANN001
+                n_calls["c"] += 1
+            try:
+                self._as(_ctx("prof_a", "school-1"))
+                n_calls["c"] = 0
+                resp = self.client.get(f"/api/v1/question-bank/assignments/{aid}/results/analysis")
+            finally:
+                event.remove(self.engine.sync_engine, "before_cursor_execute", _c)
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["student_count"], enrolled["n"])
+            return n_calls["c"]
+
+        add_students(2)
+        q_small = measure()
+        add_students(15)  # cumulative: prior students remain enrolled -> now 17 total
+        q_large = measure()
+
+        print(f"\n[N+1 probe] analyze_for_manager: students=2 -> queries={q_small}; "
+              f"students=17 -> queries={q_large}")
+        self.assertEqual(
+            q_small, q_large,
+            f"analyze_for_manager query count must not grow with student count "
+            f"(2 students={q_small}, 17 students={q_large}) - looks like an N+1",
+        )
+
     # -- 23: a student only sees their own analysis -------
     def test_student_only_sees_own(self):
         lid, aid, ids = self._distribute(list(range(6)), classroom="t-own")

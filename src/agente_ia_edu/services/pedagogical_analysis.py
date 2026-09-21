@@ -236,7 +236,7 @@ class PedagogicalAnalysisService:
         )).scalars().all()
         if student_external_id is not None:
             rows = [r for r in rows if r.student_external_id == student_external_id]
-        analyses = [await self._build(r) for r in rows]
+        analyses = await self._build_many(rows)
         return {
             "assignment_id": str(assignment_id),
             "thresholds": self.policy.as_dict(),
@@ -262,6 +262,29 @@ class PedagogicalAnalysisService:
             .order_by(ActivityResultItem.position)
         )).scalars().all())
 
+    async def _load_items_by_result(
+        self, result_ids: list[UUID]
+    ) -> dict[UUID, list[ActivityResultItem]]:
+        """Batch-load ActivityResultItem rows for many results in one query.
+
+        Replaces N `_load_items` calls (one per ActivityResult, as
+        `analyze_for_manager` used to do inside its per-student loop) with a
+        single `result_id IN (...)` query, grouped back by result_id in
+        Python. Each group preserves the same per-result ``position`` order
+        `_load_items` returns for a single result.
+        """
+        if not result_ids:
+            return {}
+        rows = list((await self._session.execute(
+            select(ActivityResultItem)
+            .where(ActivityResultItem.result_id.in_(result_ids))
+            .order_by(ActivityResultItem.result_id, ActivityResultItem.position)
+        )).scalars().all())
+        by_result: dict[UUID, list[ActivityResultItem]] = {}
+        for it in rows:
+            by_result.setdefault(it.result_id, []).append(it)
+        return by_result
+
     # ---- the deterministic build --------------------------------
 
     async def _build(self, result: ActivityResult) -> dict:
@@ -273,6 +296,46 @@ class PedagogicalAnalysisService:
         bank_items = await self._bank.get_questions_by_version_ids(vids)
         bank_by_vid = {bi.question_version_id: bi for bi in bank_items}
         catalog = self._bank._catalog_cache or {}
+
+        return self._compute_analysis(result, items, bank_by_vid, catalog)
+
+    async def _build_many(self, results: list[ActivityResult]) -> list[dict]:
+        """Same per-result analysis as `_build`, batched across many results.
+
+        `analyze_for_manager` used to call `_build(r)` once per student
+        result in a Python loop - each call issuing its own `_load_items`
+        query plus its own `get_questions_by_version_ids` batch. That is an
+        N+1 at the *student* grain (proportional to class size), even though
+        the per-question loading inside a single `_build` call is already
+        batched. This loads every result's items in one `IN (...)` query and
+        resolves every question_version_id across the whole class in one
+        further batched call, then re-groups per result in Python -
+        independent of how many students are in the class.
+        """
+        if not results:
+            return []
+        items_by_result = await self._load_items_by_result([r.id for r in results])
+        all_vids = [it.question_version_id for items in items_by_result.values() for it in items]
+
+        await self._bank._load_catalog()
+        bank_items = await self._bank.get_questions_by_version_ids(all_vids)
+        bank_by_vid = {bi.question_version_id: bi for bi in bank_items}
+        catalog = self._bank._catalog_cache or {}
+
+        return [
+            self._compute_analysis(result, items_by_result.get(result.id, []), bank_by_vid, catalog)
+            for result in results
+        ]
+
+    def _compute_analysis(
+        self,
+        result: ActivityResult,
+        items: list[ActivityResultItem],
+        bank_by_vid: dict,
+        catalog: dict,
+    ) -> dict:
+        """Pure, deterministic aggregation - no DB access. Shared by `_build`
+        (single result) and `_build_many` (batched across many results)."""
 
         def name_of(code: str | None) -> str | None:
             node = catalog.get(code) if code else None

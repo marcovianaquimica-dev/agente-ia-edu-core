@@ -326,6 +326,28 @@ class PracticeSessionService:
         )
         selections = list(result.scalars().all())
 
+        # perf: resolve every pending selection's official answer key in ONE
+        # batched query instead of one query per selection (was: up to
+        # `requested_question_count` separate answer_key_entries/
+        # booklet_questions round trips per completed session - measured
+        # 1:1 with the number of answered questions). Same source of truth
+        # (`answer_key.py`) and identical selection rule (latest official
+        # revision), just batched via `resolve_official_answer_key_snapshots`.
+        pending_version_ids = [
+            selection.question_version_id
+            for selection in selections
+            if selection.answered_at is not None
+            and selection.is_correct is None
+            and selection.selected_option_id is not None
+        ]
+        answer_key_snapshots: dict = {}
+        if pending_version_ids:
+            from .answer_key import resolve_official_answer_key_snapshots
+
+            answer_key_snapshots = await resolve_official_answer_key_snapshots(
+                session, pending_version_ids
+            )
+
         for selection in selections:
             if selection.answered_at is None:
                 continue
@@ -334,13 +356,10 @@ class PracticeSessionService:
                 if selection.selected_option_id is None:
                     continue
 
-                from .answer_key import resolve_official_correct_option_id
-
-                correct_option_id = await resolve_official_correct_option_id(
-                    session, selection.question_version_id
-                )
-                if correct_option_id is None:
+                snapshot = answer_key_snapshots.get(selection.question_version_id)
+                if snapshot is None:
                     continue
+                _revision_id, correct_option_id = snapshot
 
                 selection.is_correct = selection.selected_option_id == correct_option_id
                 selection.points_awarded = 1.0 if selection.is_correct else 0.0

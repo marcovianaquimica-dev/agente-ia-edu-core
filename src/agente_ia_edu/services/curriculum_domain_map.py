@@ -322,10 +322,24 @@ class CurriculumDomainMapService:
         )).scalars().all())
         if student_external_id is not None:
             students = [s for s in students if s == student_external_id]
-        maps = []
-        for sid in sorted(students):
-            grains = await self._aggregate(sid, None, None)
-            maps.append(await self._present(sid, grains, period=None, persisted=False))
+        students = sorted(students)
+        # batched: one _aggregate_many() call for every student in the
+        # classroom instead of one _aggregate() per student (was an N+1 -
+        # see test_phase20_manager_view_n1.py), then one shared catalog/
+        # prerequisite lookup for the union of content codes across all of
+        # them, instead of one per student inside _present().
+        grains_by_student = await self._aggregate_many(students, None, None)
+        all_content_codes: set[str] = set()
+        for grains in grains_by_student.values():
+            all_content_codes.update(cc for (cc, scc) in grains if scc is None)
+        paths, names, prereqs = await self._catalog_paths(all_content_codes)
+        maps = [
+            self._present_with_catalog(
+                sid, grains_by_student.get(sid, {}), paths, names, prereqs,
+                period=None, persisted=False,
+            )
+            for sid in students
+        ]
         return {
             "assignment_id": str(assignment_id),
             "taxonomy_version": TAXONOMY_VERSION,
@@ -344,19 +358,36 @@ class CurriculumDomainMapService:
 
     async def _aggregate(self, student_external_id: str,
                          since: datetime | None, until: datetime | None) -> dict[tuple, _Grain]:
-        conds = [ActivityResult.student_external_id == student_external_id]
+        grains_by_student = await self._aggregate_many([student_external_id], since, until)
+        return grains_by_student.get(student_external_id, {})
+
+    async def _aggregate_many(self, student_external_ids: list[str],
+                              since: datetime | None,
+                              until: datetime | None) -> dict[str, dict[tuple, _Grain]]:
+        """Same aggregation as ``_aggregate``, batched over MANY students in a
+        bounded number of queries (independent of student count) instead of
+        one ``_aggregate()`` call per student - used by ``manager_view`` for a
+        whole classroom/assignment. A single-student call goes through this
+        too (``student_external_ids`` of length 1), so the query shape stays
+        identical to before for every other caller."""
+        empty: dict[str, dict[tuple, _Grain]] = {sid: {} for sid in student_external_ids}
+        if not student_external_ids:
+            return {}
+        conds = [ActivityResult.student_external_id.in_(student_external_ids)]
         if since is not None:
             conds.append(ActivityResult.completed_at >= since)
         if until is not None:
             conds.append(ActivityResult.completed_at < until)
         results = (await self._session.execute(
-            select(ActivityResult.id, ActivityResult.completed_at, ActivityResult.assignment_id)
+            select(ActivityResult.id, ActivityResult.completed_at, ActivityResult.assignment_id,
+                   ActivityResult.student_external_id)
             .where(and_(*conds))
         )).all()
         if not results:
-            return {}
+            return empty
         result_ids = [r[0] for r in results]
         completed_by = {r[0]: _as_aware(r[1]) for r in results}
+        student_by_result = {r[0]: r[3] for r in results}
         # resolve the evidence ORIGIN per result from the assignment metadata
         # (OFFICIAL_ACTIVITY by default; PRACTICE for adaptive-practice activities)
         assignment_ids = {r[2] for r in results if r[2] is not None}
@@ -373,23 +404,27 @@ class CurriculumDomainMapService:
             select(ActivityResultItem).where(ActivityResultItem.result_id.in_(result_ids))
         )).scalars().all()
         if not items:
-            return {}
+            return empty
         vids = list({it.question_version_id for it in items})
         await self._bank._load_catalog()
         bank = {bi.question_version_id: bi
                 for bi in await self._bank.get_questions_by_version_ids(vids)}
 
-        grains: dict[tuple, _Grain] = {}
+        grains_by_student: dict[str, dict[tuple, _Grain]] = {sid: {} for sid in student_external_ids}
 
-        def grain(cc: str, scc: str | None) -> _Grain:
+        def grain(sid: str, cc: str, scc: str | None) -> _Grain:
+            student_grains = grains_by_student.setdefault(sid, {})
             key = (cc, scc)
-            g = grains.get(key)
+            g = student_grains.get(key)
             if g is None:
                 g = _Grain(content_code=cc, subcontent_code=scc)
-                grains[key] = g
+                student_grains[key] = g
             return g
 
         for it in items:
+            sid = student_by_result.get(it.result_id)
+            if sid is None:
+                continue
             bi = bank.get(it.question_version_id)
             cls = bi.classification if bi is not None else None
             if cls is None or not cls.content_code:
@@ -403,10 +438,10 @@ class CurriculumDomainMapService:
             common = dict(answered=bool(it.answered), is_correct=bool(it.is_correct),
                           provisional=provisional, forced_closure=forced, visual=visual, at=at,
                           origin=origin_by_result.get(it.result_id, ORIGIN_OFFICIAL_ACTIVITY))
-            grain(cls.content_code, None).add(**common)
+            grain(sid, cls.content_code, None).add(**common)
             if cls.subcontent_code:
-                grain(cls.content_code, cls.subcontent_code).add(**common)
-        return grains
+                grain(sid, cls.content_code, cls.subcontent_code).add(**common)
+        return grains_by_student
 
     # ---- persistence read ------------------------------------
 
@@ -503,6 +538,19 @@ class CurriculumDomainMapService:
         content_grains = [g for (cc, scc), g in grains.items() if scc is None]
         content_codes = {g.content_code for g in content_grains}
         paths, names, prereqs = await self._catalog_paths(content_codes)
+        return self._present_with_catalog(
+            student_external_id, grains, paths, names, prereqs,
+            period=period, persisted=persisted,
+        )
+
+    def _present_with_catalog(self, student_external_id: str, grains: dict[tuple, _Grain],
+                              paths: dict, names: dict, prereqs: dict, *,
+                              period, persisted: bool) -> dict:
+        """Same rendering as ``_present``, but takes an already-resolved
+        catalog (paths/names/prereqs) instead of querying for it - lets
+        ``manager_view`` resolve the catalog ONCE for a whole classroom
+        instead of once per student."""
+        content_grains = [g for (cc, scc), g in grains.items() if scc is None]
         ms = self.policy.min_sample_size
 
         def content_dict(g: _Grain) -> dict:

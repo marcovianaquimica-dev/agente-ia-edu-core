@@ -18,7 +18,6 @@ from sqlalchemy.orm import selectinload
 
 from agente_ia_edu.db.models import (
     AdminAuditLog,
-    CatalogNode,
     LearningHistory,
     PedagogicalContext,
     PedagogicalRecommendation,
@@ -335,14 +334,14 @@ class CoordinationPortalService:
         for m in masteries:
             content_map.setdefault(m.content_node_id, []).append(float(m.mastery_score))
 
+        content_node_names = await self.teacher_portal_service._fetch_content_node_names(content_map.keys())
         average_mastery_by_content = []
         for node_id, scores in content_map.items():
-            node = await self.session.get(CatalogNode, node_id)
             c_avg = sum(scores) / len(scores) if scores else 0.0
             c_struggling = sum(1 for s in scores if s < 50.0)
             average_mastery_by_content.append({
                 "content_node_id": str(node_id),
-                "content_name": node.name if node else "Conteúdo",
+                "content_name": content_node_names.get(node_id, "Conteúdo"),
                 "class_average_mastery": round(c_avg, 1),
                 "students_struggling_count": c_struggling,
                 "total_students": len(scores),
@@ -366,13 +365,15 @@ class CoordinationPortalService:
             academic_year=academic_year,
         )
 
+        recent_context_node_names = await self.teacher_portal_service._fetch_content_node_names(
+            {ctx.content_node_id for ctx in recent_contexts}
+        )
         recent_contexts_payload = []
         for ctx in recent_contexts:
-            node = await self.session.get(CatalogNode, ctx.content_node_id)
             recent_contexts_payload.append({
                 "id": str(ctx.id),
                 "content_node_id": str(ctx.content_node_id),
-                "content_name": node.name if node else "Conteúdo",
+                "content_name": recent_context_node_names.get(ctx.content_node_id, "Conteúdo"),
                 "source": ctx.source,
                 "classroom_id": ctx.classroom_id,
                 "author_id": ctx.author_id,
@@ -502,15 +503,38 @@ class CoordinationPortalService:
             academic_year,
         )
 
+        # Batched once for every classroom in scope, instead of a
+        # student-roster query plus a mastery query per classroom inside the
+        # loop below (comparing N classrooms used to cost 2*N extra queries
+        # on top of build_classroom_items above).
+        stmt_roster = (
+            select(UserSchoolLink.scope_external_id, UserSchoolLink.external_user_id)
+            .where(
+                UserSchoolLink.school_id == school_id,
+                UserSchoolLink.role == AdminRole.STUDENT,
+                UserSchoolLink.active.is_(True),
+                UserSchoolLink.scope_external_id.in_(classroom_ids),
+            )
+            .distinct()
+        )
+        res_roster = await self.session.execute(stmt_roster)
+        students_by_classroom: dict[str, list[str]] = {}
+        for cls_id, student_id in res_roster.all():
+            students_by_classroom.setdefault(cls_id, []).append(student_id)
+
+        all_student_ids = [sid for ids in students_by_classroom.values() for sid in ids]
+        all_masteries = await self.teacher_portal_service._fetch_masteries_for_students(all_student_ids)
+        masteries_by_student: dict[str, list[StudentContentMastery]] = {}
+        for m in all_masteries:
+            masteries_by_student.setdefault(m.external_identity_id, []).append(m)
+
         comparison_list = []
         for cls in classrooms:
             cls_id = cls["classroom_id"]
             # One classroom's own comparison row: never pad with SCHOOL-wide
             # students who aren't actually assigned to it.
-            student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(
-                school_id, [cls_id], school_wide=False,
-            )
-            masteries = await self.teacher_portal_service._fetch_masteries_for_students(student_ids)
+            student_ids = students_by_classroom.get(cls_id, [])
+            masteries = [m for sid in student_ids for m in masteries_by_student.get(sid, [])]
 
             # Distribution breakdown - one bucket per DISTINCT student (by
             # their average across contents), never per mastery row.
@@ -544,7 +568,24 @@ class CoordinationPortalService:
         school_id: uuid.UUID,
         academic_year: str = "2026",
     ) -> list[dict[str, Any]]:
-        """Lists teachers within coordinator scope, assigned classrooms, student counts, and class averages."""
+        """Lists teachers within coordinator scope, assigned classrooms, student counts, and class averages.
+
+        Batched below: this used to call get_teacher_authorized_classrooms,
+        _resolve_school_wide, _fetch_students_in_classrooms and
+        _fetch_masteries_for_students once PER teacher inside the loop -
+        each is its own DB round trip, so a school with T teachers cost
+        roughly 8*T queries (measured: 16 queries for 1 teacher, 96 for 11).
+        Every teacher's active links, every candidate student in the
+        school, and every one of their mastery rows are now fetched in one
+        batched query each, up front, and partitioned per teacher in
+        Python. get_teacher_authorized_classrooms is still called once per
+        teacher - its scope resolution is real per-teacher authorization
+        logic - but it's given a shared `scope_cache` so the two
+        school-wide sub-queries it can trigger run at most once per
+        school_id total instead of once per teacher. list_teacher_lessons
+        still runs once per teacher: it lives in TeachingContextService,
+        outside this file, and already avoids its own N+1 via selectinload.
+        """
         await self.verify_coordinator_access(coordinator_id=coordinator_id, school_id=school_id)
 
         # Query teachers linked to school
@@ -559,24 +600,97 @@ class CoordinationPortalService:
         res = await self.session.execute(stmt)
         teacher_links = list(res.scalars().all())
 
-        teachers_payload = []
+        teacher_ids = []
         seen_teachers = set()
-
         for link in teacher_links:
             tid = link.external_user_id
             if tid in seen_teachers:
                 continue
             seen_teachers.add(tid)
+            teacher_ids.append(tid)
 
-            cls_ids = await self.teacher_portal_service.get_teacher_authorized_classrooms(tid, school_id)
+        if not teacher_ids:
+            # Fallback for dev/test mode
+            return [{
+                "teacher_id": "user:prof_mendes",
+                "name": "Prof. Mendes",
+                "school_id": str(school_id),
+                "assigned_classrooms": ["TURMA_3A", "TURMA_3B"],
+                "total_students": 25,
+                "classrooms_average_mastery": 64.0,
+                "recent_lessons_count": 2,
+            }]
+
+        # Every teacher's own active links in one query, instead of one
+        # query per teacher inside get_teacher_authorized_classrooms /
+        # _teacher_is_school_wide_authorized below.
+        stmt_links = (
+            select(UserSchoolLink)
+            .where(
+                UserSchoolLink.external_user_id.in_(teacher_ids),
+                UserSchoolLink.active.is_(True),
+            )
+            .options(selectinload(UserSchoolLink.school))
+        )
+        res_links = await self.session.execute(stmt_links)
+        links_by_teacher: dict[str, list[UserSchoolLink]] = {}
+        for link_row in res_links.scalars().all():
+            links_by_teacher.setdefault(link_row.external_user_id, []).append(link_row)
+
+        scope_cache: dict[str, Any] = {}
+        teacher_scope: dict[str, tuple[list[str], bool]] = {}
+        for tid in teacher_ids:
+            t_links = links_by_teacher.get(tid, [])
+            cls_ids = await self.teacher_portal_service.get_teacher_authorized_classrooms(
+                tid, school_id, links=t_links, scope_cache=scope_cache,
+            )
             # cls_ids is THIS teacher's own full authorized scope - reflect
             # their own real school_wide status, not the coordinator's.
-            teacher_school_wide = await self.teacher_portal_service._resolve_school_wide(tid, school_id)
-            student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(
-                school_id, cls_ids, school_wide=teacher_school_wide,
-            )
-            masteries = await self.teacher_portal_service._fetch_masteries_for_students(student_ids)
+            teacher_school_wide = self.teacher_portal_service._teacher_is_school_wide_authorized(t_links, school_id)
+            teacher_scope[tid] = (cls_ids, teacher_school_wide)
 
+        # Every active STUDENT link in the school, fetched once and matched
+        # against each teacher's own (classrooms, school_wide) in Python -
+        # the same OR-of-conditions _fetch_students_in_classrooms applies
+        # per call, just without a round trip per teacher.
+        stmt_students = select(
+            UserSchoolLink.external_user_id,
+            UserSchoolLink.scope_type,
+            UserSchoolLink.scope_external_id,
+        ).where(
+            UserSchoolLink.school_id == school_id,
+            UserSchoolLink.role == AdminRole.STUDENT,
+            UserSchoolLink.active.is_(True),
+        )
+        res_students = await self.session.execute(stmt_students)
+        all_student_rows = res_students.all()
+
+        def _students_for(cls_ids: list[str], school_wide: bool) -> list[str]:
+            if not cls_ids:
+                return []
+            cls_set = set(cls_ids)
+            matched: set[str] = set()
+            for uid, s_type, s_ext in all_student_rows:
+                if s_ext in cls_set or (school_wide and s_type in (AdminScopeType.SCHOOL, AdminScopeType.PLATFORM)):
+                    matched.add(uid)
+            return list(matched)
+
+        students_by_teacher = {
+            tid: _students_for(cls_ids, school_wide)
+            for tid, (cls_ids, school_wide) in teacher_scope.items()
+        }
+
+        union_student_ids = sorted({sid for ids in students_by_teacher.values() for sid in ids})
+        all_masteries = await self.teacher_portal_service._fetch_masteries_for_students(union_student_ids)
+        masteries_by_student: dict[str, list[StudentContentMastery]] = {}
+        for m in all_masteries:
+            masteries_by_student.setdefault(m.external_identity_id, []).append(m)
+
+        teachers_payload = []
+        for tid in teacher_ids:
+            cls_ids, _ = teacher_scope[tid]
+            student_ids = students_by_teacher[tid]
+            masteries = [m for sid in student_ids for m in masteries_by_student.get(sid, [])]
             t_avg = (sum(float(m.mastery_score) for m in masteries) / len(masteries)) if masteries else 0.0
 
             # Count recent lessons
@@ -595,18 +709,6 @@ class CoordinationPortalService:
                 "classrooms_average_mastery": round(t_avg, 1),
                 "recent_lessons_count": len(lessons),
             })
-
-        if not teachers_payload:
-            # Fallback for dev/test mode
-            teachers_payload = [{
-                "teacher_id": "user:prof_mendes",
-                "name": "Prof. Mendes",
-                "school_id": str(school_id),
-                "assigned_classrooms": ["TURMA_3A", "TURMA_3B"],
-                "total_students": 25,
-                "classrooms_average_mastery": 64.0,
-                "recent_lessons_count": 2,
-            }]
 
         return teachers_payload
 
@@ -635,13 +737,15 @@ class CoordinationPortalService:
             academic_year=academic_year,
         )
 
+        context_node_names = await self.teacher_portal_service._fetch_content_node_names(
+            {ctx.content_node_id for ctx in contexts}
+        )
         payload = []
         for ctx in contexts:
-            node = await self.session.get(CatalogNode, ctx.content_node_id)
             payload.append({
                 "id": str(ctx.id),
                 "content_node_id": str(ctx.content_node_id),
-                "content_name": node.name if node else "Conteúdo",
+                "content_name": context_node_names.get(ctx.content_node_id, "Conteúdo"),
                 "source": ctx.source,
                 "classroom_id": ctx.classroom_id,
                 "author_id": ctx.author_id,

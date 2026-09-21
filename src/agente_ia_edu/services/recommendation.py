@@ -218,6 +218,18 @@ class RecommendationEngine:
             for ctx in contexts:
                 grouped_contexts.setdefault(ctx.content_node_id, []).append(ctx)
 
+            # Batched: one query for every context node, plus one query for
+            # every distinct parent of those nodes, instead of two
+            # `session.get(CatalogNode, ...)` round-trips per group inside
+            # the loop below (N+1 - was proportional to the number of
+            # distinct context content nodes).
+            catalog_lookup = await self._load_catalog_nodes_by_id(set(grouped_contexts.keys()))
+            parent_ids = {
+                node.parent_id for node in catalog_lookup.values() if node.parent_id
+            }
+            if parent_ids:
+                catalog_lookup.update(await self._load_catalog_nodes_by_id(parent_ids))
+
             for node_id, ctx_list in grouped_contexts.items():
                 context_nodes_processed.add(node_id)
                 cand = await self._build_candidate_from_contexts(
@@ -230,6 +242,7 @@ class RecommendationEngine:
                     mastery_map=mastery_map,
                     recent_content_ids=recent_content_ids,
                     recent_resource_ids=recent_resource_ids,
+                    catalog_lookup=catalog_lookup,
                 )
                 if cand:
                     candidates.append(cand)
@@ -460,6 +473,21 @@ class RecommendationEngine:
     # PRIVATE HELPER METHODS
     # -------------------------------------------------------------------------
 
+    async def _load_catalog_nodes_by_id(
+        self, node_ids: set[uuid.UUID]
+    ) -> dict[uuid.UUID, CatalogNode]:
+        """Batch-load CatalogNode rows for a set of ids in a single query.
+
+        Used to replace per-item `session.get(CatalogNode, id)` calls inside
+        loops (N+1) with one `IN (...)` query. Missing ids are simply absent
+        from the returned dict, matching `session.get`'s `None` for unknown ids.
+        """
+        if not node_ids:
+            return {}
+        stmt = select(CatalogNode).where(CatalogNode.id.in_(node_ids))
+        res = await self.session.execute(stmt)
+        return {node.id: node for node in res.scalars().all()}
+
     async def _fetch_active_contexts(
         self,
         institution_id: str | None,
@@ -516,8 +544,12 @@ class RecommendationEngine:
         mastery_map: dict[uuid.UUID, StudentContentMastery],
         recent_content_ids: set[uuid.UUID],
         recent_resource_ids: set[uuid.UUID],
+        catalog_lookup: dict[uuid.UUID, CatalogNode] | None = None,
     ) -> dict[str, Any] | None:
-        node = await self.session.get(CatalogNode, node_id)
+        if catalog_lookup is not None:
+            node = catalog_lookup.get(node_id)
+        else:
+            node = await self.session.get(CatalogNode, node_id)
         if not node:
             return None
 
@@ -531,7 +563,10 @@ class RecommendationEngine:
 
         # Check prerequisite: only if parent is a content node (not a DISCIPLINE) and has explicit low mastery
         if node.parent_id:
-            parent_node = await self.session.get(CatalogNode, node.parent_id)
+            if catalog_lookup is not None:
+                parent_node = catalog_lookup.get(node.parent_id)
+            else:
+                parent_node = await self.session.get(CatalogNode, node.parent_id)
             if parent_node and parent_node.node_type != "DISCIPLINE":
                 parent_mastery_record = mastery_map.get(node.parent_id)
                 if parent_mastery_record and float(parent_mastery_record.mastery_score) < 50.0:

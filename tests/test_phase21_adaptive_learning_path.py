@@ -485,6 +485,77 @@ class Phase21Tests(unittest.TestCase):
         # for the tenant-aware material_available signal - still one query
         # set regardless of candidate-content-code count, not per-row.
 
+    # -- N+1 audit: manager_view must not re-query the (student-independent)
+    # prerequisite graph once per student in the assignment.
+    def test_manager_view_no_n_plus_1_across_students(self):
+        classroom, owner, school = "t-mv-n1", "prof_mv_n1", "school-mv-n1"
+        ids = [self.vids[i] for i in range(6)]
+
+        self._as(_ctx(owner, school))
+        lid = self.client.post("/api/v1/question-bank/lists", json={
+            "question_version_ids": ids, "title": "P21 manager n+1",
+            "answer_key_presentation": "KEY_AT_END"}).json()["id"]
+        self.client.post(f"/api/v1/question-bank/lists/{lid}/finalize")
+        aid = self.client.post(f"/api/v1/question-bank/lists/{lid}/assignments", json={
+            "target_type": "CLASS", "target_id": classroom,
+            "available_from": "2000-01-01T00:00:00Z"}).json()["id"]
+
+        def _answer_as(student):
+            self._link(student, classroom, school=school)
+            self._as(_ctx(student, school, role="STUDENT"))
+            self.client.post(f"/api/v1/student/activities/{aid}/attempt")
+            for vid in ids:
+                self.client.put(f"/api/v1/student/activities/{aid}/attempt/answers/{vid}",
+                                json={"selected_option": self.correct_key[vid]})
+            self.client.post(f"/api/v1/student/activities/{aid}/attempt/complete")
+            self.client.post(f"/api/v1/student/activities/{aid}/attempt/correct")
+
+        async def _manager_view_prereq_query_count(expected_students):
+            # Isolate the ONE query that must stay flat:
+            # AdaptiveLearningPathService._prereq_graph()'s unfiltered,
+            # catalog-only `SELECT ... FROM catalog_node_prerequisites` (no
+            # WHERE) never depends on which student is being built. This is
+            # distinct from PHASE 20's own per-student-scoped
+            # `... WHERE catalog_node_prerequisites.content_node_id IN (...)`
+            # query inside CurriculumDomainMapService (out of this audit's
+            # zone), which legitimately runs once per student and is allowed
+            # to grow with the roster.
+            from agente_ia_edu.services.question_list_store import Requester
+            n = {"c": 0}
+
+            @event.listens_for(self.engine.sync_engine, "before_cursor_execute")
+            def _c(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+                low = statement.lower()
+                if "catalog_node_prerequisites" in low and "where" not in low:
+                    n["c"] += 1
+            try:
+                async with self.factory() as s:
+                    svc = AdaptiveLearningPathService(s)
+                    req = Requester(external_user_id=owner, school_id=_school_uuid(school),
+                                    role="TEACHER")
+                    n["c"] = 0
+                    result = await svc.manager_view(_uuid.UUID(aid), requester=req)
+                    self.assertEqual(result["student_count"], expected_students)
+                    return n["c"]
+            finally:
+                event.remove(self.engine.sync_engine, "before_cursor_execute", _c)
+
+        _answer_as("s_mv_n1_a")
+        _answer_as("s_mv_n1_b")
+        q_2_students = self.loop.run_until_complete(_manager_view_prereq_query_count(2))
+
+        _answer_as("s_mv_n1_c")
+        _answer_as("s_mv_n1_d")
+        _answer_as("s_mv_n1_e")
+        q_5_students = self.loop.run_until_complete(_manager_view_prereq_query_count(5))
+
+        # RED before the fix: catalog_node_prerequisites was queried once
+        # PER STUDENT (2 -> 2 queries, 5 -> 5 queries) even though the graph
+        # never depends on the student. GREEN: queried once per manager_view
+        # call regardless of roster size.
+        self.assertEqual(q_2_students, 1)
+        self.assertEqual(q_5_students, 1)
+
     # -- 27 (AI-agnostic import guard) -----------------
     def test_module_is_ai_agnostic(self):
         import agente_ia_edu.services.adaptive_learning_path as mod

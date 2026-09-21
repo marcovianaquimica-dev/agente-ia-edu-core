@@ -511,6 +511,76 @@ class TestRecommendationEngine(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rec.recommended_difficulty, "EASY")
             self.assertIn("38.0%", rec.reason)
 
+    async def test_28_context_driven_candidates_batch_catalog_node_lookup(self):
+        """PHASE perf audit: _build_candidate_from_contexts must not issue one
+        `session.get(CatalogNode, ...)` per distinct context content node (nor
+        one more per parent, for the prerequisite check) - both lookups have
+        to come from a single batched `IN (...)` query per generate_recommendations()
+        call, regardless of how many distinct context content nodes exist.
+        """
+        async with self.session_factory() as session:
+            root = CatalogNode(node_type="DISCIPLINE", name="Química", position=1, active=True)
+            session.add(root)
+            await session.flush()
+            root.root_id = root.id
+
+            content_ids = []
+            for i in range(12):
+                node = CatalogNode(
+                    parent_id=root.id,
+                    root_id=root.id,
+                    node_type="CONTENT",
+                    code=f"QUIM-CTX-{i}",
+                    name=f"Conteúdo Contexto {i}",
+                    position=i,
+                    active=True,
+                )
+                session.add(node)
+                await session.flush()
+                content_ids.append(node.id)
+
+            knowledge_service = KnowledgeService(session)
+            engine = RecommendationEngine(session, knowledge_service)
+
+            for node_id in content_ids:
+                await engine.record_pedagogical_context(
+                    content_node_id=node_id,
+                    source="TEACHER",
+                    institution_id="SCHOOL_N1",
+                    classroom_id="CLASS_N1",
+                    author_id="teacher:n1_probe",
+                    title="N+1 probe context",
+                )
+
+            get_calls = {"catalog_node": 0}
+            real_get = session.get
+
+            async def counting_get(entity, ident, *args, **kwargs):
+                if entity is CatalogNode:
+                    get_calls["catalog_node"] += 1
+                return await real_get(entity, ident, *args, **kwargs)
+
+            session.get = counting_get
+
+            recs = await engine.generate_recommendations(
+                student_id="student:n1_probe",
+                institution_id="SCHOOL_N1",
+                classroom_id="CLASS_N1",
+                limit=len(content_ids),
+            )
+
+            self.assertEqual(len(recs), len(content_ids))
+            # Before the fix this was 1 (or 2, when a parent lookup fired) per
+            # distinct context content node - i.e. it scaled with N. The
+            # batched fetch replaces every one of those with `IN (...)`
+            # queries executed directly via `session.execute`, so `session.get`
+            # is never called here at all.
+            self.assertEqual(
+                get_calls["catalog_node"], 0,
+                f"expected 0 individual session.get(CatalogNode, ...) calls, "
+                f"got {get_calls['catalog_node']} for {len(content_ids)} context nodes - looks like an N+1",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

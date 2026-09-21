@@ -107,8 +107,14 @@ class StudentDashboardService:
         in_dev: list[dict[str, Any]] = []
         consolidated: list[dict[str, Any]] = []
 
+        # Batched: one query for every CatalogNode referenced by `masteries`,
+        # instead of one `session.get` per mastery row (N+1).
+        nodes_by_id = await self._load_catalog_nodes_by_id(
+            {m.content_node_id for m in masteries}
+        )
+
         for m in masteries:
-            node = await self.session.get(CatalogNode, m.content_node_id)
+            node = nodes_by_id.get(m.content_node_id)
             node_name = node.name if node else "Conteúdo"
             score = float(m.mastery_score)
 
@@ -275,9 +281,15 @@ class StudentDashboardService:
         res_m = await self.session.execute(stmt_mastery)
         masteries = list(res_m.scalars().all())
 
+        # Batched: one query for every CatalogNode referenced by `masteries`,
+        # instead of one `session.get` per mastery row (N+1).
+        nodes_by_id = await self._load_catalog_nodes_by_id(
+            {m.content_node_id for m in masteries}
+        )
+
         content_evolution = []
         for m in masteries:
-            node = await self.session.get(CatalogNode, m.content_node_id)
+            node = nodes_by_id.get(m.content_node_id)
             score = float(m.mastery_score)
             content_evolution.append({
                 "content_node_id": str(m.content_node_id),
@@ -391,6 +403,21 @@ class StudentDashboardService:
         }
 
     # Helper methods
+    async def _load_catalog_nodes_by_id(
+        self, node_ids: set[uuid.UUID]
+    ) -> dict[uuid.UUID, CatalogNode]:
+        """Batch-load CatalogNode rows for a set of ids in a single query.
+
+        Replaces per-item `session.get(CatalogNode, id)` calls inside loops
+        (N+1) with one `IN (...)` query. Missing ids are simply absent from
+        the returned dict, matching `session.get`'s `None` for unknown ids.
+        """
+        if not node_ids:
+            return {}
+        stmt = select(CatalogNode).where(CatalogNode.id.in_(node_ids))
+        res = await self.session.execute(stmt)
+        return {node.id: node for node in res.scalars().all()}
+
     @staticmethod
     def _get_period_start_date(period: str, now: datetime) -> datetime:
         p = period.lower()

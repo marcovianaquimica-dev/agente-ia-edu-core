@@ -13,14 +13,26 @@ import unittest
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
-    StudentContentMastery,
+    AnswerKeyEntry,
+    AnswerKeyRevision,
+    BookletQuestion,
+    Exam,
+    ExamApplication,
+    ExamBooklet,
+    Institution,
     LearningHistory,
-    PracticeSession,
     PracticeQuestionSelection,
+    PracticeSession,
+    Question,
+    QuestionOption,
+    QuestionVersion,
+    SourceDocument,
+    StudentContentMastery,
 )
 from agente_ia_edu.services.learning_path import (
     ContentMasteryService,
@@ -583,6 +595,124 @@ class PracticeSessionServiceTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(practice_session.status, "completed")
             self.assertIsNotNone(practice_session.completed_at)
+
+    async def _seed_official_versions(self, session, n):
+        """Create `n` question versions each with an official, resolved answer
+        key entry, returning [(question_version_id, correct_option_id), ...]."""
+        inst = Institution(code="INEP", name="INEP")
+        session.add(inst)
+        await session.flush()
+        exam = Exam(institution_id=inst.id, code="ENEM", name="ENEM")
+        session.add(exam)
+        await session.flush()
+        app = ExamApplication(exam_id=exam.id, year=2024, application_type="regular", day=1)
+        session.add(app)
+        await session.flush()
+        booklet = ExamBooklet(exam_application_id=app.id, code="CAD", color="AZUL")
+        session.add(booklet)
+        await session.flush()
+        source = SourceDocument(
+            exam_application_id=app.id, exam_booklet_id=booklet.id, document_type="ANSWER_KEY",
+            source_url="https://x/g.pdf", acquired_at=datetime.now(timezone.utc), content_hash="g",
+        )
+        session.add(source)
+        await session.flush()
+        revision = AnswerKeyRevision(source_document_id=source.id, revision_number=1, is_official=True)
+        session.add(revision)
+        await session.flush()
+
+        pairs = []
+        for i in range(n):
+            q = Question(validation_status="validated", origin_type="IMPORTED",
+                        status="PUBLISHED", visibility_scope="PUBLIC")
+            session.add(q)
+            await session.flush()
+            v = QuestionVersion(question_id=q.id, version_kind="official_original",
+                                canonical_text=f"e{i}", statement=f"e{i}", content_hash=f"h{i}",
+                                is_immutable=True)
+            session.add(v)
+            await session.flush()
+            correct_opt = QuestionOption(question_version_id=v.id, option_key="A", position=1,
+                                         text="Alt A", is_valid_option=True)
+            session.add(correct_opt)
+            await session.flush()
+            bq = BookletQuestion(exam_booklet_id=booklet.id, question_version_id=v.id,
+                                 position=i + 1, official_number=i + 1, page_number=1)
+            session.add(bq)
+            await session.flush()
+            session.add(AnswerKeyEntry(answer_key_revision_id=revision.id, booklet_question_id=bq.id,
+                                       official_answer_label="A", resolved_option_id=correct_opt.id,
+                                       page_number=1))
+            await session.flush()
+            pairs.append((v.id, correct_opt.id))
+        await session.commit()
+        return pairs
+
+    async def test_complete_session_resolves_answer_keys_in_one_batch_not_per_selection(self):
+        """PHASE-N+1-audit regression: `complete_session` used to call
+        `resolve_official_correct_option_id` once PER selection needing
+        correction (a query per answered question). It must now resolve every
+        pending selection's official answer key in a single batched query
+        (`resolve_official_answer_key_snapshots`), regardless of how many
+        questions were answered. Also asserts correctness is unchanged."""
+        async with self.AsyncSessionLocal() as session:
+            student_id = "student:n1-complete-session"
+            n = 8
+            pairs = await self._seed_official_versions(session, n)
+
+            practice_session = PracticeSession(
+                external_identity_id=student_id,
+                content_node_id=None,
+                recommended_difficulty=DifficultyLevel.EASY.value,
+                requested_question_count=n,
+                status="active",
+            )
+            session.add(practice_session)
+            await session.flush()
+
+            for pos, (vid, correct_opt_id) in enumerate(pairs, start=1):
+                session.add(PracticeQuestionSelection(
+                    practice_session_id=practice_session.id,
+                    question_version_id=vid,
+                    difficulty_level=DifficultyLevel.EASY.value,
+                    position=pos,
+                    selected_option_id=correct_opt_id,   # answers every question correctly
+                    answered_at=datetime.now(timezone.utc),
+                ))
+            await session.commit()
+
+            counts = {"answer_key": 0}
+
+            def _before(conn, cursor, statement, parameters, context, executemany):
+                low = statement.lower()
+                if "answer_key_entries" in low or "booklet_questions" in low:
+                    counts["answer_key"] += 1
+
+            event.listen(self.engine.sync_engine, "before_cursor_execute", _before)
+            try:
+                service = PracticeSessionService()
+                completed = await service.complete_session(session, practice_session,
+                                                            external_identity_id=student_id)
+            finally:
+                event.remove(self.engine.sync_engine, "before_cursor_execute", _before)
+
+            # GREEN: one batched answer-key query total, not one per selection
+            # (would be `n` == 8 with the old per-item resolution).
+            self.assertEqual(counts["answer_key"], 1,
+                             f"expected 1 batched answer-key query for {n} selections, "
+                             f"got {counts['answer_key']} (looks like a per-item N+1)")
+
+            # Correctness is unaffected by the batching: every selection was
+            # answered with its own official correct option.
+            result = await session.execute(
+                PracticeQuestionSelection.__table__.select().where(
+                    PracticeQuestionSelection.practice_session_id == completed.id)
+            )
+            rows = result.fetchall()
+            self.assertEqual(len(rows), n)
+            for row in rows:
+                self.assertTrue(row.is_correct)
+                self.assertEqual(float(row.points_awarded), 1.0)
 
 
 class CrossUserIsolationTests(unittest.IsolatedAsyncioTestCase):

@@ -172,6 +172,13 @@ class AdaptiveLearningPathService:
         self._material = MaterialAvailabilityService(session)
         self.policy = policy or PerformanceThresholdPolicy.default()
         self.weights = weights or LearningPathWeights.default()
+        # perf: the prerequisite graph is catalog-only (never student-specific),
+        # so it is safe to compute once per service instance and reuse across
+        # every `_build()` call made through it. Without this, `manager_view`
+        # re-runs the same `catalog_node_prerequisites` query once per student
+        # in the assignment (measured: 2 students -> 2 queries, 6 -> 6) even
+        # though the graph never changes within one request.
+        self._prereq_graph_cache: tuple | None = None
 
     # ---- public entry points -----------------------------------------
 
@@ -264,7 +271,13 @@ class AdaptiveLearningPathService:
     async def _prereq_graph(self):
         """content_code -> [direct prerequisite codes] (+ names, positions, dependents).
         One query over catalog_node_prerequisites, resolved through the cached
-        catalog. Invalid references are dropped (documented)."""
+        catalog. Invalid references are dropped (documented). Memoized on the
+        instance: the graph is catalog-only, never student-specific, so a
+        caller that builds several paths through the same service instance
+        (e.g. ``manager_view`` looping over students) reuses it instead of
+        re-querying once per student."""
+        if self._prereq_graph_cache is not None:
+            return self._prereq_graph_cache
         await self._bank._load_catalog()
         catalog = self._bank._catalog_cache or {}
         by_id = self._bank._catalog_by_id or {}
@@ -288,7 +301,8 @@ class AdaptiveLearningPathService:
                 dependents[pc].append(cc)
         for cc in graph:
             graph[cc].sort(key=lambda c: (positions.get(c, 1_000_000), c))
-        return graph, names, positions, dependents
+        self._prereq_graph_cache = (graph, names, positions, dependents)
+        return self._prereq_graph_cache
 
     @staticmethod
     def _detect_cycle(graph: dict[str, list[str]]) -> None:

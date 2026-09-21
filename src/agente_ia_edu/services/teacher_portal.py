@@ -147,9 +147,63 @@ class TeacherPortalService:
         self,
         teacher_id: str,
         school_id: uuid.UUID,
+        *,
+        links: list[UserSchoolLink] | None = None,
+        scope_cache: dict[str, Any] | None = None,
     ) -> list[str]:
-        """Returns list of authorized classroom_ids for teacher_id in school_id."""
-        links = await self.admin_service.get_user_active_links(teacher_id)
+        """Returns list of authorized classroom_ids for teacher_id in school_id.
+
+        `links`: this teacher's already-fetched active UserSchoolLink rows
+        (see admin_service.get_user_active_links). A caller that iterates
+        many teachers (e.g. CoordinationPortalService.list_coordination_teachers)
+        can bulk-fetch every teacher's links in one query and pass each
+        teacher's slice in here, instead of this function re-querying once
+        per teacher. Defaults to None, which fetches them exactly as before
+        - no behavior change for any caller that doesn't pass it.
+
+        `scope_cache`: an optional dict a bulk caller can create once and
+        reuse across calls for different teacher_ids in the SAME school_id.
+        The two school-wide lookups below ("every classroom in school_id
+        with a TeachingLesson", and that same set unioned with every
+        CLASSROOM-scope UserSchoolLink) return an identical result no
+        matter which teacher is asking - re-running them once per teacher
+        in a loop is pure waste. Keyed internally by school_id, so it's
+        also safe to reuse the same dict across more than one school.
+        Defaults to None, which disables caching (always queries) - no
+        behavior change for any caller that doesn't pass it.
+        """
+        if links is None:
+            links = await self.admin_service.get_user_active_links(teacher_id)
+
+        async def _full_classroom_set() -> set[str]:
+            cache_key = ("full_classrooms", school_id)
+            if scope_cache is not None and cache_key in scope_cache:
+                return scope_cache[cache_key]
+            stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
+            res = await self.session.execute(stmt)
+            classrooms = set(res.scalars().all())
+
+            stmt_users = select(UserSchoolLink.scope_external_id).where(
+                UserSchoolLink.school_id == school_id,
+                UserSchoolLink.scope_type == AdminScopeType.CLASSROOM,
+                UserSchoolLink.scope_external_id.isnot(None),
+            ).distinct()
+            res_users = await self.session.execute(stmt_users)
+            classrooms.update(res_users.scalars().all())
+            if scope_cache is not None:
+                scope_cache[cache_key] = classrooms
+            return classrooms
+
+        async def _lesson_classroom_set() -> set[str]:
+            cache_key = ("lesson_classrooms", school_id)
+            if scope_cache is not None and cache_key in scope_cache:
+                return scope_cache[cache_key]
+            stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
+            res = await self.session.execute(stmt)
+            classrooms = set(res.scalars().all())
+            if scope_cache is not None:
+                scope_cache[cache_key] = classrooms
+            return classrooms
 
         authorized_classrooms = set()
         for link in links:
@@ -157,17 +211,7 @@ class TeacherPortalService:
                 link.role in (AdminRole.DIRECTOR, AdminRole.COORDINATOR) and link.school_id == school_id
             ):
                 # Return all classrooms in school
-                stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-                res = await self.session.execute(stmt)
-                classrooms = set(res.scalars().all())
-
-                stmt_users = select(UserSchoolLink.scope_external_id).where(
-                    UserSchoolLink.school_id == school_id,
-                    UserSchoolLink.scope_type == AdminScopeType.CLASSROOM,
-                    UserSchoolLink.scope_external_id.isnot(None),
-                ).distinct()
-                res_users = await self.session.execute(stmt_users)
-                classrooms.update(res_users.scalars().all())
+                classrooms = await _full_classroom_set()
                 # Placeholder classroom id, display purposes only (e.g. search_students
                 # below): a school with no TeachingLesson rows yet still needs a
                 # non-empty value here for callers that render a classroom_id.
@@ -180,17 +224,23 @@ class TeacherPortalService:
                 if link.school_id and link.school_id != school_id:
                     continue
                 if link.scope_type in (AdminScopeType.PLATFORM, AdminScopeType.SCHOOL):
-                    stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-                    res = await self.session.execute(stmt)
+                    classrooms = await _lesson_classroom_set()
                     # Same placeholder, same note: display-only now, see above.
-                    return list(res.scalars().all()) or ["TURMA_3A"]
+                    return list(classrooms) or ["TURMA_3A"]
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id:
                     authorized_classrooms.add(link.scope_external_id)
 
         if not authorized_classrooms:
             return []
         resolver = ExternalIdResolver(self.session)
-        if not await resolver.has_any_entities(school_id, AdminScopeType.CLASSROOM):
+        has_entities_key = ("has_classroom_entities", school_id)
+        if scope_cache is not None and has_entities_key in scope_cache:
+            has_entities = scope_cache[has_entities_key]
+        else:
+            has_entities = await resolver.has_any_entities(school_id, AdminScopeType.CLASSROOM)
+            if scope_cache is not None:
+                scope_cache[has_entities_key] = has_entities
+        if not has_entities:
             return list(authorized_classrooms)
         resolutions = await resolver.resolve_many(
             school_id, AdminScopeType.CLASSROOM, authorized_classrooms
@@ -329,14 +379,14 @@ class TeacherPortalService:
         for m in masteries:
             content_map.setdefault(m.content_node_id, []).append(float(m.mastery_score))
 
+        content_node_names = await self._fetch_content_node_names(content_map.keys())
         average_mastery_by_content = []
         for node_id, scores in content_map.items():
-            node = await self.session.get(CatalogNode, node_id)
             c_avg = sum(scores) / len(scores) if scores else 0.0
             c_struggling = sum(1 for s in scores if s < 50.0)
             average_mastery_by_content.append({
                 "content_node_id": str(node_id),
-                "content_name": node.name if node else "Conteúdo",
+                "content_name": content_node_names.get(node_id, "Conteúdo"),
                 "class_average_mastery": round(c_avg, 1),
                 "students_struggling_count": c_struggling,
                 "total_students": len(scores),
@@ -439,21 +489,59 @@ class TeacherPortalService:
         school_id: uuid.UUID,
         academic_year: str = "2026",
     ) -> list[dict[str, Any]]:
-        """Build classroom summary items (student counts, average mastery, priority contents) for explicit classroom_ids."""
+        """Build classroom summary items (student counts, average mastery, priority contents) for explicit classroom_ids.
+
+        Batched across every classroom_id in a handful of queries total
+        (student roster, mastery rows, content-node names), instead of the
+        student-roster + mastery + per-content-node queries this used to
+        repeat once per classroom_id (and, within that, once per distinct
+        content a classroom's students had mastery rows for). A coordinator
+        drill-down over a school's classrooms was turning into dozens of
+        round trips; this reads the same rows in O(1) queries regardless of
+        how many classrooms or students are involved.
+        """
+        if not classroom_ids:
+            return []
+
+        # One query for every classroom's own roster at once. Mirrors
+        # _fetch_students_in_classrooms(school_id, [cls_id], school_wide=False)
+        # per id: never pad a classroom's roster with SCHOOL-wide students
+        # who aren't actually assigned to it.
+        stmt = (
+            select(UserSchoolLink.scope_external_id, UserSchoolLink.external_user_id)
+            .where(
+                UserSchoolLink.school_id == school_id,
+                UserSchoolLink.role == AdminRole.STUDENT,
+                UserSchoolLink.active.is_(True),
+                UserSchoolLink.scope_external_id.in_(classroom_ids),
+            )
+            .distinct()
+        )
+        res = await self.session.execute(stmt)
+        students_by_classroom: dict[str, list[str]] = {}
+        for cls_id, student_id in res.all():
+            students_by_classroom.setdefault(cls_id, []).append(student_id)
+
+        all_student_ids = [sid for ids in students_by_classroom.values() for sid in ids]
+        all_masteries = await self._fetch_masteries_for_students(all_student_ids)
+
+        masteries_by_student: dict[str, list[StudentContentMastery]] = {}
+        for m in all_masteries:
+            masteries_by_student.setdefault(m.external_identity_id, []).append(m)
+
+        node_names = await self._fetch_content_node_names({m.content_node_id for m in all_masteries})
+
         classroom_items = []
         for cls_id in classroom_ids:
-            # One specific classroom's card: never pad with SCHOOL-wide
-            # students who aren't actually in this classroom.
-            student_ids = await self._fetch_students_in_classrooms(school_id, [cls_id], school_wide=False)
-            masteries = await self._fetch_masteries_for_students(student_ids)
+            student_ids = students_by_classroom.get(cls_id, [])
+            masteries = [m for sid in student_ids for m in masteries_by_student.get(sid, [])]
 
             c_avg = (sum(float(m.mastery_score) for m in masteries) / len(masteries)) if masteries else 0.0
 
             # Find priority contents (<70% average)
             c_map: dict[str, list[float]] = {}
             for m in masteries:
-                node = await self.session.get(CatalogNode, m.content_node_id)
-                c_name = node.name if node else "Conteúdo"
+                c_name = node_names.get(m.content_node_id, "Conteúdo")
                 c_map.setdefault(c_name, []).append(float(m.mastery_score))
 
             priorities = [c_name for c_name, scores in c_map.items() if (sum(scores) / len(scores)) < 70.0]
@@ -503,12 +591,22 @@ class TeacherPortalService:
         # because this teacher may also be school-wide authorized.
         student_ids = await self._fetch_students_in_classrooms(school_id, [classroom_id], school_wide=False)
 
-        # Build student roster with individual mastery
+        # Build student roster with individual mastery. Fetched once for
+        # every student in the roster (batched .in_() query) and grouped in
+        # Python below, instead of the one-query-per-student loop this used
+        # to run - the same all_masteries rows are reused again below for
+        # recent_contents_taught, instead of re-running that batched query
+        # once per recent content too.
+        all_masteries = await self._fetch_masteries_for_students(student_ids)
+        masteries_by_student: dict[str, list[StudentContentMastery]] = {}
+        for m in all_masteries:
+            masteries_by_student.setdefault(m.external_identity_id, []).append(m)
+
         students_payload = []
         students_needing_attention = []
 
         for sid in student_ids:
-            s_masteries = await self._fetch_masteries_for_students([sid])
+            s_masteries = masteries_by_student.get(sid, [])
             s_avg = (sum(float(m.mastery_score) for m in s_masteries) / len(s_masteries)) if s_masteries else 0.0
             status_lbl = self.performance_policy.generate_action_plan_item("Geral", s_avg, 1, 1)["priority"]
 
@@ -530,12 +628,15 @@ class TeacherPortalService:
             academic_year=academic_year,
         )
 
+        content_node_names = await self._fetch_content_node_names(
+            {ctx.content_node_id for ctx in recent_contexts}
+        )
+
         recent_contents_taught = []
         for ctx in recent_contexts:
-            node = await self.session.get(CatalogNode, ctx.content_node_id)
-            c_name = node.name if node else "Conteúdo"
+            c_name = content_node_names.get(ctx.content_node_id, "Conteúdo")
 
-            c_scores = [float(m.mastery_score) for m in await self._fetch_masteries_for_students(student_ids) if m.content_node_id == ctx.content_node_id]
+            c_scores = [float(m.mastery_score) for m in all_masteries if m.content_node_id == ctx.content_node_id]
             c_avg = (sum(c_scores) / len(c_scores)) if c_scores else 0.0
             c_struggles = sum(1 for s in c_scores if s < 50.0)
 
@@ -606,12 +707,12 @@ class TeacherPortalService:
         # Fetch student's masteries
         masteries = await self._fetch_masteries_for_students([student_id])
 
+        content_node_names = await self._fetch_content_node_names({m.content_node_id for m in masteries})
         content_masteries = []
         priority_contents = []
 
         for m in masteries:
-            node = await self.session.get(CatalogNode, m.content_node_id)
-            c_name = node.name if node else "Conteúdo"
+            c_name = content_node_names.get(m.content_node_id, "Conteúdo")
             score = float(m.mastery_score)
 
             item = {
@@ -694,9 +795,16 @@ class TeacherPortalService:
         q_clean = query.strip().lower()
         matched_students = [sid for sid in all_students if q_clean in sid.lower()]
 
+        # One batched query for every matched student's masteries, grouped
+        # in Python below, instead of a query per matched student.
+        all_masteries = await self._fetch_masteries_for_students(matched_students)
+        masteries_by_student: dict[str, list[StudentContentMastery]] = {}
+        for m in all_masteries:
+            masteries_by_student.setdefault(m.external_identity_id, []).append(m)
+
         results = []
         for sid in matched_students:
-            s_masteries = await self._fetch_masteries_for_students([sid])
+            s_masteries = masteries_by_student.get(sid, [])
             s_avg = (sum(float(m.mastery_score) for m in s_masteries) / len(s_masteries)) if s_masteries else 0.0
 
             results.append({
@@ -771,6 +879,19 @@ class TeacherPortalService:
         stmt = select(StudentContentMastery).where(StudentContentMastery.external_identity_id.in_(student_ids))
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+    async def _fetch_content_node_names(self, node_ids: set[uuid.UUID] | list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-resolve content_node_id -> CatalogNode.name for a set of ids
+        in a single query, instead of a `session.get(CatalogNode, ...)` per
+        node inside a loop. A missing node_id is simply absent from the
+        result; callers fall back the same way `node.name if node else
+        "Conteúdo"` did (`.get(node_id, "Conteúdo")`)."""
+        node_ids = set(node_ids)
+        if not node_ids:
+            return {}
+        stmt = select(CatalogNode.id, CatalogNode.name).where(CatalogNode.id.in_(node_ids))
+        res = await self.session.execute(stmt)
+        return dict(res.all())
 
     @staticmethod
     def _bucket_students_by_mastery(masteries: list[StudentContentMastery]) -> dict[str, int]:

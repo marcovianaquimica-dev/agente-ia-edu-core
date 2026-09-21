@@ -3,7 +3,7 @@ import unittest
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -246,6 +246,137 @@ class TestStudentExperience(unittest.IsolatedAsyncioTestCase):
 
             path = await dash_s.get_learning_path(student_id="student:newbie")
             self.assertIsNotNone(path["steps"])
+
+    async def _seed_many_mastered_contents(self, session: AsyncSession, n: int, student_id: str):
+        """Seed `n` distinct CatalogNode + StudentContentMastery rows for `student_id`."""
+        root = CatalogNode(node_type="DISCIPLINE", name=f"Química {student_id}", position=1, active=True)
+        session.add(root)
+        await session.flush()
+        root.root_id = root.id
+
+        for i in range(n):
+            node = CatalogNode(
+                parent_id=root.id,
+                root_id=root.id,
+                node_type="CONTENT",
+                code=f"QUIM-N1-{student_id}-{i}",
+                name=f"Conteúdo {i} {student_id}",
+                position=i,
+                active=True,
+            )
+            session.add(node)
+            await session.flush()
+            session.add(StudentContentMastery(
+                external_identity_id=student_id,
+                content_node_id=node.id,
+                mastery_score=40.0,
+                current_level="EASY",
+                questions_answered=1,
+                questions_correct=0,
+            ))
+        await session.commit()
+
+    def _count_queries(self):
+        """Returns (counter_list, context_manager) counting SELECT/INSERT/etc
+        statements issued on self.engine for the duration of a `with` block."""
+        counts = {"n": 0}
+
+        def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            counts["n"] += 1
+
+        class _Counter:
+            def __enter__(self_inner):
+                event.listen(self.engine.sync_engine, "before_cursor_execute", _before_cursor_execute)
+                return counts
+
+            def __exit__(self_inner, *exc):
+                event.remove(self.engine.sync_engine, "before_cursor_execute", _before_cursor_execute)
+
+        return _Counter()
+
+    async def test_18_get_evolution_content_node_lookup_is_not_n_plus_1(self):
+        """PHASE perf audit: content_evolution's CatalogNode lookup must be a
+        single batched query regardless of how many distinct mastery rows the
+        student has - not one `session.get` per mastery row."""
+        async with self.session_factory() as session:
+            ks = KnowledgeService(session)
+            rec_e = RecommendationEngine(session, ks)
+            vid_e = VideoRecommendationEngine(session, ks)
+            dash_s = StudentDashboardService(session, ks, rec_e, vid_e)
+
+            await self._seed_many_mastered_contents(session, 3, "student:n1_small")
+            with self._count_queries() as counts:
+                small = await dash_s.get_evolution(student_id="student:n1_small")
+            small_queries = counts["n"]
+
+        async with self.session_factory() as session:
+            ks = KnowledgeService(session)
+            rec_e = RecommendationEngine(session, ks)
+            vid_e = VideoRecommendationEngine(session, ks)
+            dash_s = StudentDashboardService(session, ks, rec_e, vid_e)
+
+            await self._seed_many_mastered_contents(session, 20, "student:n1_large")
+            with self._count_queries() as counts:
+                large = await dash_s.get_evolution(student_id="student:n1_large")
+            large_queries = counts["n"]
+
+        self.assertEqual(len(small["content_evolution"]), 3)
+        self.assertEqual(len(large["content_evolution"]), 20)
+        # Flat regardless of N: the CatalogNode lookup is one `IN (...)` query,
+        # not one query per mastery row. Before the fix this scaled 1:1 with N
+        # (small=5, large=22); after the fix both scenarios issue the same
+        # fixed number of queries.
+        self.assertEqual(
+            small_queries, large_queries,
+            f"get_evolution query count must not grow with mastery count "
+            f"(small N={small_queries}, large N={large_queries}) - looks like an N+1",
+        )
+
+    async def test_19_get_dashboard_action_plan_content_node_lookup_is_not_n_plus_1(self):
+        """PHASE perf audit: same batching guarantee for get_dashboard's
+        action_plan/mastery_breakdown CatalogNode lookup.
+
+        The recommendation engine's own candidate generation is a separate,
+        already-known N+1 (RecommendationEngine._build_autonomous_candidates
+        scans every catalog node - tracked separately, not fixed here) and is
+        stubbed out here so this test isolates exactly what get_dashboard
+        itself does with the mastery list, independent of that.
+        """
+
+        async def _no_active_recommendation(**kwargs):
+            return []
+
+        async with self.session_factory() as session:
+            ks = KnowledgeService(session)
+            rec_e = RecommendationEngine(session, ks)
+            rec_e.generate_and_resolve_recommendations = _no_active_recommendation
+            vid_e = VideoRecommendationEngine(session, ks)
+            dash_s = StudentDashboardService(session, ks, rec_e, vid_e)
+
+            await self._seed_many_mastered_contents(session, 3, "student:n1_dash_small")
+            with self._count_queries() as counts:
+                small = await dash_s.get_dashboard(student_id="student:n1_dash_small")
+            small_queries = counts["n"]
+
+        async with self.session_factory() as session:
+            ks = KnowledgeService(session)
+            rec_e = RecommendationEngine(session, ks)
+            rec_e.generate_and_resolve_recommendations = _no_active_recommendation
+            vid_e = VideoRecommendationEngine(session, ks)
+            dash_s = StudentDashboardService(session, ks, rec_e, vid_e)
+
+            await self._seed_many_mastered_contents(session, 20, "student:n1_dash_large")
+            with self._count_queries() as counts:
+                large = await dash_s.get_dashboard(student_id="student:n1_dash_large")
+            large_queries = counts["n"]
+
+        self.assertEqual(len(small["mastery_breakdown"]), 3)
+        self.assertEqual(len(large["mastery_breakdown"]), 20)
+        self.assertEqual(
+            small_queries, large_queries,
+            f"get_dashboard query count must not grow with mastery count "
+            f"(small N={small_queries}, large N={large_queries}) - looks like an N+1",
+        )
 
     async def _seed_catalog_data(self, session: AsyncSession):
         root = CatalogNode(node_type="DISCIPLINE", name="Química", position=1, active=True)
