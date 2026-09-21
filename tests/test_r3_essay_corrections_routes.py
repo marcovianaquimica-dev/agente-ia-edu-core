@@ -2,6 +2,7 @@ import asyncio
 import unittest
 import uuid
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -24,6 +25,35 @@ from agente_ia_edu.identity import ExternalIdentityContext
 
 def _ident(user: str) -> ExternalIdentityContext:
     return ExternalIdentityContext(provider="test", external_user_id=user)
+
+
+async def _fake_retry(self, essay_correction_id):
+    """Stands in for EssayCorrectionService.retry's real AI call - Task 5/6
+    already covers the correction engine's own retry logic exhaustively
+    (tests/test_r3_essay_correction_service.py), so this test proves the
+    ROUTE wiring only. Without this patch, the route's plain
+    ``EssayCorrectionService(session)`` would build a real provider via
+    ``build_text_provider()`` and raise ``ProviderConfigurationError`` for
+    missing OPENAI_API_KEY/OPENAI_MODEL - same reasoning, and the same
+    patch target shape, as ``_fake_correct`` in
+    tests/test_r3_essay_submission_confirm_triggers_correction.py."""
+    correction = await self.session.get(EssayCorrection, essay_correction_id)
+    correction.status = "PENDING_REVIEW"
+    correction.correction_key = correction.correction_key or "k" * 64
+    correction.model_version = correction.model_version or "gpt-test"
+    correction.ai_output = {"scores": {"per_competency": {}, "total": 600}}
+    correction.final_scores = {
+        "per_competency": {
+            "C1": {"points": 120, "confidence": 0.8}, "C2": {"points": 120, "confidence": 0.8},
+            "C3": {"points": 120, "confidence": 0.8}, "C4": {"points": 120, "confidence": 0.8},
+            "C5": {"points": 120, "confidence": 0.8},
+        },
+        "total": 600,
+    }
+    correction.final_feedback = {"strengths": [], "improvements": [], "next_essay_strategy": "..."}
+    correction.failure_reason = None
+    await self.session.flush()
+    return correction
 
 
 class EssayCorrectionsRoutesTests(unittest.TestCase):
@@ -52,13 +82,19 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
         self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
 
     def _seed_pending_correction(
-        self, code: str, *, school_id: uuid.UUID | None = None,
+        self, code: str, *, school_id: uuid.UUID | None = None, status: str = "PENDING_REVIEW",
     ) -> tuple[uuid.UUID, uuid.UUID]:
-        """Seeds one PENDING_REVIEW correction. Pass an existing ``school_id``
-        to add a second correction to a school an earlier call already
-        created (needed for tests that must prove two corrections in the
-        SAME school behave independently, as opposed to one being rejected
-        merely for belonging to a different school)."""
+        """Seeds one correction (PENDING_REVIEW by default). Pass an existing
+        ``school_id`` to add a second correction to a school an earlier call
+        already created (needed for tests that must prove two corrections in
+        the SAME school behave independently, as opposed to one being
+        rejected merely for belonging to a different school). Pass
+        ``status="NEEDS_REVIEW"`` to seed a failed correction for the
+        /retry tests - a NEEDS_REVIEW row has no ai_output/correction_key/
+        model_version yet (same shape _run_ai's failure_fields produces),
+        which every relevant CHECK constraint on essay_corrections already
+        permits (ck_essay_corrections_non_failed_has_ai_output only applies
+        to non-NEEDS_REVIEW rows)."""
         async def _seed():
             async with self.factory() as session:
                 target_school_id = school_id
@@ -102,22 +138,32 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
                 )
                 session.add(submission)
                 await session.flush()
-                correction = EssayCorrection(
-                    id=uuid.uuid4(), school_id=target_school_id, essay_submission_id=submission.id,
-                    correction_key="k" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
-                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
-                    ai_output={"scores": {"per_competency": {}, "total": 600}},
-                    final_scores={
-                        "per_competency": {
-                            "C1": {"points": 120, "confidence": 0.8}, "C2": {"points": 120, "confidence": 0.8},
-                            "C3": {"points": 120, "confidence": 0.8}, "C4": {"points": 120, "confidence": 0.8},
-                            "C5": {"points": 120, "confidence": 0.8},
+                if status == "NEEDS_REVIEW":
+                    correction = EssayCorrection(
+                        id=uuid.uuid4(), school_id=target_school_id, essay_submission_id=submission.id,
+                        correction_key=None, rubric_version="ENEM_2025", model_version=None,
+                        prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                        ai_output=None, final_scores=None, final_feedback=None,
+                        failure_reason="ProviderConfigurationError: stub seed failure",
+                        status="NEEDS_REVIEW",
+                    )
+                else:
+                    correction = EssayCorrection(
+                        id=uuid.uuid4(), school_id=target_school_id, essay_submission_id=submission.id,
+                        correction_key="k" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
+                        prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                        ai_output={"scores": {"per_competency": {}, "total": 600}},
+                        final_scores={
+                            "per_competency": {
+                                "C1": {"points": 120, "confidence": 0.8}, "C2": {"points": 120, "confidence": 0.8},
+                                "C3": {"points": 120, "confidence": 0.8}, "C4": {"points": 120, "confidence": 0.8},
+                                "C5": {"points": 120, "confidence": 0.8},
+                            },
+                            "total": 600,
                         },
-                        "total": 600,
-                    },
-                    final_feedback={"strengths": [], "improvements": [], "next_essay_strategy": "..."},
-                    status="PENDING_REVIEW",
-                )
+                        final_feedback={"strengths": [], "improvements": [], "next_essay_strategy": "..."},
+                        status=status,
+                    )
                 session.add(correction)
                 await session.commit()
                 return correction.id, target_school_id
@@ -220,6 +266,28 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
             "/api/v1/teacher/essay-corrections/bulk-approve",
             json={"essay_correction_ids": [str(ok_id), str(other_id)]},
         )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_retry_succeeds_for_own_school(self):
+        correction_id, _school_id = self._seed_pending_correction("10", status="NEEDS_REVIEW")
+        self._as("teacher_10")
+        with patch(
+            "agente_ia_edu.services.essay_correction.EssayCorrectionService.retry",
+            new=_fake_retry,
+        ):
+            resp = self.client.post(f"/api/v1/teacher/essay-corrections/{correction_id}/retry")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["status"], "PENDING_REVIEW")
+
+    def test_retry_from_another_school_is_403(self):
+        correction_id, _school_id = self._seed_pending_correction("11", status="NEEDS_REVIEW")
+        self._seed_pending_correction("12", status="NEEDS_REVIEW")
+        self._as("teacher_12")
+        # No patch needed: the 403 guard runs before EssayCorrectionService.retry
+        # is ever called, so this never reaches (and never needs to stub) the
+        # real provider - that's the entire point of the "403, never 404/422,
+        # for not yours" rule being checked BEFORE the service sees the id.
+        resp = self.client.post(f"/api/v1/teacher/essay-corrections/{correction_id}/retry")
         self.assertEqual(resp.status_code, 403)
 
 
