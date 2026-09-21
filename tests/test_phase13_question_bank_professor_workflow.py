@@ -187,6 +187,20 @@ class Phase13ProfessorWorkflowTests(unittest.TestCase):
         self.assertNotIn("statement", row)
         self.assertIn("statement_preview", row)
 
+    # -- QBQuestionSummary must carry a top-level content_code: teacher.js's
+    # "Meus Materiais" question search (searchTheoryCandidates) reads
+    # `it.content_code || it.content` on each list row, but classification
+    # data was only ever nested under item.classification.content_code -
+    # every row showed a blank content code regardless of classification.
+    def test_list_row_carries_top_level_content_code_for_classified_question(self):
+        qid = self.made[(2024, 130)]["question_id"]
+        r = self.client.get("/api/v1/question-bank/questions",
+                            params={"year": 2024, "page_size": 50}, headers=AUTH)
+        self.assertEqual(r.status_code, 200)
+        row = next(i for i in r.json()["items"] if i["question_id"] == qid)
+        self.assertEqual(row["classification"]["content_code"], "MATH-ALGEBRA-FUNCTIONS")
+        self.assertEqual(row["content_code"], "MATH-ALGEBRA-FUNCTIONS")
+
     def test_filters_are_server_side(self):
         def total(**params):
             return self.client.get("/api/v1/question-bank/questions",

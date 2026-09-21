@@ -109,6 +109,7 @@ def _to_summary(item: QuestionBankItem) -> QBQuestionSummary:
         official_number=item.official_number, position=item.position,
         statement_preview=preview, recommended_difficulty=item.recommended_difficulty,
         classification=_classification_schema(item.classification),
+        content_code=item.classification.content_code if item.classification else None,
         classification_state=item.classification_state, is_protected=item.is_protected,
         has_visual_dependency=item.has_visual_dependency,
     )

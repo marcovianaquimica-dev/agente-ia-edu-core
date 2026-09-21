@@ -97,6 +97,11 @@ class QBQuestionSummary(BaseModel):
     statement_preview: str
     recommended_difficulty: str | None
     classification: QBClassification | None
+    # Denormalized from classification.content_code: teacher.js's "Meus
+    # Materiais" question search reads a top-level content_code on each row
+    # (classification is a richer object added later for the full Question
+    # Bank screen) - without this, every row showed a blank content code.
+    content_code: str | None
     classification_state: str
     is_protected: bool
     has_visual_dependency: bool
