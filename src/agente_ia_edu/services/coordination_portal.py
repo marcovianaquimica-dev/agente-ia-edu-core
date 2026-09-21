@@ -290,11 +290,18 @@ class CoordinationPortalService:
 
         if classroom_id:
             target_classrooms = [classroom_id]
+            # One named classroom: never pad with SCHOOL-wide students who
+            # aren't actually assigned to it.
+            school_wide = False
         else:
             target_classrooms = await self._resolve_scope_classrooms(coordinator_id, school_id)
+            scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
+            school_wide = scopes["is_global"]
 
         # 2. Fetch Students in Scope
-        student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(school_id, target_classrooms)
+        student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(
+            school_id, target_classrooms, school_wide=school_wide,
+        )
 
         # 3. Fetch Teachers in Scope
         teachers = await self.list_coordination_teachers(
@@ -498,7 +505,11 @@ class CoordinationPortalService:
         comparison_list = []
         for cls in classrooms:
             cls_id = cls["classroom_id"]
-            student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(school_id, [cls_id])
+            # One classroom's own comparison row: never pad with SCHOOL-wide
+            # students who aren't actually assigned to it.
+            student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(
+                school_id, [cls_id], school_wide=False,
+            )
             masteries = await self.teacher_portal_service._fetch_masteries_for_students(student_ids)
 
             # Distribution breakdown - one bucket per DISTINCT student (by
@@ -558,7 +569,12 @@ class CoordinationPortalService:
             seen_teachers.add(tid)
 
             cls_ids = await self.teacher_portal_service.get_teacher_authorized_classrooms(tid, school_id)
-            student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(school_id, cls_ids)
+            # cls_ids is THIS teacher's own full authorized scope - reflect
+            # their own real school_wide status, not the coordinator's.
+            teacher_school_wide = await self.teacher_portal_service._resolve_school_wide(tid, school_id)
+            student_ids = await self.teacher_portal_service._fetch_students_in_classrooms(
+                school_id, cls_ids, school_wide=teacher_school_wide,
+            )
             masteries = await self.teacher_portal_service._fetch_masteries_for_students(student_ids)
 
             t_avg = (sum(float(m.mastery_score) for m in masteries) / len(masteries)) if masteries else 0.0

@@ -501,6 +501,18 @@ async def create_resource(
                 )
             owner_external_id = str(context.school_id)
 
+        # visibility_scope="PUBLIC"/"SHARED" is _is_resource_visible's own
+        # unconditional grant (knowledge.py) - it skips owner/scope/grant
+        # entirely. Deriving owner_external_id server-side is worthless if the
+        # caller can just set visibility_scope to one of these two values
+        # directly and make the resource visible to everyone regardless of
+        # who owns it.
+        if not context.is_platform_admin and (request.visibility_scope or "").upper() in ("PUBLIC", "SHARED"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only a platform admin may create a PUBLIC or SHARED resource.",
+            )
+
         service = EducationalResourceService()
         resource = await service.create_resource(
             session,
@@ -1485,7 +1497,12 @@ async def list_resource_grants(
     session_factory=Depends(get_session_factory),
 ) -> list[ResourceAccessGrantResponse]:
     async with session_factory() as session:
-        resource = await session.get(EducationalResource, resource_id)
+        # access_grants is a lazy relationship - eager-load it here or
+        # accessing it below raises MissingGreenlet under the async driver.
+        resource = await session.get(
+            EducationalResource, resource_id,
+            options=[selectinload(EducationalResource.access_grants)],
+        )
         if resource is None:
             raise HTTPException(status_code=404, detail="Resource not found")
 
@@ -1493,16 +1510,11 @@ async def list_resource_grants(
         context = await authz.resolve_context(identity)
         if resource.owner_external_id and context.school_id is not None:
             if str(context.school_id) != str(resource.owner_external_id):
-                if not await authz.require_role(context, "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN").allowed:
+                role_check = await authz.require_role(context, "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+                if not role_check.allowed:
                     raise HTTPException(status_code=403, detail="Not allowed to inspect resource grants.")
 
-        stmt = select(EducationalResource).where(EducationalResource.id == resource_id)
-        result = await session.execute(stmt)
-        loaded = result.scalar_one_or_none()
-        if loaded is None:
-            raise HTTPException(status_code=404, detail="Resource not found")
-
-        grants = sorted(loaded.access_grants, key=lambda g: g.created_at)
+        grants = sorted(resource.access_grants, key=lambda g: g.created_at)
         return [
             ResourceAccessGrantResponse(
                 id=g.id,
@@ -1534,12 +1546,14 @@ async def create_resource_grant(
 
         authz = AuthorizationService(session)
         context = await authz.resolve_context(identity)
-        if not await authz.require_role(context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN").allowed:
+        role_check = await authz.require_role(context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+        if not role_check.allowed:
             raise HTTPException(status_code=403, detail="Only teaching or coordination roles can distribute materials.")
 
         if resource.owner_external_id and context.school_id is not None:
             if str(resource.owner_external_id) != str(context.school_id):
-                if not await authz.require_role(context, "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN").allowed:
+                owner_role_check = await authz.require_role(context, "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN")
+                if not owner_role_check.allowed:
                     raise HTTPException(status_code=403, detail="This user cannot distribute this resource.")
 
         service = EducationalResourceService()

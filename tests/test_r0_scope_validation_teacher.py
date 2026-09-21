@@ -143,6 +143,51 @@ class TeacherScopeValidationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(classrooms, [])
 
+    async def test_stale_classroom_code_does_not_rearm_school_wide_visibility(self):
+        """The composition this test protects: get_teacher_authorized_classrooms
+        keeps a non-empty (but unresolved) classroom list for a CLASSROOM-scoped
+        teacher whose only code is stale (test_an_all_invalid_list_keeps_its_
+        unfiltered_codes above) - by design, since narrowing to [] would read
+        as "unrestricted" downstream, not "denied". Before this onda, that
+        non-empty list alone was enough to make _fetch_students_in_classrooms's
+        SCHOOL/PLATFORM leg fire, handing back every SCHOOL-scoped student in
+        the school to a teacher whose real classroom code doesn't even exist.
+        _teacher_is_school_wide_authorized (and the new required school_wide
+        parameter) depends only on the teacher's own role/scope_type - never
+        on whether their classroom codes happened to resolve - so this stays
+        correctly denied regardless."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "3")
+            await self._seed_hierarchy(session, school, "3")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="teacher-stale-only-2",
+                role=AdminRole.TEACHER,
+                scope_type=AdminScopeType.CLASSROOM,
+                school_id=school.id,
+                scope_external_id="TURMA-FANTASMA-2",
+            )
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="student-school-wide-3",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            portal = TeacherPortalService(session, None, None, None)
+            classrooms = await portal.get_teacher_authorized_classrooms(
+                "teacher-stale-only-2", school.id
+            )
+            self.assertEqual(classrooms, ["TURMA-FANTASMA-2"], "confirms the non-empty, unresolved list still exists")
+
+            results = await portal.search_students_in_scope(
+                teacher_id="teacher-stale-only-2", school_id=school.id, query="student",
+            )
+
+        self.assertEqual(results, [])
+
 
 if __name__ == "__main__":
     unittest.main()

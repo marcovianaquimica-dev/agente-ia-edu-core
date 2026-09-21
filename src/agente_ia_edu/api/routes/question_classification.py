@@ -84,6 +84,19 @@ def _require_scope(context, school_id) -> None:
     if school_id is not None:
         if context.school_id is None or str(context.school_id) != str(school_id):
             raise HTTPException(status_code=403, detail="This question is outside your school scope.")
+        return
+    # school_id is None: a platform-wide/school-less question. _authorize's
+    # role check alone is not a relationship check - AuthorizationService
+    # .resolve_context's fallback path grants TEACHER/COORDINATOR/DIRECTOR to
+    # any caller with no real UserSchoolLink at all, purely from a
+    # self-asserted Authorization header. Matches QuestionAuthorizationService
+    # .can_manage_question's existing rule for the same shape (school_id is
+    # None + origin_type PLATFORM -> only a real platform admin).
+    if not context.is_platform_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="This question has no school scope; only a platform admin may manage it.",
+        )
 
 
 def _map_error(exc: Exception) -> HTTPException:

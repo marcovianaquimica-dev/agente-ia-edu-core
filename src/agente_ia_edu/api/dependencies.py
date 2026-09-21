@@ -6,6 +6,7 @@ shared resources for the API layer.
 
 from __future__ import annotations
 
+import logging
 from typing import AsyncGenerator
 
 from fastapi import Depends, HTTPException, Request
@@ -18,6 +19,10 @@ from agente_ia_edu.identity import (
     ExternalIdentityRequest,
 )
 from agente_ia_edu.services.authorization import AuthorizationService
+
+logger = logging.getLogger(__name__)
+
+_warned_test_provider_in_use = False
 
 
 class TestExternalIdentityProvider:
@@ -44,6 +49,23 @@ class TestExternalIdentityProvider:
         This is deterministic and suitable for integration tests but must NOT
         be used in production.
         """
+        # Loud, once-per-process, not once-per-request: a host that swaps the
+        # provider before serving any request never triggers this, but a host
+        # that forgets to (or serves one request before it does) gets exactly
+        # one unmissable log line instead of silent, self-asserted identities
+        # (e.g. "Authorization: Bearer platform_admin:anyone") being accepted
+        # with no trace anywhere. Rate-limited so a real test/dev run - which
+        # legitimately calls this thousands of times per suite - stays quiet.
+        global _warned_test_provider_in_use
+        if not _warned_test_provider_in_use:
+            _warned_test_provider_in_use = True
+            logger.warning(
+                "TestExternalIdentityProvider resolved a real request's identity. "
+                "This provider trusts the Authorization header's claimed role/id "
+                "verbatim and must never be used in production - if this is a "
+                "production process, call set_identity_provider() with a real "
+                "provider before serving traffic."
+            )
         subject = request.subject or request.external_user_id
         
         if subject and subject != "unknown" and ":" in subject:

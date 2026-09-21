@@ -164,6 +164,27 @@ class QuestionAuthorizationService:
     """
 
     @staticmethod
+    def _matches_classroom(context: AuthenticatedUserContext, question: Question) -> bool:
+        """True only when the requester's own classroom scope is set AND
+        equals the question's classroom_id.
+
+        A prior form compared `(question.metadata_ or {}).get("classroom_id")`
+        directly to `context.scope_external_id`: when a question carries no
+        classroom_id (metadata_ is None, or the key is absent - the default
+        shape) AND the requester's own scope_external_id is also None (any
+        SCHOOL-scoped link, or the school-less fallback context), both sides
+        evaluate to None and `None == None` granted access to every such
+        CLASSROOM-visibility question, regardless of any real classroom
+        relationship. Requiring scope_external_id to be truthy first closes
+        that without reintroducing the AttributeError a `metadata_ or {}`
+        idiom was added earlier to fix (question.metadata_ can be None).
+        """
+        if not context.scope_external_id:
+            return False
+        classroom_id = (question.metadata_ or {}).get("classroom_id")
+        return classroom_id == context.scope_external_id
+
+    @staticmethod
     def can_view_question(context: AuthenticatedUserContext, question: Question) -> bool:
         """Check if user can view this question.
         
@@ -188,8 +209,15 @@ class QuestionAuthorizationService:
 
         # SCHOOL, CLASSROOM questions require matching school
         if question.school_id is None:
-            # Platform question with non-PUBLIC visibility - only admins
-            return context.role in {"DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN"}
+            # Platform question with non-PUBLIC visibility: a real platform
+            # admin already returned True above. DIRECTOR/COORDINATOR here
+            # used to be granted from context.role alone - satisfiable by
+            # AuthorizationService.resolve_context's self-asserted-role
+            # fallback with no real UserSchoolLink at all, the same
+            # "no real relationship = should deny" anti-pattern this phase
+            # already fixed for the equivalent check in can_manage_question
+            # (school_id is None -> return False, no role exception).
+            return False
 
         # User must be in the same school
         if context.school_id is None:
@@ -213,9 +241,7 @@ class QuestionAuthorizationService:
             if question.visibility_scope == "SCHOOL":
                 return True
             if question.visibility_scope == "CLASSROOM":
-                return context.scope_external_id == question.visibility_scope or (
-                    (question.metadata_ or {}).get("classroom_id") == context.scope_external_id
-                )
+                return QuestionAuthorizationService._matches_classroom(context, question)
             return False
 
         if context.role == "STUDENT":
@@ -223,9 +249,7 @@ class QuestionAuthorizationService:
             if question.visibility_scope == "SCHOOL":
                 return True
             if question.visibility_scope == "CLASSROOM":
-                return context.scope_external_id == question.visibility_scope or (
-                    (question.metadata_ or {}).get("classroom_id") == context.scope_external_id
-                )
+                return QuestionAuthorizationService._matches_classroom(context, question)
             return False
 
         return False

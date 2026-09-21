@@ -116,41 +116,67 @@ class TestQuestionGovernancePhase2(unittest.TestCase):
         allowed = QuestionAuthorizationService.can_view_question(context, question)
         self.assertTrue(allowed)
 
-    def test_authorization_service_does_not_crash_on_classroom_question_with_no_metadata(self):
-        """Regression test for a real bug found auditing question_governance.py:
-        can_view_question's CLASSROOM branch (TEACHER and STUDENT roles) did
-        ``question.metadata_.get("classroom_id")`` guarded only by
-        ``hasattr(question, "metadata_")`` - which is always True for a mapped
-        column regardless of its value. Question.metadata_ is nullable with no
-        default (db/models/official.py), so any CLASSROOM-visibility question
-        created without an explicit metadata_ dict (e.g. via
-        ``Question(validation_status="extracted")`` as ingestion_classifier.py
-        does) has metadata_=None, and this raised
-        ``AttributeError: 'NoneType' object has no attribute 'get'`` -
-        uncaught by routes/questions.py's list/detail/eligibility endpoints,
-        turning a routine visibility check into a 500. This reproduces on
-        SQLite/plain objects (no DB needed), unlike the MissingGreenlet class
-        of bugs in this session."""
+    def test_classroom_question_denies_teacher_with_no_classroom_scope(self):
+        # Regression: (question.metadata_ or {}).get("classroom_id") ==
+        # context.scope_external_id evaluated None == None -> True whenever
+        # neither side was set - a SCHOOL-scoped (or fallback, no-link)
+        # TEACHER with scope_external_id=None could view ANY CLASSROOM
+        # question that carries no classroom_id in its metadata, with no
+        # real classroom relationship at all.
         school_id = uuid4()
         question = Question(
-            id=uuid4(),
-            school_id=school_id,
-            visibility_scope="CLASSROOM",
-            status="PUBLISHED",
-            metadata_=None,
+            id=uuid4(), school_id=school_id, visibility_scope="CLASSROOM", status="PUBLISHED",
         )
-        for role in ("TEACHER", "STUDENT"):
-            context = AuthenticatedUserContext(
-                user_id="u-1",
-                external_identity_id="u-1",
-                role=role,
-                school_id=str(school_id),
-                scope_type="CLASSROOM",
-                scope_external_id="CLASS-9",
-            )
-            # Must not raise, and must deny (no classroom_id in metadata to match).
-            allowed = QuestionAuthorizationService.can_view_question(context, question)
-            self.assertFalse(allowed)
+        context = AuthenticatedUserContext(
+            user_id="teacher-noclass", external_identity_id="teacher-noclass", role="TEACHER",
+            school_id=str(school_id), scope_type="SCHOOL", scope_external_id=None,
+        )
+        self.assertFalse(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_classroom_question_allows_teacher_with_matching_classroom_scope(self):
+        school_id = uuid4()
+        question = Question(
+            id=uuid4(), school_id=school_id, visibility_scope="CLASSROOM", status="PUBLISHED",
+            metadata_={"classroom_id": "CLASS-7"},
+        )
+        context = AuthenticatedUserContext(
+            user_id="teacher-class7", external_identity_id="teacher-class7", role="TEACHER",
+            school_id=str(school_id), scope_type="CLASSROOM", scope_external_id="CLASS-7",
+        )
+        self.assertTrue(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_classroom_question_denies_teacher_with_different_classroom_scope(self):
+        school_id = uuid4()
+        question = Question(
+            id=uuid4(), school_id=school_id, visibility_scope="CLASSROOM", status="PUBLISHED",
+            metadata_={"classroom_id": "CLASS-7"},
+        )
+        context = AuthenticatedUserContext(
+            user_id="teacher-class8", external_identity_id="teacher-class8", role="TEACHER",
+            school_id=str(school_id), scope_type="CLASSROOM", scope_external_id="CLASS-8",
+        )
+        self.assertFalse(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_school_less_platform_question_denies_self_declared_director(self):
+        # A DIRECTOR/COORDINATOR role is reachable with no real UserSchoolLink
+        # via AuthorizationService.resolve_context's fallback path - this must
+        # not be enough to view a school-less, non-PUBLIC question. Only a
+        # real platform admin (is_platform_admin=True, checked earlier in
+        # can_view_question) may.
+        question = Question(id=uuid4(), school_id=None, visibility_scope="SCHOOL", status="PUBLISHED")
+        context = AuthenticatedUserContext(
+            user_id="self-declared-director", external_identity_id="self-declared-director",
+            role="DIRECTOR", school_id=None, scope_type="PLATFORM", is_platform_admin=False,
+        )
+        self.assertFalse(QuestionAuthorizationService.can_view_question(context, question))
+
+    def test_school_less_platform_question_allows_real_platform_admin(self):
+        question = Question(id=uuid4(), school_id=None, visibility_scope="SCHOOL", status="PUBLISHED")
+        context = AuthenticatedUserContext(
+            user_id="real-admin", external_identity_id="real-admin",
+            role="PLATFORM_ADMIN", school_id=None, scope_type="PLATFORM", is_platform_admin=True,
+        )
+        self.assertTrue(QuestionAuthorizationService.can_view_question(context, question))
 
 
 if __name__ == "__main__":
