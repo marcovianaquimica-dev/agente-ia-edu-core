@@ -22,6 +22,8 @@ from sqlalchemy.orm import selectinload
 
 from agente_ia_edu.db.models import (
     AdminAuditLog,
+    PedagogicalUniverse,
+    PedagogicalUniverseBinding,
     School,
     SchoolModule,
     UserSchoolLink,
@@ -358,12 +360,55 @@ class PlatformAdminService:
         performed_by_external_id: str,
         link_id: uuid.UUID,
     ) -> UserSchoolLink:
-        """Deactivates a user role/scope link."""
+        """Deactivates a user role/scope link.
+
+        A platform admin can also bind this same person directly
+        (PedagogicalUniverseBinding, subject_type=EXTERNAL_IDENTITY) to a
+        pedagogical universe owned by this school - e.g. granting a teacher
+        access to a restricted-subject catalog. That binding is managed
+        through separate admin routes, so deactivating the link alone leaves
+        it live: ``authorized_universes`` matches EXTERNAL_IDENTITY bindings
+        purely by external_user_id, with no check against school membership.
+        Deactivate it here too, in the same transaction, but only for
+        universes owned by *this* school and only once no other active link
+        still ties the user to it - a second role/scope link to the same
+        school must keep the binding alive.
+        """
         link = await self.session.get(UserSchoolLink, link_id)
         if not link:
             raise ValueError(f"UserSchoolLink not found: {link_id}")
 
         link.active = False
+
+        deactivated_binding_ids: list[str] = []
+        if link.school_id is not None:
+            other_active_link = await self.session.execute(
+                select(UserSchoolLink.id).where(
+                    UserSchoolLink.external_user_id == link.external_user_id,
+                    UserSchoolLink.school_id == link.school_id,
+                    UserSchoolLink.active.is_(True),
+                    UserSchoolLink.id != link.id,
+                )
+            )
+            if other_active_link.first() is None:
+                bindings_stmt = (
+                    select(PedagogicalUniverseBinding)
+                    .join(
+                        PedagogicalUniverse,
+                        PedagogicalUniverseBinding.universe_id == PedagogicalUniverse.id,
+                    )
+                    .where(
+                        PedagogicalUniverseBinding.subject_type == "EXTERNAL_IDENTITY",
+                        PedagogicalUniverseBinding.subject_external_id == link.external_user_id,
+                        PedagogicalUniverseBinding.active.is_(True),
+                        PedagogicalUniverse.owner_type == "SCHOOL",
+                        PedagogicalUniverse.owner_external_id == str(link.school_id),
+                    )
+                )
+                bindings = list((await self.session.execute(bindings_stmt)).scalars().all())
+                for binding in bindings:
+                    binding.active = False
+                    deactivated_binding_ids.append(str(binding.id))
 
         await self.log_action(
             performed_by_external_id=performed_by_external_id,
@@ -371,7 +416,11 @@ class PlatformAdminService:
             entity_type="USER_LINK",
             entity_id=str(link.id),
             school_id=link.school_id,
-            metadata={"external_user_id": link.external_user_id, "role": link.role},
+            metadata={
+                "external_user_id": link.external_user_id,
+                "role": link.role,
+                "deactivated_pedagogical_universe_binding_ids": deactivated_binding_ids,
+            },
         )
 
         await self.session.commit()
