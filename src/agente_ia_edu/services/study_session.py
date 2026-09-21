@@ -311,12 +311,36 @@ class StudySessionService:
         if not students:
             raise StudySessionError("Nenhum aluno encontrado para o destino informado.")
 
+        # perf (N+1 fix): the three lookups below used to run once PER STUDENT
+        # inside the loop below, even though none of them depend on anything
+        # student-specific:
+        #   - the "already active today" check can be resolved for every
+        #     target student in one .in_() query instead of one query each;
+        #   - when the coordinator pinned explicit target_content_codes, the
+        #     catalog names and the material-availability lookup for those
+        #     codes are IDENTICAL for every student (school_id and codes are
+        #     fixed for the whole fan-out) and can be computed once and reused;
+        #   - AdaptiveLearningPathService memoizes its (catalog-only, never
+        #     student-specific) prerequisite graph PER INSTANCE - the same
+        #     technique its own manager_view() already relies on - but a fresh
+        #     instance per student (the previous code) defeated that cache.
+        # Measured live against Postgres before this fix: 4 students -> 27
+        # students grew the query count by ~15 queries/student; the fixes
+        # below remove the flat per-student cost of all four lookups.
+        existing_by_student = await self._existing_school_sessions(students, session_date)
+        path_service = AdaptiveLearningPathService(self._session)
+        shared_catalog_names = await self._catalog_names(codes) if codes else None
+        shared_material = None
+        if codes:
+            avail = await MaterialAvailabilityService(self._session).resolve_for_content(
+                codes, requester_school_id=school_id)
+            shared_material = {k: v.as_dict() for k, v in avail.items()}
+
         results = []
         skipped = 0
         content_names: list[str] = []
         for sid in students:
-            row = await self._active_session(sid, only_source=SOURCE_SCHOOL,
-                                             on_date=session_date)
+            row = existing_by_student.get(sid)
             # A student who already STARTED (or finished) today's SCHOOL
             # session must not have their real progress silently discarded by
             # a coordinator refreshing the classroom's window/content - same
@@ -335,7 +359,9 @@ class StudySessionService:
             plan = await self._build_plan(
                 sid, self._student_requester(sid, school_id),
                 effective_minutes=effective, timer_mode="TIMED",
-                breaks=norm_breaks, target_content_codes=codes)
+                breaks=norm_breaks, target_content_codes=codes,
+                path_service=path_service, catalog_names=shared_catalog_names,
+                material_override=shared_material)
             content_names = plan["target_content_names"]
             if row is None:
                 row = StudySession(student_external_id=sid, source=SOURCE_SCHOOL,
@@ -441,6 +467,28 @@ class StudySessionService:
                     return r
         return rows[0]
 
+    async def _existing_school_sessions(self, students: list[str],
+                                        session_date: str) -> dict[str, StudySession]:
+        """Batched replacement for calling `_active_session(sid, only_source=SOURCE_SCHOOL,
+        on_date=session_date)` once per student. Same filter (SOURCE_SCHOOL, the exact
+        date, an ACTIVE status) and the same "keep the newest" tiebreak as
+        `_active_session`'s default, but ONE query for the whole target list instead of
+        one query per student."""
+        if not students:
+            return {}
+        rows = (await self._session.execute(
+            select(StudySession).where(
+                StudySession.student_external_id.in_(students),
+                StudySession.source == SOURCE_SCHOOL,
+                StudySession.session_date == session_date,
+                StudySession.status.in_(_ACTIVE_STATUSES),
+            ).order_by(StudySession.created_at.desc())
+        )).scalars().all()
+        out: dict[str, StudySession] = {}
+        for r in rows:
+            out.setdefault(r.student_external_id, r)  # first hit per id = newest (desc order)
+        return out
+
     async def _validate_codes(self, codes: list[str] | None) -> list[str]:
         if not codes:
             return []
@@ -464,23 +512,36 @@ class StudySessionService:
 
     async def _build_plan(self, student_external_id: str, requester: Requester, *,
                           effective_minutes: int, timer_mode: str,
-                          breaks: list[dict], target_content_codes: list[str]) -> dict:
+                          breaks: list[dict], target_content_codes: list[str],
+                          path_service: AdaptiveLearningPathService | None = None,
+                          catalog_names: dict[str, str] | None = None,
+                          material_override: dict | None = None) -> dict:
         try:
-            path = await AdaptiveLearningPathService(self._session).build_path(
-                student_external_id, requester=requester)
+            # perf: a caller fanning out over many students (create_coordination_sessions)
+            # passes ONE shared instance so its per-instance, catalog-only prerequisite
+            # graph cache actually gets reused across students instead of being rebuilt
+            # (and re-queried) from scratch for every one of them.
+            svc = path_service or AdaptiveLearningPathService(self._session)
+            path = await svc.build_path(student_external_id, requester=requester)
         except Exception:  # noqa: BLE001 - a broken graph must not break the session
             path = {"state": "NO_EVIDENCE", "steps": [], "mastered": []}
-        codes_for_material = list(target_content_codes) or [
-            s["content_code"] for s in path.get("steps", [])[: self.policy.max_contents]]
-        material = {}
-        if codes_for_material:
-            # PHASE 25: tenant-aware resolution (never a material outside the
-            # student's own school/PUBLIC scope), and it carries a concrete
-            # material_id so a STUDY block can open the real reader.
-            avail = await MaterialAvailabilityService(self._session).resolve_for_content(
-                codes_for_material, requester_school_id=requester.school_id)
-            material = {k: v.as_dict() for k, v in avail.items()}
-        catalog_names = await self._catalog_names(list(target_content_codes or []))
+        if material_override is not None:
+            # perf: the caller already resolved this for the whole fan-out (only
+            # possible when target_content_codes is fixed - see call site).
+            material = material_override
+        else:
+            codes_for_material = list(target_content_codes) or [
+                s["content_code"] for s in path.get("steps", [])[: self.policy.max_contents]]
+            material = {}
+            if codes_for_material:
+                # PHASE 25: tenant-aware resolution (never a material outside the
+                # student's own school/PUBLIC scope), and it carries a concrete
+                # material_id so a STUDY block can open the real reader.
+                avail = await MaterialAvailabilityService(self._session).resolve_for_content(
+                    codes_for_material, requester_school_id=requester.school_id)
+                material = {k: v.as_dict() for k, v in avail.items()}
+        if catalog_names is None:
+            catalog_names = await self._catalog_names(list(target_content_codes or []))
         return self._planner.plan(
             effective_minutes=effective_minutes, timer_mode=timer_mode, breaks=breaks,
             target_content_codes=target_content_codes or None, path=path,

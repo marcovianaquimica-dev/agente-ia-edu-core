@@ -2,13 +2,36 @@ import asyncio
 import unittest
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import AnswerKeyEntry, AnswerKeyRevision, BookletQuestion, Exam, ExamApplication, ExamBooklet, IngestionAsset, IngestionDocument, IngestionQuestion, Institution, Question, QuestionOption, QuestionVersion, SourceDocument
 from agente_ia_edu.services.question_bank_importer import QuestionBankImporter
+
+
+class QueryCounter:
+    """Counts SQL statements executed against `engine` for the duration of a
+    `with` block, via SQLAlchemy's `before_cursor_execute` event - same
+    technique used in test_portal_n1_queries.py / test_phase20_manager_view_n1.py
+    and, live, against the real dev Postgres (see this phase's N+1 audit)."""
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.count = 0
+        self._listener = None
+
+    def __enter__(self):
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            self.count += 1
+
+        self._listener = _count
+        event.listen(self.engine.sync_engine, "before_cursor_execute", self._listener)
+        return self
+
+    def __exit__(self, *exc):
+        event.remove(self.engine.sync_engine, "before_cursor_execute", self._listener)
 
 
 class QuestionBankImporterTests(unittest.IsolatedAsyncioTestCase):
@@ -92,3 +115,103 @@ class QuestionBankImporterTests(unittest.IsolatedAsyncioTestCase):
             restored = await session.get(IngestionQuestion, item_id)
             await session.refresh(restored)
             self.assertEqual(restored.question_version_id, None)
+
+    async def ingestion_questions_for_one_booklet(self, session, count: int):
+        """N distinct IngestionQuestion rows staged under the SAME
+        IngestionDocument/booklet - the real shape of a batch ingestion run
+        (see tests/manual/phase10_ingest_batch.py, which reuses ONE
+        QuestionBankImporter across every staged question of a booklet)."""
+        document = IngestionDocument(
+            filename="enem2020.pdf", document_type="PDF",
+            document_hash=f"document-hash-batch-{count}", storage_uri="var/inep-pilot/enem2020.pdf",
+            file_size_bytes=1, status="processed",
+            metadata_={
+                "source_url": "https://download.inep.gov.br/enem.pdf",
+                "answer_key_source_url": "https://download.inep.gov.br/enem-key.pdf",
+                "exam_year": 2020, "exam_day": 2, "booklet": f"D2_CD5_BATCH{count}",
+                "booklet_color": "AMARELO",
+            },
+        )
+        session.add(document)
+        await session.flush()
+        items = []
+        for i in range(count):
+            question = IngestionQuestion(
+                document_id=document.id, question_number=91 + i, question_type="MULTIPLE_CHOICE",
+                statement_text=f"Questao oficial numero {i} do lote {count}",
+                alternatives_text="A) A\nB) B\nC) C\nD) D\nE) E", correct_answer="C",
+                position=i, page_start=2, page_end=2, status="extracted", metadata_={},
+            )
+            session.add(question)
+            items.append(question)
+        await session.flush()
+        return document, items
+
+    # SELECTs against these tables are exactly what `_official_context`
+    # resolves: institution/exam/application/booklet/the two source
+    # documents/answer-key-revision. Every one of them is identical across
+    # every question of the SAME booklet - a real N+1 re-issues all of them
+    # on EVERY `import_question` call instead of resolving once.
+    _CONTEXT_TABLES = (
+        "institutions", "exams", "exam_applications", "exam_booklets",
+        "source_documents", "answer_key_revisions",
+    )
+
+    def _count_context_selects(self, statements: list[str]) -> int:
+        return sum(
+            1 for s in statements
+            if s.strip().upper().startswith("SELECT")
+            and any(table in s for table in self._CONTEXT_TABLES)
+        )
+
+    async def _context_selects_for_batch(self, count: int) -> int:
+        async with self.factory() as session:
+            _, items = await self.ingestion_questions_for_one_booklet(session, count)
+            ids = [item.id for item in items]
+            await session.commit()
+            importer = QuestionBankImporter(session)
+            statements: list[str] = []
+
+            def _capture(conn, cursor, statement, parameters, context, executemany):
+                statements.append(statement)
+
+            event.listen(self.engine.sync_engine, "before_cursor_execute", _capture)
+            try:
+                for qid in ids:
+                    result = await importer.import_question(qid)
+                    self.assertTrue(result.created)
+            finally:
+                event.remove(self.engine.sync_engine, "before_cursor_execute", _capture)
+            return self._count_context_selects(statements)
+
+    async def test_batch_import_same_booklet_does_not_reresolve_official_context_per_question(self):
+        """N+1 regression (this phase's audit): QuestionBankImporter.import_question
+        used to re-run 7 SELECTs (institution, exam, application, booklet, the
+        two source_documents, the answer_key_revision) on EVERY question of a
+        batch import, even though a batch always shares the SAME document/
+        booklet - confirmed live against real Postgres (N=5 -> 90 queries total
+        / 18 per question, N=45 -> 769 total / 17.1 per question: the 7
+        redundant context SELECTs alone accounted for 7*(N-1) of the total,
+        growing linearly with the batch). The fix memoizes the resolved
+        (booklet_id, answer_key_revision_id) on the importer instance after
+        each question's commit (see `_context_cache` in
+        `QuestionBankImporter.__init__`), so `_official_context` is queried
+        only once per booklet no matter how many questions follow.
+
+        This test pins that shape directly: the number of SELECTs touching
+        the official-context tables must NOT grow with the batch size (RED
+        without the fix: grows to roughly 6-7x between N=3 and N=12; GREEN
+        with the fix: identical, small, constant count for both)."""
+        small = await self._context_selects_for_batch(3)
+        large = await self._context_selects_for_batch(12)
+        self.assertGreater(small, 0, "expected the first question to resolve the context at least once")
+        self.assertEqual(
+            small, large,
+            f"official-context SELECTs grew with batch size ({small} for N=3 vs "
+            f"{large} for N=12) - the shared institution/exam/application/booklet/"
+            "source-document/answer-key-revision context is being re-resolved per "
+            "question instead of memoized (N+1 regression).",
+        )
+        # and it should be a small, fixed number (one resolution's worth),
+        # not proportional to either batch - not just "equal to each other".
+        self.assertLessEqual(small, 7, f"expected roughly one resolution's worth of SELECTs, got {small}")

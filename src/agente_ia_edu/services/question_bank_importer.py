@@ -27,6 +27,23 @@ class QuestionBankImporter:
     def __init__(self, session: AsyncSession, *, fail_after_question: bool = False):
         self.session = session
         self.fail_after_question = fail_after_question
+        # Per-instance, per-document memo of `_official_context`'s resolved
+        # (booklet_id, answer_key_revision_id). A batch import (see
+        # tests/manual/phase10_ingest_batch.py) reuses ONE importer across
+        # every question of the SAME booklet/document, and `_official_context`
+        # otherwise re-resolves the identical institution/exam/application/
+        # booklet/source-documents/revision chain with 7 SELECTs on EVERY
+        # question - proportional to the booklet size (measured: ~17-18
+        # queries/question flat from N=5 to N=45, i.e. real N+1). Caches only
+        # plain UUIDs, never the ORM rows: `import_question` runs under
+        # `expire_on_commit=True` in production (see db/session.py), so an ORM
+        # object held past its own `session.commit()` would re-query on the
+        # very next attribute touch and defeat the cache. Populated only AFTER
+        # a question's commit succeeds (see below) so a row created and then
+        # rolled back within the SAME call (e.g. the correct-answer-option
+        # check failing right after `_official_context`) can never poison it -
+        # the next call simply resolves (and recreates, if needed) normally.
+        self._context_cache: dict[UUID, tuple[UUID, UUID]] = {}
 
     async def import_question(self, ingestion_question_id: UUID) -> QuestionImportResult:
         item = await self.session.get(IngestionQuestion, ingestion_question_id)
@@ -75,9 +92,13 @@ class QuestionBankImporter:
                         text=text, is_valid_option=key == item.correct_answer,
                     ))
                 await self.session.flush()
-                booklet, key_revision = await self._official_context(document)
+                cached_context = self._context_cache.get(document.id)
+                if cached_context is not None:
+                    booklet_id, key_revision_id = cached_context
+                else:
+                    booklet_id, key_revision_id = await self._official_context(document)
                 booklet_question = BookletQuestion(
-                    exam_booklet_id=booklet.id, question_version_id=version.id,
+                    exam_booklet_id=booklet_id, question_version_id=version.id,
                     position=item.position + 1, official_number=item.question_number,
                     page_number=item.page_start, extraction_method="pypdf-text-layer",
                     extractor_version="1.0.0-deterministic", evidence_uri=document.storage_uri,
@@ -92,13 +113,16 @@ class QuestionBankImporter:
                 if correct_option is None:
                     raise ValueError("Official answer does not resolve to an imported option")
                 self.session.add(AnswerKeyEntry(
-                    answer_key_revision_id=key_revision.id, booklet_question_id=booklet_question.id,
+                    answer_key_revision_id=key_revision_id, booklet_question_id=booklet_question.id,
                     official_answer_label=item.correct_answer, resolved_option_id=correct_option.id,
                     page_number=item.page_start,
                 ))
                 item.question_version_id = version.id
                 item.status = "imported"
             await self.session.commit()
+            # Memoized only now that the row (existing or newly created) is
+            # confirmed durable - see the cache's docstring in __init__.
+            self._context_cache[document.id] = (booklet_id, key_revision_id)
             return QuestionImportResult(True, question.id, version.id, 5, "VALIDATED", False, None, provenance)
         except Exception:
             await self.session.rollback()
@@ -135,7 +159,15 @@ class QuestionBankImporter:
             "question_number": item.question_number, **(document.metadata_ or {}),
         }
 
-    async def _official_context(self, document: IngestionDocument) -> tuple[ExamBooklet, AnswerKeyRevision]:
+    async def _official_context(self, document: IngestionDocument) -> tuple[UUID, UUID]:
+        """Resolve (get-or-create) the institution/exam/application/booklet/
+        source-document/revision chain for ``document`` and return
+        ``(booklet_id, answer_key_revision_id)``. Always hits the database -
+        callers check :attr:`_context_cache` first (see ``import_question``
+        and the cache's docstring in ``__init__``); this method itself stays
+        cache-agnostic so it remains correct as a one-off resolver too (e.g.
+        for a document whose booklet does not yet exist in this cache).
+        """
         metadata = document.metadata_ or {}
         year = int(metadata["exam_year"])
         day = int(metadata["exam_day"])
@@ -176,4 +208,4 @@ class QuestionBankImporter:
             revision = AnswerKeyRevision(source_document_id=key_document.id, revision_number=1, is_official=True)
             self.session.add(revision)
             await self.session.flush()
-        return booklet, revision
+        return booklet.id, revision.id
