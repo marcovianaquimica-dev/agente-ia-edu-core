@@ -207,6 +207,56 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_a_student_cannot_touch_another_students_submission(self):
+        """Same school, same class, two different students - the exact case
+        school_id alone would miss. Every route that takes an
+        essay_submission_id must check student_id too."""
+        school_id, class_id, assignment_id = self._seed_school_with_class_and_assignment("5")
+        self._enroll_student(school_id, class_id, "victim_student")
+        self._enroll_student(school_id, class_id, "attacker_student")
+
+        self._as("victim_student")
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED",
+                "text": "Redacao da vitima.",
+            },
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+        submission_id = create_resp.json()["id"]
+
+        self._as("attacker_student")
+        pages_resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/pages")
+        self.assertEqual(pages_resp.status_code, 403)
+        confirm_resp = self.client.post(f"/api/v1/student/essay-submissions/{submission_id}/confirm")
+        self.assertEqual(confirm_resp.status_code, 403)
+
+    def test_resubmitting_someone_elses_essay_is_denied(self):
+        school_id, class_id, assignment_id = self._seed_school_with_class_and_assignment("6")
+        self._enroll_student(school_id, class_id, "victim_student_6")
+        self._enroll_student(school_id, class_id, "attacker_student_6")
+
+        self._as("victim_student_6")
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED",
+                "text": "Original da vitima.",
+            },
+        )
+        essay_id = create_resp.json()["essay_id"]
+
+        self._as("attacker_student_6")
+        resubmit_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED",
+                "text": "Sequestro do essay_id alheio.", "resubmit_essay_id": essay_id,
+            },
+        )
+        self.assertEqual(resubmit_resp.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

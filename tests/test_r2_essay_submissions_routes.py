@@ -239,6 +239,41 @@ class EssaySubmissionsRoutesTests(unittest.TestCase):
         self.assertEqual(confirm_resp.status_code, 200, confirm_resp.text)
         self.assertIsNone(confirm_resp.json()["canonical_text"])
 
+    def test_pdf_flow_uses_the_document_endpoint_and_splits_server_side(self):
+        assignment_id = self._seed_enrolled_student("4", transcription_enabled=False)
+        self._as("student_4")
+
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "PDF"},
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+        submission_id = create_resp.json()["id"]
+
+        import pymupdf as fitz
+        pdf_path = self.tmp_dir / "route_two_pages.pdf"
+        doc = fitz.open()
+        for _ in range(2):
+            page = doc.new_page()
+            page.insert_text((72, 72), "pagina de teste")
+        doc.save(str(pdf_path))
+        doc.close()
+
+        with open(pdf_path, "rb") as f:
+            document_resp = self.client.post(
+                f"/api/v1/student/essay-submissions/{submission_id}/document",
+                files={"file": ("redacao.pdf", f, "application/pdf")},
+            )
+        self.assertEqual(document_resp.status_code, 201, document_resp.text)
+        pages = document_resp.json()
+        self.assertEqual(len(pages), 2)
+        self.assertEqual([p["page_number"] for p in pages], [1, 2])
+
+        confirm_resp = self.client.post(
+            f"/api/v1/student/essay-submissions/{submission_id}/confirm"
+        )
+        self.assertEqual(confirm_resp.status_code, 200, confirm_resp.text)
+
 
 if __name__ == "__main__":
     unittest.main()
