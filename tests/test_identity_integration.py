@@ -121,8 +121,27 @@ class TestExternalIdentityProviderTests(unittest.TestCase):
         call set_identity_provider() before serving traffic - but only once
         per process, since a legitimate test/dev run calls this thousands of
         times per suite."""
+        import logging
+
         import agente_ia_edu.api.dependencies as deps
+
+        target_logger = logging.getLogger("agente_ia_edu.api.dependencies")
+
+        # This flag - and the logger's own `.disabled` bit - are process-wide
+        # module/logging state shared with every other test in the suite, not
+        # something private to this test. Save the real original values and
+        # restore them in `finally`, instead of just re-forcing a fixed value
+        # (which would silently overwrite whatever state other tests left
+        # behind, e.g. a genuine "already warned" from earlier in the run).
+        # `.disabled` in particular can be flipped true by unrelated code
+        # (e.g. Alembic's `logging.config.fileConfig()`, which by default
+        # disables every already-registered logger not named in alembic.ini)
+        # - if that happens this test must still exercise its own logging
+        # behavior rather than fail because some third party silenced it.
+        original_warned_flag = deps._warned_test_provider_in_use
+        original_disabled = target_logger.disabled
         deps._warned_test_provider_in_use = False
+        target_logger.disabled = False
         try:
             async def run_test():
                 provider = TestExternalIdentityProvider()
@@ -136,11 +155,9 @@ class TestExternalIdentityProviderTests(unittest.TestCase):
                 # Second call in the same process: no new warning - assertLogs
                 # itself would raise AssertionError if nothing were logged, so
                 # assert on a fresh logger capture that nothing arrives instead.
-                import logging
                 handler = logging.Handler()
                 records = []
                 handler.emit = records.append
-                target_logger = logging.getLogger("agente_ia_edu.api.dependencies")
                 target_logger.addHandler(handler)
                 try:
                     await provider.resolve(request)
@@ -150,7 +167,8 @@ class TestExternalIdentityProviderTests(unittest.TestCase):
 
             asyncio.run(run_test())
         finally:
-            deps._warned_test_provider_in_use = False
+            deps._warned_test_provider_in_use = original_warned_flag
+            target_logger.disabled = original_disabled
 
     def test_provider_handles_unformatted_subject(self):
         """Test provider handles subjects without role:id format."""

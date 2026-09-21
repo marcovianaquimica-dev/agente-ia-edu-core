@@ -10,7 +10,15 @@ from agente_ia_edu.db.session import get_database_url
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers defaults to True, which would silently disable
+    # every logger already registered in this process (e.g. application
+    # loggers created by importing agente_ia_edu modules before a migration
+    # runs) just because alembic.ini's [loggers] section doesn't happen to
+    # list them. That's a process-wide side effect with no relation to what
+    # this migration run is trying to configure, so opt out of it: only set
+    # up/adjust the loggers alembic.ini actually names (root, sqlalchemy,
+    # alembic), and leave every other logger alone.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
