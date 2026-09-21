@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,9 +50,26 @@ class OpenAIImageCorrectionTests(unittest.TestCase):
         user_message = captured["messages"][1]
         self.assertEqual(user_message["content"][0], {"type": "text", "text": "corrija a redacao"})
         self.assertEqual(len(user_message["content"]), 3)  # 1 text block + 2 image blocks
-        for block in user_message["content"][1:]:
-            self.assertEqual(block["type"], "image_url")
-            self.assertTrue(block["image_url"]["url"].startswith("data:image/png;base64,"))
+
+        # Verify each image block has correct type and verify per-image ordering/correctness
+        expected_page_bytes = [page1.read_bytes(), page2.read_bytes()]
+        expected_b64 = [
+            base64.b64encode(page1.read_bytes()).decode("ascii"),
+            base64.b64encode(page2.read_bytes()).decode("ascii"),
+        ]
+
+        for idx, block in enumerate(user_message["content"][1:]):
+            self.assertEqual(block["type"], "image_url", f"Block {idx + 1} should be image_url")
+            url = block["image_url"]["url"]
+            self.assertTrue(url.startswith("data:image/png;base64,"), f"Block {idx + 1} URL should have data URI prefix")
+
+            # Extract and verify the base64 payload matches the expected page
+            b64_payload = url.replace("data:image/png;base64,", "")
+            self.assertEqual(
+                b64_payload,
+                expected_b64[idx],
+                f"Block {idx + 1} base64 payload should match page{idx + 1} bytes (detects swapped/duplicated images)"
+            )
 
         page1.unlink(missing_ok=True)
         page2.unlink(missing_ok=True)
