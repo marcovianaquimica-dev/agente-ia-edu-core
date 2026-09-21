@@ -3369,6 +3369,41 @@ class EssaySubmissionsRoutesTests(unittest.TestCase):
         self.assertEqual(confirm_resp.status_code, 200, confirm_resp.text)
         self.assertIsNone(confirm_resp.json()["canonical_text"])
 
+    def test_pdf_flow_uses_the_document_endpoint_and_splits_server_side(self):
+        assignment_id = self._seed_enrolled_student("4", transcription_enabled=False)
+        self._as("student_4")
+
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "PDF"},
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+        submission_id = create_resp.json()["id"]
+
+        import pymupdf as fitz
+        pdf_path = self.tmp_dir / "route_two_pages.pdf"
+        doc = fitz.open()
+        for _ in range(2):
+            page = doc.new_page()
+            page.insert_text((72, 72), "pagina de teste")
+        doc.save(str(pdf_path))
+        doc.close()
+
+        with open(pdf_path, "rb") as f:
+            document_resp = self.client.post(
+                f"/api/v1/student/essay-submissions/{submission_id}/document",
+                files={"file": ("redacao.pdf", f, "application/pdf")},
+            )
+        self.assertEqual(document_resp.status_code, 201, document_resp.text)
+        pages = document_resp.json()
+        self.assertEqual(len(pages), 2)
+        self.assertEqual([p["page_number"] for p in pages], [1, 2])
+
+        confirm_resp = self.client.post(
+            f"/api/v1/student/essay-submissions/{submission_id}/confirm"
+        )
+        self.assertEqual(confirm_resp.status_code, 200, confirm_resp.text)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -3579,6 +3614,56 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_a_student_cannot_touch_another_students_submission(self):
+        """Same school, same class, two different students - the exact case
+        school_id alone would miss. Every route that takes an
+        essay_submission_id must check student_id too."""
+        school_id, class_id, assignment_id = self._seed_school_with_class_and_assignment("5")
+        self._enroll_student(school_id, class_id, "victim_student")
+        self._enroll_student(school_id, class_id, "attacker_student")
+
+        self._as("victim_student")
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED",
+                "text": "Redacao da vitima.",
+            },
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+        submission_id = create_resp.json()["id"]
+
+        self._as("attacker_student")
+        pages_resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/pages")
+        self.assertEqual(pages_resp.status_code, 403)
+        confirm_resp = self.client.post(f"/api/v1/student/essay-submissions/{submission_id}/confirm")
+        self.assertEqual(confirm_resp.status_code, 403)
+
+    def test_resubmitting_someone_elses_essay_is_denied(self):
+        school_id, class_id, assignment_id = self._seed_school_with_class_and_assignment("6")
+        self._enroll_student(school_id, class_id, "victim_student_6")
+        self._enroll_student(school_id, class_id, "attacker_student_6")
+
+        self._as("victim_student_6")
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED",
+                "text": "Original da vitima.",
+            },
+        )
+        essay_id = create_resp.json()["essay_id"]
+
+        self._as("attacker_student_6")
+        resubmit_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED",
+                "text": "Sequestro do essay_id alheio.", "resubmit_essay_id": essay_id,
+            },
+        )
+        self.assertEqual(resubmit_resp.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -3604,6 +3689,7 @@ Fase 3C rule reused verbatim).
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -3612,6 +3698,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
@@ -3724,11 +3811,43 @@ async def _assignment_for_own_class_or_403(
 
 async def _submission_for_own_school_or_403(
     session: AsyncSession, *, essay_submission_id: uuid.UUID, school_id: uuid.UUID,
+    student_id: uuid.UUID,
 ) -> EssaySubmission:
+    """Not just "same school" - a student's own submission specifically.
+    school_id alone would let any student at the school read or modify any
+    other student's essay; student_id (the caller's own, resolved via
+    resolve_active_enrollment, never client-supplied) closes that."""
     submission = await session.get(EssaySubmission, essay_submission_id)
-    if submission is None or submission.school_id != school_id:
+    if (
+        submission is None
+        or submission.school_id != school_id
+        or submission.student_id != student_id
+    ):
         raise HTTPException(status_code=403, detail="This submission is not yours.")
     return submission
+
+
+async def _resubmission_target_or_403(
+    session: AsyncSession, *, essay_id: uuid.UUID, school_id: uuid.UUID, student_id: uuid.UUID,
+) -> EssaySubmission:
+    """The current SUBMITTED version of essay_id, only if it's genuinely the
+    caller's own. EssaySubmissionService._supersede_previous queries for the
+    same row by essay_id+status alone and trusts it completely - this check
+    is what makes that trust safe, by running before the service ever sees
+    the id."""
+    result = await session.execute(
+        select(EssaySubmission).where(
+            EssaySubmission.essay_id == essay_id, EssaySubmission.status == "SUBMITTED"
+        )
+    )
+    current = result.scalars().first()
+    if (
+        current is None
+        or current.school_id != school_id
+        or current.student_id != student_id
+    ):
+        raise HTTPException(status_code=403, detail="This essay is not yours to resubmit.")
+    return current
 
 
 @essay_submissions_router.post("", status_code=201, response_model=EssaySubmissionResponse)
@@ -3747,6 +3866,11 @@ async def create_essay_submission(
             session, prompt_assignment_id=request.prompt_assignment_id,
             school_id=school_id, class_id=enrollment.class_id,
         )
+        if request.resubmit_essay_id is not None:
+            await _resubmission_target_or_403(
+                session, essay_id=request.resubmit_essay_id,
+                school_id=school_id, student_id=enrollment.student_id,
+            )
         settings = await InstitutionSettingsService(session).get_settings(school_id)
         service = EssaySubmissionService(session)
 
@@ -3790,8 +3914,12 @@ async def upload_essay_submission_page(
     async with session_factory() as session:
         context = await _authorize_student(identity, session)
         school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
         submission = await _submission_for_own_school_or_403(
-            session, essay_submission_id=essay_submission_id, school_id=school_id
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
         )
         settings = await InstitutionSettingsService(session).get_settings(school_id)
 
@@ -3816,14 +3944,66 @@ async def upload_essay_submission_page(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
-            tmp_path.unlink(missing_ok=True)
-            try:
-                tmp_dir.rmdir()
-            except OSError:
-                pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
         await session.commit()
         return _page_to_response(page)
+
+
+@essay_submissions_router.post(
+    "/{essay_submission_id}/document", status_code=201,
+    response_model=list[EssaySubmissionPageResponse],
+)
+async def upload_essay_submission_document(
+    essay_submission_id: UUID,
+    file: UploadFile = File(...),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[EssaySubmissionPageResponse]:
+    """PDF mode's entry point: one whole-file upload, server-side split into
+    N pages via EssaySubmissionService.upload_document (Task 8). PHOTO mode
+    uses upload_essay_submission_page instead - one call per page."""
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+        submission = await _submission_for_own_school_or_403(
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
+        )
+        settings = await InstitutionSettingsService(session).get_settings(school_id)
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="r2_document_upload_"))
+        tmp_path = tmp_dir / (file.filename or "document.pdf")
+        size = 0
+        with open(tmp_path, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > _MAX_UPLOAD_BYTES:
+                    out.close()
+                    tmp_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file too large (max 25MB)")
+                out.write(chunk)
+
+        try:
+            service = EssaySubmissionService(session)
+            pages = await service.upload_document(
+                essay_submission_id=submission.id, source_path=tmp_path,
+                transcription_enabled=settings.transcription_enabled,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            # rmtree, not unlink+rmdir: _split_pdf_pages wrote a "<stem>_pages"
+            # subdirectory of rasterized PNGs alongside the uploaded PDF, and
+            # both are scratch - MaterialStorage.store() already copied
+            # everything that needs to survive into managed storage.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        await session.commit()
+        return [_page_to_response(p) for p in pages]
 
 
 @essay_submissions_router.get(
@@ -3837,8 +4017,12 @@ async def list_essay_submission_pages(
     async with session_factory() as session:
         context = await _authorize_student(identity, session)
         school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
         submission = await _submission_for_own_school_or_403(
-            session, essay_submission_id=essay_submission_id, school_id=school_id
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
         )
         service = EssaySubmissionService(session)
         pages = await service.list_pages(submission.id)
@@ -3858,8 +4042,12 @@ async def review_essay_submission_page(
     async with session_factory() as session:
         context = await _authorize_student(identity, session)
         school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
         submission = await _submission_for_own_school_or_403(
-            session, essay_submission_id=essay_submission_id, school_id=school_id
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
         )
         service = EssaySubmissionService(session)
         try:
@@ -3884,8 +4072,12 @@ async def confirm_essay_submission(
     async with session_factory() as session:
         context = await _authorize_student(identity, session)
         school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
         submission = await _submission_for_own_school_or_403(
-            session, essay_submission_id=essay_submission_id, school_id=school_id
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
         )
         service = EssaySubmissionService(session)
         try:
