@@ -35,6 +35,8 @@ essay_submissions_router = APIRouter(
 )
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_ALLOWED_PAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+_ALLOWED_DOCUMENT_SUFFIXES = (".pdf",)
 
 
 class EssaySubmissionCreateRequest(BaseModel):
@@ -151,7 +153,7 @@ async def _resubmission_target_or_403(
     session: AsyncSession, *, essay_id: uuid.UUID, school_id: uuid.UUID, student_id: uuid.UUID,
 ) -> EssaySubmission:
     """The current SUBMITTED version of essay_id, only if it's genuinely the
-    caller's own. EssaySubmissionService._supersede_previous queries for the
+    caller's own. EssaySubmissionService._validate_resubmission queries for the
     same row by essay_id+status alone and trusts it completely - this check
     is what makes that trust safe, by running before the service ever sees
     the id."""
@@ -241,7 +243,10 @@ async def upload_essay_submission_page(
             session, essay_submission_id=essay_submission_id, school_id=school_id,
             student_id=enrollment.student_id,
         )
-        settings = await InstitutionSettingsService(session).get_settings(school_id)
+
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in _ALLOWED_PAGE_SUFFIXES:
+            raise HTTPException(status_code=422, detail=f"unsupported file format: {suffix!r}")
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="r2_page_upload_"))
         tmp_path = tmp_dir / (file.filename or f"page{page_number}")
@@ -259,7 +264,7 @@ async def upload_essay_submission_page(
             service = EssaySubmissionService(session)
             page = await service.upload_page(
                 essay_submission_id=submission.id, page_number=page_number,
-                source_path=tmp_path, transcription_enabled=settings.transcription_enabled,
+                source_path=tmp_path,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -293,7 +298,10 @@ async def upload_essay_submission_document(
             session, essay_submission_id=essay_submission_id, school_id=school_id,
             student_id=enrollment.student_id,
         )
-        settings = await InstitutionSettingsService(session).get_settings(school_id)
+
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in _ALLOWED_DOCUMENT_SUFFIXES:
+            raise HTTPException(status_code=422, detail=f"unsupported file format: {suffix!r}")
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="r2_document_upload_"))
         tmp_path = tmp_dir / (file.filename or "document.pdf")
@@ -311,7 +319,6 @@ async def upload_essay_submission_document(
             service = EssaySubmissionService(session)
             pages = await service.upload_document(
                 essay_submission_id=submission.id, source_path=tmp_path,
-                transcription_enabled=settings.transcription_enabled,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

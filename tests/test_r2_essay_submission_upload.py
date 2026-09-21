@@ -69,7 +69,7 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             page = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source, transcription_enabled=True,
+                source_path=source,
             )
 
             self.assertEqual(transcriber.calls, 1)
@@ -99,14 +99,14 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source1)
             page_first = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source1, transcription_enabled=True,
+                source_path=source1,
             )
 
             source2 = self.tmp_dir / "reupload2.png"
             _make_png(source2)
             page_second = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source2, transcription_enabled=True,
+                source_path=source2,
             )
 
             self.assertEqual(page_first.id, page_second.id)
@@ -129,7 +129,7 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             page = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source, transcription_enabled=False,
+                source_path=source,
             )
             self.assertEqual(transcriber.calls, 0)
             self.assertIsNone(page.ocr_tokens)
@@ -181,7 +181,6 @@ class PdfUploadTests(unittest.IsolatedAsyncioTestCase):
             pdf_path = self._make_two_page_pdf()
             pages = await svc.upload_document(
                 essay_submission_id=submission.id, source_path=pdf_path,
-                transcription_enabled=True,
             )
 
             self.assertEqual(len(pages), 2)

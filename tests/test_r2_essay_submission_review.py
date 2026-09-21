@@ -56,7 +56,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             await svc.upload_page(
                 essay_submission_id=submission.id, page_number=number,
-                source_path=source, transcription_enabled=True,
+                source_path=source,
             )
         return svc, submission
 

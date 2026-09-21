@@ -58,7 +58,7 @@ class ConfirmSubmissionTests(unittest.IsolatedAsyncioTestCase):
                 _make_png(source)
                 await svc.upload_page(
                     essay_submission_id=submission.id, page_number=number,
-                    source_path=source, transcription_enabled=True,
+                    source_path=source,
                 )
 
             await svc.review_page(
@@ -89,7 +89,7 @@ class ConfirmSubmissionTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source, transcription_enabled=False,
+                source_path=source,
             )
 
             confirmed = await svc.confirm_submission(submission.id)
@@ -107,6 +107,106 @@ class ConfirmSubmissionTests(unittest.IsolatedAsyncioTestCase):
             )
             with self.assertRaises(ValueError):
                 await svc.confirm_submission(submission.id)
+
+    async def test_confirming_an_already_submitted_essay_is_rejected(self):
+        """Locks in the final-review fix: a SUBMITTED essay's canonical_text
+        must never be recomputed - confirm_submission must refuse to run
+        again on a row that already reached SUBMITTED."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            submission = await svc.start_photo_submission(
+                school_id=uuid.uuid4(), prompt_assignment_id=uuid.uuid4(),
+                student_id=uuid.uuid4(), mode="PDF", transcription_enabled=False,
+            )
+            source = self.tmp_dir / "confirm_twice.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            first = await svc.confirm_submission(submission.id)
+            self.assertEqual(first.status, "SUBMITTED")
+
+            with self.assertRaises(ValueError):
+                await svc.confirm_submission(submission.id)
+
+    async def test_uploading_a_page_after_submitted_is_rejected(self):
+        """Locks in the final-review fix: no route lets a student rewrite an
+        already-SUBMITTED essay - upload_page must refuse once status has
+        moved past PENDING_CONFIRMATION."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            submission = await svc.start_photo_submission(
+                school_id=uuid.uuid4(), prompt_assignment_id=uuid.uuid4(),
+                student_id=uuid.uuid4(), mode="PDF", transcription_enabled=False,
+            )
+            source = self.tmp_dir / "upload_after_submit.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+            await svc.confirm_submission(submission.id)
+
+            with self.assertRaises(ValueError):
+                await svc.upload_page(
+                    essay_submission_id=submission.id, page_number=1, source_path=source,
+                )
+
+    async def test_photo_resubmission_supersedes_only_at_confirm_not_at_start(self):
+        """Locks in the final-review fix: a photo/PDF resubmission the
+        student never finishes must never leave the essay with zero
+        SUBMITTED versions - the old row stays SUBMITTED right up until the
+        new one is actually confirmed."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            first = await svc.start_typed_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, text="Primeira versao.",
+            )
+            self.assertEqual(first.status, "SUBMITTED")
+
+            second = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PDF", transcription_enabled=False,
+                essay_id=first.essay_id, correction_mode="FORMATIVO",
+            )
+
+            # Abandoned here (never uploads/confirms): the first version must
+            # still be the current SUBMITTED one.
+            still_first = await session.get(type(first), first.id)
+            self.assertEqual(still_first.status, "SUBMITTED")
+
+            source = self.tmp_dir / "resubmission_confirm.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=second.id, page_number=1, source_path=source,
+            )
+            confirmed_second = await svc.confirm_submission(second.id)
+            self.assertEqual(confirmed_second.status, "SUBMITTED")
+
+            now_superseded_first = await session.get(type(first), first.id)
+            self.assertEqual(now_superseded_first.status, "SUPERSEDED")
+
+    async def test_reviewing_a_page_after_submitted_is_rejected(self):
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            submission = await svc.start_photo_submission(
+                school_id=uuid.uuid4(), prompt_assignment_id=uuid.uuid4(),
+                student_id=uuid.uuid4(), mode="PHOTO", transcription_enabled=False,
+            )
+            source = self.tmp_dir / "review_after_submit.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+            await svc.confirm_submission(submission.id)
+
+            with self.assertRaises(ValueError):
+                await svc.review_page(
+                    essay_submission_id=submission.id, page_number=1, reviewed_text="tentativa tardia",
+                )
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
+from ...db.models import EssayPrompt
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_proposal import EssayProposalService
@@ -86,8 +87,20 @@ async def _authorize(
             detail="Managing an essay proposal requires a teacher, coordinator, director, or platform admin role.",
         )
     if context.school_id is None:
-        raise HTTPException(status_code=400, detail="An active school context is required.")
+        raise HTTPException(status_code=403, detail="An active school context is required.")
     return uuid.UUID(str(context.school_id))
+
+
+async def _prompt_for_own_school_or_403(
+    session: AsyncSession, *, essay_prompt_id: uuid.UUID, school_id: uuid.UUID,
+) -> EssayPrompt:
+    """Same "403, never 404, for not yours" rule essay_submissions.py's
+    helpers use - a prompt from another school is 403, not the 422 a bare
+    service-level ValueError would produce."""
+    prompt = await session.get(EssayPrompt, essay_prompt_id)
+    if prompt is None or prompt.school_id != school_id:
+        raise HTTPException(status_code=403, detail="This proposal is not yours.")
+    return prompt
 
 
 @essay_prompts_router.post("", status_code=201, response_model=EssayPromptResponse)
@@ -124,6 +137,9 @@ async def add_prompt_material(
 ) -> PromptMaterialResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
         service = EssayProposalService(session)
         try:
             material = await service.add_material(
@@ -155,6 +171,9 @@ async def create_prompt_assignment(
 ) -> PromptAssignmentResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
         service = EssayProposalService(session)
         try:
             assignment = await service.create_assignment(

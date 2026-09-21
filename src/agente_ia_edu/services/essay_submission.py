@@ -13,6 +13,7 @@ database can't express as a CHECK constraint.
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -63,8 +64,16 @@ class EssaySubmissionService:
         essay_id: uuid.UUID | None = None,
         correction_mode: str | None = None,
     ) -> EssaySubmission:
+        previous = None
         if essay_id is not None:
-            await self._supersede_previous(essay_id, correction_mode=correction_mode or "FORMATIVO")
+            # TYPED submits atomically (the new row is SUBMITTED in this
+            # same call), so unlike start_photo_submission it's safe to
+            # supersede the old row right here rather than deferring to
+            # confirm_submission - there's no in-between state where neither
+            # row is SUBMITTED.
+            previous = await self._validate_resubmission(
+                essay_id, correction_mode=correction_mode or "FORMATIVO"
+            )
 
         submission = EssaySubmission(
             id=uuid.uuid4(),
@@ -80,12 +89,21 @@ class EssaySubmissionService:
             submitted_at=_utcnow(),
         )
         self.session.add(submission)
+        if previous is not None:
+            previous.status = "SUPERSEDED"
         await self.session.flush()
         return submission
 
-    async def _supersede_previous(
+    async def _validate_resubmission(
         self, essay_id: uuid.UUID, *, correction_mode: str
     ) -> EssaySubmission:
+        """Confirms essay_id is eligible for a new version, WITHOUT
+        mutating anything - actually superseding the previous row is the
+        caller's job, at whatever point the new version is guaranteed to
+        replace it (start_typed_submission does it immediately since TYPED
+        submits atomically; start_photo_submission defers it to
+        confirm_submission, since photo/PDF submissions can be abandoned
+        mid-upload)."""
         previous = await self.session.scalar(
             select(EssaySubmission).where(
                 EssaySubmission.essay_id == essay_id, EssaySubmission.status == "SUBMITTED"
@@ -97,8 +115,6 @@ class EssaySubmissionService:
             raise EssayResubmissionBlockedError(
                 f"AVALIATIVO: essay_id={essay_id} is already SUBMITTED and cannot be resubmitted"
             )
-        previous.status = "SUPERSEDED"
-        await self.session.flush()
         return previous
 
     async def start_photo_submission(
@@ -115,7 +131,12 @@ class EssaySubmissionService:
         if mode not in ("PHOTO", "PDF"):
             raise ValueError(f"start_photo_submission requires mode PHOTO or PDF, got {mode!r}")
         if essay_id is not None:
-            await self._supersede_previous(essay_id, correction_mode=correction_mode or "FORMATIVO")
+            # Validate eligibility only - do NOT supersede the previous
+            # version yet. That happens in confirm_submission, once this new
+            # version is actually about to become SUBMITTED. Superseding here
+            # would leave the essay with zero SUBMITTED versions if the
+            # student never finishes uploading/reviewing (spec §5.4).
+            await self._validate_resubmission(essay_id, correction_mode=correction_mode or "FORMATIVO")
 
         submission = EssaySubmission(
             id=uuid.uuid4(),
@@ -131,14 +152,28 @@ class EssaySubmissionService:
         await self.session.flush()
         return submission
 
+    _UPLOADABLE_STATUSES = ("PENDING_TRANSCRIPTION", "PENDING_CONFIRMATION")
+
     async def upload_page(
         self,
         *,
         essay_submission_id: uuid.UUID,
         page_number: int,
         source_path: Path,
-        transcription_enabled: bool,
     ) -> EssaySubmissionPage:
+        submission = await self.session.get(EssaySubmission, essay_submission_id)
+        if submission is None:
+            raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+        if submission.status not in self._UPLOADABLE_STATUSES:
+            raise ValueError(
+                f"EssaySubmission {essay_submission_id} is {submission.status} - pages can "
+                "only be uploaded while a submission is pending confirmation (spec §5.2 step 3)."
+            )
+        # Derived from the submission's own frozen anchor_mode, never from a
+        # live settings read - a school toggling transcription_enabled mid-
+        # flow must not change how an in-progress submission behaves.
+        transcription_enabled = submission.anchor_mode == "TEXT_OFFSET"
+
         dest, _digest = self._storage.store(source_path)
 
         existing = await self.session.scalar(
@@ -164,7 +199,6 @@ class EssaySubmissionService:
 
         if transcription_enabled:
             await self._ocr_page(page, dest)
-            submission = await self.session.get(EssaySubmission, essay_submission_id)
             submission.status = "PENDING_CONFIRMATION"
             await self.session.flush()
         return page
@@ -174,16 +208,16 @@ class EssaySubmissionService:
         *,
         essay_submission_id: uuid.UUID,
         source_path: Path,
-        transcription_enabled: bool,
     ) -> list[EssaySubmissionPage]:
         """PDF mode: split ``source_path`` into one page-image per PDF page
-        and upload each through the same path :meth:`upload_page` uses."""
-        page_image_paths = self._split_pdf_pages(source_path)
+        (off the event loop - rasterization is CPU-bound) and upload each
+        through the same path :meth:`upload_page` uses."""
+        page_image_paths = await asyncio.to_thread(self._split_pdf_pages, source_path)
         pages = []
         for index, image_path in enumerate(page_image_paths, start=1):
             page = await self.upload_page(
                 essay_submission_id=essay_submission_id, page_number=index,
-                source_path=image_path, transcription_enabled=transcription_enabled,
+                source_path=image_path,
             )
             pages.append(page)
         return pages
@@ -202,8 +236,10 @@ class EssaySubmissionService:
             self._transcriber = build_essay_transcriber()
         return self._transcriber
 
-    @staticmethod
-    def _split_pdf_pages(pdf_path: Path) -> list[Path]:
+    _MAX_PDF_PAGES = 20
+
+    @classmethod
+    def _split_pdf_pages(cls, pdf_path: Path) -> list[Path]:
         try:
             import pymupdf as _mu
         except ImportError:
@@ -213,6 +249,10 @@ class EssaySubmissionService:
         dest_dir.mkdir(exist_ok=True)
         doc = _mu.open(str(pdf_path))
         try:
+            if len(doc) > cls._MAX_PDF_PAGES:
+                raise ValueError(
+                    f"PDF has {len(doc)} pages, more than the {cls._MAX_PDF_PAGES}-page limit"
+                )
             paths = []
             for index in range(len(doc)):
                 pix = doc[index].get_pixmap(dpi=200)
@@ -234,6 +274,15 @@ class EssaySubmissionService:
     async def review_page(
         self, *, essay_submission_id: uuid.UUID, page_number: int, reviewed_text: str
     ) -> EssaySubmissionPage:
+        submission = await self.session.get(EssaySubmission, essay_submission_id)
+        if submission is None:
+            raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+        if submission.status not in self._UPLOADABLE_STATUSES:
+            raise ValueError(
+                f"EssaySubmission {essay_submission_id} is {submission.status} - pages can "
+                "only be reviewed while a submission is pending confirmation (spec §5.2 step 3)."
+            )
+
         page = await self.session.scalar(
             select(EssaySubmissionPage).where(
                 EssaySubmissionPage.essay_submission_id == essay_submission_id,
@@ -252,6 +301,11 @@ class EssaySubmissionService:
         submission = await self.session.get(EssaySubmission, essay_submission_id)
         if submission is None:
             raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+        if submission.status not in self._UPLOADABLE_STATUSES:
+            raise ValueError(
+                f"EssaySubmission {essay_submission_id} is {submission.status}, not pending "
+                "confirmation - a SUBMITTED or SUPERSEDED essay cannot be confirmed again."
+            )
 
         pages = await self.list_pages(essay_submission_id)
         if not pages:
@@ -269,6 +323,23 @@ class EssaySubmissionService:
             submission.normalized_text_hash = essay_text_hash(full_text)
         # anchor_mode == "IMAGE_REGION": no transcription ran, canonical_text/
         # normalized_text_hash stay NULL - spec §5.3's documented consequence.
+
+        # Resubmission (photo/PDF only - TYPED supersedes immediately in
+        # start_typed_submission since it submits atomically): supersede the
+        # previous SUBMITTED version of this essay_id now, in the same flush
+        # as this one becoming SUBMITTED. start_photo_submission validated
+        # eligibility but deliberately never superseded, so a resubmission
+        # the student never finishes never leaves the essay with zero
+        # SUBMITTED versions (spec §5.4).
+        previous = await self.session.scalar(
+            select(EssaySubmission).where(
+                EssaySubmission.essay_id == submission.essay_id,
+                EssaySubmission.status == "SUBMITTED",
+                EssaySubmission.id != submission.id,
+            )
+        )
+        if previous is not None:
+            previous.status = "SUPERSEDED"
 
         submission.status = "SUBMITTED"
         submission.submitted_at = _utcnow()

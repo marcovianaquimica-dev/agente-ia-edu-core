@@ -81,7 +81,13 @@ class EssayProposalService:
             position=position,
         )
         self.session.add(material)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ValueError(
+                f"EssayPrompt {essay_prompt_id} already has a material at position {position}"
+            ) from exc
         return material
 
     async def create_assignment(
