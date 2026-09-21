@@ -267,6 +267,8 @@ class EssayCorrectionService:
             return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
         except json.JSONDecodeError as exc:
             return {**failure_fields, "failure_reason": f"Model returned invalid JSON: {exc}"}
+        except ValueError as exc:
+            return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
 
         identification = {
             "essay_id": str(submission.essay_id),
@@ -278,7 +280,7 @@ class EssayCorrectionService:
             "contract_version": CONTRACT_VERSION,
             "anchor_mode": submission.anchor_mode,
         }
-        full_payload = {"identification": identification, **raw_payload}
+        full_payload = {**raw_payload, "identification": identification}
 
         try:
             output = validate_engine_output_from_payload(

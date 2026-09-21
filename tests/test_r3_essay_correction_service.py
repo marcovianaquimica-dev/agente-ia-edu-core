@@ -2,6 +2,7 @@
 import unittest
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -59,7 +60,7 @@ class _StubImageProvider:
 
 def _happy_payload(
     *, anchor_mode: str, text: str = "", page: int = 1, box=(800.0, 600.0),
-    quote_override: str | None = None,
+    quote_override: str | None = None, include_scores: bool = True,
 ) -> str:
     import json
 
@@ -72,18 +73,23 @@ def _happy_payload(
             "width": min(50.0, box[0] - 5.0), "height": min(20.0, box[1] - 5.0),
             "read_text": "trecho lido na imagem",
         }
+    scores = (
+        {
+            "per_competency": {
+                "C1": {"points": 160, "confidence": 0.9},
+                "C2": {"points": 160, "confidence": 0.9},
+                "C3": {"points": 160, "confidence": 0.9},
+                "C4": {"points": 160, "confidence": 0.9},
+                "C5": {"points": 160, "confidence": 0.9},
+            },
+            "total": 800,
+        }
+        if include_scores
+        else None
+    )
     return json.dumps(
         {
-            "scores": {
-                "per_competency": {
-                    "C1": {"points": 160, "confidence": 0.9},
-                    "C2": {"points": 160, "confidence": 0.9},
-                    "C3": {"points": 160, "confidence": 0.9},
-                    "C4": {"points": 160, "confidence": 0.9},
-                    "C5": {"points": 160, "confidence": 0.9},
-                },
-                "total": 800,
-            },
+            "scores": scores,
             "rationales": [
                 {"competency_code": "C1", "summary": "Boa norma padrao.", "signal_keys": []}
             ],
@@ -343,6 +349,116 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             correction = await service.correct(submission.id)
             with self.assertRaises(ValueError):
                 await service.retry(correction.id)
+
+    async def test_image_region_pages_are_sent_in_page_number_order(self):
+        """Pages are inserted out of page-number order on purpose, so this
+        only passes if the service actually orders by page_number rather
+        than by insertion/id order - and it checks the real outbound
+        request (image_paths, PAGE_COUNT) plus that correction_key was
+        computed from the real page set, not just that status ended up
+        APPROVED."""
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "12", anchor_mode="IMAGE_REGION", correction_mode="FORMATIVO",
+            )
+            session.add(EssaySubmissionPage(
+                id=uuid.uuid4(), essay_submission_id=submission.id, page_number=2,
+                storage_uri="/tmp/r3_fake_page_2.png", width=900.0, height=700.0,
+            ))
+            session.add(EssaySubmissionPage(
+                id=uuid.uuid4(), essay_submission_id=submission.id, page_number=1,
+                storage_uri="/tmp/r3_fake_page_1.png", width=800.0, height=600.0,
+            ))
+            await session.commit()
+
+            provider = _StubImageProvider(
+                text=_happy_payload(anchor_mode="IMAGE_REGION", page=1, box=(800.0, 600.0))
+            )
+            service = EssayCorrectionService(session, image_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIsNotNone(correction.correction_key)
+            self.assertEqual(
+                provider.last_request.image_paths,
+                (Path("/tmp/r3_fake_page_1.png"), Path("/tmp/r3_fake_page_2.png")),
+            )
+            self.assertIn("PAGE_COUNT: 2", provider.last_request.prompt)
+
+    async def test_formativo_real_shape_with_null_scores_persists_no_scores(self):
+        """Every other FORMATIVO test uses a stub that returns a full score
+        block regardless of what SCORING_MODE asked for. The real model,
+        asked for FORMATIVO, returns scores=null (RESPONSE_SCHEMA's actual
+        shape for that mode) - this is the first test to send that shape
+        through validation and the DB constraints."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "13", correction_mode="FORMATIVO")
+            payload = _happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text, include_scores=False,
+            )
+            provider = _StubTextProvider(text=payload)
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIsNone(correction.final_scores)
+            self.assertIsNotNone(correction.ai_output)
+            self.assertIsNone(correction.ai_output["scores"])
+
+    async def test_model_supplied_identification_never_overrides_the_service_built_one(self):
+        """The AI never authors its own identification block - the service
+        builds it from data it already has (essay_id, versions). A raw
+        payload that happens to carry its own conflicting 'identification'
+        key (forged essay_id/model_version/etc.) must never win the merge -
+        the persisted ai_output must always carry the real, service-built
+        values."""
+        import json
+
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "14", correction_mode="FORMATIVO")
+            payload = json.loads(
+                _happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text)
+            )
+            payload["identification"] = {
+                "essay_id": str(uuid.uuid4()), "essay_version_id": str(uuid.uuid4()),
+                "rubric_version": "forged", "model_version": "forged-model",
+                "prompt_version": "forged", "engine_version": "forged",
+                "contract_version": "essay_engine_output_v1", "anchor_mode": "TEXT_OFFSET",
+            }
+            provider = _StubTextProvider(text=json.dumps(payload))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(
+                correction.ai_output["identification"]["essay_id"], str(submission.essay_id)
+            )
+            self.assertEqual(
+                correction.ai_output["identification"]["model_version"], "gpt-test"
+            )
+
+    async def test_image_region_page_missing_dimensions_becomes_needs_review_not_crash(self):
+        """Legacy data: an IMAGE_REGION submission whose page predates Task 3
+        (R2's documented, pre-existing gap) has permanently-NULL width/height.
+        This must land as an ordinary NEEDS_REVIEW row - never raise out of
+        correct() and crash the caller (Task 8's confirm-submission route)."""
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "15", anchor_mode="IMAGE_REGION", correction_mode="FORMATIVO",
+            )
+            session.add(EssaySubmissionPage(
+                id=uuid.uuid4(), essay_submission_id=submission.id, page_number=1,
+                storage_uri="/tmp/r3_fake_page_legacy.png", width=None, height=None,
+            ))
+            await session.commit()
+
+            provider = _StubImageProvider(text=_happy_payload(anchor_mode="IMAGE_REGION"))
+            service = EssayCorrectionService(session, image_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.ai_output)
+            self.assertIn("ValueError", correction.failure_reason)
 
 
 if __name__ == "__main__":
