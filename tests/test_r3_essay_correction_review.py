@@ -218,6 +218,60 @@ class EssayCorrectionReviewTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(log.metadata_["final_scores"]["after"]["total"], 1000)
             self.assertEqual(log.metadata_["final_scores"]["before"]["total"], 600)
 
+    async def test_approve_with_feedback_edit_overwrites_final_feedback(self):
+        async with self.session_factory() as session:
+            correction_id, _school_id = await self._pending_correction(session, "13")
+            service = EssayCorrectionService(session)
+            new_feedback = {
+                "strengths": ["Boa argumentacao"],
+                "improvements": ["Revisar coesao"],
+                "next_essay_strategy": "Praticar conectivos.",
+            }
+            approved = await service.approve(
+                correction_id, reviewed_by_external_identity="teacher:maria",
+                final_feedback=new_feedback,
+            )
+            self.assertEqual(approved.final_feedback, new_feedback)
+
+    async def test_approve_rejects_an_invalid_feedback_edit(self):
+        async with self.session_factory() as session:
+            correction_id, _school_id = await self._pending_correction(session, "14")
+            service = EssayCorrectionService(session)
+            with self.assertRaises(ValueError):
+                await service.approve(
+                    correction_id, reviewed_by_external_identity="teacher:maria",
+                    final_feedback={"strengths": [], "improvements": []},
+                )
+
+    async def test_approve_with_feedback_edit_records_before_after_in_the_audit_log(self):
+        async with self.session_factory() as session:
+            correction_id, _school_id = await self._pending_correction(session, "15")
+            service = EssayCorrectionService(session)
+            new_feedback = {
+                "strengths": ["Boa argumentacao"],
+                "improvements": ["Revisar coesao"],
+                "next_essay_strategy": "Praticar conectivos.",
+            }
+            await service.approve(
+                correction_id, reviewed_by_external_identity="teacher:maria",
+                final_feedback=new_feedback,
+            )
+
+            log = await session.scalar(
+                select(AdminAuditLog).where(
+                    AdminAuditLog.entity_type == "ESSAY_CORRECTION",
+                    AdminAuditLog.entity_id == str(correction_id),
+                )
+            )
+            self.assertIn("final_feedback", log.metadata_)
+            self.assertEqual(
+                log.metadata_["final_feedback"]["after"]["next_essay_strategy"],
+                "Praticar conectivos.",
+            )
+            self.assertEqual(
+                log.metadata_["final_feedback"]["before"]["next_essay_strategy"], "...",
+            )
+
     async def test_reject_writes_an_audit_log_entry(self):
         async with self.session_factory() as session:
             correction_id, school_id = await self._pending_correction(session, "10")
