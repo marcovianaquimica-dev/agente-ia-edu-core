@@ -389,12 +389,29 @@ class InitialDiagnosticService:
                 DiagnosticQuestionSelection.answered_at.isnot(None),
             )
         )).scalars().all())
-        nodes = {item.content_node_id: await self.session.get(CatalogNode, item.content_node_id) for item in selections}
+        content_node_ids = {item.content_node_id for item in selections}
+        nodes: dict[uuid.UUID, CatalogNode] = {}
+        if content_node_ids:
+            nodes = {
+                node.id: node
+                for node in (await self.session.execute(
+                    select(CatalogNode).where(CatalogNode.id.in_(content_node_ids))
+                )).scalars().all()
+            }
+        root_ids = {node.root_id for node in nodes.values() if node.root_id}
+        roots_by_id: dict[uuid.UUID, CatalogNode] = {}
+        if root_ids:
+            roots_by_id = {
+                root.id: root
+                for root in (await self.session.execute(
+                    select(CatalogNode).where(CatalogNode.id.in_(root_ids))
+                )).scalars().all()
+            }
         states: dict[str, list[Any]] = {}
         for node_id, node in nodes.items():
             if not node:
                 continue
-            root = await self.session.get(CatalogNode, node.root_id)
+            root = roots_by_id.get(node.root_id) if node.root_id else None
             evidence = [PedagogicalEvidence(bool(item.is_correct), item.difficulty_level) for item in selections if item.content_node_id == node_id]
             states.setdefault(root.name if root else "General", []).append(self.coverage_policy.assess(evidence, self.proficiency_estimator))
         roots = list((await self.session.execute(
@@ -457,6 +474,20 @@ class InitialDiagnosticService:
         mastery_map = []
         probable_gaps = []
 
+        # Batch-fetch every candidate prerequisite (parent) node up front so the
+        # loop below never issues a session.get() per low-mastery content node -
+        # the same per-item-in-a-loop pattern already fixed for
+        # contains_catalog_node()/pedagogical_universe.py in this audit.
+        parent_ids = {stat["node"].parent_id for stat in node_stats.values() if stat["node"] and stat["node"].parent_id}
+        parents_by_id: dict[uuid.UUID, CatalogNode] = {}
+        if parent_ids:
+            parents_by_id = {
+                parent.id: parent
+                for parent in (await self.session.execute(
+                    select(CatalogNode).where(CatalogNode.id.in_(parent_ids))
+                )).scalars().all()
+            }
+
         for n_id, stat in node_stats.items():
             node = stat["node"]
             asked = stat["asked"]
@@ -471,7 +502,7 @@ class InitialDiagnosticService:
 
             if score < 50.0:
                 level = DifficultyLevel.EASY.value
-                prerequisite = await self.session.get(CatalogNode, node.parent_id) if node and node.parent_id else None
+                prerequisite = parents_by_id.get(node.parent_id) if node and node.parent_id else None
                 probable_gaps.append({
                     "content_node_id": str(n_id),
                     "content_name": node.name if node else "Conteúdo",
@@ -591,7 +622,8 @@ class InitialDiagnosticService:
         universe_id = uuid.UUID(universe_snapshot["id"]) if universe_snapshot else None
         if universe_snapshot:
             universe_service = PedagogicalUniverseService(self.session)
-            nodes = [node for node in nodes if await universe_service.contains_catalog_node(universe_id, node.id)]
+            allowed_node_ids = await universe_service.contains_catalog_nodes(universe_id, nodes)
+            nodes = [node for node in nodes if node.id in allowed_node_ids]
             if not nodes:
                 return None
 

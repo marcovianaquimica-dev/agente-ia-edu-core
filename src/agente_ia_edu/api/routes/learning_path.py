@@ -48,7 +48,7 @@ from ...repositories.learning_path import (
     StudentContentMasteryRepository,
     LearningHistoryRepository,
 )
-from ...services.answer_key import resolve_official_correct_option_id
+from ...services.answer_key import resolve_official_answer_key_snapshots
 from ...services.learning_path import (
     PracticeSessionService,
     ContentMasteryService,
@@ -498,6 +498,27 @@ async def complete_practice_session(
         selection_repo = PracticeQuestionSelectionRepository(session)
         selections = await selection_repo.list_by_session(session_id)
 
+        # perf: resolve every pending selection's official answer key in ONE
+        # batched query instead of one query per selection (was: one
+        # answer_key_entries/booklet_questions round trip per answered
+        # question in the session - measured 1:1 with the number of
+        # answered questions against real Postgres). Same source of truth
+        # (`answer_key.py`) and identical selection rule (latest official
+        # revision) as `resolve_official_correct_option_id`, and the same
+        # pattern already used by `PracticeSessionService.complete_session`.
+        pending_version_ids = [
+            selection.question_version_id
+            for selection in selections
+            if selection.answered_at is not None
+            and selection.is_correct is None
+            and selection.selected_option_id is not None
+        ]
+        answer_key_snapshots: dict = {}
+        if pending_version_ids:
+            answer_key_snapshots = await resolve_official_answer_key_snapshots(
+                session, pending_version_ids
+            )
+
         # Correct each answered, objective question using the official answer key.
         for selection in selections:
             if selection.answered_at is None or selection.is_correct is not None:
@@ -506,12 +527,11 @@ async def complete_practice_session(
                 # Discursive or unanswered-objective: nothing to auto-correct.
                 continue
 
-            correct_option_id = await resolve_official_correct_option_id(
-                session, selection.question_version_id
-            )
-            if correct_option_id is None:
+            snapshot = answer_key_snapshots.get(selection.question_version_id)
+            if snapshot is None:
                 # No official answer key available yet: leave uncorrected (None).
                 continue
+            _revision_id, correct_option_id = snapshot
 
             is_correct = selection.selected_option_id == correct_option_id
             selection.is_correct = is_correct

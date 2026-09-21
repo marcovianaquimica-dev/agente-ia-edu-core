@@ -165,5 +165,44 @@ class ReceptionService:
             ).order_by(InitialDiagnostic.created_at.desc()).limit(1)
         )
 
+    async def latest_diagnostics_for_candidates(
+        self, candidates: list[ReceptionCandidate]
+    ) -> dict[UUID, InitialDiagnostic]:
+        """Batched `latest_diagnostic()` for a whole page of candidates.
+
+        One query for the entire list instead of one per candidate (the
+        pattern `_candidate_response` used to run in a loop for every
+        `GET /candidates` request). Matches `latest_diagnostic()` exactly:
+        per candidate, the most recent InitialDiagnostic sharing the same
+        (student_id, school_id, academic_year) - picked in Python after a
+        single `student_id IN (...)` fetch ordered so the first row seen per
+        key is the latest one.
+        """
+        keyed = {
+            (c.external_student_id, c.school_id, c.academic_year): c.id
+            for c in candidates
+            if c.external_student_id
+        }
+        if not keyed:
+            return {}
+        student_ids = {student_id for student_id, _, _ in keyed}
+        rows = (await self.session.execute(
+            select(InitialDiagnostic)
+            .where(InitialDiagnostic.student_id.in_(student_ids))
+            .order_by(InitialDiagnostic.created_at.desc())
+        )).scalars().all()
+
+        latest_by_key: dict[tuple, InitialDiagnostic] = {}
+        for diagnostic in rows:
+            key = (diagnostic.student_id, diagnostic.school_id, diagnostic.academic_year)
+            if key not in latest_by_key:
+                latest_by_key[key] = diagnostic
+
+        return {
+            candidate_id: latest_by_key[key]
+            for key, candidate_id in keyed.items()
+            if key in latest_by_key
+        }
+
 
 __all__ = ["ReceptionService"]

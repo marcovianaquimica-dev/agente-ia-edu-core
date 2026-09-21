@@ -18,7 +18,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -211,14 +211,24 @@ class VideoDiscoveryService:
 
         persisted_candidates: list[ExternalVideoCandidate] = []
 
-        for (source, ext_id), raw in dedup_map.items():
-            # Check DB for existing candidate
+        # Batch the existing-candidate lookup: one query for every
+        # (source, external_id) pair in this batch instead of one SELECT per
+        # pair inside the loop below (was N+1 - proportional query growth
+        # measured against real Postgres: 3 candidates -> 9 queries, 30
+        # candidates -> 90 queries).
+        existing_by_key: dict[tuple[str, str], ExternalVideoCandidate] = {}
+        if dedup_map:
             stmt_existing = select(ExternalVideoCandidate).where(
-                ExternalVideoCandidate.source == source,
-                ExternalVideoCandidate.external_id == ext_id,
+                tuple_(ExternalVideoCandidate.source, ExternalVideoCandidate.external_id).in_(
+                    list(dedup_map.keys())
+                )
             )
             res_existing = await self.session.execute(stmt_existing)
-            existing = res_existing.scalar_one_or_none()
+            for row in res_existing.scalars().all():
+                existing_by_key[(row.source, row.external_id)] = row
+
+        for (source, ext_id), raw in dedup_map.items():
+            existing = existing_by_key.get((source, ext_id))
 
             if existing:
                 persisted_candidates.append(existing)
@@ -269,9 +279,26 @@ class VideoDiscoveryService:
             self.session.add(candidate_record)
             persisted_candidates.append(candidate_record)
 
+        # Capture ids BEFORE commit: commit() expires every object in the
+        # session (the app's real session has expire_on_commit=True), and a
+        # client-side default like ``id`` (default=uuid.uuid4) is already
+        # populated in memory once flushed, so reading it here needs no
+        # round trip - reading it after commit would.
+        await self.session.flush()
+        all_ids = [c.id for c in persisted_candidates]
         await self.session.commit()
-        for cand in persisted_candidates:
-            await self.session.refresh(cand)
+
+        # Reload every persisted candidate (existing + newly created) in one
+        # batched query instead of one ``session.refresh()`` per candidate -
+        # that was also N+1: refresh() issues its own SELECT per object, and
+        # every object needs reloading because commit() just expired them.
+        if all_ids:
+            stmt_reload = select(ExternalVideoCandidate).where(
+                ExternalVideoCandidate.id.in_(all_ids)
+            )
+            res_reload = await self.session.execute(stmt_reload)
+            reloaded_by_id = {c.id: c for c in res_reload.scalars().all()}
+            persisted_candidates = [reloaded_by_id[i] for i in all_ids]
 
         # Deterministic sort by (source, external_id)
         persisted_candidates.sort(key=lambda c: (c.source, c.external_id))

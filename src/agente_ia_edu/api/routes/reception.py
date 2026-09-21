@@ -94,9 +94,16 @@ async def _require_reception_access(
 
 
 async def _candidate_response(
-    session, service: ReceptionService, candidate, *, include_result: bool = False
+    session,
+    service: ReceptionService,
+    candidate,
+    *,
+    include_result: bool = False,
+    diagnostic=None,
+    _diagnostic_preloaded: bool = False,
 ) -> ReceptionCandidateResponse:
-    diagnostic = await service.latest_diagnostic(candidate)
+    if not _diagnostic_preloaded:
+        diagnostic = await service.latest_diagnostic(candidate)
     status = candidate.status
     result = None
     if diagnostic:
@@ -157,7 +164,17 @@ async def list_reception_candidates(
             scope_type=context.scope_type if context.role == "SECRETARY" else None,
             scope_external_id=context.scope_external_id if context.role == "SECRETARY" else None,
         )
-        return [await _candidate_response(session, service, item) for item in candidates]
+        diagnostics_by_candidate = await service.latest_diagnostics_for_candidates(candidates)
+        return [
+            await _candidate_response(
+                session,
+                service,
+                item,
+                diagnostic=diagnostics_by_candidate.get(item.id),
+                _diagnostic_preloaded=True,
+            )
+            for item in candidates
+        ]
 
 
 @reception_router.post("/candidates", status_code=201, response_model=ReceptionCandidateResponse)
