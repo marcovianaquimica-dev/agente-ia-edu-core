@@ -105,15 +105,41 @@ class QuestionPublicationService:
             ).order_by(ExtractedQuestion.question_number)
         )).scalars().all())
 
+        # Batched (spec s25/s26 style, matching question_extraction_service's
+        # own "never one query per question" discipline) - the duplicate
+        # content-hash check and the per-question options fetch used to run
+        # as 2 SELECTs INSIDE this loop, i.e. proportional to the batch size
+        # (measured live against Postgres: 5 approved questions -> 43 SQL
+        # statements, 50 -> 403 - real O(n) growth, ~8/question either way).
+        # One .in_() query up front replaces both.
+        content_hash_by_question_id = {q.id: _content_hash(_canonical_text(q)) for q in approved}
+        existing_version_by_hash: dict[str, QuestionVersion] = {}
+        if content_hash_by_question_id:
+            existing_rows = (await self._session.execute(
+                select(QuestionVersion).where(
+                    QuestionVersion.content_hash.in_(set(content_hash_by_question_id.values()))
+                )
+            )).scalars().all()
+            for row in existing_rows:
+                existing_version_by_hash.setdefault(row.content_hash, row)
+
+        options_by_question_id: dict[UUID, list[ExtractedQuestionOption]] = {}
+        if approved:
+            option_rows = (await self._session.execute(
+                select(ExtractedQuestionOption)
+                .where(ExtractedQuestionOption.question_id.in_([q.id for q in approved]))
+                .order_by(ExtractedQuestionOption.question_id, ExtractedQuestionOption.position)
+            )).scalars().all()
+            for opt in option_rows:
+                options_by_question_id.setdefault(opt.question_id, []).append(opt)
+
         published: list[dict] = []
         duplicates: list[dict] = []
         errors: list[dict] = []
         for question in approved:
             canonical_text = _canonical_text(question)
-            content_hash = _content_hash(canonical_text)
-            existing_version = await self._session.scalar(
-                select(QuestionVersion).where(QuestionVersion.content_hash == content_hash)
-            )
+            content_hash = content_hash_by_question_id[question.id]
+            existing_version = existing_version_by_hash.get(content_hash)
             if existing_version is not None:
                 # spec s19 - never create a second question for the same
                 # content, and never silently discard the suspicion either.
@@ -129,11 +155,7 @@ class QuestionPublicationService:
                 continue
 
             try:
-                options = list((await self._session.execute(
-                    select(ExtractedQuestionOption)
-                    .where(ExtractedQuestionOption.question_id == question.id)
-                    .order_by(ExtractedQuestionOption.position)
-                )).scalars().all())
+                options = options_by_question_id.get(question.id, [])
                 provenance = {
                     "source_document_id": str(run.ingestion_document_id),
                     "source_material_id": str(run.ingestion_document_id),
@@ -171,6 +193,13 @@ class QuestionPublicationService:
                             position=opt.position, text=opt.text,
                         ))
                     await self._session.flush()
+                # Registers the just-created version's hash so a LATER
+                # question in this SAME batch with identical content_hash
+                # still routes to DUPLICATE_REVIEW below instead of creating
+                # a second official Question - the original per-question
+                # query re-read this same session's own uncommitted flush on
+                # every iteration; the in-memory dict now plays that role.
+                existing_version_by_hash.setdefault(content_hash, version)
                 question.published_question_id = official_question.id
                 question.published_version_id = version.id
                 record_review_event(

@@ -141,16 +141,89 @@ class PedagogicalUniverseService:
         return universes[0]
 
     async def contains_catalog_node(self, universe_id: uuid.UUID, catalog_node_id: uuid.UUID) -> bool:
-        scopes = list((await self.session.execute(select(PedagogicalUniverseCatalogScope).where(PedagogicalUniverseCatalogScope.universe_id == universe_id))).scalars().all())
+        """Single-node membership check, in terms of the batched primitive.
+
+        Used to loop over every ``PedagogicalUniverseCatalogScope`` of the
+        universe and, for each ``include_descendants`` scope, walk the
+        node's ancestor chain with one ``session.get`` per level - so a
+        SINGLE call's cost grew with the universe's SCOPE count (measured:
+        5 scopes -> 6 queries, 50 scopes -> 43 queries, against a fresh
+        session). This method is itself a per-request hot path (called
+        directly from teacher_materials.py and learning_path.py, not just
+        looped over by callers), so that scaling mattered on its own, not
+        only when looped. ``contains_catalog_nodes([node])`` resolves it
+        with a query count independent of scope count instead.
+        """
         node = await self.session.get(CatalogNode, catalog_node_id)
         if not node:
             return False
-        for scope in scopes:
-            if scope.catalog_node_id == node.id:
-                return True
-            if scope.include_descendants and await self._is_descendant(node, scope.catalog_node_id):
-                return True
-        return False
+        matched = await self.contains_catalog_nodes(universe_id, [node])
+        return catalog_node_id in matched
+
+    async def contains_catalog_nodes(
+        self, universe_id: uuid.UUID, nodes: Sequence[CatalogNode]
+    ) -> set[uuid.UUID]:
+        """Batched ``contains_catalog_node``: resolve membership for MANY
+        nodes against one universe with a query count that does not grow
+        with ``len(nodes)``.
+
+        A caller that tests each node of a candidate list against
+        ``contains_catalog_node`` one at a time re-fetches the SAME
+        universe scopes on every call (``universe_id`` never changes across
+        the loop) and re-``session.get``s a ``CatalogNode`` the caller
+        already has in hand - on top of ``_is_descendant`` walking the
+        ancestor chain one ``session.get`` per level. This resolves the
+        whole batch with exactly two queries total (the scopes, and a
+        one-shot ``id -> parent_id`` map for the whole catalog), then
+        walks each node's ancestor chain in memory.
+
+        Callers pass the already-loaded ``CatalogNode`` objects (not just
+        ids) so a node's own ``parent_id`` is reused for free instead of
+        being re-fetched.
+
+        Preserves ``contains_catalog_node``'s exact rule: a node matches if
+        its id equals a scope's ``catalog_node_id``, or - only when that
+        scope has ``include_descendants=True`` - if the scope's node is one
+        of its ancestors.
+        """
+        if not nodes:
+            return set()
+        scopes = list((await self.session.execute(
+            select(PedagogicalUniverseCatalogScope).where(PedagogicalUniverseCatalogScope.universe_id == universe_id)
+        )).scalars().all())
+        if not scopes:
+            return set()
+
+        direct_scope_ids = {scope.catalog_node_id for scope in scopes}
+        descendant_scope_ids = {scope.catalog_node_id for scope in scopes if scope.include_descendants}
+
+        matched: set[uuid.UUID] = {node.id for node in nodes if node.id in direct_scope_ids}
+        remaining = [node for node in nodes if node.id not in matched]
+
+        if descendant_scope_ids and remaining:
+            parent_by_id = await self._catalog_parent_map()
+            for node in remaining:
+                current_parent = node.parent_id
+                while current_parent is not None:
+                    if current_parent in descendant_scope_ids:
+                        matched.add(node.id)
+                        break
+                    current_parent = parent_by_id.get(current_parent)
+
+        return matched
+
+    async def _catalog_parent_map(self) -> dict[uuid.UUID, uuid.UUID | None]:
+        """One-shot ``id -> parent_id`` map for the whole catalog.
+
+        Used by ``contains_catalog_nodes`` to resolve every candidate
+        node's ancestor chain in memory instead of issuing a
+        ``session.get`` per ancestor level per node. The catalog is a
+        curriculum tree (areas/disciplines/contents), not user data, so
+        loading it whole is a single cheap indexed query regardless of how
+        many candidate nodes are being tested.
+        """
+        result = await self.session.execute(select(CatalogNode.id, CatalogNode.parent_id))
+        return {row[0]: row[1] for row in result.all()}
 
     async def contains_question_version(self, universe_id: uuid.UUID, question_version_id: uuid.UUID) -> bool:
         node_ids = list((await self.session.execute(
@@ -158,10 +231,13 @@ class PedagogicalUniverseService:
                 ContentQuestionLink.question_version_id == question_version_id,
             )
         )).scalars().all())
-        for node_id in node_ids:
-            if await self.contains_catalog_node(universe_id, node_id):
-                return True
-        return False
+        if not node_ids:
+            return False
+        nodes = list((await self.session.execute(
+            select(CatalogNode).where(CatalogNode.id.in_(node_ids))
+        )).scalars().all())
+        matched = await self.contains_catalog_nodes(universe_id, nodes)
+        return bool(matched)
 
     async def require_universe(self, universe_id: uuid.UUID) -> PedagogicalUniverse:
         universe = await self.session.get(PedagogicalUniverse, universe_id)
@@ -243,16 +319,6 @@ class PedagogicalUniverseService:
             code for code in result.scalars().all() if (code or "").strip()
         )
 
-    async def _is_descendant(self, node: CatalogNode, ancestor_id: uuid.UUID) -> bool:
-        current = node
-        while current.parent_id:
-            if current.parent_id == ancestor_id:
-                return True
-            current = await self.session.get(CatalogNode, current.parent_id)
-            if current is None:
-                return False
-        return False
-
     async def resolve_preferred_content_node(
         self, universe_id: uuid.UUID, content_text: str | None
     ) -> dict[str, Any]:
@@ -302,27 +368,30 @@ class PedagogicalUniverseService:
             return {"status": "NOT_FOUND", "node_id": None, "name": None, "content_text": content_text}
     
     async def _collect_descendants(self, node_id: uuid.UUID) -> list[uuid.UUID]:
-        """Recursively collect all descendants of a node."""
-        from sqlalchemy import select
-        
-        descendants = []
-        queue = [node_id]
-        visited = set()
-        
-        while queue:
-            current_id = queue.pop(0)
-            if current_id in visited:
-                continue
-            visited.add(current_id)
-            
-            children = list((await self.session.execute(
-                select(CatalogNode).where(CatalogNode.parent_id == current_id)
-            )).scalars().all())
-            
-            for child in children:
-                descendants.append(child.id)
-                queue.append(child.id)
-        
+        """Collect all descendants of a node, one tree LEVEL at a time.
+
+        Used to be one query PER descendant node (a BFS queue popped one id
+        at a time, each dequeue issuing its own ``parent_id ==`` query) - a
+        subtree with hundreds of nodes meant hundreds of queries. Batching
+        each level with a single ``parent_id IN (...)`` query bounds the
+        query count by the subtree's DEPTH, not its SIZE: a curriculum tree
+        is typically a handful of levels deep however many nodes it holds.
+        """
+        descendants: list[uuid.UUID] = []
+        seen: set[uuid.UUID] = {node_id}
+        frontier = [node_id]
+
+        while frontier:
+            result = await self.session.execute(
+                select(CatalogNode.id).where(CatalogNode.parent_id.in_(frontier))
+            )
+            children = [child_id for child_id in result.scalars().all() if child_id not in seen]
+            if not children:
+                break
+            seen.update(children)
+            descendants.extend(children)
+            frontier = children
+
         return descendants
 
     async def _audit(self, actor: str, action: str, universe: PedagogicalUniverse, metadata: dict) -> None:

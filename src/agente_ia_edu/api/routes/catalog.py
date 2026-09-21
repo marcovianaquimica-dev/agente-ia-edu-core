@@ -440,7 +440,8 @@ async def list_catalog_children(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         nodes = list((await session.scalars(stmt.order_by(CatalogNode.position, CatalogNode.name).limit(limit))).all())
         universe_service = PedagogicalUniverseService(session)
-        nodes = [node for node in nodes if await universe_service.contains_catalog_node(universe.id, node.id)]
+        allowed_node_ids = await universe_service.contains_catalog_nodes(universe.id, nodes)
+        nodes = [node for node in nodes if node.id in allowed_node_ids]
         return [_node_to_response(node) for node in nodes]
 
 

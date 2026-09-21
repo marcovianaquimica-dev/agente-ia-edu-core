@@ -184,12 +184,24 @@ class AuthorialQuestionClassificationService:
     ) -> ClassificationOutcome:
         cached = await self._get_active_this_classifier(question_version_id)
         if cached is not None:
-            return ClassificationOutcome(
-                classification=cached, status=cached.status,
-                review_reason=(cached.metadata_ or {}).get("review_reason"),
-                ai_calls=0, cache_hit=True,
-            )
+            return self._cache_hit_outcome(cached)
+        return await self._classify_uncached(question_version_id, provider, actor=actor)
 
+    @staticmethod
+    def _cache_hit_outcome(cached: PedagogicalClassification) -> ClassificationOutcome:
+        return ClassificationOutcome(
+            classification=cached, status=cached.status,
+            review_reason=(cached.metadata_ or {}).get("review_reason"),
+            ai_calls=0, cache_hit=True,
+        )
+
+    async def _classify_uncached(
+        self, question_version_id: UUID, provider: TextGenerationProvider, *, actor: str,
+    ) -> ClassificationOutcome:
+        """The AI-calling path of `classify_question_version`, factored out so
+        `batch_classify` can skip straight here for ids its own bulk cache
+        check (`_get_active_this_classifier_bulk`) already proved are NOT
+        cached, instead of re-running the single-item cache-check query."""
         try:
             record = await self.proposal_service.propose_with_provider(
                 question_version_id, provider, classifier_version=CLASSIFIER_VERSION,
@@ -227,6 +239,31 @@ class AuthorialQuestionClassificationService:
                 PedagogicalClassification.metadata_["taxonomy_version"].as_string() == TAXONOMY_VERSION,
             ).order_by(PedagogicalClassification.created_at.desc())
         )
+
+    async def _get_active_this_classifier_bulk(
+        self, question_version_ids: list[UUID],
+    ) -> dict[UUID, PedagogicalClassification]:
+        """Same filter as `_get_active_this_classifier`, batched: ONE query for
+        an entire `batch_classify` call instead of one SELECT per question
+        version id (real N+1 - a re-run of scripts/classify_remaining_questions.py
+        over an already-classified corpus used to cost one cache-check SELECT
+        per question just to discover it was a cache hit). `order_by(created_at
+        .desc())` + first-wins-via-setdefault preserves the exact same
+        "freshest ACTIVE row" tie-break the single-item query used."""
+        if not question_version_ids:
+            return {}
+        rows = list((await self.session.scalars(
+            select(PedagogicalClassification).where(
+                PedagogicalClassification.question_version_id.in_(question_version_ids),
+                PedagogicalClassification.model_version == CLASSIFIER_VERSION,
+                PedagogicalClassification.lifecycle == "ACTIVE",
+                PedagogicalClassification.metadata_["taxonomy_version"].as_string() == TAXONOMY_VERSION,
+            ).order_by(PedagogicalClassification.created_at.desc())
+        )).all())
+        cache: dict[UUID, PedagogicalClassification] = {}
+        for row in rows:
+            cache.setdefault(row.question_version_id, row)
+        return cache
 
     async def _persist_failure(
         self, question_version_id: UUID, *, reason: str, detail: str, actor: str,
@@ -312,9 +349,14 @@ class AuthorialQuestionClassificationService:
     ) -> BatchClassificationResult:
         t0 = time.perf_counter()
         out = BatchClassificationResult()
+        cached_by_id = await self._get_active_this_classifier_bulk(question_version_ids)
         for qvid in question_version_ids:
             out.questions_processed += 1
-            outcome = await self.classify_question_version(qvid, provider, actor=actor)
+            cached = cached_by_id.get(qvid)
+            outcome = (
+                self._cache_hit_outcome(cached) if cached is not None
+                else await self._classify_uncached(qvid, provider, actor=actor)
+            )
             out.ai_calls += outcome.ai_calls
             if outcome.cache_hit:
                 out.cache_hits += 1

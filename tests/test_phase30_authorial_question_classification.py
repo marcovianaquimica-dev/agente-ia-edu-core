@@ -379,6 +379,41 @@ class Phase30ClassificationTests(unittest.IsolatedAsyncioTestCase):
         # queries, never anywhere near 25x (quadratic).
         self.assertLess(counts[10], counts[2] * 8, f"query counts: {counts}")
 
+    # -- N+1 audit (2026-09): a batch re-run over already-classified
+    #    questions (exactly what scripts/classify_remaining_questions.py
+    #    does on every restart - "already-classified questions are skipped
+    #    automatically by the service's own cache check ... safe to re-run")
+    #    used to cost one SELECT per question just to discover it was a
+    #    cache hit, instead of one SELECT for the whole batch.
+    async def test_batch_classify_cache_hits_use_one_query_not_one_per_question(self):
+        counts = {}
+        for n in (2, 10):
+            async with self.factory() as s:
+                vids = [await self._make_question_version(_DILUTION_STATEMENT) for _ in range(n)]
+                svc = AuthorialQuestionClassificationService(s)
+                # pre-classify every question so the instrumented batch run
+                # below is a pure cache-hit re-run.
+                seed_provider = ScriptedProvider([dict(_DILUTION_RESPONSE) for _ in range(n)])
+                for vid in vids:
+                    await svc.classify_question_version(vid, seed_provider, actor="prof_a")
+
+                q = {"c": 0}
+
+                @event.listens_for(self.engine.sync_engine, "before_cursor_execute")
+                def _c(*_a):  # noqa: ANN001
+                    q["c"] += 1
+                try:
+                    result = await svc.batch_classify(vids, ScriptedProvider([]), actor="prof_a")
+                finally:
+                    event.remove(self.engine.sync_engine, "before_cursor_execute", _c)
+                self.assertEqual(result.cache_hits, n)
+                self.assertEqual(result.ai_calls, 0)  # never re-calls the AI for a cache hit
+                counts[n] = q["c"]
+        # a real N+1 re-issues the cache-check SELECT once per question (10
+        # would cost ~5x the queries of 2); a batched cache check costs the
+        # SAME single query regardless of how many questions are in the batch.
+        self.assertEqual(counts[10], counts[2], f"query counts: {counts}")
+
     # -- 19/20/21. tenant isolation + professor/coordinator scope ------------
     async def test_tenant_isolation_review_queue(self):
         async with self.factory() as s:

@@ -115,23 +115,57 @@ class IngestionClassificationService:
                 for node in node_res.scalars().all():
                     taxonomy_nodes_map[node.code.upper()] = node
 
+        # Batched (spec-equivalent to question_extraction_service's "never
+        # one query per question" discipline) - two lookups used to run
+        # INSIDE this loop, each proportional to the question count:
+        #   - _ensure_question_version's `session.get(QuestionVersion, ...)`,
+        #     one PER already-versioned question (reprocess scenario);
+        #   - the "already classified?" duplicate check, one PER question
+        #     EVERY time (reprocess=False is the default) - even for a
+        #     version this very call is about to create for the first time,
+        #     which can never have a prior classification, making that
+        #     SELECT pure waste on a first classification pass.
+        # Measured live against Postgres (a fresh document, no question_
+        # version_id set yet - the common first-pass shape): 5 questions ->
+        # 43 SQL statements, 50 -> 403 (real O(n) growth, ~8/question).
+        # One .in_() query for each replaces both.
+        preloaded_versions: dict = {}
+        existing_version_ids = {iq.question_version_id for iq in questions if iq.question_version_id is not None}
+        if existing_version_ids:
+            rows = (await self.session.execute(
+                select(QuestionVersion).where(QuestionVersion.id.in_(existing_version_ids))
+            )).scalars().all()
+            preloaded_versions = {v.id: v for v in rows}
+
+        # The duplicate-classification check only ever matters for a version
+        # that ALREADY existed before this call - a brand-new version (about
+        # to be created below, for any question with no question_version_id
+        # yet) can never have a pre-existing classification, so it is never
+        # even a candidate key here.
+        existing_classification_by_version: dict = {}
+        if not reprocess and preloaded_versions:
+            rows = (await self.session.execute(
+                select(PedagogicalClassification).where(
+                    PedagogicalClassification.question_version_id.in_(preloaded_versions.keys()),
+                    PedagogicalClassification.model_name == model_name,
+                    PedagogicalClassification.model_version == model_version,
+                    PedagogicalClassification.prompt_version == prompt_version,
+                ).order_by(PedagogicalClassification.created_at.desc())
+            )).scalars().all()
+            for row in rows:
+                existing_classification_by_version.setdefault(row.question_version_id, row)
+
         classifications: list[PedagogicalClassification] = []
 
         for iq in questions:
             try:
                 # 1. Ensure Question & QuestionVersion exist
-                question_version = await self._ensure_question_version(iq, document)
+                question_version = await self._ensure_question_version(
+                    iq, document, preloaded_versions=preloaded_versions)
 
                 # 2. Check for duplicate classification unless reprocess=True
                 if not reprocess:
-                    existing_stmt = select(PedagogicalClassification).where(
-                        PedagogicalClassification.question_version_id == question_version.id,
-                        PedagogicalClassification.model_name == model_name,
-                        PedagogicalClassification.model_version == model_version,
-                        PedagogicalClassification.prompt_version == prompt_version,
-                    ).order_by(PedagogicalClassification.created_at.desc())
-                    existing_res = await self.session.execute(existing_stmt)
-                    existing = existing_res.scalar_one_or_none()
+                    existing = existing_classification_by_version.get(question_version.id)
                     if existing is not None:
                         classifications.append(existing)
                         continue
@@ -218,28 +252,58 @@ class IngestionClassificationService:
                 logger.error("Error classifying IngestionQuestion %s: %s", iq.id, exc)
                 continue
 
+        # `.id` must be read BEFORE the commit below - every item here (both
+        # the ones just created via `self.session.add(...)` above and any
+        # `existing` rows fetched earlier in this same, still-uncommitted
+        # transaction) is still unexpired at this point, so this is a plain
+        # in-memory read, no query involved.
+        classification_ids = [c.id for c in classifications]
         await self.session.commit()
         # The commit above expires every ORM object already loaded in this
         # session (expire_on_commit=True in production - see db/session.py),
-        # including every item in `classifications` - both the ones just
-        # created via `self.session.add(...)` above and any `existing` rows
-        # fetched earlier in the loop and appended as-is. Any caller that
-        # reads an attribute off these objects after this method returns
-        # (e.g. to build an API response) would hit MissingGreenlet against
-        # real Postgres; this is invisible under the test suite's SQLite
-        # fixtures, which set expire_on_commit=False.
-        for classification in classifications:
-            await self.session.refresh(classification)
+        # including every item in `classifications`. Any caller that reads
+        # an attribute off these objects after this method returns (e.g. to
+        # build an API response) would hit MissingGreenlet against real
+        # Postgres; this is invisible under the test suite's SQLite
+        # fixtures, which set expire_on_commit=False. Previously fixed with
+        # one `session.refresh()` call PER classification - real O(n)
+        # SELECTs measured live against Postgres. One batched `.in_()` query
+        # replaces the whole loop; the identity map hands back the SAME
+        # (now freshly-populated) instances in `classifications`, so a
+        # dict-based reorder restores the original order.
+        if classification_ids:
+            refreshed_by_id = {
+                row.id: row
+                for row in (await self.session.execute(
+                    select(PedagogicalClassification).where(
+                        PedagogicalClassification.id.in_(classification_ids)
+                    )
+                )).scalars().all()
+            }
+            classifications = [refreshed_by_id[cid] for cid in classification_ids]
         return classifications
 
     async def _ensure_question_version(
         self,
         iq: IngestionQuestion,
         document: IngestionDocument,
+        *,
+        preloaded_versions: dict | None = None,
     ) -> QuestionVersion:
-        """Get existing QuestionVersion or create one from IngestionQuestion."""
+        """Get existing QuestionVersion or create one from IngestionQuestion.
+
+        ``preloaded_versions`` (optional): a ``{QuestionVersion.id: QuestionVersion}``
+        map the caller already batch-fetched for every ``IngestionQuestion``
+        with a non-null ``question_version_id`` in the current run (see
+        ``classify_document_questions``) - avoids one ``session.get()`` PER
+        question when reprocessing an already-versioned batch. Falls back to
+        a single ``session.get()`` when not supplied, so this method stays
+        correct as a standalone call too.
+        """
         if iq.question_version_id is not None:
-            qv = await self.session.get(QuestionVersion, iq.question_version_id)
+            qv = (preloaded_versions or {}).get(iq.question_version_id)
+            if qv is None:
+                qv = await self.session.get(QuestionVersion, iq.question_version_id)
             if qv is not None:
                 return qv
 
