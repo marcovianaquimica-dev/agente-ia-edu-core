@@ -1,5 +1,7 @@
 """OpenAI implementation of the provider-neutral text-generation contract."""
 
+import base64
+import math
 import os
 import re
 
@@ -11,15 +13,22 @@ from ..errors import (
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
-from ..models import TextGenerationRequest, TextGenerationResult
+from ..models import (
+    EssayOcrToken,
+    EssayPageTranscriptionRequest,
+    EssayPageTranscriptionResult,
+    TextGenerationRequest,
+    TextGenerationResult,
+)
 
 
 class OpenAIProvider:
     provider = "openai"
 
-    def __init__(self, *, api_key: str | None = None, model: str | None = None, timeout_seconds: float | None = None, client=None):
+    def __init__(self, *, api_key: str | None = None, model: str | None = None, vision_model: str | None = None, timeout_seconds: float | None = None, client=None):
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._model = model or os.getenv("OPENAI_MODEL")
+        self._vision_model = vision_model or os.getenv("OPENAI_VISION_MODEL")
         self._timeout_seconds = timeout_seconds or float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
         self._client = client
 
@@ -48,6 +57,81 @@ class OpenAIProvider:
             raise
         except Exception as exc:
             raise self._map_error(exc) from exc
+
+    async def transcribe_page(
+        self, request: EssayPageTranscriptionRequest
+    ) -> EssayPageTranscriptionResult:
+        if not self._api_key:
+            raise ProviderConfigurationError("OpenAI is not configured")
+        if not self._vision_model:
+            raise ProviderConfigurationError("OpenAI vision model is not configured")
+        try:
+            client = self._client or self._create_client()
+            image_b64 = base64.b64encode(request.image_path.read_bytes()).decode("ascii")
+            response = await client.chat.completions.create(
+                model=self._vision_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Transcreva literalmente o texto manuscrito ou impresso na "
+                            "imagem, palavra por palavra, na ordem em que aparece. Nao "
+                            "corrija ortografia, gramatica ou concordancia - reproduza "
+                            "exatamente o que esta escrito, mesmo que contenha erros. "
+                            "Nao adicione nenhum texto que nao esteja na imagem."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{request.mime_type};base64,{image_b64}"
+                                },
+                            }
+                        ],
+                    },
+                ],
+                logprobs=True,
+                top_logprobs=1,
+                timeout=self._timeout_seconds,
+            )
+            choice = response.choices[0]
+            content = choice.message.content
+            if not content:
+                raise ProviderInvalidResponseError("OpenAI returned an empty transcription")
+            tokens = self._tokens_from_logprobs(content, choice.logprobs)
+            return EssayPageTranscriptionResult(
+                tokens=tokens, provider=self.provider, model=self._vision_model
+            )
+        except ProviderInvalidResponseError:
+            raise
+        except Exception as exc:
+            raise self._map_error(exc) from exc
+
+    def _tokens_from_logprobs(self, content: str, logprobs) -> tuple[EssayOcrToken, ...]:
+        """Approximates per-token confidence from the model's own generation
+        logprobs (confidence = exp(logprob)). This is NOT a real OCR
+        confidence score - it is a documented approximation, the best signal
+        available without a dedicated vision/OCR confidence API. When the
+        response carries no logprob data at all, every token gets full
+        confidence rather than an invented number, so a missing signal never
+        masquerades as a low-confidence flag the student has to review."""
+        if logprobs is None or not getattr(logprobs, "content", None):
+            return (EssayOcrToken(text=content, confidence=1.0, start=0, end=len(content)),)
+        tokens: list[EssayOcrToken] = []
+        cursor = 0
+        for entry in logprobs.content:
+            piece = entry.token
+            idx = content.find(piece, cursor)
+            if idx == -1:
+                continue
+            start, end = idx, idx + len(piece)
+            confidence = math.exp(entry.logprob)
+            tokens.append(EssayOcrToken(text=piece, confidence=confidence, start=start, end=end))
+            cursor = end
+        return tuple(tokens)
 
     def _create_client(self):
         from openai import AsyncOpenAI
