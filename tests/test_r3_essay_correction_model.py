@@ -169,6 +169,22 @@ class EssayCorrectionModelTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Exception):
                 await session.flush()
 
+    async def test_non_needs_review_requires_ai_output(self):
+        """PENDING_REVIEW status requires ai_output to be present and not JSON null.
+        This test verifies that the constraint rejects PENDING_REVIEW with ai_output=None."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "5")
+            correction = EssayCorrection(
+                id=uuid.uuid4(), school_id=submission.school_id,
+                essay_submission_id=submission.id, correction_key="k" * 64,
+                rubric_version="ENEM_2025", model_version="gpt-4o-mini",
+                prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                ai_output=None, status="PENDING_REVIEW",  # Constraint violation: PENDING_REVIEW must have ai_output
+            )
+            session.add(correction)
+            with self.assertRaises(Exception):
+                await session.flush()
+
 
 if __name__ == "__main__":
     unittest.main()

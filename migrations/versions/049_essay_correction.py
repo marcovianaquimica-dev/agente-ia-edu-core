@@ -61,7 +61,7 @@ def upgrade() -> None:
             name="ck_essay_corrections_failure_reason_requires_needs_review",
         ),
         sa.CheckConstraint(
-            "status = 'NEEDS_REVIEW' OR ai_output IS NOT NULL",
+            "status = 'NEEDS_REVIEW' OR (ai_output IS NOT NULL AND ai_output != 'null')",
             name="ck_essay_corrections_non_failed_has_ai_output",
         ),
         sa.CheckConstraint(
