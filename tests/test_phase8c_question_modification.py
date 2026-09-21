@@ -26,6 +26,7 @@ from agente_ia_edu.api.routes.question_modification_proposals import (
 )
 from agente_ia_edu.db.models import Assessment, AssessmentItem, AssessmentVersion, ModificationProposal, Question, QuestionVersion
 from agente_ia_edu.providers.models import TextGenerationRequest, TextGenerationResult
+from agente_ia_edu.services.question_modification import QuestionModificationAdapter
 from test_phase8a_teacher_list_builder_http import Phase8ATeacherListBuilderHTTP
 
 
@@ -99,6 +100,23 @@ class Phase8CQuestionModificationContract(Phase8ATeacherListBuilderHTTP):
         self.assertEqual(result.provider, "phase8c-fake")
         self.assertEqual(payload["difficulty"], "EASY")
         self.assertEqual(payload["correct_option"], payload["options"][0])
+
+    def test_prompt_declares_the_required_json_schema_to_the_provider(self):
+        # A real AI provider (gpt-5.6-luna, proven live against the OpenAI API)
+        # returns valid JSON that nonetheless omits "correct_option" and
+        # "modification_type" when the prompt never spells out that those keys
+        # are required. StructuredProposalFake always returns a fully-shaped
+        # payload regardless of the prompt, so it can't catch this - only the
+        # prompt text itself can be asserted on here.
+        _, item, version_id = self._list_item()
+        response = self._create_proposal(version_id, item["id"], "Deixe mais facil")
+        self.assertEqual(response.status_code, 201, response.text)
+        prompt = self.provider.last_prompt
+        for required_field in ("statement", "options", "correct_option", "difficulty", "modification_type"):
+            self.assertIn(
+                f'"{required_field}"', prompt,
+                f"Prompt never tells the provider that {required_field!r} is a required JSON field",
+            )
 
     def test_create_proposal_is_pending_and_leaves_original_and_item_intact(self):
         _, item, version_id = self._list_item()
@@ -197,6 +215,52 @@ class Phase8CQuestionModificationContract(Phase8ATeacherListBuilderHTTP):
             self.provider.mode = mode
             response = self._create_proposal(version_id, item["id"])
             self.assertEqual(response.status_code, 422, response.text)
+            # teacher.js shows this `detail` verbatim to the teacher (no
+            # translation layer on the frontend), so a raw English message
+            # here is a real user-facing bug, not just an internal log line.
+            self.assertEqual(response.json()["detail"], "A IA retornou uma proposta em formato invalido. Tente novamente.")
+
+    def test_custom_modification_without_instruction_is_rejected_in_portuguese(self):
+        _, item, version_id = self._list_item()
+        response = self.client.post(
+            f"/api/v1/teacher/questions/{version_id}/modification-proposals",
+            json={"assessment_item_id": item["id"], "modification_type": "CUSTOM", "instruction": ""},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()["detail"], "Uma modificacao personalizada exige uma instrucao.")
+
+    def test_unsupported_modification_type_is_rejected_in_portuguese(self):
+        _, item, version_id = self._list_item()
+        response = self.client.post(
+            f"/api/v1/teacher/questions/{version_id}/modification-proposals",
+            json={"assessment_item_id": item["id"], "modification_type": "DELETE_EVERYTHING", "instruction": ""},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()["detail"], "Tipo de modificacao nao suportado.")
+
+    def test_proposal_limit_reached_is_rejected_in_portuguese(self):
+        _, item, version_id = self._list_item()
+        for _ in range(QuestionModificationAdapter.max_proposals_per_question):
+            created = self._create_proposal(version_id, item["id"])
+            self.assertEqual(created.status_code, 201, created.text)
+        response = self._create_proposal(version_id, item["id"])
+        self.assertEqual(response.status_code, 429, response.text)
+        self.assertEqual(response.json()["detail"], "Limite de propostas de modificacao atingido para esta questao.")
+
+    def test_modification_on_an_already_modified_question_is_rejected_in_portuguese(self):
+        # Regression: accepting a proposal derives a "teacher_modification"
+        # QuestionVersion with no ContentQuestionLink of its own, so a second
+        # modification request against that derived version legitimately
+        # fails the pedagogical-universe check - but it must still fail with
+        # a clear Portuguese message, not the raw English detail.
+        _, item, version_id = self._list_item()
+        proposal = self._create_proposal(version_id, item["id"]).json()
+        accepted = self.client.post(f"/api/v1/teacher/questions/modification-proposals/{proposal['id']}/accept")
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        derived_version_id = accepted.json()["question_version_id"]
+        response = self._create_proposal(derived_version_id, item["id"])
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertEqual(response.json()["detail"], "A questao esta fora do universo pedagogico autorizado.")
 
     def test_security_limit_and_prompt_injection_contract(self):
         _, item, version_id = self._list_item()

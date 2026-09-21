@@ -51,7 +51,7 @@ async def create_modification_proposal(
     try:
         modification_type = ModificationType(payload.modification_type)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Unsupported modification type") from exc
+        raise HTTPException(status_code=422, detail="Tipo de modificacao nao suportado.") from exc
     async with session_factory() as session:
         item = await session.get(AssessmentItem, payload.assessment_item_id)
         if item is None or item.question_version_id != question_version_id:
@@ -72,14 +72,14 @@ async def create_modification_proposal(
             except PermissionError as exc:
                 raise HTTPException(status_code=403, detail=str(exc)) from exc
             if not await universe_service.contains_question_version(universe.id, original.id):
-                raise HTTPException(status_code=403, detail="Question is outside the authorized pedagogical universe")
+                raise HTTPException(status_code=403, detail="A questao esta fora do universo pedagogico autorizado.")
         adapter = QuestionModificationAdapter(provider)
         count = await session.scalar(select(func.count()).select_from(ModificationProposal).where(
             ModificationProposal.original_question_version_id == original.id,
             ModificationProposal.requested_by_external_id == context.external_identity_id,
         ))
         if count >= adapter.max_proposals_per_question:
-            raise HTTPException(status_code=429, detail="Modification proposal limit reached for this question")
+            raise HTTPException(status_code=429, detail="Limite de propostas de modificacao atingido para esta questao.")
         question_data = {
             "statement": original.statement or original.canonical_text,
             "options": [option.text for option in sorted(original.options, key=lambda option: option.position)],
