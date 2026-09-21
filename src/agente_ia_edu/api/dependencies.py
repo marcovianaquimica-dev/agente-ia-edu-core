@@ -176,7 +176,17 @@ async def get_current_identity(request: Request) -> ExternalIdentityContext:
         subject=subject,
     )
     
-    context = await provider.resolve(request_obj)
+    try:
+        context = await provider.resolve(request_obj)
+    except ValueError as exc:
+        # TokenValidator's own contract (auth/token.py) is "raise ValueError
+        # on anything it could not fully verify" - a provider built on that
+        # contract (JWTIdentityProvider) can genuinely reject a request, and
+        # letting that ValueError escape uncaught here would surface as a raw
+        # 500 instead of the 401 this function's own docstring already
+        # promises. TestExternalIdentityProvider never raises, so this path
+        # had no real caller until a rejecting provider existed.
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     return context
 
 

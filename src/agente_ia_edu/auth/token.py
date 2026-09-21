@@ -16,6 +16,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+import jwt
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,34 +145,39 @@ class TestTokenValidator:
 class JWTTokenValidator:
     """JWT token validator for production use.
 
-    This validator:
-    1. Validates JWT signature
-    2. Checks token expiration
-    3. Verifies issuer and audience
-    4. Extracts standard claims
-    5. Requires external library (PyJWT)
+    HS256 with a shared secret. This is the mechanism to reach for when the
+    core itself (or a login service under the same operator's control) issues
+    the tokens - no external identity provider has been chosen yet. A future
+    RS256/JWKS validator for a specific provider (Auth0, Cognito, ...) is a
+    different class, not an extension of this one: the two verify against a
+    different kind of key entirely.
 
-    This is a STUB for future implementation.
-    For now, projects using real JWT should inject their own validator.
+    Every claim PyJWT can check is turned on: signature, expiration, and
+    issuer/audience whenever those are configured. ``alg`` is pinned to
+    ``["HS256"]`` explicitly - never derived from the token's own header -
+    which is what closes the classic "alg=none" forgery (a token that drops
+    the signature and asks the verifier to trust it anyway).
     """
 
-    def __init__(self, secret: str | None = None, issuer: str | None = None, audience: str | None = None):
+    def __init__(self, secret: str, issuer: str | None = None, audience: str | None = None):
         """Initialize JWT validator.
 
         Args:
-            secret: Secret key for HMAC validation (if not using public key)
-            issuer: Expected issuer claim
-            audience: Expected audience claim
-
-        Note: This is a stub. Real implementation will use PyJWT library.
+            secret: Shared HMAC secret. Required - there is no anonymous mode.
+            issuer: Expected ``iss`` claim. When set, a token without a
+                matching issuer is rejected; when ``None``, the issuer is not
+                checked at all.
+            audience: Expected ``aud`` claim, same on/off behaviour as issuer.
         """
+        if not secret:
+            raise ValueError("JWTTokenValidator requires a non-empty secret")
         self.secret = secret
         self.issuer = issuer
         self.audience = audience
         self.provider = "JWT"
 
     async def validate(self, token: str) -> TokenPayload:
-        """Validate JWT token.
+        """Validate a JWT and extract its claims.
 
         Args:
             token: JWT token string
@@ -179,13 +186,41 @@ class JWTTokenValidator:
             TokenPayload: Extracted and validated payload
 
         Raises:
-            ValueError: If JWT is invalid, expired, or validation fails
-
-        Note: This is a stub that always raises NotImplementedError.
+            ValueError: If the token is malformed, unsigned, signed with the
+                wrong key, expired, or fails an issuer/audience check that was
+                configured. Never returns a payload for a token it could not
+                fully verify.
         """
-        raise NotImplementedError(
-            "JWTTokenValidator is a stub. "
-            "For production JWT validation, inject a real validator implementing TokenValidator protocol."
+        try:
+            claims = jwt.decode(
+                token,
+                self.secret,
+                algorithms=["HS256"],
+                issuer=self.issuer,
+                audience=self.audience,
+                options={
+                    "require": ["sub", "exp"],
+                    "verify_iss": self.issuer is not None,
+                    "verify_aud": self.audience is not None,
+                },
+            )
+        except jwt.PyJWTError as exc:
+            raise ValueError(f"Invalid JWT: {exc}") from exc
+
+        subject = claims.pop("sub")
+        email = claims.pop("email", None)
+        name = claims.pop("name", None)
+        roles = tuple(claims.pop("roles", ()) or ())
+        for standard_claim in ("iat", "exp", "iss", "aud", "nbf", "jti"):
+            claims.pop(standard_claim, None)
+
+        return TokenPayload(
+            subject=subject,
+            email=email,
+            name=name,
+            provider=self.provider,
+            roles=roles,
+            metadata=claims,
         )
 
 

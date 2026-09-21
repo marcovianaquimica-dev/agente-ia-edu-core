@@ -31,9 +31,15 @@ from .routes.diagnostic import diagnostic_router
 from .routes.reception import reception_router
 from .routes.domain_map import domain_map_router
 from .dependencies import reject_reception_only_role
+from ..auth.bootstrap import configure_identity_provider_from_env
 
 
 def create_app() -> FastAPI:
+    # No-op unless JWT_AUTH_SECRET is set in the process environment - see
+    # auth/bootstrap.py. Every existing deployment and this repository's own
+    # test suite leave it unset, so this never changes their behaviour.
+    configure_identity_provider_from_env()
+
     app = FastAPI(title="AGENTE IA EDU")
     app.include_router(health_router)
     reception_only_guard = [Depends(reject_reception_only_role)]
