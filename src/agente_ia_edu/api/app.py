@@ -13,6 +13,7 @@ from .routes.teacher_materials import router as teacher_materials_router
 from .routes.question_modification_proposals import router as question_modification_proposals_router
 from .routes.learning_path import practice_router
 from .routes.catalog import catalog_router
+from .routes.essay_prompts import essay_prompts_router
 from .routes.authorial_ingestion import ingestion_router
 from .routes.question_extraction import qe_router
 from .routes.question_classification import qc_router
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(attempts_router, dependencies=reception_only_guard)
     app.include_router(practice_router, dependencies=reception_only_guard)
     app.include_router(catalog_router, dependencies=reception_only_guard)
+    app.include_router(essay_prompts_router, dependencies=reception_only_guard)
     app.include_router(ingestion_router, dependencies=reception_only_guard)
     app.include_router(qe_router, dependencies=reception_only_guard)
     app.include_router(qc_router, dependencies=reception_only_guard)
