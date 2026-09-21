@@ -31,7 +31,7 @@
 ### Task 1: `school_settings.transcription_enabled`
 
 **Files:**
-- Create: `migrations/versions/047_school_settings_transcription_enabled.py`
+- Create: `migrations/versions/047_transcription_enabled.py`
 - Modify: `src/agente_ia_edu/db/models/institution.py` (add column to `SchoolSetting`)
 - Modify: `src/agente_ia_edu/services/institution_settings.py` (add to `configure()`'s whitelist)
 - Test: `tests/test_r2_school_settings_transcription_enabled.py`
@@ -140,10 +140,10 @@ In `src/agente_ia_edu/db/models/institution.py`, add to `SchoolSetting.__table_a
 - [ ] **Step 4: Write the migration**
 
 ```python
-# migrations/versions/047_school_settings_transcription_enabled.py
+# migrations/versions/047_transcription_enabled.py
 """R2 - school_settings gains transcription_enabled.
 
-Revision ID: 047_school_settings_transcription_enabled
+Revision ID: 047_transcription_enabled
 Revises: 046_practice_sessions_catalog_fk
 
 Purely additive: one nullable-never column on an existing table, backfilled
@@ -154,7 +154,7 @@ via server_default so every existing row gets the conservative default
 from alembic import op
 import sqlalchemy as sa
 
-revision = "047_school_settings_transcription_enabled"
+revision = "047_transcription_enabled"
 down_revision = "046_practice_sessions_catalog_fk"
 branch_labels = None
 depends_on = None
@@ -206,7 +206,7 @@ to:
 - [ ] **Step 6: Run the migration against the disposable verification DB, then the test**
 
 Run: `cd /Users/marcoviana/agente-ia-edu-core/.claude/worktrees/r0-estrutura-academica && .venv/bin/alembic upgrade head`
-Expected: migration `047_school_settings_transcription_enabled` applies cleanly.
+Expected: migration `047_transcription_enabled` applies cleanly.
 
 Run: `PYTHONPATH="src:." .venv/bin/python -m pytest tests/test_r2_school_settings_transcription_enabled.py -v`
 Expected: PASS (2 tests).
@@ -214,7 +214,7 @@ Expected: PASS (2 tests).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add migrations/versions/047_school_settings_transcription_enabled.py \
+git add migrations/versions/047_transcription_enabled.py \
         src/agente_ia_edu/db/models/institution.py \
         src/agente_ia_edu/services/institution_settings.py \
         tests/test_r2_school_settings_transcription_enabled.py
@@ -642,7 +642,7 @@ class EssaySubmissionPage(Base):
 """R2 - essay proposal and submission foundation.
 
 Revision ID: 048_essay_proposal_submission
-Revises: 047_school_settings_transcription_enabled
+Revises: 047_transcription_enabled
 
 Purely additive: five new tables, touches zero rows in any existing table.
 """
@@ -651,7 +651,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "048_essay_proposal_submission"
-down_revision = "047_school_settings_transcription_enabled"
+down_revision = "047_transcription_enabled"
 branch_labels = None
 depends_on = None
 
