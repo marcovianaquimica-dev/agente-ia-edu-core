@@ -50,6 +50,7 @@ class EssayProposalService:
     async def add_material(
         self,
         *,
+        school_id: uuid.UUID,
         essay_prompt_id: uuid.UUID,
         material_type: str,
         position: int,
@@ -57,8 +58,8 @@ class EssayProposalService:
         storage_uri: str | None = None,
     ) -> PromptMaterial:
         prompt = await self.session.get(EssayPrompt, essay_prompt_id)
-        if prompt is None:
-            raise ValueError(f"EssayPrompt not found: {essay_prompt_id}")
+        if prompt is None or prompt.school_id != school_id:
+            raise ValueError(f"EssayPrompt not found in school {school_id}: {essay_prompt_id}")
         if prompt.status != "DRAFT":
             raise ValueError(
                 f"EssayPrompt {essay_prompt_id} is {prompt.status}, not DRAFT - "

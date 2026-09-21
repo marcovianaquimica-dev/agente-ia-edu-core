@@ -8,6 +8,7 @@ the same role set catalog.py's create_material/create_resource already use.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -56,7 +57,7 @@ class PromptMaterialResponse(BaseModel):
 
 class PromptAssignmentCreateRequest(BaseModel):
     class_id: UUID
-    due_at: Optional[str] = None
+    due_at: Optional[datetime] = None
     validation_enabled: bool = True
 
 
@@ -122,10 +123,11 @@ async def add_prompt_material(
     session_factory=Depends(get_session_factory),
 ) -> PromptMaterialResponse:
     async with session_factory() as session:
-        _school_id = await _authorize(identity, session)
+        school_id = await _authorize(identity, session)
         service = EssayProposalService(session)
         try:
             material = await service.add_material(
+                school_id=school_id,
                 essay_prompt_id=essay_prompt_id,
                 material_type=request.material_type,
                 content=request.content,
@@ -160,6 +162,7 @@ async def create_prompt_assignment(
                 essay_prompt_id=essay_prompt_id,
                 class_id=request.class_id,
                 assigned_by_external_identity=identity.external_user_id,
+                due_at=request.due_at,
                 validation_enabled=request.validation_enabled,
             )
         except ValueError as exc:

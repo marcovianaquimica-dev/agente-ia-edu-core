@@ -64,7 +64,8 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
                 created_by_external_identity="teacher:p2",
             )
             material = await svc.add_material(
-                essay_prompt_id=prompt.id, material_type="TEXT", content="Apoio.", position=0,
+                school_id=school.id, essay_prompt_id=prompt.id,
+                material_type="TEXT", content="Apoio.", position=0,
             )
             self.assertEqual(material.material_type, "TEXT")
 
@@ -74,7 +75,8 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
             )
             with self.assertRaises(ValueError):
                 await svc.add_material(
-                    essay_prompt_id=prompt.id, material_type="TEXT", content="Tarde demais.", position=1,
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content="Tarde demais.", position=1,
                 )
 
     async def test_add_material_rejects_type_content_mismatch(self):
@@ -87,11 +89,28 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
             )
             with self.assertRaises(ValueError):
                 await svc.add_material(
-                    essay_prompt_id=prompt.id, material_type="TEXT", content=None, position=0,
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content=None, position=0,
                 )
             with self.assertRaises(ValueError):
                 await svc.add_material(
-                    essay_prompt_id=prompt.id, material_type="IMAGE", storage_uri=None, position=0,
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="IMAGE", storage_uri=None, position=0,
+                )
+
+    async def test_add_material_rejects_foreign_school(self):
+        async with self.session_factory() as session:
+            school_a, _ = await self._school_and_class(session, "3a")
+            school_b, _ = await self._school_and_class(session, "3b")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school_a.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p3a",
+            )
+            with self.assertRaises(ValueError):
+                await svc.add_material(
+                    school_id=school_b.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content="Invasao.", position=0,
                 )
 
     async def test_create_assignment_activates_prompt_and_rejects_foreign_class(self):
