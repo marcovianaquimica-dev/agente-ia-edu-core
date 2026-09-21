@@ -35,7 +35,11 @@ def _ident(user: str) -> ExternalIdentityContext:
 
 
 def _make_png(path: Path) -> None:
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    import pymupdf
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 100), False)
+    pix.clear_with(255)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pix.save(str(path))
 
 
 class _ScriptedTranscriber:
