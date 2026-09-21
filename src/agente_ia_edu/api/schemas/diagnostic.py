@@ -106,6 +106,13 @@ class ProbableGap(BaseModel):
     content_name: str
     estimated_mastery: float
     prerequisite_check_required: bool = False
+    # The service (initial_diagnostic.py get_diagnostic_result) computes this
+    # whenever the gapped content has a parent node - a dict with
+    # content_node_id/content_name/confidence/evidence_origin of the possible
+    # prerequisite. Keep it declared here or FastAPI/pydantic silently drops
+    # it from the HTTP response (same class of bug as ContentMasteryEstimate's
+    # coverage_status).
+    possible_prerequisite_gap: Optional[dict[str, Any]] = None
 
 
 class DiagnosticResultResponse(BaseModel):

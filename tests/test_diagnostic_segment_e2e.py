@@ -190,3 +190,43 @@ class TestDiagnosticSegmentE2E(unittest.TestCase):
         # a single answered question can never satisfy the coverage policy's
         # minimum evidence/difficulty-diversity thresholds
         self.assertEqual(mastery_map[0]["coverage_status"], "INSUFFICIENT_EVIDENCE")
+
+    def test_result_response_probable_gaps_includes_possible_prerequisite_gap(self):
+        # initial_diagnostic.py's get_diagnostic_result() already computes a
+        # "possible_prerequisite_gap" dict (content_node_id/content_name/
+        # confidence/evidence_origin of the parent content) for every entry in
+        # probable_gaps whose content has a parent node - see
+        # test_24_prerequisite_gap_is_an_evidence_not_a_certainty in
+        # test_initial_diagnostic.py, which asserts on it at the SERVICE layer.
+        # But the HTTP response_model (ProbableGap in schemas/diagnostic.py)
+        # must declare the field too, or FastAPI/pydantic silently strips it
+        # before it reaches the frontend - the same class of bug fixed for
+        # mastery_map's coverage_status above.
+        async def seed():
+            async with self.factory() as session:
+                math = await self._root(session, "Matemática", 1)
+                content, _ = await self._seed_question(session, math, "Álgebra única")
+                await session.commit()
+                return math.id, content.id
+
+        parent_id, content_id = asyncio.run(seed())
+        self.identity = ExternalIdentityContext(provider="test", external_user_id="prereq-gap-learner")
+        diagnostic_id, first = self._start_and_complete_entry()
+        self.assertEqual(first["content_node_id"], str(content_id))
+        # An answered-incorrectly question yields a 0% score for that content,
+        # which is always < 50 -> it lands in probable_gaps.
+        response = self.client.post(
+            f"/api/v1/student/diagnostic/{diagnostic_id}/questions/{first['selection_id']}/answer",
+            json={"response_text": "resposta incorreta"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        result = self.client.get(f"/api/v1/student/diagnostic/{diagnostic_id}/result")
+        self.assertEqual(result.status_code, 200)
+        probable_gaps = result.json()["probable_gaps"]
+        self.assertGreater(len(probable_gaps), 0)
+        gap = probable_gaps[0]
+        self.assertTrue(gap["prerequisite_check_required"])
+        self.assertIn("possible_prerequisite_gap", gap)
+        self.assertEqual(gap["possible_prerequisite_gap"]["content_node_id"], str(parent_id))
+        self.assertIn("confidence", gap["possible_prerequisite_gap"])
