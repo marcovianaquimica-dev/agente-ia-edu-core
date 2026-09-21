@@ -324,6 +324,45 @@ class Phase24Tests(unittest.TestCase):
             if b.get("content_code"):
                 self.assertIn("reason", b)   # explainable allocation
 
+    # -- 7b  re-scheduling a classroom must not wipe a student who
+    #        already started their session today (found live against
+    #        Postgres seed data - PHASE 24 coordination coverage gap).
+    def test_reschedule_does_not_wipe_in_progress_student(self):
+        self._clear_sessions("s_al")
+        self._as_coord()
+        r1 = self.client.post("/api/v1/coordination/study-sessions", json={
+            "school_id": str(_SCHOOL_UUID), "target_type": "STUDENT", "target_id": "s_al",
+            "session_date": "2026-09-27", "start_at": "2026-09-27T14:00:00Z",
+            "end_at": "2026-09-27T16:00:00Z", "content_codes": ["C_A", "C_B"]})
+        self.assertEqual(r1.status_code, 200, r1.text)
+        sid = r1.json()["sessions"][0]["session_id"]
+
+        self._as_student("s_al")
+        started = self.client.post(f"/api/v1/student/study-session/{sid}/start").json()
+        self.assertEqual(started["status"], "IN_PROGRESS")
+        completed = self.client.post(
+            f"/api/v1/student/study-session/{sid}/blocks/0/complete", json={}).json()
+        self.assertEqual(completed["blocks_done"], 1)
+        self.assertEqual(completed["status"], "IN_PROGRESS")
+
+        # coordinator refreshes the classroom's window for the same day
+        self._as_coord()
+        r2 = self.client.post("/api/v1/coordination/study-sessions", json={
+            "school_id": str(_SCHOOL_UUID), "target_type": "STUDENT", "target_id": "s_al",
+            "session_date": "2026-09-27", "start_at": "2026-09-27T18:00:00Z",
+            "end_at": "2026-09-27T19:00:00Z", "content_codes": ["C_A", "C_B"]})
+        self.assertEqual(r2.status_code, 200, r2.text)
+        # the student's real progress must survive a same-day reschedule -
+        # same session_id, still IN_PROGRESS, still 1 block done (matches the
+        # idempotency contract create_student_session already honours for
+        # STUDENT_DEFINED sessions: an active session is never silently reset).
+        self.assertEqual(r2.json()["sessions"][0]["session_id"], sid)
+
+        self._as_student("s_al")
+        sview = self.client.get(f"/api/v1/student/study-session/{sid}").json()
+        self.assertEqual(sview["status"], "IN_PROGRESS")
+        self.assertEqual(sview["blocks_done"], 1)
+
     # -- 8/9  breaks: one / multiple --------------------------------
     def test_one_break(self):
         self._clear_sessions("s_al")

@@ -646,6 +646,17 @@ class QuestionExtractionService:
         asset = await self._session.get(ExtractedQuestionAsset, asset_id)
         if asset is None or asset.run_id != question.run_id:
             raise QuestionExtractionNotFound("asset not found in this run")
+        # An asset already tied to a DIFFERENT question is not a free
+        # candidate for this one - list_candidate_assets() never offers it,
+        # so only a stale/forged asset_id reaches here. Without this check
+        # the call would silently steal the asset (no error, and no audit
+        # entry on the question that lost it - spec s21 requires every
+        # change be traceable). Re-associating an asset THIS question
+        # already owns stays a harmless idempotent no-op (double-click safe).
+        if asset.question_id is not None and asset.question_id != question.id:
+            raise QuestionExtractionError(
+                "ASSET_NOT_AVAILABLE",
+                f"asset {asset.id} is already associated with a different question")
         asset.question_id = question.id
         asset.status = "ASSOCIATED"
         record_review_event(question, event="ASSET_ASSOCIATED", actor=reviewed_by,
@@ -661,6 +672,17 @@ class QuestionExtractionService:
         asset = await self._session.get(ExtractedQuestionAsset, asset_id)
         if asset is None or asset.run_id != question.run_id:
             raise QuestionExtractionNotFound("asset not found in this run")
+        # Mirrors associate_asset's guard: an asset owned by a DIFFERENT
+        # question is not this question's to decide on. Without this check
+        # a caller could ignore another question's asset while the audit
+        # event was recorded on the WRONG question's status_history (spec
+        # s21 - every entry must reflect what actually happened). Ignoring
+        # a still-UNASSOCIATED candidate, or one THIS question already
+        # owns (change of mind after associating it), remains allowed.
+        if asset.question_id is not None and asset.question_id != question.id:
+            raise QuestionExtractionError(
+                "ASSET_NOT_AVAILABLE",
+                f"asset {asset.id} is associated with a different question")
         asset.status = "IGNORED"
         record_review_event(question, event="ASSET_IGNORED", actor=reviewed_by,
                       detail={"asset_id": str(asset.id), "source_page": asset.source_page})

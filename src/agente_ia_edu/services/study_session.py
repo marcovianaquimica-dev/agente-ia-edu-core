@@ -312,10 +312,26 @@ class StudySessionService:
             raise StudySessionError("Nenhum aluno encontrado para o destino informado.")
 
         results = []
+        skipped = 0
         content_names: list[str] = []
         for sid in students:
             row = await self._active_session(sid, only_source=SOURCE_SCHOOL,
                                              on_date=session_date)
+            # A student who already STARTED (or finished) today's SCHOOL
+            # session must not have their real progress silently discarded by
+            # a coordinator refreshing the classroom's window/content - same
+            # idempotency contract create_student_session already honours for
+            # STUDENT_DEFINED sessions (never reset an active session). Only
+            # a not-yet-started row (SCHEDULED/READY, or none yet) is safe to
+            # (re)plan.
+            if row is not None and row.status not in (ST_SCHEDULED, ST_READY):
+                skipped += 1
+                results.append({"student_external_id": sid, "session_id": str(row.id),
+                                "effective_study_minutes": row.effective_study_minutes,
+                                "break_minutes": row.break_minutes,
+                                "skipped": True,
+                                "skipped_reason": "já iniciado ou concluído hoje — progresso preservado"})
+                continue
             plan = await self._build_plan(
                 sid, self._student_requester(sid, school_id),
                 effective_minutes=effective, timer_mode="TIMED",
@@ -351,7 +367,8 @@ class StudySessionService:
                             "effective_study_minutes": row.effective_study_minutes,
                             "break_minutes": row.break_minutes})
         summary = {
-            "created_or_updated": len(results),
+            "created_or_updated": len(results) - skipped,
+            "skipped_in_progress": skipped,
             "window_minutes": window_minutes, "break_minutes": break_minutes,
             "effective_study_minutes": effective,
             "target_content_codes": codes, "target_content_names": content_names, "breaks": norm_breaks,

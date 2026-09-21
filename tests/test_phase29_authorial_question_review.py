@@ -344,6 +344,67 @@ class Phase29ReviewTests(unittest.TestCase):
         self.assertIn("ASSET_ASSOCIATED", events)
         self.assertIn("ASSET_IGNORED", events)
 
+    def test_associate_refuses_to_steal_an_asset_owned_by_another_question(self):
+        """Found via live HTTP testing against real Postgres (page-image/
+        assets endpoints, backend-only audit): neither associate_asset nor
+        ignore_asset checked that the target asset actually belongs to (or
+        is a free candidate for) the question named in the URL - only that
+        it is in the same RUN. A caller could point associate_asset at an
+        asset ALREADY ASSOCIATED to a different question and silently steal
+        it (no error, and no audit trail entry on the question that lost
+        it - violating spec s21's 'never silently altered'), or point
+        ignore_asset at another question's asset and IGNORE it while
+        recording a misattributed ASSET_IGNORED event on a question that
+        never owned it."""
+        import fitz
+        path = self.tmp / "steal.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 60), "1. Questao um com figura propria abaixo do enunciado.", fontsize=9)
+        pix1 = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 20), False)
+        pix1.set_rect(pix1.irect, (200, 0, 0))
+        page.insert_image(fitz.Rect(90, 90, 130, 130), pixmap=pix1)
+        page.insert_text((72, 160), "2. Questao dois com figura propria abaixo do enunciado.", fontsize=9)
+        pix2 = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 20), False)
+        pix2.set_rect(pix2.irect, (0, 0, 200))
+        page.insert_image(fitz.Rect(90, 190, 130, 230), pixmap=pix2)
+        doc.save(str(path))
+        doc_id = self._seed_document(path, "steal")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                questions = await svc.list_questions(run.id)
+                q1 = next(q for q in questions if q.question_number == 1)
+                q2 = next(q for q in questions if q.question_number == 2)
+                self.assertEqual(len(q1.assets), 1)
+                self.assertEqual(len(q2.assets), 1)
+                q1_asset_id = q1.assets[0].id
+
+                with self.assertRaises(QuestionExtractionError) as ctx1:
+                    await svc.associate_asset(q2.id, q1_asset_id, reviewed_by="prof_a")
+                with self.assertRaises(QuestionExtractionError) as ctx2:
+                    await svc.ignore_asset(q2.id, q1_asset_id, reviewed_by="prof_a")
+
+                q1_reloaded = await svc.get_question(q1.id)
+                q2_reloaded = await svc.get_question(q2.id)
+                return (
+                    ctx1.exception.code, ctx2.exception.code,
+                    q1_reloaded.assets[0].status, q1_reloaded.assets[0].question_id,
+                    [e["event"] for e in (q2_reloaded.status_history or [])],
+                )
+        (assoc_code, ignore_code, q1_asset_status, q1_asset_owner,
+         q2_events) = self._run(go())
+        self.assertEqual(assoc_code, "ASSET_NOT_AVAILABLE")
+        self.assertEqual(ignore_code, "ASSET_NOT_AVAILABLE")
+        # q1's own asset must be untouched by the refused cross-question calls.
+        self.assertEqual(q1_asset_status, "ASSOCIATED")
+        self.assertIsNotNone(q1_asset_owner)
+        # q2 must carry NO audit trace of an asset it was refused ownership of.
+        self.assertNotIn("ASSET_ASSOCIATED", q2_events)
+        self.assertNotIn("ASSET_IGNORED", q2_events)
+
     # -- 13/23/24. aprovar / bloquear publicação indevida --------------------
     def test_approve_requires_edit_from_review_required(self):
         path = self.tmp / "approve_block.pdf"
