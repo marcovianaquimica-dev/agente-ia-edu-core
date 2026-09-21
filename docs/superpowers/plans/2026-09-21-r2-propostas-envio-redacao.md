@@ -26,6 +26,18 @@
 - **No new third-party dependencies.** Everything needed (`openai`, `pymupdf`) is already in `pyproject.toml`.
 - **Test style**: `unittest.TestCase` / `unittest.IsolatedAsyncioTestCase`, in-memory `sqlite+aiosqlite:///:memory:` + `StaticPool`, `Base.metadata.create_all`. No `pytest` fixtures/markers anywhere in this repo's suite — don't introduce any.
 
+### Addendum, added after the final whole-branch review (findings #1-#7)
+
+The final review found the 11-task execution had composed into a real gap no single task's own review could see: nothing anywhere checked `EssaySubmission.status` before mutating it, so a `SUBMITTED` (even `AVALIATIVO`) essay could be silently rewritten via the same upload/review/confirm routes used to create it. Corrected in the task bodies above; summarized here since it changes several signatures:
+
+- `upload_page`, `review_page`, and `confirm_submission` all now reject (plain `ValueError`, mapped to 422/409 by the route) unless `submission.status in ("PENDING_TRANSCRIPTION", "PENDING_CONFIRMATION")` — spec §5.2 step 3's own wording, which the original implementation dropped.
+- `upload_page`/`upload_document` no longer take a `transcription_enabled` parameter — it's derived from `submission.anchor_mode == "TEXT_OFFSET"` (frozen at creation), never re-read from live `school_settings` mid-flow. The two upload routes no longer call `InstitutionSettingsService.get_settings()` at all.
+- `_supersede_previous` is renamed `_validate_resubmission` and no longer mutates anything — it only checks eligibility (existing SUBMITTED row + `correction_mode`) and returns the row to supersede. `start_typed_submission` supersedes immediately (TYPED submits atomically). `start_photo_submission` validates but defers the actual supersession to `confirm_submission`, so an abandoned photo/PDF resubmission never leaves the essay with zero SUBMITTED versions.
+- Both upload routes now check the file extension (`.png`/`.jpg`/`.jpeg` for `/pages`, `.pdf` for `/document`) before writing anything, matching `authorial_ingestion.py::upload_material`'s established pattern (which R2's docstring already claimed to follow but didn't implement).
+- `_split_pdf_pages` rejects PDFs over 20 pages, and `upload_document` runs it via `asyncio.to_thread` (CPU-bound rasterization was blocking the event loop for every other request).
+- `EssayProposalService.add_material` now catches the same `IntegrityError` `create_assignment` already handled, so adding two materials without an explicit `position` degrades to a clear `ValueError` instead of an unhandled 500.
+- `essay_prompts.py` gained a route-level `_prompt_for_own_school_or_403` (matching `essay_submissions.py`'s `_*_or_403` idiom) used by `add_prompt_material`/`create_prompt_assignment`, and its missing-school-context check now returns 403 instead of 400, matching every other route in the branch.
+
 ---
 
 ### Task 1: `school_settings.transcription_enabled`
@@ -1764,7 +1776,13 @@ class EssayProposalService:
             position=position,
         )
         self.session.add(material)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ValueError(
+                f"EssayPrompt {essay_prompt_id} already has a material at position {position}"
+            ) from exc
         return material
 
     async def create_assignment(
@@ -1999,6 +2017,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
+from ...db.models import EssayPrompt
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_proposal import EssayProposalService
@@ -2068,8 +2087,20 @@ async def _authorize(
             detail="Managing an essay proposal requires a teacher, coordinator, director, or platform admin role.",
         )
     if context.school_id is None:
-        raise HTTPException(status_code=400, detail="An active school context is required.")
+        raise HTTPException(status_code=403, detail="An active school context is required.")
     return uuid.UUID(str(context.school_id))
+
+
+async def _prompt_for_own_school_or_403(
+    session: AsyncSession, *, essay_prompt_id: uuid.UUID, school_id: uuid.UUID,
+) -> EssayPrompt:
+    """Same "403, never 404, for not yours" rule essay_submissions.py's
+    helpers use - a prompt from another school is 403, not the 422 a bare
+    service-level ValueError would produce."""
+    prompt = await session.get(EssayPrompt, essay_prompt_id)
+    if prompt is None or prompt.school_id != school_id:
+        raise HTTPException(status_code=403, detail="This proposal is not yours.")
+    return prompt
 
 
 @essay_prompts_router.post("", status_code=201, response_model=EssayPromptResponse)
@@ -2106,6 +2137,9 @@ async def add_prompt_material(
 ) -> PromptMaterialResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
         service = EssayProposalService(session)
         try:
             material = await service.add_material(
@@ -2137,6 +2171,9 @@ async def create_prompt_assignment(
 ) -> PromptAssignmentResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
         service = EssayProposalService(session)
         try:
             assignment = await service.create_assignment(
@@ -2361,8 +2398,16 @@ class EssaySubmissionService:
         essay_id: uuid.UUID | None = None,
         correction_mode: str | None = None,
     ) -> EssaySubmission:
+        previous = None
         if essay_id is not None:
-            await self._supersede_previous(essay_id, correction_mode=correction_mode or "FORMATIVO")
+            # TYPED submits atomically (the new row is SUBMITTED in this
+            # same call), so unlike start_photo_submission it's safe to
+            # supersede the old row right here rather than deferring to
+            # confirm_submission - there's no in-between state where neither
+            # row is SUBMITTED.
+            previous = await self._validate_resubmission(
+                essay_id, correction_mode=correction_mode or "FORMATIVO"
+            )
 
         submission = EssaySubmission(
             id=uuid.uuid4(),
@@ -2378,12 +2423,21 @@ class EssaySubmissionService:
             submitted_at=_utcnow(),
         )
         self.session.add(submission)
+        if previous is not None:
+            previous.status = "SUPERSEDED"
         await self.session.flush()
         return submission
 
-    async def _supersede_previous(
+    async def _validate_resubmission(
         self, essay_id: uuid.UUID, *, correction_mode: str
     ) -> EssaySubmission:
+        """Confirms essay_id is eligible for a new version, WITHOUT
+        mutating anything - actually superseding the previous row is the
+        caller's job, at whatever point the new version is guaranteed to
+        replace it (start_typed_submission does it immediately since TYPED
+        submits atomically; start_photo_submission defers it to
+        confirm_submission, since photo/PDF submissions can be abandoned
+        mid-upload)."""
         previous = await self.session.scalar(
             select(EssaySubmission).where(
                 EssaySubmission.essay_id == essay_id, EssaySubmission.status == "SUBMITTED"
@@ -2395,8 +2449,6 @@ class EssaySubmissionService:
             raise EssayResubmissionBlockedError(
                 f"AVALIATIVO: essay_id={essay_id} is already SUBMITTED and cannot be resubmitted"
             )
-        previous.status = "SUPERSEDED"
-        await self.session.flush()
         return previous
 
 
@@ -2503,7 +2555,7 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             page = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source, transcription_enabled=True,
+                source_path=source,
             )
 
             self.assertEqual(transcriber.calls, 1)
@@ -2533,14 +2585,14 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source1)
             page_first = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source1, transcription_enabled=True,
+                source_path=source1,
             )
 
             source2 = self.tmp_dir / "reupload2.png"
             _make_png(source2)
             page_second = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source2, transcription_enabled=True,
+                source_path=source2,
             )
 
             self.assertEqual(page_first.id, page_second.id)
@@ -2563,7 +2615,7 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             page = await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source, transcription_enabled=False,
+                source_path=source,
             )
             self.assertEqual(transcriber.calls, 0)
             self.assertIsNone(page.ocr_tokens)
@@ -2615,7 +2667,6 @@ class PdfUploadTests(unittest.IsolatedAsyncioTestCase):
             pdf_path = self._make_two_page_pdf()
             pages = await svc.upload_document(
                 essay_submission_id=submission.id, source_path=pdf_path,
-                transcription_enabled=True,
             )
 
             self.assertEqual(len(pages), 2)
@@ -2639,6 +2690,7 @@ Expected: FAIL — `AttributeError: 'EssaySubmissionService' object has no attri
 In `src/agente_ia_edu/services/essay_submission.py`, add imports at the top:
 
 ```python
+import asyncio
 import mimetypes
 from pathlib import Path
 
@@ -2653,7 +2705,7 @@ from .essay_correction_key import essay_text_hash, normalize_essay_text
 from .material_storage import MaterialStorage
 ```
 
-Then add these methods to `EssaySubmissionService` (after `_supersede_previous`):
+Then add these methods to `EssaySubmissionService` (after `_validate_resubmission`):
 
 ```python
     async def start_photo_submission(
@@ -2670,7 +2722,12 @@ Then add these methods to `EssaySubmissionService` (after `_supersede_previous`)
         if mode not in ("PHOTO", "PDF"):
             raise ValueError(f"start_photo_submission requires mode PHOTO or PDF, got {mode!r}")
         if essay_id is not None:
-            await self._supersede_previous(essay_id, correction_mode=correction_mode or "FORMATIVO")
+            # Validate eligibility only - do NOT supersede the previous
+            # version yet. That happens in confirm_submission, once this new
+            # version is actually about to become SUBMITTED. Superseding here
+            # would leave the essay with zero SUBMITTED versions if the
+            # student never finishes uploading/reviewing (spec §5.4).
+            await self._validate_resubmission(essay_id, correction_mode=correction_mode or "FORMATIVO")
 
         submission = EssaySubmission(
             id=uuid.uuid4(),
@@ -2686,14 +2743,28 @@ Then add these methods to `EssaySubmissionService` (after `_supersede_previous`)
         await self.session.flush()
         return submission
 
+    _UPLOADABLE_STATUSES = ("PENDING_TRANSCRIPTION", "PENDING_CONFIRMATION")
+
     async def upload_page(
         self,
         *,
         essay_submission_id: uuid.UUID,
         page_number: int,
         source_path: Path,
-        transcription_enabled: bool,
     ) -> EssaySubmissionPage:
+        submission = await self.session.get(EssaySubmission, essay_submission_id)
+        if submission is None:
+            raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+        if submission.status not in self._UPLOADABLE_STATUSES:
+            raise ValueError(
+                f"EssaySubmission {essay_submission_id} is {submission.status} - pages can "
+                "only be uploaded while a submission is pending confirmation (spec §5.2 step 3)."
+            )
+        # Derived from the submission's own frozen anchor_mode, never from a
+        # live settings read - a school toggling transcription_enabled mid-
+        # flow must not change how an in-progress submission behaves.
+        transcription_enabled = submission.anchor_mode == "TEXT_OFFSET"
+
         dest, _digest = self._storage.store(source_path)
 
         existing = await self.session.scalar(
@@ -2719,7 +2790,6 @@ Then add these methods to `EssaySubmissionService` (after `_supersede_previous`)
 
         if transcription_enabled:
             await self._ocr_page(page, dest)
-            submission = await self.session.get(EssaySubmission, essay_submission_id)
             submission.status = "PENDING_CONFIRMATION"
             await self.session.flush()
         return page
@@ -2729,16 +2799,16 @@ Then add these methods to `EssaySubmissionService` (after `_supersede_previous`)
         *,
         essay_submission_id: uuid.UUID,
         source_path: Path,
-        transcription_enabled: bool,
     ) -> list[EssaySubmissionPage]:
         """PDF mode: split ``source_path`` into one page-image per PDF page
-        and upload each through the same path :meth:`upload_page` uses."""
-        page_image_paths = self._split_pdf_pages(source_path)
+        (off the event loop - rasterization is CPU-bound) and upload each
+        through the same path :meth:`upload_page` uses."""
+        page_image_paths = await asyncio.to_thread(self._split_pdf_pages, source_path)
         pages = []
         for index, image_path in enumerate(page_image_paths, start=1):
             page = await self.upload_page(
                 essay_submission_id=essay_submission_id, page_number=index,
-                source_path=image_path, transcription_enabled=transcription_enabled,
+                source_path=image_path,
             )
             pages.append(page)
         return pages
@@ -2757,8 +2827,10 @@ Then add these methods to `EssaySubmissionService` (after `_supersede_previous`)
             self._transcriber = build_essay_transcriber()
         return self._transcriber
 
-    @staticmethod
-    def _split_pdf_pages(pdf_path: Path) -> list[Path]:
+    _MAX_PDF_PAGES = 20
+
+    @classmethod
+    def _split_pdf_pages(cls, pdf_path: Path) -> list[Path]:
         try:
             import pymupdf as _mu
         except ImportError:
@@ -2768,6 +2840,10 @@ Then add these methods to `EssaySubmissionService` (after `_supersede_previous`)
         dest_dir.mkdir(exist_ok=True)
         doc = _mu.open(str(pdf_path))
         try:
+            if len(doc) > cls._MAX_PDF_PAGES:
+                raise ValueError(
+                    f"PDF has {len(doc)} pages, more than the {cls._MAX_PDF_PAGES}-page limit"
+                )
             paths = []
             for index in range(len(doc)):
                 pix = doc[index].get_pixmap(dpi=200)
@@ -2871,7 +2947,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             await svc.upload_page(
                 essay_submission_id=submission.id, page_number=number,
-                source_path=source, transcription_enabled=True,
+                source_path=source,
             )
         return svc, submission
 
@@ -2930,6 +3006,15 @@ In `src/agente_ia_edu/services/essay_submission.py`, add after `_guess_mime` (st
     async def review_page(
         self, *, essay_submission_id: uuid.UUID, page_number: int, reviewed_text: str
     ) -> EssaySubmissionPage:
+        submission = await self.session.get(EssaySubmission, essay_submission_id)
+        if submission is None:
+            raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+        if submission.status not in self._UPLOADABLE_STATUSES:
+            raise ValueError(
+                f"EssaySubmission {essay_submission_id} is {submission.status} - pages can "
+                "only be reviewed while a submission is pending confirmation (spec §5.2 step 3)."
+            )
+
         page = await self.session.scalar(
             select(EssaySubmissionPage).where(
                 EssaySubmissionPage.essay_submission_id == essay_submission_id,
@@ -3036,7 +3121,7 @@ class ConfirmSubmissionTests(unittest.IsolatedAsyncioTestCase):
                 _make_png(source)
                 await svc.upload_page(
                     essay_submission_id=submission.id, page_number=number,
-                    source_path=source, transcription_enabled=True,
+                    source_path=source,
                 )
 
             await svc.review_page(
@@ -3067,7 +3152,7 @@ class ConfirmSubmissionTests(unittest.IsolatedAsyncioTestCase):
             _make_png(source)
             await svc.upload_page(
                 essay_submission_id=submission.id, page_number=1,
-                source_path=source, transcription_enabled=False,
+                source_path=source,
             )
 
             confirmed = await svc.confirm_submission(submission.id)
@@ -3085,6 +3170,106 @@ class ConfirmSubmissionTests(unittest.IsolatedAsyncioTestCase):
             )
             with self.assertRaises(ValueError):
                 await svc.confirm_submission(submission.id)
+
+    async def test_confirming_an_already_submitted_essay_is_rejected(self):
+        """Locks in the final-review fix: a SUBMITTED essay's canonical_text
+        must never be recomputed - confirm_submission must refuse to run
+        again on a row that already reached SUBMITTED."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            submission = await svc.start_photo_submission(
+                school_id=uuid.uuid4(), prompt_assignment_id=uuid.uuid4(),
+                student_id=uuid.uuid4(), mode="PDF", transcription_enabled=False,
+            )
+            source = self.tmp_dir / "confirm_twice.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            first = await svc.confirm_submission(submission.id)
+            self.assertEqual(first.status, "SUBMITTED")
+
+            with self.assertRaises(ValueError):
+                await svc.confirm_submission(submission.id)
+
+    async def test_uploading_a_page_after_submitted_is_rejected(self):
+        """Locks in the final-review fix: no route lets a student rewrite an
+        already-SUBMITTED essay - upload_page must refuse once status has
+        moved past PENDING_CONFIRMATION."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            submission = await svc.start_photo_submission(
+                school_id=uuid.uuid4(), prompt_assignment_id=uuid.uuid4(),
+                student_id=uuid.uuid4(), mode="PDF", transcription_enabled=False,
+            )
+            source = self.tmp_dir / "upload_after_submit.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+            await svc.confirm_submission(submission.id)
+
+            with self.assertRaises(ValueError):
+                await svc.upload_page(
+                    essay_submission_id=submission.id, page_number=1, source_path=source,
+                )
+
+    async def test_photo_resubmission_supersedes_only_at_confirm_not_at_start(self):
+        """Locks in the final-review fix: a photo/PDF resubmission the
+        student never finishes must never leave the essay with zero
+        SUBMITTED versions - the old row stays SUBMITTED right up until the
+        new one is actually confirmed."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            first = await svc.start_typed_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, text="Primeira versao.",
+            )
+            self.assertEqual(first.status, "SUBMITTED")
+
+            second = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PDF", transcription_enabled=False,
+                essay_id=first.essay_id, correction_mode="FORMATIVO",
+            )
+
+            # Abandoned here (never uploads/confirms): the first version must
+            # still be the current SUBMITTED one.
+            still_first = await session.get(type(first), first.id)
+            self.assertEqual(still_first.status, "SUBMITTED")
+
+            source = self.tmp_dir / "resubmission_confirm.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=second.id, page_number=1, source_path=source,
+            )
+            confirmed_second = await svc.confirm_submission(second.id)
+            self.assertEqual(confirmed_second.status, "SUBMITTED")
+
+            now_superseded_first = await session.get(type(first), first.id)
+            self.assertEqual(now_superseded_first.status, "SUPERSEDED")
+
+    async def test_reviewing_a_page_after_submitted_is_rejected(self):
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(session, storage=MaterialStorage(root=self.storage_root))
+            submission = await svc.start_photo_submission(
+                school_id=uuid.uuid4(), prompt_assignment_id=uuid.uuid4(),
+                student_id=uuid.uuid4(), mode="PHOTO", transcription_enabled=False,
+            )
+            source = self.tmp_dir / "review_after_submit.png"
+            _make_png(source)
+            await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+            await svc.confirm_submission(submission.id)
+
+            with self.assertRaises(ValueError):
+                await svc.review_page(
+                    essay_submission_id=submission.id, page_number=1, reviewed_text="tentativa tardia",
+                )
 
 
 if __name__ == "__main__":
@@ -3105,6 +3290,11 @@ In `src/agente_ia_edu/services/essay_submission.py`, add after `review_page`:
         submission = await self.session.get(EssaySubmission, essay_submission_id)
         if submission is None:
             raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+        if submission.status not in self._UPLOADABLE_STATUSES:
+            raise ValueError(
+                f"EssaySubmission {essay_submission_id} is {submission.status}, not pending "
+                "confirmation - a SUBMITTED or SUPERSEDED essay cannot be confirmed again."
+            )
 
         pages = await self.list_pages(essay_submission_id)
         if not pages:
@@ -3122,6 +3312,23 @@ In `src/agente_ia_edu/services/essay_submission.py`, add after `review_page`:
             submission.normalized_text_hash = essay_text_hash(full_text)
         # anchor_mode == "IMAGE_REGION": no transcription ran, canonical_text/
         # normalized_text_hash stay NULL - spec §5.3's documented consequence.
+
+        # Resubmission (photo/PDF only - TYPED supersedes immediately in
+        # start_typed_submission since it submits atomically): supersede the
+        # previous SUBMITTED version of this essay_id now, in the same flush
+        # as this one becoming SUBMITTED. start_photo_submission validated
+        # eligibility but deliberately never superseded, so a resubmission
+        # the student never finishes never leaves the essay with zero
+        # SUBMITTED versions (spec §5.4).
+        previous = await self.session.scalar(
+            select(EssaySubmission).where(
+                EssaySubmission.essay_id == submission.essay_id,
+                EssaySubmission.status == "SUBMITTED",
+                EssaySubmission.id != submission.id,
+            )
+        )
+        if previous is not None:
+            previous.status = "SUPERSEDED"
 
         submission.status = "SUBMITTED"
         submission.submitted_at = _utcnow()
@@ -3715,6 +3922,8 @@ essay_submissions_router = APIRouter(
 )
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_ALLOWED_PAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+_ALLOWED_DOCUMENT_SUFFIXES = (".pdf",)
 
 
 class EssaySubmissionCreateRequest(BaseModel):
@@ -3831,7 +4040,7 @@ async def _resubmission_target_or_403(
     session: AsyncSession, *, essay_id: uuid.UUID, school_id: uuid.UUID, student_id: uuid.UUID,
 ) -> EssaySubmission:
     """The current SUBMITTED version of essay_id, only if it's genuinely the
-    caller's own. EssaySubmissionService._supersede_previous queries for the
+    caller's own. EssaySubmissionService._validate_resubmission queries for the
     same row by essay_id+status alone and trusts it completely - this check
     is what makes that trust safe, by running before the service ever sees
     the id."""
@@ -3921,7 +4130,10 @@ async def upload_essay_submission_page(
             session, essay_submission_id=essay_submission_id, school_id=school_id,
             student_id=enrollment.student_id,
         )
-        settings = await InstitutionSettingsService(session).get_settings(school_id)
+
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in _ALLOWED_PAGE_SUFFIXES:
+            raise HTTPException(status_code=422, detail=f"unsupported file format: {suffix!r}")
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="r2_page_upload_"))
         tmp_path = tmp_dir / (file.filename or f"page{page_number}")
@@ -3939,7 +4151,7 @@ async def upload_essay_submission_page(
             service = EssaySubmissionService(session)
             page = await service.upload_page(
                 essay_submission_id=submission.id, page_number=page_number,
-                source_path=tmp_path, transcription_enabled=settings.transcription_enabled,
+                source_path=tmp_path,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -3973,7 +4185,10 @@ async def upload_essay_submission_document(
             session, essay_submission_id=essay_submission_id, school_id=school_id,
             student_id=enrollment.student_id,
         )
-        settings = await InstitutionSettingsService(session).get_settings(school_id)
+
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix not in _ALLOWED_DOCUMENT_SUFFIXES:
+            raise HTTPException(status_code=422, detail=f"unsupported file format: {suffix!r}")
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="r2_document_upload_"))
         tmp_path = tmp_dir / (file.filename or "document.pdf")
@@ -3991,7 +4206,6 @@ async def upload_essay_submission_document(
             service = EssaySubmissionService(session)
             pages = await service.upload_document(
                 essay_submission_id=submission.id, source_path=tmp_path,
-                transcription_enabled=settings.transcription_enabled,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -4137,7 +4351,7 @@ git commit -m "feat(r2): add essay-submissions routes (typed/photo/pdf, review, 
 - §5.1 (TYPED) → Task 7.
 - §5.2 (PHOTO/PDF with transcription: upload, OCR, free-text-per-page review, confirm) → Tasks 8, 9, 10.
 - §5.3 (PHOTO/PDF without transcription) → Tasks 8, 10 (same code paths, `transcription_enabled=False`).
-- §5.4 (reenvio) → Task 7 (`_supersede_previous`/`EssayResubmissionBlockedError`), wired into the route in Task 11.
+- §5.4 (reenvio) → Task 7 (`_validate_resubmission`/`EssayResubmissionBlockedError`), wired into the route in Task 11. Post-final-review correction: actual supersession is deferred to `confirm_submission` for photo/PDF modes (Task 8/10), so an abandoned resubmission never leaves the essay with zero SUBMITTED versions — see the Global Constraints addendum and the final review's finding #1/#7.
 - §6 (autorização: gerenciar proposta) → Task 6. §6 (autorização: enviar redação, all 4 numbered checks) → Task 11.
 - §7 (armazenamento) → reused unmodified (`MaterialStorage`, Tasks 8/11).
 - §8 (deferred) → nothing in this plan builds `EssayCorrection`, `correction_key()`, or any read/listing route — confirmed absent from every task.
@@ -4145,7 +4359,7 @@ git commit -m "feat(r2): add essay-submissions routes (typed/photo/pdf, review, 
 
 **Placeholder scan** — no "TBD"/"add validation"/"similar to Task N" found; every step has runnable code. The one deliberately open thing (OCR confidence being an approximation, not a real score) is called out explicitly in Global Constraints and in `_tokens_from_logprobs`'s own docstring, not hidden.
 
-**Type consistency** — `EssaySubmissionService` methods and their call sites checked: `start_typed_submission`/`start_photo_submission` both accept `essay_id: uuid.UUID | None = None, correction_mode: str | None = None` and both route through the identically-named `_supersede_previous`; `upload_page`'s `transcription_enabled: bool` parameter name and position match across Task 8's own two callers (`start_photo_submission` doesn't call it directly - only the route and `upload_document` do) and Task 11's route; `EssayPageTranscriptionRequest`/`EssayOcrToken`/`EssayPageTranscriptionResult` field names are identical across Task 3 (definition), Task 8 (`_ocr_page`), and every test double (`_ScriptedTranscriber`, `FakeProvider`). Route response models (`EssaySubmissionResponse`, `EssaySubmissionPageResponse`) list exactly the ORM fields each `_*_to_response` helper reads.
+**Type consistency** — `EssaySubmissionService` methods and their call sites checked: `start_typed_submission`/`start_photo_submission` both accept `essay_id: uuid.UUID | None = None, correction_mode: str | None = None` and both route through the identically-named `_validate_resubmission`; `EssayPageTranscriptionRequest`/`EssayOcrToken`/`EssayPageTranscriptionResult` field names are identical across Task 3 (definition), Task 8 (`_ocr_page`), and every test double (`_ScriptedTranscriber`, `FakeProvider`). Route response models (`EssaySubmissionResponse`, `EssaySubmissionPageResponse`) list exactly the ORM fields each `_*_to_response` helper reads. Post-final-review addendum (see Global Constraints): `upload_page`/`upload_document`/`review_page`/`confirm_submission` no longer take a `transcription_enabled` parameter — it's derived internally from `submission.anchor_mode`, and all four now guard on `submission.status` before doing anything.
 
 ## Execution Handoff
 
