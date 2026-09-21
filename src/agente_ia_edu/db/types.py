@@ -34,6 +34,7 @@ class JSONBCompatible(TypeDecorator):
     - PostgreSQL: Compiles to JSONB
     - SQLite: Compiles to JSON (SQLAlchemy native)
     - The type is seamless to the model layer
+    - None values are preserved as database NULL, not JSON null
     """
 
     impl = JSON
@@ -51,4 +52,22 @@ class JSONBCompatible(TypeDecorator):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(JSONB())
         return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):
+        """Convert Python values for storage in the database.
+
+        Ensures that None (Python's absence of value) stays as None,
+        which becomes database NULL, rather than being converted to
+        JSON null by the underlying JSON type.
+        """
+        if value is None:
+            return None
+        return value
+
+    def process_result_value(self, value, dialect):
+        """Convert database values back to Python.
+
+        Simply return the value as-is since JSON type handles deserialization.
+        """
+        return value
 

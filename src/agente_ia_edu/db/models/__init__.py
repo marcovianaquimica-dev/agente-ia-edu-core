@@ -133,6 +133,7 @@ from .essay_proposal import (
     EssaySubmission,
     EssaySubmissionPage,
 )
+from .essay_correction import EssayCorrection
 
 __all__ = [
     "StudySession",
@@ -226,6 +227,7 @@ __all__ = [
     "PromptAssignment",
     "EssaySubmission",
     "EssaySubmissionPage",
+    "EssayCorrection",
     "Person",
     "User",
     "AcademicYear",
