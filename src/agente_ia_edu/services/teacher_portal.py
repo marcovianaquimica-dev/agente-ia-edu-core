@@ -294,11 +294,16 @@ class TeacherPortalService:
                 classroom_id=classroom_id,
             )
             target_classrooms = [classroom_id]
+            # A single named classroom's roster must not be padded with every
+            # SCHOOL-wide student in the school just because this teacher
+            # also happens to be school-wide authorized.
+            school_wide = False
         else:
             target_classrooms = authorized_classrooms
+            school_wide = await self._resolve_school_wide(teacher_id, school_id)
 
         # 1. Fetch Students in target classrooms
-        student_ids = await self._fetch_students_in_classrooms(school_id, target_classrooms)
+        student_ids = await self._fetch_students_in_classrooms(school_id, target_classrooms, school_wide=school_wide)
 
         # 2. Fetch Masteries for students
         masteries = await self._fetch_masteries_for_students(student_ids)
@@ -437,7 +442,9 @@ class TeacherPortalService:
         """Build classroom summary items (student counts, average mastery, priority contents) for explicit classroom_ids."""
         classroom_items = []
         for cls_id in classroom_ids:
-            student_ids = await self._fetch_students_in_classrooms(school_id, [cls_id])
+            # One specific classroom's card: never pad with SCHOOL-wide
+            # students who aren't actually in this classroom.
+            student_ids = await self._fetch_students_in_classrooms(school_id, [cls_id], school_wide=False)
             masteries = await self._fetch_masteries_for_students(student_ids)
 
             c_avg = (sum(float(m.mastery_score) for m in masteries) / len(masteries)) if masteries else 0.0
@@ -491,7 +498,10 @@ class TeacherPortalService:
             classroom_id=classroom_id,
         )
 
-        student_ids = await self._fetch_students_in_classrooms(school_id, [classroom_id])
+        # This classroom's own roster: SCHOOL-wide students who aren't
+        # actually assigned to classroom_id must not appear here just
+        # because this teacher may also be school-wide authorized.
+        student_ids = await self._fetch_students_in_classrooms(school_id, [classroom_id], school_wide=False)
 
         # Build student roster with individual mastery
         students_payload = []
@@ -671,7 +681,15 @@ class TeacherPortalService:
     ) -> list[dict[str, Any]]:
         """Searches students by ID/name STRICTLY within teacher's authorized classrooms."""
         classrooms = await self.get_teacher_authorized_classrooms(teacher_id, school_id)
-        all_students = await self._fetch_students_in_classrooms(school_id, classrooms)
+        # This IS the teacher's own full authorized scope (not one narrowed
+        # classroom), so a genuinely school-wide teacher's search legitimately
+        # includes SCHOOL/PLATFORM-scoped students - but only a genuinely
+        # school-wide teacher, not just anyone with a non-empty classroom list
+        # (a CLASSROOM-scoped teacher must not see every SCHOOL-wide student
+        # in the school through search, even though verify_student_access
+        # would correctly deny them one-by-one for that exact same student).
+        school_wide = await self._resolve_school_wide(teacher_id, school_id)
+        all_students = await self._fetch_students_in_classrooms(school_id, classrooms, school_wide=school_wide)
 
         q_clean = query.strip().lower()
         matched_students = [sid for sid in all_students if q_clean in sid.lower()]
@@ -699,28 +717,53 @@ class TeacherPortalService:
         self,
         school_id: uuid.UUID,
         classrooms: list[str],
+        *,
+        school_wide: bool,
     ) -> list[str]:
-        """Fetch student IDs bound to classrooms in school; empty classrooms yields empty list."""
+        """Fetch student IDs bound to classrooms in school; empty classrooms yields empty list.
+
+        school_wide (required, no default - every caller must decide): whether
+        SCHOOL/PLATFORM-scoped students (not tied to any one classroom) should
+        be included alongside classroom-matched ones. True only when
+        `classrooms` represents the asker's OWN full authorized scope (e.g.
+        search_students_in_scope's whole search space, or a genuinely
+        school-wide teacher's/coordinator's overview) - the same "no real
+        relationship = deny" gate verify_student_access already applies via
+        _teacher_is_school_wide_authorized. False for any single-classroom or
+        explicit-subset query (a classroom roster/card, a side-by-side
+        classroom comparison): a specific classroom's roster must not be
+        padded with every SCHOOL-wide student in the school just because
+        `classrooms` happened to be non-empty - that was the actual bug
+        (verify_student_access denied a school-wide-scoped student to a
+        narrowly classroom-scoped teacher, but this function still handed
+        that exact student back through any classroom-roster/search listing).
+        """
         # Empty classrooms means the caller has zero real authorization in school_id —
         # the SCHOOL-scope leg below must not match anyway, or an unauthorized caller
         # could still read every SCHOOL-scoped student in the school.
         if not classrooms:
             return []
+        conditions = [UserSchoolLink.scope_external_id.in_(classrooms)]
+        if school_wide:
+            conditions.append(UserSchoolLink.scope_type.in_((AdminScopeType.SCHOOL, AdminScopeType.PLATFORM)))
         stmt = (
             select(UserSchoolLink.external_user_id)
             .where(
                 UserSchoolLink.school_id == school_id,
                 UserSchoolLink.role == AdminRole.STUDENT,
                 UserSchoolLink.active.is_(True),
-                or_(
-                    UserSchoolLink.scope_external_id.in_(classrooms),
-                    UserSchoolLink.scope_type.in_((AdminScopeType.SCHOOL, AdminScopeType.PLATFORM)),
-                ),
+                or_(*conditions),
             )
             .distinct()
         )
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+    async def _resolve_school_wide(self, teacher_id: str, school_id: uuid.UUID) -> bool:
+        """Async wrapper around _teacher_is_school_wide_authorized for callers
+        that only have teacher_id/school_id, not an already-fetched links list."""
+        links = await self.admin_service.get_user_active_links(teacher_id)
+        return self._teacher_is_school_wide_authorized(links, school_id)
 
     async def _fetch_masteries_for_students(self, student_ids: list[str]) -> list[StudentContentMastery]:
         if not student_ids:

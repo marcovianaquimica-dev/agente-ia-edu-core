@@ -411,7 +411,7 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
             portal = TeacherPortalService(session, None, None, None)
-            students = await portal._fetch_students_in_classrooms(school_b.id, [])
+            students = await portal._fetch_students_in_classrooms(school_b.id, [], school_wide=False)
 
         self.assertEqual(students, [])
 
@@ -564,14 +564,15 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
             portal = TeacherPortalService(session, None, None, None)
-            students = await portal._fetch_students_in_classrooms(school_a.id, [])
+            students = await portal._fetch_students_in_classrooms(school_a.id, [], school_wide=False)
 
         self.assertEqual(students, [])
 
     async def test_fetch_students_in_classrooms_allows_school_scoped_student_for_teacher_with_classroom(self):
-        """A teacher with a real, non-empty classroom list must still see
-        SCHOOL-scoped students alongside their own classroom's - the SCHOOL
-        leg is gated on 'classrooms is non-empty', not removed."""
+        """A genuinely school-wide caller (school_wide=True) with a real,
+        non-empty classroom list must still see SCHOOL-scoped students
+        alongside their own classroom's - the SCHOOL leg is gated on
+        school_wide AND classrooms being non-empty, not on either alone."""
         async with self.session_factory() as session:
             admin_service = PlatformAdminService(session)
             school_a = School(id=uuid4(), code="SCH_SCOPE_E", name="Escola E Scope")
@@ -588,14 +589,17 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
             portal = TeacherPortalService(session, None, None, None)
-            students = await portal._fetch_students_in_classrooms(school_a.id, ["TURMA_E1"])
+            students = await portal._fetch_students_in_classrooms(
+                school_a.id, ["TURMA_E1"], school_wide=True,
+            )
 
         self.assertEqual(students, ["student-school-scoped-e"])
 
     async def test_fetch_students_in_classrooms_includes_platform_scoped_student(self):
         """verify_student_access already authorizes a teacher to see a
         PLATFORM-scoped student (same as SCHOOL-scoped); the aggregate query
-        must include them too, not just the individual-lookup path."""
+        must include them too, not just the individual-lookup path - when
+        the caller is genuinely school_wide."""
         async with self.session_factory() as session:
             admin_service = PlatformAdminService(session)
             school_a = School(id=uuid4(), code="SCH_SCOPE_F", name="Escola F Scope")
@@ -612,9 +616,40 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
             portal = TeacherPortalService(session, None, None, None)
-            students = await portal._fetch_students_in_classrooms(school_a.id, ["TURMA_F1"])
+            students = await portal._fetch_students_in_classrooms(
+                school_a.id, ["TURMA_F1"], school_wide=True,
+            )
 
         self.assertEqual(students, ["student-platform-scoped-f"])
+
+    async def test_fetch_students_in_classrooms_excludes_school_scoped_student_when_not_school_wide(self):
+        """The actual regression this onda fixes: a CLASSROOM-scoped teacher
+        (school_wide=False) with a real, non-empty classroom list must NOT
+        see SCHOOL-scoped students who aren't in that classroom -
+        verify_student_access already denies them this exact student
+        one-by-one; the aggregate/roster/search path must agree, not leak
+        them back in just because the classroom list was non-empty."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school_a = School(id=uuid4(), code="SCH_SCOPE_G", name="Escola G Scope")
+            session.add(school_a)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="student-school-scoped-g",
+                role=AdminRole.STUDENT,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school_a.id,
+            )
+            await session.commit()
+
+            portal = TeacherPortalService(session, None, None, None)
+            students = await portal._fetch_students_in_classrooms(
+                school_a.id, ["TURMA_G1"], school_wide=False,
+            )
+
+        self.assertEqual(students, [])
 
 
 if __name__ == "__main__":
