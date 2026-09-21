@@ -248,6 +248,33 @@ class EssaySubmissionService:
         await self.session.flush()
         return page
 
+    async def confirm_submission(self, essay_submission_id: uuid.UUID) -> EssaySubmission:
+        submission = await self.session.get(EssaySubmission, essay_submission_id)
+        if submission is None:
+            raise ValueError(f"EssaySubmission not found: {essay_submission_id}")
+
+        pages = await self.list_pages(essay_submission_id)
+        if not pages:
+            raise ValueError(f"EssaySubmission {essay_submission_id} has no pages to confirm")
+
+        if submission.anchor_mode == "TEXT_OFFSET":
+            missing = [p.page_number for p in pages if p.reviewed_text is None]
+            if missing:
+                raise ValueError(
+                    f"Pages not yet reviewed: {missing} - every page needs reviewed_text "
+                    "before a transcribed submission can be confirmed"
+                )
+            full_text = "\n\n".join(p.reviewed_text for p in pages)
+            submission.canonical_text = normalize_essay_text(full_text)
+            submission.normalized_text_hash = essay_text_hash(full_text)
+        # anchor_mode == "IMAGE_REGION": no transcription ran, canonical_text/
+        # normalized_text_hash stay NULL - spec §5.3's documented consequence.
+
+        submission.status = "SUBMITTED"
+        submission.submitted_at = _utcnow()
+        await self.session.flush()
+        return submission
+
 
 def _guess_mime(path: Path) -> str:
     guessed, _ = mimetypes.guess_type(str(path))
