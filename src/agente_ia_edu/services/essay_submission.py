@@ -13,14 +13,18 @@ database can't express as a CHECK constraint.
 
 from __future__ import annotations
 
+import mimetypes
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import EssaySubmission
+from ..db.models import EssaySubmission, EssaySubmissionPage
 from ..providers.contracts import EssayTranscriptionProvider
+from ..providers.factory import build_essay_transcriber
+from ..providers.models import EssayPageTranscriptionRequest
 from .essay_correction_key import essay_text_hash, normalize_essay_text
 from .material_storage import MaterialStorage
 
@@ -96,6 +100,133 @@ class EssaySubmissionService:
         previous.status = "SUPERSEDED"
         await self.session.flush()
         return previous
+
+    async def start_photo_submission(
+        self,
+        *,
+        school_id: uuid.UUID,
+        prompt_assignment_id: uuid.UUID,
+        student_id: uuid.UUID,
+        mode: str,
+        transcription_enabled: bool,
+        essay_id: uuid.UUID | None = None,
+        correction_mode: str | None = None,
+    ) -> EssaySubmission:
+        if mode not in ("PHOTO", "PDF"):
+            raise ValueError(f"start_photo_submission requires mode PHOTO or PDF, got {mode!r}")
+        if essay_id is not None:
+            await self._supersede_previous(essay_id, correction_mode=correction_mode or "FORMATIVO")
+
+        submission = EssaySubmission(
+            id=uuid.uuid4(),
+            essay_id=essay_id or uuid.uuid4(),
+            school_id=school_id,
+            prompt_assignment_id=prompt_assignment_id,
+            student_id=student_id,
+            mode=mode,
+            anchor_mode="TEXT_OFFSET" if transcription_enabled else "IMAGE_REGION",
+            status="PENDING_TRANSCRIPTION",
+        )
+        self.session.add(submission)
+        await self.session.flush()
+        return submission
+
+    async def upload_page(
+        self,
+        *,
+        essay_submission_id: uuid.UUID,
+        page_number: int,
+        source_path: Path,
+        transcription_enabled: bool,
+    ) -> EssaySubmissionPage:
+        dest, _digest = self._storage.store(source_path)
+
+        existing = await self.session.scalar(
+            select(EssaySubmissionPage).where(
+                EssaySubmissionPage.essay_submission_id == essay_submission_id,
+                EssaySubmissionPage.page_number == page_number,
+            )
+        )
+        if existing is not None:
+            existing.storage_uri = str(dest)
+            existing.ocr_tokens = None
+            existing.reviewed_text = None
+            page = existing
+        else:
+            page = EssaySubmissionPage(
+                id=uuid.uuid4(),
+                essay_submission_id=essay_submission_id,
+                page_number=page_number,
+                storage_uri=str(dest),
+            )
+            self.session.add(page)
+        await self.session.flush()
+
+        if transcription_enabled:
+            await self._ocr_page(page, dest)
+            submission = await self.session.get(EssaySubmission, essay_submission_id)
+            submission.status = "PENDING_CONFIRMATION"
+            await self.session.flush()
+        return page
+
+    async def upload_document(
+        self,
+        *,
+        essay_submission_id: uuid.UUID,
+        source_path: Path,
+        transcription_enabled: bool,
+    ) -> list[EssaySubmissionPage]:
+        """PDF mode: split ``source_path`` into one page-image per PDF page
+        and upload each through the same path :meth:`upload_page` uses."""
+        page_image_paths = self._split_pdf_pages(source_path)
+        pages = []
+        for index, image_path in enumerate(page_image_paths, start=1):
+            page = await self.upload_page(
+                essay_submission_id=essay_submission_id, page_number=index,
+                source_path=image_path, transcription_enabled=transcription_enabled,
+            )
+            pages.append(page)
+        return pages
+
+    async def _ocr_page(self, page: EssaySubmissionPage, image_path: Path) -> None:
+        result = await self._get_transcriber().transcribe_page(
+            EssayPageTranscriptionRequest(image_path=image_path, mime_type=_guess_mime(image_path))
+        )
+        page.ocr_tokens = [
+            {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
+            for t in result.tokens
+        ]
+
+    def _get_transcriber(self) -> EssayTranscriptionProvider:
+        if self._transcriber is None:
+            self._transcriber = build_essay_transcriber()
+        return self._transcriber
+
+    @staticmethod
+    def _split_pdf_pages(pdf_path: Path) -> list[Path]:
+        try:
+            import pymupdf as _mu
+        except ImportError:
+            import fitz as _mu  # type: ignore
+
+        dest_dir = pdf_path.parent / f"{pdf_path.stem}_pages"
+        dest_dir.mkdir(exist_ok=True)
+        doc = _mu.open(str(pdf_path))
+        try:
+            paths = []
+            for index in range(len(doc)):
+                pix = doc[index].get_pixmap(dpi=200)
+                page_path = dest_dir / f"page_{index + 1}.png"
+                pix.save(str(page_path))
+                paths.append(page_path)
+            return paths
+        finally:
+            doc.close()
+
+
+def _guess_mime(path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or "application/octet-stream"
 
 
 __all__ = ["EssayResubmissionBlockedError", "EssaySubmissionService"]
