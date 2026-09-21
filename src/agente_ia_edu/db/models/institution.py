@@ -128,6 +128,11 @@ class SchoolSetting(Base):
         Boolean, nullable=False, default=False
     )
     validation_threshold_points: Mapped[int | None] = mapped_column(Integer)
+    # R2: whether photo/PDF submissions get OCR transcription for this school.
+    # Explicit opt-in (default False) - see this plan's Global Constraints.
+    transcription_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     current_identity_version_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(
