@@ -1588,7 +1588,8 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
                 created_by_external_identity="teacher:p2",
             )
             material = await svc.add_material(
-                essay_prompt_id=prompt.id, material_type="TEXT", content="Apoio.", position=0,
+                school_id=school.id, essay_prompt_id=prompt.id,
+                material_type="TEXT", content="Apoio.", position=0,
             )
             self.assertEqual(material.material_type, "TEXT")
 
@@ -1598,7 +1599,8 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
             )
             with self.assertRaises(ValueError):
                 await svc.add_material(
-                    essay_prompt_id=prompt.id, material_type="TEXT", content="Tarde demais.", position=1,
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content="Tarde demais.", position=1,
                 )
 
     async def test_add_material_rejects_type_content_mismatch(self):
@@ -1611,11 +1613,28 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
             )
             with self.assertRaises(ValueError):
                 await svc.add_material(
-                    essay_prompt_id=prompt.id, material_type="TEXT", content=None, position=0,
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content=None, position=0,
                 )
             with self.assertRaises(ValueError):
                 await svc.add_material(
-                    essay_prompt_id=prompt.id, material_type="IMAGE", storage_uri=None, position=0,
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="IMAGE", storage_uri=None, position=0,
+                )
+
+    async def test_add_material_rejects_foreign_school(self):
+        async with self.session_factory() as session:
+            school_a, _ = await self._school_and_class(session, "3a")
+            school_b, _ = await self._school_and_class(session, "3b")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school_a.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p3a",
+            )
+            with self.assertRaises(ValueError):
+                await svc.add_material(
+                    school_id=school_b.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content="Invasao.", position=0,
                 )
 
     async def test_create_assignment_activates_prompt_and_rejects_foreign_class(self):
@@ -1714,6 +1733,7 @@ class EssayProposalService:
     async def add_material(
         self,
         *,
+        school_id: uuid.UUID,
         essay_prompt_id: uuid.UUID,
         material_type: str,
         position: int,
@@ -1721,8 +1741,8 @@ class EssayProposalService:
         storage_uri: str | None = None,
     ) -> PromptMaterial:
         prompt = await self.session.get(EssayPrompt, essay_prompt_id)
-        if prompt is None:
-            raise ValueError(f"EssayPrompt not found: {essay_prompt_id}")
+        if prompt is None or prompt.school_id != school_id:
+            raise ValueError(f"EssayPrompt not found in school {school_id}: {essay_prompt_id}")
         if prompt.status != "DRAFT":
             raise ValueError(
                 f"EssayPrompt {essay_prompt_id} is {prompt.status}, not DRAFT - "
@@ -1970,6 +1990,7 @@ the same role set catalog.py's create_material/create_resource already use.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -2018,7 +2039,7 @@ class PromptMaterialResponse(BaseModel):
 
 class PromptAssignmentCreateRequest(BaseModel):
     class_id: UUID
-    due_at: Optional[str] = None
+    due_at: Optional[datetime] = None
     validation_enabled: bool = True
 
 
@@ -2084,10 +2105,11 @@ async def add_prompt_material(
     session_factory=Depends(get_session_factory),
 ) -> PromptMaterialResponse:
     async with session_factory() as session:
-        _school_id = await _authorize(identity, session)
+        school_id = await _authorize(identity, session)
         service = EssayProposalService(session)
         try:
             material = await service.add_material(
+                school_id=school_id,
                 essay_prompt_id=essay_prompt_id,
                 material_type=request.material_type,
                 content=request.content,
@@ -2122,6 +2144,7 @@ async def create_prompt_assignment(
                 essay_prompt_id=essay_prompt_id,
                 class_id=request.class_id,
                 assigned_by_external_identity=identity.external_user_id,
+                due_at=request.due_at,
                 validation_enabled=request.validation_enabled,
             )
         except ValueError as exc:
