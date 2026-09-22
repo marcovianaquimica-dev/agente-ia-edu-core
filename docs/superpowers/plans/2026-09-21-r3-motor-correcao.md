@@ -854,7 +854,9 @@ In `src/agente_ia_edu/services/essay_submission.py`, replace the body of `upload
 
 ```python
         dest, _digest = self._storage.store(source_path)
-        width, height = self._measure_page_image(dest)
+        # Offloaded like _split_pdf_pages: decoding is CPU-bound, same
+        # reasoning as the PDF-rasterization call a few lines below.
+        width, height = await asyncio.to_thread(self._measure_page_image, dest)
 
         existing = await self.session.scalar(
             select(EssaySubmissionPage).where(
@@ -889,13 +891,28 @@ Then add this staticmethod right after `_split_pdf_pages` (same class, so it sha
         """Pixel dimensions of an already-stored page image, via pymupdf -
         never Pillow (see this plan's Global Constraints). Needed so R3 can
         validate IMAGE_REGION annotations against real page bounds instead
-        of leaving width/height permanently NULL, as R2 did."""
+        of leaving width/height permanently NULL, as R2 did.
+
+        pymupdf raises its own exception type (not ValueError) on bytes it
+        can't decode - a truncated upload, a mis-encoded scan, a renamed
+        file whose extension lies about its content. upload_page's caller
+        (the route) only catches ValueError; left unconverted, an
+        undecodable image would escape as an unhandled 500 instead of the
+        422 every other upload-validation failure in this route produces.
+        This was found as a real regression during R3's final whole-branch
+        review, not caught by any task-scoped review - a lesson for the
+        next Global Constraint scan: an out-of-repo library's own exception
+        type crossing an in-repo error-handling boundary is exactly the
+        kind of cross-task seam a scoped review can't see."""
         try:
             import pymupdf as _mu
         except ImportError:
             import fitz as _mu  # type: ignore
 
-        pix = _mu.Pixmap(str(image_path))
+        try:
+            pix = _mu.Pixmap(str(image_path))
+        except Exception as exc:
+            raise ValueError(f"{image_path.name} is not a readable image file") from exc
         return float(pix.width), float(pix.height)
 ```
 
@@ -1142,8 +1159,8 @@ _RULES_COMMON = (
 
 _RULES_TEXT_OFFSET = (
     "ANCHOR_RULES: cada annotation com evidence_kind=LOCALIZED usa um "
-    "anchor {{\"type\": \"TEXT_OFFSET\", \"start\": int, \"end\": int, "
-    "\"quote\": string}}: start e end sao indices de caractere dentro de "
+    "anchor {\"type\": \"TEXT_OFFSET\", \"start\": int, \"end\": int, "
+    "\"quote\": string}: start e end sao indices de caractere dentro de "
     "TEXT (0-based, end exclusivo), e quote deve ser EXATAMENTE igual a "
     "TEXT[start:end], caractere por caractere."
 )
@@ -1907,6 +1924,16 @@ class EssayCorrectionService:
             return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
         except json.JSONDecodeError as exc:
             return {**failure_fields, "failure_reason": f"Model returned invalid JSON: {exc}"}
+        except ValueError as exc:
+            # Catches _call_image_provider's own precondition ValueErrors
+            # (no pages, or a page with no recorded width/height - reachable
+            # for real: any IMAGE_REGION submission confirmed before Task 3
+            # shipped has NULL dimensions forever, "normal operation, bad
+            # legacy data" rather than a bug). _run_ai must never let an
+            # exception escape for an AI-side or data-side failure - only a
+            # genuine precondition violation in correct()/retry() themselves
+            # (submission not found, wrong status) may still raise.
+            return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
 
         identification = {
             "essay_id": str(submission.essay_id),
@@ -1918,7 +1945,12 @@ class EssayCorrectionService:
             "contract_version": CONTRACT_VERSION,
             "anchor_mode": submission.anchor_mode,
         }
-        full_payload = {"identification": identification, **raw_payload}
+        # raw_payload last: a dict literal's later key wins, so this order
+        # guarantees the service-built identification always overrides
+        # anything the model returned under that key - the AI's content is
+        # untrusted, and identification (essay_id, essay_version_id, every
+        # version string) must never be forgeable by the model's own output.
+        full_payload = {**raw_payload, "identification": identification}
 
         try:
             output = validate_engine_output_from_payload(

@@ -114,7 +114,7 @@ redação, via reenvio de R2, gera sua própria correção quando confirmada).
 | `id` | UUID PK | |
 | `school_id` | UUID | cópia de `EssaySubmission.school_id`, sempre derivada no serviço (nunca do cliente) — sem FK composta, já que `EssaySubmission` não tem `UniqueConstraint(school_id, id)` (é filho único de seu próprio pai em R2, mesmo padrão de `PromptMaterial`/`EssaySubmissionPage`); existe só para consultas diretas ("todas as correções pendentes desta escola") sem precisar de join |
 | `essay_submission_id` | UUID FK → `EssaySubmission`, único | uma correção por submissão |
-| `correction_key` | string(64), único | `correction_key()` de R1 — guardado para auditoria/reprodutibilidade (não para dedup entre submissões, ver §8) |
+| `correction_key` | string(64), nullable, **não único** | `correction_key()` de R1 — guardado para auditoria/reprodutibilidade (não para dedup entre submissões, ver §8: uma constraint `UNIQUE` aqui quebraria exatamente o caso que §2 já declara fora de escopo — dois alunos diferentes submetendo o mesmo texto para a mesma proposta faria o segundo `INSERT` falhar com `IntegrityError`). Nullable porque uma falha antes de qualquer resposta do modelo (timeout de provider, rubrica que falhou ao carregar) ainda precisa de uma linha `NEEDS_REVIEW`, sem chave calculada ainda |
 | `rubric_version` | string | `EssayRubric.rubric_version` usado ("ENEM_2025") |
 | `model_version` | string | modelo de IA de fato usado, vindo de `TextGenerationResult.model` — nunca um valor fixo, reflete o que realmente rodou |
 | `prompt_version` | string | versão do artefato em `essay_prompts/v1.py` ("essay_correction_v1") |
