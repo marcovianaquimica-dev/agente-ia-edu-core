@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Class, EssayPrompt, PromptAssignment, PromptMaterial
+from .institution_settings import InstitutionSettingsService
 
 
 def _utcnow() -> datetime:
@@ -107,6 +108,15 @@ class EssayProposalService:
         klass = await self.session.get(Class, class_id)
         if klass is None or klass.school_id != school_id:
             raise ValueError(f"Class not found in school {school_id}: {class_id}")
+
+        if not validation_enabled:
+            settings = await InstitutionSettingsService(self.session).get_settings(school_id)
+            if not settings.validation_teacher_can_disable:
+                raise ValueError(
+                    "This school does not allow disabling teacher review per "
+                    "proposal (validation_teacher_can_disable=False) - "
+                    "validation_enabled must stay True."
+                )
 
         assignment = PromptAssignment(
             id=uuid.uuid4(),

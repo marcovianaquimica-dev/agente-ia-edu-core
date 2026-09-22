@@ -175,6 +175,8 @@ class EssaySubmissionService:
         transcription_enabled = submission.anchor_mode == "TEXT_OFFSET"
 
         dest, _digest = self._storage.store(source_path)
+        # Offloaded like _split_pdf_pages below - image decoding is CPU-bound.
+        width, height = await asyncio.to_thread(self._measure_page_image, dest)
 
         existing = await self.session.scalar(
             select(EssaySubmissionPage).where(
@@ -184,6 +186,8 @@ class EssaySubmissionService:
         )
         if existing is not None:
             existing.storage_uri = str(dest)
+            existing.width = width
+            existing.height = height
             existing.ocr_tokens = None
             existing.reviewed_text = None
             page = existing
@@ -193,6 +197,8 @@ class EssaySubmissionService:
                 essay_submission_id=essay_submission_id,
                 page_number=page_number,
                 storage_uri=str(dest),
+                width=width,
+                height=height,
             )
             self.session.add(page)
         await self.session.flush()
@@ -262,6 +268,28 @@ class EssaySubmissionService:
             return paths
         finally:
             doc.close()
+
+    @staticmethod
+    def _measure_page_image(image_path: Path) -> tuple[float, float]:
+        """Pixel dimensions of an already-stored page image, via pymupdf -
+        never Pillow (see this plan's Global Constraints). Needed so R3 can
+        validate IMAGE_REGION annotations against real page bounds instead
+        of leaving width/height permanently NULL, as R2 did."""
+        try:
+            import pymupdf as _mu
+        except ImportError:
+            import fitz as _mu  # type: ignore
+
+        try:
+            pix = _mu.Pixmap(str(image_path))
+        except Exception as exc:
+            # pymupdf raises its own exception hierarchy (e.g.
+            # pymupdf.mupdf.FzErrorFormat), not ValueError, for an
+            # undecodable image - normalize it so callers that only catch
+            # ValueError (the route layer) still get a handled 422 instead
+            # of an unhandled 500.
+            raise ValueError(f"{image_path.name} is not a readable image file") from exc
+        return float(pix.width), float(pix.height)
 
     async def list_pages(self, essay_submission_id: uuid.UUID) -> list[EssaySubmissionPage]:
         result = await self.session.execute(

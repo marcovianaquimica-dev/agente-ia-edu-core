@@ -3,6 +3,7 @@ from typing import Protocol, runtime_checkable
 from .models import (
     EmbeddingRequest,
     EmbeddingResult,
+    EssayImageCorrectionRequest,
     EssayPageTranscriptionRequest,
     EssayPageTranscriptionResult,
     TextGenerationRequest,
@@ -29,3 +30,13 @@ class EssayTranscriptionProvider(Protocol):
     ) -> EssayPageTranscriptionResult:
         """Transcribe one essay page image into raw, unedited text tokens -
         never suggesting spelling/grammar correction."""
+
+
+@runtime_checkable
+class EssayImageCorrectionProvider(Protocol):
+    async def correct_from_images(
+        self, request: EssayImageCorrectionRequest
+    ) -> TextGenerationResult:
+        """Produce a correction JSON response (matching essay_engine_contract.v1's
+        RESPONSE_SCHEMA, sans identification) from one or more ordered essay
+        page images, for a submission with no canonical text."""

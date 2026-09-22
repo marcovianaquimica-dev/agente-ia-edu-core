@@ -26,6 +26,7 @@ from ...db.models import EssaySubmission, EssaySubmissionPage, PromptAssignment
 from ...identity import ExternalIdentityContext
 from ...services.admin import PlatformModuleKey
 from ...services.authorization import AuthorizationService
+from ...services.essay_correction import EssayCorrectionService
 from ...services.essay_submission import EssayResubmissionBlockedError, EssaySubmissionService
 from ...services.institution_settings import InstitutionSettingsService
 from ...services.student_enrollment_resolution import resolve_active_enrollment
@@ -219,6 +220,9 @@ async def create_essay_submission(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+        if submission.status == "SUBMITTED":
+            await EssayCorrectionService(session).correct(submission.id)
+
         await session.commit()
         return _submission_to_response(submission)
 
@@ -411,5 +415,8 @@ async def confirm_essay_submission(
             confirmed = await service.confirm_submission(submission.id)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        await EssayCorrectionService(session).correct(confirmed.id)
+
         await session.commit()
         return _submission_to_response(confirmed)

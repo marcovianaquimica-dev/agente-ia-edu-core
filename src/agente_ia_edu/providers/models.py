@@ -60,3 +60,16 @@ class EssayPageTranscriptionResult:
     tokens: tuple[EssayOcrToken, ...]
     provider: str
     model: str
+
+
+@dataclass(frozen=True)
+class EssayImageCorrectionRequest:
+    """One or more ordered page images plus the fully-assembled correction
+    prompt text. Unlike EssayPageTranscriptionRequest (always exactly one
+    page), a correction call sees the whole essay - every page - at once,
+    since annotations may reference structure spanning pages."""
+
+    image_paths: tuple[Path, ...]
+    mime_type: str
+    prompt: str
+    model: str | None = None
