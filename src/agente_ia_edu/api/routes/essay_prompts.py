@@ -14,10 +14,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayPrompt
+from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_proposal import EssayProposalService
@@ -191,4 +192,73 @@ async def create_prompt_assignment(
             id=assignment.id, school_id=assignment.school_id,
             essay_prompt_id=assignment.essay_prompt_id, class_id=assignment.class_id,
             status=assignment.status, validation_enabled=assignment.validation_enabled,
+        )
+
+
+class EssayPromptDetailResponse(EssayPromptResponse):
+    materials: list[PromptMaterialResponse]
+    assignments: list[PromptAssignmentResponse]
+
+
+@essay_prompts_router.get("", response_model=list[EssayPromptResponse])
+async def list_essay_prompts(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[EssayPromptResponse]:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        result = await session.execute(
+            select(EssayPrompt)
+            .where(EssayPrompt.school_id == school_id)
+            .order_by(EssayPrompt.created_at.desc())
+        )
+        return [
+            EssayPromptResponse(
+                id=p.id, school_id=p.school_id, title=p.title,
+                statement=p.statement, year=p.year, status=p.status,
+            )
+            for p in result.scalars().all()
+        ]
+
+
+@essay_prompts_router.get("/{essay_prompt_id}", response_model=EssayPromptDetailResponse)
+async def get_essay_prompt_detail(
+    essay_prompt_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayPromptDetailResponse:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        prompt = await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        materials = (
+            await session.execute(
+                select(PromptMaterial)
+                .where(PromptMaterial.essay_prompt_id == prompt.id)
+                .order_by(PromptMaterial.position)
+            )
+        ).scalars().all()
+        assignments = (
+            await session.execute(
+                select(PromptAssignment).where(PromptAssignment.essay_prompt_id == prompt.id)
+            )
+        ).scalars().all()
+        return EssayPromptDetailResponse(
+            id=prompt.id, school_id=prompt.school_id, title=prompt.title,
+            statement=prompt.statement, year=prompt.year, status=prompt.status,
+            materials=[
+                PromptMaterialResponse(
+                    id=m.id, essay_prompt_id=m.essay_prompt_id, material_type=m.material_type,
+                    content=m.content, storage_uri=m.storage_uri, position=m.position,
+                )
+                for m in materials
+            ],
+            assignments=[
+                PromptAssignmentResponse(
+                    id=a.id, school_id=a.school_id, essay_prompt_id=a.essay_prompt_id,
+                    class_id=a.class_id, status=a.status, validation_enabled=a.validation_enabled,
+                )
+                for a in assignments
+            ],
         )
