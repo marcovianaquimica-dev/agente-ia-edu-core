@@ -22,6 +22,7 @@ already corrected) raises, from correct()/retry() themselves.
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -55,6 +56,8 @@ from .essay_engine_validation import (
     validate_engine_output_from_payload,
 )
 from .institution_settings import InstitutionSettingsService
+
+logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v1"
 _PROMPT_VERSION = "essay_correction_v1"
@@ -300,6 +303,12 @@ class EssayCorrectionService:
 
         assignment = await self.session.get(PromptAssignment, submission.prompt_assignment_id)
         total = (correction.final_scores or {}).get("total")
+        if total is None:
+            # AVALIATIVO must never auto-publish without a grade - a null
+            # score is either a malformed AI response or a real edge case,
+            # either way it needs a human, not a silent auto-approval.
+            correction.status = "PENDING_REVIEW"
+            return
         needs_review = _requires_teacher_review(
             total_score=total,
             validation_threshold_points=settings.validation_threshold_points,
@@ -321,7 +330,26 @@ class EssayCorrectionService:
         correction.reviewed_by_external_identity = None
 
     async def _run_ai(self, submission: EssaySubmission) -> dict:
-        rubric_file = load_rubric_file(_RUBRIC_FILE_NAME)
+        try:
+            rubric_file = load_rubric_file(_RUBRIC_FILE_NAME)
+        except Exception as exc:
+            # load_rubric_file's own failure mode (a packaged rubric YAML
+            # going missing or becoming malformed - low probability, but
+            # this module's docstring promises every AI/data-side failure
+            # becomes NEEDS_REVIEW, never an escaped exception). rubric_version
+            # is NOT NULL on EssayCorrection and the real value is exactly
+            # what failed to load, so "unknown" is the only honest placeholder.
+            logger.warning(
+                "essay correction for submission %s: failed to load rubric file %r: %s",
+                submission.id, _RUBRIC_FILE_NAME, exc,
+            )
+            return {
+                "correction_key": None, "rubric_version": "unknown",
+                "model_version": None, "prompt_version": _PROMPT_VERSION,
+                "engine_version": _ENGINE_VERSION, "ai_output": None,
+                "final_scores": None, "final_feedback": None,
+                "failure_reason": f"Failed to load rubric file {_RUBRIC_FILE_NAME!r}: {exc}",
+            }
         rubric_version = rubric_file.rubric_version
         failure_fields = {
             "correction_key": None, "rubric_version": rubric_version,
@@ -332,6 +360,10 @@ class EssayCorrectionService:
         try:
             rubric_view = await load_rubric_view(self.session, rubric_version)
         except (ValueError, RubricHasNoLevelsError) as exc:
+            logger.warning(
+                "essay correction for submission %s: failed to load rubric view %s: %s",
+                submission.id, rubric_version, exc,
+            )
             return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
 
         assignment = await self.session.get(PromptAssignment, submission.prompt_assignment_id)
@@ -363,10 +395,22 @@ class EssayCorrectionService:
                     )
                 )
         except ProviderError as exc:
+            logger.warning(
+                "essay correction for submission %s: provider error: %s",
+                submission.id, exc,
+            )
             return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
         except json.JSONDecodeError as exc:
+            logger.warning(
+                "essay correction for submission %s: model returned invalid JSON: %s",
+                submission.id, exc,
+            )
             return {**failure_fields, "failure_reason": f"Model returned invalid JSON: {exc}"}
         except ValueError as exc:
+            logger.warning(
+                "essay correction for submission %s: %s: %s",
+                submission.id, type(exc).__name__, exc,
+            )
             return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
 
         identification = {
@@ -387,9 +431,15 @@ class EssayCorrectionService:
                 raw_output=raw_payload, input_hash=input_hash,
             )
         except EssayEngineOutputRejected as exc:
+            # str(exc) already carries "{reason_code}: {message}" - see
+            # EssayEngineOutputRejected.__init__ in essay_engine_validation.py.
+            logger.warning(
+                "essay correction for submission %s: engine output rejected: %s",
+                submission.id, exc,
+            )
             return {
                 **failure_fields, "model_version": model_version,
-                "failure_reason": f"{exc.reason_code}: {exc}",
+                "failure_reason": f"{exc}",
             }
 
         key = compute_correction_key(

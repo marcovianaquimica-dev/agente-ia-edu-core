@@ -437,6 +437,73 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                 correction.ai_output["identification"]["model_version"], "gpt-test"
             )
 
+    async def test_avaliativo_with_null_scores_and_validation_disabled_forces_review(self):
+        """Regression: AVALIATIVO's own prompt asks for a full grade, but
+        nothing stops a malformed AI response from returning scores=null
+        anyway. With validation_enabled=False and no threshold configured,
+        _apply_review_policy must never auto-publish a graded-mode
+        correction with no grade - that would be silent wrong data no human
+        ever reviews."""
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "16", correction_mode="AVALIATIVO", validation_enabled=False,
+            )
+            payload = _happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text, include_scores=False,
+            )
+            provider = _StubTextProvider(text=payload)
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "PENDING_REVIEW")
+            self.assertIsNone(correction.final_scores)
+            self.assertIsNone(correction.published_at)
+            self.assertIsNone(correction.reviewed_at)
+
+    async def test_engine_output_rejected_failure_reason_is_not_doubled(self):
+        """Regression: EssayEngineOutputRejected.__str__ already prefixes the
+        message with "{reason_code}: {message}", so failure_reason must not
+        prepend exc.reason_code a second time (which produced e.g.
+        "QUOTE_DOES_NOT_MATCH_TEXT: QUOTE_DOES_NOT_MATCH_TEXT: ...")."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "17", correction_mode="FORMATIVO")
+            bad_payload = _happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                quote_override="isto nao esta no texto original",
+            )
+            provider = _StubTextProvider(text=bad_payload)
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIn("QUOTE_DOES_NOT_MATCH_TEXT", correction.failure_reason)
+            self.assertEqual(
+                correction.failure_reason.count("QUOTE_DOES_NOT_MATCH_TEXT"), 1
+            )
+
+    async def test_rubric_file_load_failure_becomes_needs_review_not_raised(self):
+        """Regression: load_rubric_file(_RUBRIC_FILE_NAME) previously ran
+        before this method's failure-handling try/except began, so if it
+        ever raised (packaged YAML going missing/malformed), the exception
+        would escape _run_ai/correct() entirely, contradicting this module's
+        own docstring promise that every AI/data-side failure becomes a
+        NEEDS_REVIEW row, never an escaped exception."""
+        from unittest.mock import patch
+
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "18", correction_mode="FORMATIVO")
+            service = EssayCorrectionService(session, text_provider=_StubTextProvider())
+            with patch(
+                "agente_ia_edu.services.essay_correction.load_rubric_file",
+                side_effect=RuntimeError("rubric file went missing"),
+            ):
+                correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.ai_output)
+            self.assertEqual(correction.rubric_version, "unknown")
+            self.assertIn("rubric file went missing", correction.failure_reason)
+
     async def test_image_region_page_missing_dimensions_becomes_needs_review_not_crash(self):
         """Legacy data: an IMAGE_REGION submission whose page predates Task 3
         (R2's documented, pre-existing gap) has permanently-NULL width/height.

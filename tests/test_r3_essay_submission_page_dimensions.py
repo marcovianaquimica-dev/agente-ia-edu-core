@@ -122,6 +122,24 @@ class PageDimensionsOnUploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(page.width, 400.0)
             self.assertEqual(page.height, 300.0)
 
+    async def test_upload_page_with_undecodable_image_raises_value_error_not_500(self):
+        """Regression: pymupdf.Pixmap(...) raises its own exception type
+        (pymupdf.mupdf.FzErrorFormat, a plain Exception - not ValueError) on
+        an image it cannot decode. The route only catches ValueError -> 422,
+        so this must be normalized to ValueError here, not escape as a raw
+        pymupdf exception that turns into an unhandled 500."""
+        async with self.session_factory() as session:
+            submission = await self._pending_submission(session)
+            source = self.tmp_dir / "source" / "garbage.png"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(b"this is not a real png, just garbage bytes")
+
+            service = EssaySubmissionService(session, storage=self.storage)
+            with self.assertRaises(ValueError):
+                await service.upload_page(
+                    essay_submission_id=submission.id, page_number=1, source_path=source,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -175,7 +175,8 @@ class EssaySubmissionService:
         transcription_enabled = submission.anchor_mode == "TEXT_OFFSET"
 
         dest, _digest = self._storage.store(source_path)
-        width, height = self._measure_page_image(dest)
+        # Offloaded like _split_pdf_pages below - image decoding is CPU-bound.
+        width, height = await asyncio.to_thread(self._measure_page_image, dest)
 
         existing = await self.session.scalar(
             select(EssaySubmissionPage).where(
@@ -279,7 +280,15 @@ class EssaySubmissionService:
         except ImportError:
             import fitz as _mu  # type: ignore
 
-        pix = _mu.Pixmap(str(image_path))
+        try:
+            pix = _mu.Pixmap(str(image_path))
+        except Exception as exc:
+            # pymupdf raises its own exception hierarchy (e.g.
+            # pymupdf.mupdf.FzErrorFormat), not ValueError, for an
+            # undecodable image - normalize it so callers that only catch
+            # ValueError (the route layer) still get a handled 422 instead
+            # of an unhandled 500.
+            raise ValueError(f"{image_path.name} is not a readable image file") from exc
         return float(pix.width), float(pix.height)
 
     async def list_pages(self, essay_submission_id: uuid.UUID) -> list[EssaySubmissionPage]:
