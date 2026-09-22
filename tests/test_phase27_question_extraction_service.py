@@ -267,6 +267,32 @@ class Phase27ServiceTests(unittest.TestCase):
         self.assertEqual(r2.status_code, 403)
         self._as("prof_a")
 
+    def test_run_extraction_does_not_leak_another_schools_existing_run(self):
+        """IDOR: unlike every other endpoint in this router (get_run,
+        get_question, update_question, ...), run_extraction's handler never
+        called `_require_scope` on the run it obtained. QuestionExtractionRun
+        is idempotent per (ingestion_document_id, engine_version) - so once
+        prof_a's school has extracted a document, prof_b (a different
+        school) POSTing /{same_document_id}/run hit the "existing run,
+        return as-is" branch and got prof_a's full run + every extracted
+        question (raw_text, reviewer notes, review_status) back in the 201
+        response body, with no school check at all - even though the
+        sibling GET /runs/{run_id} correctly 403s the exact same run for
+        prof_b."""
+        path = self.tmp / "doc_tenant_reuse.pdf"
+        _make_pdf(path, 1, tag=" CONFIDENTIAL SCHOOL A CONTENT")
+        doc_id = self._seed_document(path, "doc_tenant_reuse")
+
+        self._as("prof_a")
+        r = self.client.post(f"/api/v1/catalog/question-extraction/{doc_id}/run", json={})
+        self.assertEqual(r.status_code, 201, r.text)
+
+        self._as("prof_b")
+        r2 = self.client.post(f"/api/v1/catalog/question-extraction/{doc_id}/run", json={})
+        self.assertEqual(r2.status_code, 403, r2.text)
+        self.assertNotIn("CONFIDENTIAL", r2.text)
+        self._as("prof_a")
+
     def test_student_cannot_run_extraction(self):
         path = self.tmp / "doc_student.pdf"
         _make_pdf(path, 1)

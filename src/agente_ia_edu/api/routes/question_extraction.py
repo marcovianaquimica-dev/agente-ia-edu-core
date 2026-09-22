@@ -198,6 +198,17 @@ async def run_extraction(
                 ingestion_document_id, Path(doc.storage_uri), started_by=identity.external_user_id,
                 school_id=school_id, expected_question_count=payload.expected_question_count,
             )
+            # QuestionExtractionRun is idempotent per (ingestion_document_id,
+            # engine_version) - a document another school already extracted
+            # hits the "existing run" branch in svc.run_extraction and comes
+            # back as-is, still stamped with THAT school's school_id. Every
+            # other handler in this router (get_run, get_question, ...)
+            # scope-checks the run/question before returning it; without the
+            # same check here, this was the one path that skipped it -
+            # handing back another school's full run + every extracted
+            # question (raw_text, reviewer notes, review_status) in the 201
+            # response body itself.
+            _require_scope(context, run.school_id)
             questions = await svc.list_questions(run.id)
             return {"run": _run_to_dict(run), "created": created,
                    "questions": [_question_to_dict(q) for q in questions]}
