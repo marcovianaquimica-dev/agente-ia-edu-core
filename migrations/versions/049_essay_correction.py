@@ -1,7 +1,7 @@
 """R3 - essay correction foundation.
 
 Revision ID: 049_essay_correction
-Revises: 048_essay_proposal_submission
+Revises: 049_performance_indexes
 
 Purely additive: one new table, touches zero rows in any existing table.
 """
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "049_essay_correction"
-down_revision = "048_essay_proposal_submission"
+down_revision = "049_performance_indexes"
 branch_labels = None
 depends_on = None
 
