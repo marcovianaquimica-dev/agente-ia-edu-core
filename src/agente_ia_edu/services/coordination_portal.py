@@ -260,6 +260,95 @@ class CoordinationPortalService:
 
         return True
 
+    async def verify_coordinator_student_scope(
+        self,
+        *,
+        coordinator_id: str,
+        school_id: uuid.UUID,
+        student_id: str,
+    ) -> bool:
+        """Verifies that student_id falls within coordinator_id's OWN authorized
+        scope in school_id - not just that they hold a coordinator/director role
+        at the school.
+
+        get_coordination_dashboard's classroom_id filter already goes through
+        verify_coordinator_access(classroom_id=...), which correctly denies a
+        classroom outside scopes["allowed_classrooms"]. The by-id lookups
+        (get_student_detail_for_coordination, search_students_for_coordination)
+        used to skip straight past that: they called verify_coordinator_access
+        with no classroom_id (a bare role/school check) and then delegated to
+        TeacherPortalService.get_student_detail_for_teacher /
+        search_students_in_scope, whose get_teacher_authorized_classrooms
+        treats ANY DIRECTOR/COORDINATOR link at the right school_id as fully
+        school-wide regardless of that link's own scope_type - so a coordinator
+        narrowly scoped to one CLASSROOM could still reach a student of any
+        OTHER classroom in the same school. This closes that gap using the same
+        get_coordinator_authorized_scopes/is_global primitives the dashboard
+        path already relies on.
+        """
+        await self.verify_coordinator_access(coordinator_id=coordinator_id, school_id=school_id)
+
+        scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
+        if scopes["is_global"]:
+            return True
+
+        student_links = await self.admin_service.get_user_active_links(student_id)
+        for link in student_links:
+            if link.school_id != school_id or link.role != AdminRole.STUDENT:
+                continue
+            if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id in scopes["allowed_classrooms"]:
+                return True
+
+        raise ScopeAuthorizationError(
+            f"Student '{student_id}' is outside coordinator '{coordinator_id}' authorized scope in school '{school_id}'."
+        )
+
+    async def search_students_in_scope(
+        self,
+        *,
+        coordinator_id: str,
+        school_id: uuid.UUID,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        """Searches students by ID STRICTLY within the coordinator's own
+        authorized scope - mirrors TeacherPortalService.search_students_in_scope,
+        but resolved via _resolve_scope_classrooms/is_global (the same
+        coordinator-shaped primitives get_coordination_dashboard uses) instead
+        of get_teacher_authorized_classrooms, whose DIRECTOR/COORDINATOR branch
+        does not respect a CLASSROOM/GRADE/UNIT-restricted link (see
+        verify_coordinator_student_scope's docstring for the full shape of the
+        gap this closes)."""
+        await self.verify_coordinator_access(coordinator_id=coordinator_id, school_id=school_id)
+
+        scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
+        classrooms = await self._resolve_scope_classrooms(coordinator_id, school_id)
+        school_wide = scopes["is_global"]
+        all_students = await self.teacher_portal_service._fetch_students_in_classrooms(
+            school_id, classrooms, school_wide=school_wide,
+        )
+
+        q_clean = query.strip().lower()
+        matched_students = [sid for sid in all_students if q_clean in sid.lower()]
+
+        all_masteries = await self.teacher_portal_service._fetch_masteries_for_students(matched_students)
+        masteries_by_student: dict[str, list[StudentContentMastery]] = {}
+        for m in all_masteries:
+            masteries_by_student.setdefault(m.external_identity_id, []).append(m)
+
+        results = []
+        for sid in matched_students:
+            s_masteries = masteries_by_student.get(sid, [])
+            s_avg = (sum(float(m.mastery_score) for m in s_masteries) / len(s_masteries)) if s_masteries else 0.0
+            results.append({
+                "student_id": sid,
+                "name": f"Aluno {sid.replace('student:', '').replace('_', ' ').title()}",
+                "school_id": str(school_id),
+                "classroom_id": classrooms[0] if classrooms else "TURMA_3A",
+                "average_mastery": round(s_avg, 1),
+            })
+
+        return results
+
     # -------------------------------------------------------------------------
     # 2. COORDINATION DASHBOARD AGGREGATOR
     # -------------------------------------------------------------------------

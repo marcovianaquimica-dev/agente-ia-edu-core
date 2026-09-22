@@ -280,9 +280,10 @@ async def get_student_detail_for_coordination(
         )
 
         try:
-            await coord_svc.verify_coordinator_access(
+            await coord_svc.verify_coordinator_student_scope(
                 coordinator_id=coordinator_id,
                 school_id=school_id,
+                student_id=student_id,
             )
             res = await teacher_portal_svc.get_student_detail_for_teacher(
                 teacher_id=coordinator_id,
@@ -323,12 +324,8 @@ async def search_students_for_coordination(
         )
 
         try:
-            await coord_svc.verify_coordinator_access(
+            res = await coord_svc.search_students_in_scope(
                 coordinator_id=coordinator_id,
-                school_id=school_id,
-            )
-            res = await teacher_portal_svc.search_students_in_scope(
-                teacher_id=coordinator_id,
                 school_id=school_id,
                 query=q,
             )
