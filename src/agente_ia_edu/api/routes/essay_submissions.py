@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
@@ -22,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssaySubmission, EssaySubmissionPage, PromptAssignment
+from ...db.models import EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment
 from ...identity import ExternalIdentityContext
 from ...services.admin import PlatformModuleKey
 from ...services.authorization import AuthorizationService
@@ -420,3 +421,80 @@ async def confirm_essay_submission(
 
         await session.commit()
         return _submission_to_response(confirmed)
+
+
+essay_student_prompts_router = APIRouter(
+    prefix="/api/v1/student/essay-prompts", tags=["essay-prompts-student"]
+)
+
+
+class MySubmissionSummary(BaseModel):
+    id: UUID
+    essay_id: UUID
+    status: str
+    anchor_mode: str
+
+
+class EssayPromptForStudentResponse(BaseModel):
+    prompt_assignment_id: UUID
+    title: str
+    statement: str
+    due_at: Optional[datetime] = None
+    status: str
+    my_submission: Optional[MySubmissionSummary] = None
+
+
+@essay_student_prompts_router.get("", response_model=list[EssayPromptForStudentResponse])
+async def list_essay_prompts_for_student(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[EssayPromptForStudentResponse]:
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+
+        rows = (
+            await session.execute(
+                select(PromptAssignment, EssayPrompt)
+                .join(EssayPrompt, EssayPrompt.id == PromptAssignment.essay_prompt_id)
+                .where(
+                    PromptAssignment.school_id == school_id,
+                    PromptAssignment.class_id == enrollment.class_id,
+                )
+                .order_by(PromptAssignment.created_at.desc())
+            )
+        ).all()
+
+        results: list[EssayPromptForStudentResponse] = []
+        for assignment, prompt in rows:
+            submission = await session.scalar(
+                select(EssaySubmission)
+                .where(
+                    EssaySubmission.prompt_assignment_id == assignment.id,
+                    EssaySubmission.student_id == enrollment.student_id,
+                    EssaySubmission.status != "SUPERSEDED",
+                )
+                .order_by(EssaySubmission.created_at.desc())
+            )
+            my_submission = (
+                MySubmissionSummary(
+                    id=submission.id, essay_id=submission.essay_id,
+                    status=submission.status, anchor_mode=submission.anchor_mode,
+                )
+                if submission is not None
+                else None
+            )
+            results.append(
+                EssayPromptForStudentResponse(
+                    prompt_assignment_id=assignment.id,
+                    title=prompt.title,
+                    statement=prompt.statement,
+                    due_at=assignment.due_at,
+                    status=assignment.status,
+                    my_submission=my_submission,
+                )
+            )
+        return results
