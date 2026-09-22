@@ -48,6 +48,10 @@ class LearningHistory(Base):
             "activity_type",
             "created_at",
         ),
+        # migration 049 - the three-column index above can't serve a query
+        # that filters identity but not activity_type and orders by
+        # created_at (the middle column blocks using the trailing one).
+        Index("ix_learning_history_identity_created", "external_identity_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

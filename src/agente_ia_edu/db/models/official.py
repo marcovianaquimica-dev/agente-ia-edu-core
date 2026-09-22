@@ -355,6 +355,10 @@ class BookletQuestion(Base):
             "official_number IS NULL OR official_number > 0",
             name="ck_booklet_questions_official_number_positive",
         ),
+        # migration 049 - question_bank.py's base query and
+        # activity_correction_store.py's official-answer-key batch both
+        # join through this column, which had no index at all before.
+        Index("ix_booklet_questions_question_version_id", "question_version_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

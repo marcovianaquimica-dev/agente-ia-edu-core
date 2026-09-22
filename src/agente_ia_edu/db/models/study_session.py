@@ -42,6 +42,10 @@ class StudySession(Base):
         Index("ix_study_sessions_student_date", "student_external_id", "session_date"),
         Index("ix_study_sessions_school_scope_date", "school_id", "scope_external_id", "session_date"),
         Index("ix_study_sessions_status", "status"),
+        # migration 049 - list_coordination_sessions() without a
+        # classroom_id filter (scope_external_id unconstrained) can't use
+        # the composite above past its first column; this serves that shape.
+        Index("ix_study_sessions_school_source_date", "school_id", "source", "session_date"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

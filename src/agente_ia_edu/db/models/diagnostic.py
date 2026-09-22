@@ -49,6 +49,10 @@ class InitialDiagnostic(Base):
         Index("ix_initial_diagnostics_school_id", "school_id"),
         Index("ix_initial_diagnostics_status", "status"),
         Index("ix_initial_diagnostics_created_at", "created_at"),
+        # migration 049 - "latest diagnostic for this student" lookups
+        # (reception.py, domain_map.py) return rows already in ORDER BY
+        # created_at DESC order instead of bitmap-then-sort.
+        Index("ix_initial_diagnostics_student_created", "student_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

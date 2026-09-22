@@ -239,6 +239,14 @@ class PedagogicalClassification(Base):
             "ix_pedagogical_classifications_supersedes_id",
             "supersedes_id",
         ),
+        # migration 049, three indexes below - the Question Bank filter UI
+        # (content/discipline/area filters) and the coordinator/teacher
+        # review queue (status='NEEDS_REVIEW' AND lifecycle='ACTIVE') and
+        # the difficulty-based question-selection subquery in knowledge.py
+        # all had no supporting index.
+        Index("ix_pedagogical_classifications_content", "content"),
+        Index("ix_pedagogical_classifications_status_lifecycle", "status", "lifecycle"),
+        Index("ix_pedagogical_classifications_difficulty_lifecycle", "difficulty", "lifecycle"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

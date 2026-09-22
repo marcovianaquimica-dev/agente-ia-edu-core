@@ -27,6 +27,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -241,6 +242,13 @@ class ExtractedQuestionAsset(Base):
             name="ck_extracted_question_assets_type",
         ),
         CheckConstraint(f"status IN {_ASSET_STATUSES!r}", name="ck_extracted_question_assets_status"),
+        # migration 049 - question_extraction_service.py::list_candidate_assets
+        # filters by run_id (to find unassociated assets before any question_id
+        # is set) and had no index for it at all - confirmed against the live
+        # schema, not just this file (the live DB otherwise carries indexes
+        # from migration 035 that were never mirrored back here - always
+        # check \\d against Postgres directly, not just this model).
+        Index("ix_extracted_question_assets_run_id", "run_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
