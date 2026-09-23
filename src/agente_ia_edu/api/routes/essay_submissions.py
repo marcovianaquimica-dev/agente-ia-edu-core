@@ -12,17 +12,19 @@ from __future__ import annotations
 import shutil
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssaySubmission, EssaySubmissionPage, PromptAssignment
+from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment
 from ...identity import ExternalIdentityContext
 from ...services.admin import PlatformModuleKey
 from ...services.authorization import AuthorizationService
@@ -129,6 +131,15 @@ async def _assignment_for_own_class_or_403(
         raise HTTPException(
             status_code=403, detail="This proposal was not assigned to your class."
         )
+    # Defense-in-depth: list_essay_prompts_for_student only ever surfaces
+    # OPEN assignments (spec §3/§4), so a CLOSED one should never reach this
+    # far via the normal UI flow - but nothing stops a client from posting a
+    # prompt_assignment_id it saw while the assignment was still open (or
+    # simply guessed), so this is enforced here too, not just in the list.
+    if assignment.status != "OPEN":
+        raise HTTPException(
+            status_code=403, detail="This proposal is closed and no longer accepts submissions."
+        )
     return assignment
 
 
@@ -223,8 +234,14 @@ async def create_essay_submission(
         if submission.status == "SUBMITTED":
             await EssayCorrectionService(session).correct(submission.id)
 
+        # Build the response BEFORE commit: commit() expires `submission`
+        # (expire_on_commit=True in production - see db/session.py), and
+        # accessing its attributes afterwards triggers a synchronous
+        # lazy-load that raises MissingGreenlet in an async context. Test
+        # fixtures using expire_on_commit=False mask this.
+        response = _submission_to_response(submission)
         await session.commit()
-        return _submission_to_response(submission)
+        return response
 
 
 @essay_submissions_router.post(
@@ -275,8 +292,12 @@ async def upload_essay_submission_page(
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        # See create_essay_submission above: build the response before
+        # commit() expires `page`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = _page_to_response(page)
         await session.commit()
-        return _page_to_response(page)
+        return response
 
 
 @essay_submissions_router.post(
@@ -333,8 +354,12 @@ async def upload_essay_submission_document(
             # everything that needs to survive into managed storage.
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        # See create_essay_submission above: build the response before
+        # commit() expires each page, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = [_page_to_response(p) for p in pages]
         await session.commit()
-        return [_page_to_response(p) for p in pages]
+        return response
 
 
 @essay_submissions_router.get(
@@ -388,8 +413,12 @@ async def review_essay_submission_page(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See create_essay_submission above: build the response before
+        # commit() expires `page`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = _page_to_response(page)
         await session.commit()
-        return _page_to_response(page)
+        return response
 
 
 @essay_submissions_router.post(
@@ -418,5 +447,163 @@ async def confirm_essay_submission(
 
         await EssayCorrectionService(session).correct(confirmed.id)
 
+        # See create_essay_submission above: build the response before
+        # commit() expires `confirmed`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
+        response = _submission_to_response(confirmed)
         await session.commit()
-        return _submission_to_response(confirmed)
+        return response
+
+
+class StudentCorrectionResponse(BaseModel):
+    essay_submission_id: UUID
+    status: str
+    canonical_text: Optional[str] = None
+    final_scores: Optional[dict] = None
+    final_feedback: Optional[dict] = None
+    annotations: Optional[list] = None
+    rewrites: Optional[list] = None
+    intervention: Optional[dict] = None
+    alerts: Optional[list] = None
+
+
+@essay_submissions_router.get(
+    "/{essay_submission_id}/correction", response_model=StudentCorrectionResponse
+)
+async def get_essay_submission_correction(
+    essay_submission_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> StudentCorrectionResponse:
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+        submission = await _submission_for_own_school_or_403(
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
+        )
+        correction = await session.scalar(
+            select(EssayCorrection).where(EssayCorrection.essay_submission_id == submission.id)
+        )
+        if correction is None or correction.status != "APPROVED":
+            return StudentCorrectionResponse(essay_submission_id=submission.id, status="PENDING")
+
+        ai_output = correction.ai_output or {}
+        return StudentCorrectionResponse(
+            essay_submission_id=submission.id, status="APPROVED",
+            canonical_text=submission.canonical_text,
+            final_scores=correction.final_scores, final_feedback=correction.final_feedback,
+            annotations=ai_output.get("annotations"), rewrites=ai_output.get("rewrites"),
+            intervention=ai_output.get("intervention"), alerts=ai_output.get("alerts"),
+        )
+
+
+@essay_submissions_router.get("/{essay_submission_id}/pages/{page_number}/image")
+async def get_essay_submission_page_image(
+    essay_submission_id: UUID,
+    page_number: int,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+        submission = await _submission_for_own_school_or_403(
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
+        )
+        page = await session.scalar(
+            select(EssaySubmissionPage).where(
+                EssaySubmissionPage.essay_submission_id == submission.id,
+                EssaySubmissionPage.page_number == page_number,
+            )
+        )
+        if page is None:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return FileResponse(page.storage_uri)
+
+
+essay_student_prompts_router = APIRouter(
+    prefix="/api/v1/student/essay-prompts", tags=["essay-prompts-student"]
+)
+
+
+class MySubmissionSummary(BaseModel):
+    id: UUID
+    essay_id: UUID
+    status: str
+    anchor_mode: str
+    mode: str
+
+
+class EssayPromptForStudentResponse(BaseModel):
+    prompt_assignment_id: UUID
+    title: str
+    statement: str
+    due_at: Optional[datetime] = None
+    status: str
+    my_submission: Optional[MySubmissionSummary] = None
+
+
+@essay_student_prompts_router.get("", response_model=list[EssayPromptForStudentResponse])
+async def list_essay_prompts_for_student(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[EssayPromptForStudentResponse]:
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+
+        rows = (
+            await session.execute(
+                select(PromptAssignment, EssayPrompt)
+                .join(EssayPrompt, EssayPrompt.id == PromptAssignment.essay_prompt_id)
+                .where(
+                    PromptAssignment.school_id == school_id,
+                    PromptAssignment.class_id == enrollment.class_id,
+                    PromptAssignment.status == "OPEN",
+                )
+                .order_by(PromptAssignment.created_at.desc())
+            )
+        ).all()
+
+        results: list[EssayPromptForStudentResponse] = []
+        for assignment, prompt in rows:
+            submission = await session.scalar(
+                select(EssaySubmission)
+                .where(
+                    EssaySubmission.prompt_assignment_id == assignment.id,
+                    EssaySubmission.student_id == enrollment.student_id,
+                    EssaySubmission.status != "SUPERSEDED",
+                )
+                .order_by(EssaySubmission.created_at.desc())
+            )
+            my_submission = (
+                MySubmissionSummary(
+                    id=submission.id, essay_id=submission.essay_id,
+                    status=submission.status, anchor_mode=submission.anchor_mode,
+                    mode=submission.mode,
+                )
+                if submission is not None
+                else None
+            )
+            results.append(
+                EssayPromptForStudentResponse(
+                    prompt_assignment_id=assignment.id,
+                    title=prompt.title,
+                    statement=prompt.statement,
+                    due_at=assignment.due_at,
+                    status=assignment.status,
+                    my_submission=my_submission,
+                )
+            )
+        return results

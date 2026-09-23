@@ -9,15 +9,18 @@ for not yours).
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayCorrection
+from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, Person, PromptAssignment, Student
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
@@ -52,6 +55,9 @@ class EssayCorrectionResponse(BaseModel):
     final_feedback: Optional[dict] = None
     failure_reason: Optional[str] = None
     reviewed_by_external_identity: Optional[str] = None
+    student_name: Optional[str] = None
+    prompt_title: Optional[str] = None
+    submitted_at: Optional[datetime] = None
 
 
 class BulkApproveResponse(BaseModel):
@@ -59,7 +65,21 @@ class BulkApproveResponse(BaseModel):
     failures: dict[str, str]
 
 
-def _correction_to_response(correction: EssayCorrection) -> EssayCorrectionResponse:
+class SubmissionPageSummary(BaseModel):
+    page_number: int
+
+
+class SubmissionContentResponse(BaseModel):
+    essay_submission_id: UUID
+    anchor_mode: str
+    canonical_text: Optional[str] = None
+    pages: Optional[list[SubmissionPageSummary]] = None
+
+
+def _correction_to_response(
+    correction: EssayCorrection, *, student_name: Optional[str] = None,
+    prompt_title: Optional[str] = None, submitted_at: Optional[datetime] = None,
+) -> EssayCorrectionResponse:
     return EssayCorrectionResponse(
         id=correction.id, essay_submission_id=correction.essay_submission_id,
         school_id=correction.school_id, status=correction.status,
@@ -68,6 +88,7 @@ def _correction_to_response(correction: EssayCorrection) -> EssayCorrectionRespo
         ai_output=correction.ai_output, final_scores=correction.final_scores,
         final_feedback=correction.final_feedback, failure_reason=correction.failure_reason,
         reviewed_by_external_identity=correction.reviewed_by_external_identity,
+        student_name=student_name, prompt_title=prompt_title, submitted_at=submitted_at,
     )
 
 
@@ -104,9 +125,37 @@ async def list_essay_corrections(
         school_id = await _authorize(identity, session)
         if status not in _LISTABLE_STATUSES:
             raise HTTPException(status_code=422, detail=f"Unknown status: {status!r}")
-        service = EssayCorrectionService(session)
-        corrections = await service.list_by_status(school_id, status=status)
-        return [_correction_to_response(c) for c in corrections]
+        rows = (
+            await session.execute(
+                select(EssayCorrection, Person.full_name, EssayPrompt.title, EssaySubmission.submitted_at)
+                .join(EssaySubmission, EssaySubmission.id == EssayCorrection.essay_submission_id)
+                .join(Student, Student.id == EssaySubmission.student_id)
+                .join(Person, Person.id == Student.person_id)
+                .join(PromptAssignment, PromptAssignment.id == EssaySubmission.prompt_assignment_id)
+                .join(EssayPrompt, EssayPrompt.id == PromptAssignment.essay_prompt_id)
+                .where(EssayCorrection.school_id == school_id, EssayCorrection.status == status)
+                .order_by(EssayCorrection.created_at)
+            )
+        ).all()
+        return [
+            _correction_to_response(
+                correction, student_name=student_name, prompt_title=prompt_title,
+                # essay_submission.submitted_at is always written as an
+                # aware UTC instant (services/essay_submission.py _utcnow()),
+                # but SQLite (used in tests; see conventions) drops tzinfo on
+                # read even for DateTime(timezone=True) columns. Reattach UTC
+                # only when it's missing, so the JSON payload always carries
+                # an explicit offset for the frontend to parse correctly -
+                # on Postgres (production) submitted_at is already aware and
+                # this is a no-op.
+                submitted_at=(
+                    submitted_at.replace(tzinfo=timezone.utc)
+                    if submitted_at is not None and submitted_at.tzinfo is None
+                    else submitted_at
+                ),
+            )
+            for correction, student_name, prompt_title, submitted_at in rows
+        ]
 
 
 @essay_corrections_router.post(
@@ -131,8 +180,14 @@ async def approve_essay_correction(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Build the response BEFORE commit: commit() expires `correction`
+        # (expire_on_commit=True in production - see db/session.py), and
+        # accessing its attributes afterwards triggers a synchronous
+        # lazy-load that raises MissingGreenlet in an async context. Test
+        # fixtures using expire_on_commit=False mask this.
+        response = _correction_to_response(correction)
         await session.commit()
-        return _correction_to_response(correction)
+        return response
 
 
 @essay_corrections_router.post(
@@ -155,8 +210,12 @@ async def reject_essay_correction(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See approve_essay_correction above: build the response before
+        # commit() expires `correction`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
+        response = _correction_to_response(correction)
         await session.commit()
-        return _correction_to_response(correction)
+        return response
 
 
 @essay_corrections_router.post(
@@ -177,8 +236,12 @@ async def retry_essay_correction(
             correction = await service.retry(essay_correction_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See approve_essay_correction above: build the response before
+        # commit() expires `correction`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
+        response = _correction_to_response(correction)
         await session.commit()
-        return _correction_to_response(correction)
+        return response
 
 
 @essay_corrections_router.post("/bulk-approve", response_model=BulkApproveResponse)
@@ -203,8 +266,66 @@ async def bulk_approve_essay_corrections(
         approved, failures = await service.bulk_approve(
             request.essay_correction_ids, reviewed_by_external_identity=identity.external_user_id,
         )
-        await session.commit()
-        return BulkApproveResponse(
+        # See approve_essay_correction above: build the response before
+        # commit() expires each corrected row, to avoid a MissingGreenlet
+        # error in production (expire_on_commit=True).
+        response = BulkApproveResponse(
             approved=[_correction_to_response(c) for c in approved],
             failures={str(correction_id): reason for correction_id, reason in failures.items()},
         )
+        await session.commit()
+        return response
+
+
+@essay_corrections_router.get(
+    "/{essay_correction_id}/submission-content", response_model=SubmissionContentResponse
+)
+async def get_essay_correction_submission_content(
+    essay_correction_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> SubmissionContentResponse:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        correction = await _correction_for_own_school_or_403(
+            session, essay_correction_id=essay_correction_id, school_id=school_id
+        )
+        submission = await session.get(EssaySubmission, correction.essay_submission_id)
+        pages = None
+        if submission.anchor_mode == "IMAGE_REGION":
+            page_numbers = (
+                await session.execute(
+                    select(EssaySubmissionPage.page_number)
+                    .where(EssaySubmissionPage.essay_submission_id == submission.id)
+                    .order_by(EssaySubmissionPage.page_number)
+                )
+            ).scalars().all()
+            pages = [SubmissionPageSummary(page_number=n) for n in page_numbers]
+        return SubmissionContentResponse(
+            essay_submission_id=submission.id, anchor_mode=submission.anchor_mode,
+            canonical_text=submission.canonical_text if submission.anchor_mode == "TEXT_OFFSET" else None,
+            pages=pages,
+        )
+
+
+@essay_corrections_router.get("/{essay_correction_id}/pages/{page_number}/image")
+async def get_essay_correction_page_image(
+    essay_correction_id: UUID,
+    page_number: int,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        correction = await _correction_for_own_school_or_403(
+            session, essay_correction_id=essay_correction_id, school_id=school_id
+        )
+        page = await session.scalar(
+            select(EssaySubmissionPage).where(
+                EssaySubmissionPage.essay_submission_id == correction.essay_submission_id,
+                EssaySubmissionPage.page_number == page_number,
+            )
+        )
+        if page is None:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return FileResponse(page.storage_uri)

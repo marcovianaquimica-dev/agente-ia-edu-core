@@ -1568,3 +1568,70 @@ body.sidebar-open {
   .mr-section-content { padding: 12px; }
   .mr-section-dot { width: 26px; height: 26px; font-size: 0.75rem; }
 }
+
+/* Módulo Redação */
+.essay-prompt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.essay-prompt-card { display: flex; flex-direction: column; gap: 10px; }
+.essay-mode-tabs { display: flex; gap: 8px; margin: 12px 0; }
+.essay-mode-tabs .is-active { background: var(--primary); color: #fff; }
+.essay-form input, .essay-form textarea, .essay-form select {
+  width: 100%; padding: 12px; color: var(--text-main); font: inherit;
+  background: #fff; border: 1px solid #cbd8e7; border-radius: 6px; outline: none;
+}
+.essay-form input:focus, .essay-form textarea:focus {
+  border-color: #0f9f91; box-shadow: 0 0 0 3px rgba(15, 159, 145, .14);
+}
+.essay-page-card { display: flex; flex-direction: column; gap: 8px; }
+.essay-page-card img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border, #e2e6ee); }
+.essay-review-status { font-size: 13px; color: var(--text-muted); }
+.essay-total-score { font-size: 22px; font-weight: 800; margin: 12px 0; }
+.essay-competency-row { display: grid; grid-template-columns: 220px 1fr 60px; align-items: center; gap: 10px; margin: 8px 0; }
+.essay-competency-bar { background: #eef2f7; border-radius: 6px; height: 10px; overflow: hidden; }
+.essay-competency-fill { background: var(--primary); height: 100%; }
+.essay-alerts { margin: 10px 0; }
+.essay-annotation { border-left: 3px solid var(--primary); padding: 8px 12px; margin: 10px 0; background: #fbfdff; }
+.essay-annotation blockquote { margin: 6px 0 0; font-style: italic; color: var(--text-muted); }
+.essay-intervention-checklist { list-style: none; padding: 0; }
+.essay-intervention-checklist li { padding: 4px 0; }
+.essay-warning { color: var(--danger, #d64545); font-weight: 700; }
+
+.essay-mark { padding: 1px 2px; border-radius: 3px; cursor: pointer; }
+.essay-mark sup { font-weight: 700; margin-left: 1px; }
+.essay-mark-C1 { background-color: var(--primary-light); border-bottom: 2px solid var(--primary); }
+.essay-mark-C2 { background-color: var(--accent-light); border-bottom: 2px solid var(--accent); }
+.essay-mark-C3 { background-color: var(--danger-light); border-bottom: 2px solid var(--danger); }
+.essay-mark-C4 { background-color: var(--warning-light); border-bottom: 2px solid var(--warning); }
+.essay-mark-C5 { background-color: var(--success-light); border-bottom: 2px solid var(--success); }
+
+.essay-image-marker {
+  position: absolute; display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; border: 2px solid; font-size: 11px; font-weight: 700; color: #fff;
+  cursor: pointer; min-width: 18px; min-height: 18px;
+}
+.essay-image-marker.essay-mark-C1 { background-color: var(--primary); border-color: var(--primary); }
+.essay-image-marker.essay-mark-C2 { background-color: var(--accent); border-color: var(--accent); }
+.essay-image-marker.essay-mark-C3 { background-color: var(--danger); border-color: var(--danger); }
+.essay-image-marker.essay-mark-C4 { background-color: var(--warning); border-color: var(--warning); }
+.essay-image-marker.essay-mark-C5 { background-color: var(--success); border-color: var(--success); }
+
+.essay-page-image-wrap { position: relative; display: inline-block; max-width: 100%; }
+.essay-page-image-wrap img { max-width: 100%; height: auto; display: block; }
+
+.essay-popover {
+  z-index: 1000; max-width: 320px; background: var(--bg-card); border: 1px solid var(--border-color);
+  border-radius: 8px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(15,23,42,0.18);
+  max-height: 70vh; overflow-y: auto;
+}
+.essay-popover-suggestion { font-style: italic; color: var(--text-muted); margin-top: 6px; }
+
+.essay-highlighted-text { white-space: pre-wrap; line-height: 1.6; }
+
+.essay-annotation-number {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: 50%; font-size: 11px; font-weight: 700; color: #fff; margin-right: 6px;
+}
+.essay-annotation-number.essay-mark-C1 { background-color: var(--primary); }
+.essay-annotation-number.essay-mark-C2 { background-color: var(--accent); }
+.essay-annotation-number.essay-mark-C3 { background-color: var(--danger); }
+.essay-annotation-number.essay-mark-C4 { background-color: var(--warning); }
+.essay-annotation-number.essay-mark-C5 { background-color: var(--success); }

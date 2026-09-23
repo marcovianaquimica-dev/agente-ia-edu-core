@@ -531,6 +531,16 @@ class TeacherPortalService:
 
         node_names = await self._fetch_content_node_names({m.content_node_id for m in all_masteries})
 
+        # One batched resolution for every classroom_id's real Class row (if
+        # any), instead of one ExternalIdResolver.resolve call per classroom -
+        # same batching convention as the roster/mastery/content-name queries
+        # above, and the same resolver call CoordinationPortalService uses for
+        # this exact code->entity pattern (services/coordination_portal.py).
+        resolver = ExternalIdResolver(self.session)
+        class_id_resolutions = await resolver.resolve_many(
+            school_id, AdminScopeType.CLASSROOM, classroom_ids
+        )
+
         classroom_items = []
         for cls_id in classroom_ids:
             student_ids = students_by_classroom.get(cls_id, [])
@@ -546,6 +556,13 @@ class TeacherPortalService:
 
             priorities = [c_name for c_name, scores in c_map.items() if (sum(scores) / len(scores)) < 70.0]
 
+            resolution = class_id_resolutions.get(cls_id)
+            resolved_class_id = (
+                resolution.entity_id
+                if resolution is not None and resolution.state == ResolutionState.RESOLVED
+                else None
+            )
+
             classroom_items.append({
                 "classroom_id": cls_id,
                 "name": f"Turma {cls_id}",
@@ -556,6 +573,7 @@ class TeacherPortalService:
                 "student_count": len(student_ids),
                 "average_mastery": round(c_avg, 1),
                 "priority_contents": priorities[:3],
+                "class_id": resolved_class_id,
             })
 
         return classroom_items
