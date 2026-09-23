@@ -28,6 +28,7 @@ from agente_ia_edu.db.models import (
     UserSchoolLink,
 )
 from agente_ia_edu.identity import ExternalIdentityContext
+from agente_ia_edu.services.institution_settings import InstitutionSettingsService
 
 
 def _ident(user: str) -> ExternalIdentityContext:
@@ -157,6 +158,22 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
 
         self.loop.run_until_complete(_add_async())
 
+    def _submission_row(self, submission_id):
+        """Fetch fields the resubmission POST needs (prompt_assignment_id,
+        essay_id) and fields assertions check afterwards (status), without
+        every test having to hand-roll its own session/get boilerplate."""
+        async def _fetch():
+            async with self.factory() as session:
+                submission = await session.get(EssaySubmission, submission_id)
+                return {
+                    "essay_id": submission.essay_id,
+                    "prompt_assignment_id": submission.prompt_assignment_id,
+                    "school_id": submission.school_id,
+                    "status": submission.status,
+                }
+
+        return self.loop.run_until_complete(_fetch())
+
     def test_needs_review_collapses_to_pending_with_no_content(self):
         submission_id = self._seed_submission("1")
         self._add_correction(submission_id, status="NEEDS_REVIEW", with_content=False)
@@ -216,6 +233,64 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
         self.assertIsNone(body["final_scores"])
         self.assertIsNone(body["final_feedback"])
         self.assertIsNone(body["annotations"])
+        # canonical_text is the STUDENT'S OWN WRITING, not the AI's
+        # unpublished output the assertions above withhold - REJECTED means
+        # the teacher discarded the AI's correction, not the essay itself, so
+        # the student (who already wrote this text) gets it back to build a
+        # resubmission from instead of retyping it from memory.
+        self.assertEqual(body["canonical_text"], "Redacao.")
+        self.assertTrue(body["resubmission_allowed"])
+
+    def test_rejected_resubmission_supersedes_and_reuses_essay_id(self):
+        submission_id = self._seed_submission("8")
+        self._add_correction(submission_id, status="REJECTED", with_content=True)
+        original = self._submission_row(submission_id)
+        self._as("student_8")
+
+        resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(original["prompt_assignment_id"]),
+                "mode": "TYPED",
+                "text": "Versao reenviada apos rejeicao.",
+                "resubmit_essay_id": str(original["essay_id"]),
+            },
+        )
+        self.assertEqual(resp.status_code, 201, resp.text)
+        body = resp.json()
+        self.assertEqual(body["essay_id"], str(original["essay_id"]))
+        self.assertNotEqual(body["id"], str(submission_id))
+
+        refreshed = self._submission_row(submission_id)
+        self.assertEqual(refreshed["status"], "SUPERSEDED")
+
+    def test_rejected_resubmission_blocked_in_avaliativo_mode(self):
+        submission_id = self._seed_submission("9")
+        self._add_correction(submission_id, status="REJECTED", with_content=True)
+        original = self._submission_row(submission_id)
+
+        async def _configure_avaliativo():
+            async with self.factory() as session:
+                await InstitutionSettingsService(session).configure(
+                    original["school_id"],
+                    performed_by_external_id="admin:test",
+                    correction_mode="AVALIATIVO",
+                )
+                await session.commit()
+
+        self.loop.run_until_complete(_configure_avaliativo())
+        self._as("student_9")
+
+        resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(original["prompt_assignment_id"]),
+                "mode": "TYPED",
+                "text": "Tentativa de reenvio negada.",
+                "resubmit_essay_id": str(original["essay_id"]),
+            },
+        )
+        self.assertEqual(resp.status_code, 409, resp.text)
 
 
 if __name__ == "__main__":

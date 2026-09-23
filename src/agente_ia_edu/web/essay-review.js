@@ -362,7 +362,8 @@
 
     const actionsHtml = isPending ? `
         <button class="btn btn-primary" type="button" id="er-approve-btn">Aprovar</button>
-        <button class="btn btn-secondary" type="button" id="er-reject-btn">Rejeitar</button>`
+        <button class="btn btn-secondary" type="button" id="er-reject-btn">Rejeitar</button>
+        <p class="empty-text">Rejeitar descarta esta correção permanentemente e oferece ao aluno a opção de reenviar a redação.</p>`
       : correction.status === 'NEEDS_REVIEW' ? `
         <button class="btn btn-primary" type="button" id="er-retry-btn">Tentar novamente</button>`
       : isTerminal ? `

@@ -23,8 +23,13 @@
     return 'Não foi possível completar a ação.';
   }
 
+  // Shared with renderRejectedDevolutiva below, which shows this same text
+  // proactively (via correction.resubmission_allowed) instead of waiting for
+  // the student to hit the 409 this message is also used for.
+  const RESUBMISSION_NOT_ALLOWED_MSG = 'Esta avaliação não permite reenvio.';
+
   function translateResubmitError(e) {
-    if (e.status === 409) return 'Esta avaliação não permite reenvio.';
+    if (e.status === 409) return RESUBMISSION_NOT_ALLOWED_MSG;
     return e.message;
   }
 
@@ -101,7 +106,7 @@
     renderContinueUpload(prompt);
   }
 
-  function renderNewSubmissionForm(prompt, resubmitEssayId) {
+  function renderNewSubmissionForm(prompt, resubmitEssayId, resubmitText) {
     // Tracks the real EssaySubmission this attempt lazily creates (see
     // renderUploadArea): null until the student actually picks a file.
     // Threaded through switchMode/renderModeBody so tab-switching stays a
@@ -112,7 +117,16 @@
     // along on state so both create-submission call sites below (typed
     // atomic submit, and the lazy create-on-first-file for photo/PDF) can
     // send it as resubmit_essay_id without needing a second code path.
-    const state = { submissionId: null, anchorMode: null, mode: null, resubmitEssayId: resubmitEssayId || null };
+    // resubmitText follows the same threading: the student's own canonical
+    // text from the rejected correction, so renderTypedForm can pre-fill the
+    // textarea instead of opening blank (only meaningful for a TYPED/
+    // TEXT_OFFSET original - PHOTO/PDF originals have no canonical_text, so
+    // this is simply undefined for them and the textarea falls through to
+    // its normal empty state).
+    const state = {
+      submissionId: null, anchorMode: null, mode: null,
+      resubmitEssayId: resubmitEssayId || null, resubmitText: resubmitText || null,
+    };
 
     container.innerHTML = `
       <div class="card essay-form">
@@ -157,7 +171,7 @@
       <form id="essay-typed-form">
         <div class="form-group">
           <label for="essay-typed-text">Sua redação</label>
-          <textarea id="essay-typed-text" rows="16" required></textarea>
+          <textarea id="essay-typed-text" rows="16" required>${escEssay(state.resubmitText || '')}</textarea>
         </div>
         <button class="btn btn-primary" type="submit">Enviar redação</button>
         <p id="essay-typed-msg" class="tm-msg" hidden></p>
@@ -373,7 +387,7 @@
         return;
       }
       if (correction.status === 'REJECTED') {
-        renderRejectedDevolutiva(prompt);
+        renderRejectedDevolutiva(prompt, correction);
         return;
       }
       renderApprovedDevolutiva(prompt, correction);
@@ -382,18 +396,29 @@
     }
   }
 
-  function renderRejectedDevolutiva(prompt) {
+  function renderRejectedDevolutiva(prompt, correction) {
+    // resubmission_allowed is absent/undefined for older correction payloads
+    // (or simply not yet threaded through by a given code path) - treat that
+    // as "allowed" so the button still renders rather than silently
+    // vanishing; only an explicit false (AVALIATIVO) hides it.
+    const canResubmit = correction.resubmission_allowed !== false;
+    const resubmitSection = canResubmit
+      ? '<button class="btn btn-primary" type="button" id="essay-resubmit-btn">Reenviar redação</button>'
+      : `<p class="empty-text">${escEssay(RESUBMISSION_NOT_ALLOWED_MSG)}</p>`;
     container.innerHTML = `
       <div class="card">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
         <h3>${escEssay(prompt.title)}</h3>
-        <p class="empty-text">Seu professor pediu um reenvio desta redação. Envie uma nova versão para receber uma nova devolutiva.</p>
-        <button class="btn btn-primary" type="button" id="essay-resubmit-btn">Reenviar redação</button>
+        <p class="empty-text">A correção automática desta redação foi descartada pelo professor. Você pode enviar uma nova versão para receber uma nova correção.</p>
+        ${resubmitSection}
       </div>`;
     container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
-    container.querySelector('#essay-resubmit-btn').addEventListener('click', () => {
-      renderNewSubmissionForm(prompt, prompt.my_submission.essay_id);
-    });
+    const resubmitBtn = container.querySelector('#essay-resubmit-btn');
+    if (resubmitBtn) {
+      resubmitBtn.addEventListener('click', () => {
+        renderNewSubmissionForm(prompt, prompt.my_submission.essay_id, correction.canonical_text);
+      });
+    }
   }
 
   function renderApprovedDevolutiva(prompt, correction) {

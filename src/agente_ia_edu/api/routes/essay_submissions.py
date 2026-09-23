@@ -465,6 +465,10 @@ class StudentCorrectionResponse(BaseModel):
     rewrites: Optional[list] = None
     intervention: Optional[dict] = None
     alerts: Optional[list] = None
+    # Only ever populated (True/False) in the REJECTED branch - PENDING has no
+    # decision to resubmit against yet, and APPROVED is terminal in the other
+    # direction (already published, no resubmit UI to gate). Left None there.
+    resubmission_allowed: Optional[bool] = None
 
 
 @essay_submissions_router.get(
@@ -491,7 +495,22 @@ async def get_essay_submission_correction(
         if correction is None or correction.status in ("NEEDS_REVIEW", "PENDING_REVIEW"):
             return StudentCorrectionResponse(essay_submission_id=submission.id, status="PENDING")
         if correction.status == "REJECTED":
-            return StudentCorrectionResponse(essay_submission_id=submission.id, status="REJECTED")
+            # canonical_text here is the STUDENT'S OWN WRITING (not the AI's
+            # unpublished output that the other fields below withhold), so
+            # there's no leak in returning it - and the resubmit form wants
+            # it to pre-fill from, rather than making the student retype an
+            # entire essay from memory. resubmission_allowed mirrors the same
+            # AVALIATIVO gate create_essay_submission enforces server-side
+            # (EssayResubmissionBlockedError -> 409), computed the same way
+            # that route already does, so the frontend can hide the "Reenviar
+            # redação" button before the student writes a whole new essay
+            # just to hit that 409.
+            settings = await InstitutionSettingsService(session).get_settings(school_id)
+            return StudentCorrectionResponse(
+                essay_submission_id=submission.id, status="REJECTED",
+                canonical_text=submission.canonical_text,
+                resubmission_allowed=settings.correction_mode != "AVALIATIVO",
+            )
 
         ai_output = correction.ai_output or {}
         return StudentCorrectionResponse(
