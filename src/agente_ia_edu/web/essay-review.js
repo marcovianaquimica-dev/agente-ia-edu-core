@@ -307,6 +307,7 @@
 
     const isPending = correction.status === 'PENDING_REVIEW';
     const isTerminal = correction.status === 'APPROVED' || correction.status === 'REJECTED';
+    const showsContent = isPending || isTerminal;
 
     // Captured once, at render time, so the approve handler below can tell
     // an actual edit apart from the field simply still showing what it was
@@ -330,7 +331,7 @@
     // Aprovadas/Rejeitadas queue filters - shows what was actually decided
     // instead of an empty panel). NEEDS_REVIEW has no scores/feedback yet
     // (the AI call never produced any), so it stays out of this block.
-    const scoresFeedbackHtml = (isPending || isTerminal) ? `
+    const scoresFeedbackHtml = showsContent ? `
       <h4>Notas por competência</h4>
       <div class="tm-form-row">
         ${['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => `
@@ -348,9 +349,12 @@
           ? `<textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>`
           : `<p class="empty-text">${tmEsc(feedback.next_essay_strategy || '—')}</p>`}
       </div>
+      <h4>Redação do aluno</h4>
+      <div id="er-original-content"><p class="empty-text">Carregando conteúdo original...</p></div>
       <h4>Anotações da IA</h4>
-      ${annotations.length ? annotations.map((a) => `
+      ${annotations.length ? annotations.map((a, i) => `
         <div class="essay-annotation">
+          <span class="essay-annotation-number essay-mark-${tmEsc(a.competency_code)}">${i + 1}</span>
           <strong>${tmEsc(a.letter)} — ${tmEsc(a.competency_code)}</strong>
           <p>${tmEsc(a.short_comment)}</p>
         </div>`).join('') : '<p class="empty-text">Nenhuma anotação.</p>'}
@@ -377,6 +381,10 @@
       </div>`;
     wireTabs();
     container.querySelector('[data-back]').addEventListener('click', () => renderReviewQueue(returnStatus));
+
+    if (showsContent) {
+      loadOriginalContent(correctionId, annotations);
+    }
 
     const msg = container.querySelector('#er-review-msg');
 
@@ -456,6 +464,46 @@
         }
       });
     }
+  }
+
+  async function loadOriginalContent(correctionId, annotations) {
+    const target = container.querySelector('#er-original-content');
+    if (!target) return;
+    let content;
+    try {
+      content = await reviewRequest(`/api/v1/teacher/essay-corrections/${correctionId}/submission-content`);
+    } catch (e) {
+      target.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      return;
+    }
+    if (content.anchor_mode === 'TEXT_OFFSET') {
+      target.innerHTML = `<div class="essay-highlighted-text">${window.EssayAnnotations.renderHighlightedText(content.canonical_text || '', annotations)}</div>`;
+      window.EssayAnnotations.wirePopovers(target, annotations);
+      return;
+    }
+    const pages = content.pages || [];
+    target.innerHTML = pages.map((p) => `
+      <div class="essay-page-image-wrap" data-page-wrap="${p.page_number}">
+        <img data-page-image="${p.page_number}" alt="Página ${p.page_number}">
+      </div>`).join('') || '<p class="empty-text">Nenhuma página.</p>';
+
+    target.querySelectorAll('[data-page-image]').forEach((img) => {
+      const pageNumber = Number(img.dataset.pageImage);
+      fetch(`/api/v1/teacher/essay-corrections/${correctionId}/pages/${pageNumber}/image`, {
+        headers: reviewHeaders(),
+      })
+        .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('image fetch failed'))))
+        .then((blob) => new Promise((resolve) => {
+          img.onload = resolve;
+          img.src = URL.createObjectURL(blob);
+        }))
+        .then(() => {
+          const wrap = target.querySelector(`[data-page-wrap="${pageNumber}"]`);
+          window.EssayAnnotations.renderImageMarkers(wrap, img, annotations, pageNumber);
+          window.EssayAnnotations.wirePopovers(wrap, annotations);
+        })
+        .catch(() => { img.alt = `Não foi possível carregar a página ${pageNumber}.`; });
+    });
   }
 
   function init(currentSchoolId, currentTeacherId) {
