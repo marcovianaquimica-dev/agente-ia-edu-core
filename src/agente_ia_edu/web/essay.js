@@ -23,6 +23,11 @@
     return 'Não foi possível completar a ação.';
   }
 
+  function translateResubmitError(e) {
+    if (e.status === 409) return 'Esta avaliação não permite reenvio.';
+    return e.message;
+  }
+
   // Mirrors app.js's studentHeaders() default exactly. There, state.studentId
   // is already the string 'student:alice', so its real fallback token is the
   // DOUBLE-prefixed 'student:student:alice' - TestExternalIdentityProvider
@@ -96,14 +101,18 @@
     renderContinueUpload(prompt);
   }
 
-  function renderNewSubmissionForm(prompt) {
+  function renderNewSubmissionForm(prompt, resubmitEssayId) {
     // Tracks the real EssaySubmission this attempt lazily creates (see
     // renderUploadArea): null until the student actually picks a file.
     // Threaded through switchMode/renderModeBody so tab-switching stays a
     // pure UI change - no POST fires just from clicking "Fotografar"/"Enviar
     // PDF", which is what used to strand uploaded pages on orphaned,
     // unreachable submissions (repeated tab clicks each created a new one).
-    const state = { submissionId: null, anchorMode: null, mode: null };
+    // resubmitEssayId, when present (reenvio de redação rejeitada), rides
+    // along on state so both create-submission call sites below (typed
+    // atomic submit, and the lazy create-on-first-file for photo/PDF) can
+    // send it as resubmit_essay_id without needing a second code path.
+    const state = { submissionId: null, anchorMode: null, mode: null, resubmitEssayId: resubmitEssayId || null };
 
     container.innerHTML = `
       <div class="card essay-form">
@@ -137,13 +146,13 @@
   function renderModeBody(mode, prompt, state) {
     const body = container.querySelector('#essay-mode-body');
     if (mode === 'TYPED') {
-      renderTypedForm(body, prompt);
+      renderTypedForm(body, prompt, state);
       return;
     }
     renderUploadArea(body, prompt, mode, state);
   }
 
-  function renderTypedForm(body, prompt) {
+  function renderTypedForm(body, prompt, state) {
     body.innerHTML = `
       <form id="essay-typed-form">
         <div class="form-group">
@@ -166,12 +175,15 @@
         await essayRequest('/api/v1/student/essay-submissions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt_assignment_id: prompt.prompt_assignment_id, mode: 'TYPED', text }),
+          body: JSON.stringify({
+            prompt_assignment_id: prompt.prompt_assignment_id, mode: 'TYPED', text,
+            ...(state.resubmitEssayId ? { resubmit_essay_id: state.resubmitEssayId } : {}),
+          }),
         });
         await loadPrompts();
       } catch (e) {
         msg.hidden = false;
-        msg.textContent = e.message;
+        msg.textContent = translateResubmitError(e);
         submitBtn.disabled = false;
       }
     });
@@ -201,7 +213,10 @@
           const submission = await essayRequest('/api/v1/student/essay-submissions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt_assignment_id: prompt.prompt_assignment_id, mode }),
+            body: JSON.stringify({
+              prompt_assignment_id: prompt.prompt_assignment_id, mode,
+              ...(state.resubmitEssayId ? { resubmit_essay_id: state.resubmitEssayId } : {}),
+            }),
           });
           state.submissionId = submission.id;
           state.anchorMode = submission.anchor_mode;
@@ -229,7 +244,7 @@
         await refreshPages(target, state.submissionId, state.anchorMode);
       } catch (e) {
         msg.hidden = false;
-        msg.textContent = e.message;
+        msg.textContent = translateResubmitError(e);
       }
     });
 
@@ -357,10 +372,28 @@
         container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
         return;
       }
+      if (correction.status === 'REJECTED') {
+        renderRejectedDevolutiva(prompt);
+        return;
+      }
       renderApprovedDevolutiva(prompt, correction);
     } catch (e) {
       container.innerHTML = `<div class="card"><p class="empty-text">${escEssay(e.message)}</p></div>`;
     }
+  }
+
+  function renderRejectedDevolutiva(prompt) {
+    container.innerHTML = `
+      <div class="card">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>${escEssay(prompt.title)}</h3>
+        <p class="empty-text">Seu professor pediu um reenvio desta redação. Envie uma nova versão para receber uma nova devolutiva.</p>
+        <button class="btn btn-primary" type="button" id="essay-resubmit-btn">Reenviar redação</button>
+      </div>`;
+    container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
+    container.querySelector('#essay-resubmit-btn').addEventListener('click', () => {
+      renderNewSubmissionForm(prompt, prompt.my_submission.essay_id);
+    });
   }
 
   function renderApprovedDevolutiva(prompt, correction) {
