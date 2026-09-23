@@ -115,6 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'performance': { title: 'Análise de Desempenho', sub: 'Gráficos e distribuição de maestria da turma' },
       'action-plan': { title: 'Plano de Ação da Turma', sub: 'Ações pedagógicas prioritárias calculadas pelo sistema' },
       'reports': { title: 'Exportação de Relatórios', sub: 'Relatórios pedagógicos em PDF e XLSX' },
+      'essay-review': { title: 'Redação', sub: 'Propostas de redação e correções pendentes de revisão' },
       'profile': { title: 'Meu Perfil', sub: 'Informações do usuário e escopo autorizado' },
     };
 
@@ -137,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.currentView === 'materials') loadMaterials();
     if (state.currentView === 'theory-materials') loadTheoryMaterials();
     if (state.currentView === 'material-ingestion') loadMaterialIngestions();
+    if (state.currentView === 'essay-review') window.EssayReviewView.init(state.schoolId, state.teacherId);
     if (state.currentView === 'profile') loadProfileView();
   }
 
