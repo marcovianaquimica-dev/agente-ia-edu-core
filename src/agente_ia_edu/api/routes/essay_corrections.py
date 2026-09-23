@@ -9,15 +9,17 @@ for not yours).
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayCorrection
+from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, Person, PromptAssignment, Student
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
@@ -52,6 +54,9 @@ class EssayCorrectionResponse(BaseModel):
     final_feedback: Optional[dict] = None
     failure_reason: Optional[str] = None
     reviewed_by_external_identity: Optional[str] = None
+    student_name: Optional[str] = None
+    prompt_title: Optional[str] = None
+    submitted_at: Optional[datetime] = None
 
 
 class BulkApproveResponse(BaseModel):
@@ -59,7 +64,10 @@ class BulkApproveResponse(BaseModel):
     failures: dict[str, str]
 
 
-def _correction_to_response(correction: EssayCorrection) -> EssayCorrectionResponse:
+def _correction_to_response(
+    correction: EssayCorrection, *, student_name: Optional[str] = None,
+    prompt_title: Optional[str] = None, submitted_at: Optional[datetime] = None,
+) -> EssayCorrectionResponse:
     return EssayCorrectionResponse(
         id=correction.id, essay_submission_id=correction.essay_submission_id,
         school_id=correction.school_id, status=correction.status,
@@ -68,6 +76,7 @@ def _correction_to_response(correction: EssayCorrection) -> EssayCorrectionRespo
         ai_output=correction.ai_output, final_scores=correction.final_scores,
         final_feedback=correction.final_feedback, failure_reason=correction.failure_reason,
         reviewed_by_external_identity=correction.reviewed_by_external_identity,
+        student_name=student_name, prompt_title=prompt_title, submitted_at=submitted_at,
     )
 
 
@@ -104,9 +113,37 @@ async def list_essay_corrections(
         school_id = await _authorize(identity, session)
         if status not in _LISTABLE_STATUSES:
             raise HTTPException(status_code=422, detail=f"Unknown status: {status!r}")
-        service = EssayCorrectionService(session)
-        corrections = await service.list_by_status(school_id, status=status)
-        return [_correction_to_response(c) for c in corrections]
+        rows = (
+            await session.execute(
+                select(EssayCorrection, Person.full_name, EssayPrompt.title, EssaySubmission.submitted_at)
+                .join(EssaySubmission, EssaySubmission.id == EssayCorrection.essay_submission_id)
+                .join(Student, Student.id == EssaySubmission.student_id)
+                .join(Person, Person.id == Student.person_id)
+                .join(PromptAssignment, PromptAssignment.id == EssaySubmission.prompt_assignment_id)
+                .join(EssayPrompt, EssayPrompt.id == PromptAssignment.essay_prompt_id)
+                .where(EssayCorrection.school_id == school_id, EssayCorrection.status == status)
+                .order_by(EssayCorrection.created_at)
+            )
+        ).all()
+        return [
+            _correction_to_response(
+                correction, student_name=student_name, prompt_title=prompt_title,
+                # essay_submission.submitted_at is always written as an
+                # aware UTC instant (services/essay_submission.py _utcnow()),
+                # but SQLite (used in tests; see conventions) drops tzinfo on
+                # read even for DateTime(timezone=True) columns. Reattach UTC
+                # only when it's missing, so the JSON payload always carries
+                # an explicit offset for the frontend to parse correctly -
+                # on Postgres (production) submitted_at is already aware and
+                # this is a no-op.
+                submitted_at=(
+                    submitted_at.replace(tzinfo=timezone.utc)
+                    if submitted_at is not None and submitted_at.tzinfo is None
+                    else submitted_at
+                ),
+            )
+            for correction, student_name, prompt_title, submitted_at in rows
+        ]
 
 
 @essay_corrections_router.post(

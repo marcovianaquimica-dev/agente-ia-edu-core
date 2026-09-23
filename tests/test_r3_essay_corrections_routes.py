@@ -15,6 +15,7 @@ from agente_ia_edu.db.models import (
     EssayCorrection,
     EssayPrompt,
     EssaySubmission,
+    Person,
     PromptAssignment,
     School,
     Student,
@@ -107,8 +108,17 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
                         scope_type="SCHOOL", active=True,
                     ))
                     target_school_id = school.id
+                # A real Person row is required here (not just a random
+                # person_id): list_essay_corrections (Task 4) now INNER
+                # JOINs EssayCorrection -> EssaySubmission -> Student ->
+                # Person to enrich the response with student_name, so a
+                # Student pointing at a nonexistent Person would silently
+                # drop out of the list results.
+                person = Person(id=uuid.uuid4(), school_id=target_school_id, full_name=f"Aluno {code}")
+                session.add(person)
+                await session.flush()
                 student = Student(
-                    id=uuid.uuid4(), school_id=target_school_id, person_id=uuid.uuid4(),
+                    id=uuid.uuid4(), school_id=target_school_id, person_id=person.id,
                     student_code=f"ST-{code}",
                 )
                 session.add(student)
