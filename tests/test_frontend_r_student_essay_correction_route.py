@@ -203,6 +203,20 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
         resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction")
         self.assertEqual(resp.status_code, 403)
 
+    def test_rejected_exposes_status_but_no_content(self):
+        submission_id = self._seed_submission("7")
+        # with_content=True prova que a rota ATIVAMENTE esconde o conteúdo em
+        # REJECTED, não que o conteúdo simplesmente não existia no banco.
+        self._add_correction(submission_id, status="REJECTED", with_content=True)
+        self._as("student_7")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["status"], "REJECTED")
+        self.assertIsNone(body["final_scores"])
+        self.assertIsNone(body["final_feedback"])
+        self.assertIsNone(body["annotations"])
+
 
 if __name__ == "__main__":
     unittest.main()

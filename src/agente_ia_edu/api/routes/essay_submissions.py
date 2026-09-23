@@ -488,8 +488,10 @@ async def get_essay_submission_correction(
         correction = await session.scalar(
             select(EssayCorrection).where(EssayCorrection.essay_submission_id == submission.id)
         )
-        if correction is None or correction.status != "APPROVED":
+        if correction is None or correction.status in ("NEEDS_REVIEW", "PENDING_REVIEW"):
             return StudentCorrectionResponse(essay_submission_id=submission.id, status="PENDING")
+        if correction.status == "REJECTED":
+            return StudentCorrectionResponse(essay_submission_id=submission.id, status="REJECTED")
 
         ai_output = correction.ai_output or {}
         return StudentCorrectionResponse(
