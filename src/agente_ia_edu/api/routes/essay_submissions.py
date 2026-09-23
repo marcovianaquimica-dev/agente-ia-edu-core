@@ -224,8 +224,14 @@ async def create_essay_submission(
         if submission.status == "SUBMITTED":
             await EssayCorrectionService(session).correct(submission.id)
 
+        # Build the response BEFORE commit: commit() expires `submission`
+        # (expire_on_commit=True in production - see db/session.py), and
+        # accessing its attributes afterwards triggers a synchronous
+        # lazy-load that raises MissingGreenlet in an async context. Test
+        # fixtures using expire_on_commit=False mask this.
+        response = _submission_to_response(submission)
         await session.commit()
-        return _submission_to_response(submission)
+        return response
 
 
 @essay_submissions_router.post(
@@ -276,8 +282,12 @@ async def upload_essay_submission_page(
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        # See create_essay_submission above: build the response before
+        # commit() expires `page`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = _page_to_response(page)
         await session.commit()
-        return _page_to_response(page)
+        return response
 
 
 @essay_submissions_router.post(
@@ -334,8 +344,12 @@ async def upload_essay_submission_document(
             # everything that needs to survive into managed storage.
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        # See create_essay_submission above: build the response before
+        # commit() expires each page, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = [_page_to_response(p) for p in pages]
         await session.commit()
-        return [_page_to_response(p) for p in pages]
+        return response
 
 
 @essay_submissions_router.get(
@@ -389,8 +403,12 @@ async def review_essay_submission_page(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See create_essay_submission above: build the response before
+        # commit() expires `page`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = _page_to_response(page)
         await session.commit()
-        return _page_to_response(page)
+        return response
 
 
 @essay_submissions_router.post(
@@ -419,8 +437,12 @@ async def confirm_essay_submission(
 
         await EssayCorrectionService(session).correct(confirmed.id)
 
+        # See create_essay_submission above: build the response before
+        # commit() expires `confirmed`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
+        response = _submission_to_response(confirmed)
         await session.commit()
-        return _submission_to_response(confirmed)
+        return response
 
 
 class StudentCorrectionResponse(BaseModel):

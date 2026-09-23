@@ -168,8 +168,14 @@ async def approve_essay_correction(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Build the response BEFORE commit: commit() expires `correction`
+        # (expire_on_commit=True in production - see db/session.py), and
+        # accessing its attributes afterwards triggers a synchronous
+        # lazy-load that raises MissingGreenlet in an async context. Test
+        # fixtures using expire_on_commit=False mask this.
+        response = _correction_to_response(correction)
         await session.commit()
-        return _correction_to_response(correction)
+        return response
 
 
 @essay_corrections_router.post(
@@ -192,8 +198,12 @@ async def reject_essay_correction(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See approve_essay_correction above: build the response before
+        # commit() expires `correction`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
+        response = _correction_to_response(correction)
         await session.commit()
-        return _correction_to_response(correction)
+        return response
 
 
 @essay_corrections_router.post(
@@ -214,8 +224,12 @@ async def retry_essay_correction(
             correction = await service.retry(essay_correction_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See approve_essay_correction above: build the response before
+        # commit() expires `correction`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
+        response = _correction_to_response(correction)
         await session.commit()
-        return _correction_to_response(correction)
+        return response
 
 
 @essay_corrections_router.post("/bulk-approve", response_model=BulkApproveResponse)
@@ -240,8 +254,12 @@ async def bulk_approve_essay_corrections(
         approved, failures = await service.bulk_approve(
             request.essay_correction_ids, reviewed_by_external_identity=identity.external_user_id,
         )
-        await session.commit()
-        return BulkApproveResponse(
+        # See approve_essay_correction above: build the response before
+        # commit() expires each corrected row, to avoid a MissingGreenlet
+        # error in production (expire_on_commit=True).
+        response = BulkApproveResponse(
             approved=[_correction_to_response(c) for c in approved],
             failures={str(correction_id): reason for correction_id, reason in failures.items()},
         )
+        await session.commit()
+        return response

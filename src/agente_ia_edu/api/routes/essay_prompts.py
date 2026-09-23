@@ -120,11 +120,17 @@ async def create_essay_prompt(
             year=request.year,
             created_by_external_identity=identity.external_user_id,
         )
-        await session.commit()
-        return EssayPromptResponse(
+        # Build the response BEFORE commit: commit() expires `prompt`
+        # (expire_on_commit=True in production - see db/session.py), and
+        # accessing its attributes afterwards triggers a synchronous
+        # lazy-load that raises MissingGreenlet in an async context. Test
+        # fixtures using expire_on_commit=False mask this.
+        response = EssayPromptResponse(
             id=prompt.id, school_id=prompt.school_id, title=prompt.title,
             statement=prompt.statement, year=prompt.year, status=prompt.status,
         )
+        await session.commit()
+        return response
 
 
 @essay_prompts_router.post(
@@ -153,12 +159,16 @@ async def add_prompt_material(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        await session.commit()
-        return PromptMaterialResponse(
+        # See create_essay_prompt above: build the response before commit()
+        # expires `material`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = PromptMaterialResponse(
             id=material.id, essay_prompt_id=material.essay_prompt_id,
             material_type=material.material_type, content=material.content,
             storage_uri=material.storage_uri, position=material.position,
         )
+        await session.commit()
+        return response
 
 
 @essay_prompts_router.post(
@@ -187,12 +197,16 @@ async def create_prompt_assignment(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        await session.commit()
-        return PromptAssignmentResponse(
+        # See create_essay_prompt above: build the response before commit()
+        # expires `assignment`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = PromptAssignmentResponse(
             id=assignment.id, school_id=assignment.school_id,
             essay_prompt_id=assignment.essay_prompt_id, class_id=assignment.class_id,
             status=assignment.status, validation_enabled=assignment.validation_enabled,
         )
+        await session.commit()
+        return response
 
 
 class EssayPromptDetailResponse(EssayPromptResponse):
