@@ -324,4 +324,3 @@
 }
 
 .essay-review-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-.essay-annotation { border-left: 3px solid var(--primary); padding: 8px 12px; margin: 10px 0; background: #fbfdff; }

@@ -296,6 +296,9 @@
     const annotations = aiOutput.annotations || [];
     const alerts = aiOutput.alerts || [];
 
+    const isPending = correction.status === 'PENDING_REVIEW';
+    const isTerminal = correction.status === 'APPROVED' || correction.status === 'REJECTED';
+
     const failureHtml = correction.status === 'NEEDS_REVIEW'
       ? `<div class="alert-banner alert-danger">Falha na correção automática: ${tmEsc(correction.failure_reason || 'motivo não informado')}</div>`
       : '';
@@ -304,20 +307,29 @@
       ? `<div>${alerts.map((a) => `<span class="badge badge-accent">${tmEsc(a.code)}</span>`).join(' ')}</div>`
       : '';
 
-    const scoresFeedbackHtml = correction.status === 'PENDING_REVIEW' ? `
+    // Rendered for PENDING_REVIEW (editable, so a teacher has something to
+    // act on) and for the terminal APPROVED/REJECTED states (read-only, so
+    // "Revisar" on an already-decided correction - reachable from the
+    // Aprovadas/Rejeitadas queue filters - shows what was actually decided
+    // instead of an empty panel). NEEDS_REVIEW has no scores/feedback yet
+    // (the AI call never produced any), so it stays out of this block.
+    const scoresFeedbackHtml = (isPending || isTerminal) ? `
       <h4>Notas por competência</h4>
       <div class="tm-form-row">
         ${['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => `
           <div class="form-group">
-            <label for="er-score-${code}">${code}</label>
-            <input id="er-score-${code}" class="text-input" type="number" min="0" max="200" step="40"
-                   value="${(perCompetency[code] || {}).points ?? 0}">
+            <label ${isPending ? `for="er-score-${code}"` : ''}>${code}</label>
+            ${isPending
+              ? `<input id="er-score-${code}" class="text-input" type="number" min="0" max="200" step="40" value="${Number((perCompetency[code] || {}).points) || 0}">`
+              : `<p class="empty-text">${tmEsc((perCompetency[code] || {}).points ?? '—')}</p>`}
           </div>`).join('')}
       </div>
       <h4>Feedback</h4>
       <div class="form-group">
-        <label for="er-feedback-strategy">Próxima redação</label>
-        <textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>
+        <label ${isPending ? 'for="er-feedback-strategy"' : ''}>Próxima redação</label>
+        ${isPending
+          ? `<textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>`
+          : `<p class="empty-text">${tmEsc(feedback.next_essay_strategy || '—')}</p>`}
       </div>
       <h4>Anotações da IA</h4>
       ${annotations.length ? annotations.map((a) => `
@@ -327,11 +339,13 @@
         </div>`).join('') : '<p class="empty-text">Nenhuma anotação.</p>'}
     ` : '';
 
-    const actionsHtml = correction.status === 'PENDING_REVIEW' ? `
+    const actionsHtml = isPending ? `
         <button class="btn btn-primary" type="button" id="er-approve-btn">Aprovar</button>
         <button class="btn btn-secondary" type="button" id="er-reject-btn">Rejeitar</button>`
       : correction.status === 'NEEDS_REVIEW' ? `
         <button class="btn btn-primary" type="button" id="er-retry-btn">Tentar novamente</button>`
+      : isTerminal ? `
+        <p class="empty-text">Decisão: ${correction.status === 'APPROVED' ? 'Aprovada' : 'Rejeitada'}</p>`
       : '';
 
     container.innerHTML = `
