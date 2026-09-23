@@ -283,6 +283,134 @@
     });
   }
 
+  function renderReviewPanel(correctionId, returnStatus) {
+    const correction = currentCorrections.find((c) => c.id === correctionId);
+    if (!correction) {
+      renderReviewQueue(returnStatus);
+      return;
+    }
+    const aiOutput = correction.ai_output || {};
+    const scores = correction.final_scores || {};
+    const perCompetency = scores.per_competency || {};
+    const feedback = correction.final_feedback || {};
+    const annotations = aiOutput.annotations || [];
+    const alerts = aiOutput.alerts || [];
+
+    const failureHtml = correction.status === 'NEEDS_REVIEW'
+      ? `<div class="alert-banner alert-danger">Falha na correção automática: ${tmEsc(correction.failure_reason || 'motivo não informado')}</div>`
+      : '';
+
+    const alertsHtml = alerts.length
+      ? `<div>${alerts.map((a) => `<span class="badge badge-accent">${tmEsc(a.code)}</span>`).join(' ')}</div>`
+      : '';
+
+    const scoresFeedbackHtml = correction.status === 'PENDING_REVIEW' ? `
+      <h4>Notas por competência</h4>
+      <div class="tm-form-row">
+        ${['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => `
+          <div class="form-group">
+            <label for="er-score-${code}">${code}</label>
+            <input id="er-score-${code}" class="text-input" type="number" min="0" max="200" step="40"
+                   value="${(perCompetency[code] || {}).points ?? 0}">
+          </div>`).join('')}
+      </div>
+      <h4>Feedback</h4>
+      <div class="form-group">
+        <label for="er-feedback-strategy">Próxima redação</label>
+        <textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>
+      </div>
+      <h4>Anotações da IA</h4>
+      ${annotations.length ? annotations.map((a) => `
+        <div class="essay-annotation">
+          <strong>${tmEsc(a.letter)} — ${tmEsc(a.competency_code)}</strong>
+          <p>${tmEsc(a.short_comment)}</p>
+        </div>`).join('') : '<p class="empty-text">Nenhuma anotação.</p>'}
+    ` : '';
+
+    const actionsHtml = correction.status === 'PENDING_REVIEW' ? `
+        <button class="btn btn-primary" type="button" id="er-approve-btn">Aprovar</button>
+        <button class="btn btn-secondary" type="button" id="er-reject-btn">Rejeitar</button>`
+      : correction.status === 'NEEDS_REVIEW' ? `
+        <button class="btn btn-primary" type="button" id="er-retry-btn">Tentar novamente</button>`
+      : '';
+
+    container.innerHTML = `
+      ${renderTabs('queue')}
+      <div class="card tm-detail-grid">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar à fila</button>
+        ${failureHtml}
+        ${alertsHtml}
+        ${scoresFeedbackHtml}
+        <div class="tm-form-actions">${actionsHtml}</div>
+        <p id="er-review-msg" class="tm-msg" hidden></p>
+      </div>`;
+    wireTabs();
+    container.querySelector('[data-back]').addEventListener('click', () => renderReviewQueue(returnStatus));
+
+    const msg = container.querySelector('#er-review-msg');
+
+    const approveBtn = container.querySelector('#er-approve-btn');
+    if (approveBtn) {
+      approveBtn.addEventListener('click', async () => {
+        approveBtn.disabled = true;
+        const editedPerCompetency = Object.fromEntries(['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => [
+          code,
+          {
+            points: Number(container.querySelector(`#er-score-${code}`).value),
+            confidence: (perCompetency[code] || {}).confidence ?? 1.0,
+          },
+        ]));
+        const editedScores = {
+          per_competency: editedPerCompetency,
+          total: Object.values(editedPerCompetency).reduce((sum, s) => sum + s.points, 0),
+        };
+        const editedFeedback = { ...feedback, next_essay_strategy: container.querySelector('#er-feedback-strategy').value.trim() };
+        try {
+          await reviewRequest(`/api/v1/teacher/essay-corrections/${correctionId}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ final_scores: editedScores, final_feedback: editedFeedback }),
+          });
+          renderReviewQueue(returnStatus);
+        } catch (e) {
+          msg.hidden = false;
+          msg.textContent = e.message;
+          approveBtn.disabled = false;
+        }
+      });
+    }
+
+    const rejectBtn = container.querySelector('#er-reject-btn');
+    if (rejectBtn) {
+      rejectBtn.addEventListener('click', async () => {
+        rejectBtn.disabled = true;
+        try {
+          await reviewRequest(`/api/v1/teacher/essay-corrections/${correctionId}/reject`, { method: 'POST' });
+          renderReviewQueue(returnStatus);
+        } catch (e) {
+          msg.hidden = false;
+          msg.textContent = e.message;
+          rejectBtn.disabled = false;
+        }
+      });
+    }
+
+    const retryBtn = container.querySelector('#er-retry-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', async () => {
+        retryBtn.disabled = true;
+        try {
+          await reviewRequest(`/api/v1/teacher/essay-corrections/${correctionId}/retry`, { method: 'POST' });
+          renderReviewQueue(returnStatus);
+        } catch (e) {
+          msg.hidden = false;
+          msg.textContent = e.message;
+          retryBtn.disabled = false;
+        }
+      });
+    }
+  }
+
   function init(currentSchoolId, currentTeacherId) {
     container = document.getElementById('essay-review-root');
     schoolId = currentSchoolId || '';
