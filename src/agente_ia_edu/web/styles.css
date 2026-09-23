@@ -1646,3 +1646,4 @@ body.sidebar-open {
 .essay-action-plan { padding-left: 20px; }
 .essay-closing-message { font-style: italic; margin: 14px 0; }
 .essay-transparency-notice { font-size: 12px; color: var(--text-muted); margin-top: 16px; }
+.essay-report-preview { border: 1px solid var(--border, #e2e6ee); border-radius: 6px; padding: 12px; margin-top: 8px; background: #fafbfc; }

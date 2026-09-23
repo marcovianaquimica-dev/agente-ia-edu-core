@@ -359,7 +359,7 @@
           ? `<textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>`
           : `<p class="empty-text">${tmEsc(feedback.next_essay_strategy || '—')}</p>`}
       </div>
-      <h4>Pré-visualização da devolutiva (o que o aluno verá)</h4>
+      <h4>Pré-visualização da devolutiva (com base na nota/feedback atuais desta correção)</h4>
       <div class="essay-report-preview">
         ${window.EssayReport.renderRichReport(reportCorrection, {
           editable: true, escFn: tmEsc,

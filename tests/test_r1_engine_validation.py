@@ -105,6 +105,19 @@ class TestEngineValidation(unittest.TestCase):
         ])
         validate_engine_output(output, rubric=RUBRIC, text=TEXT)
 
+    def test_rejects_a_rewrite_whose_competency_does_not_match_its_annotation(self):
+        # build_payload()'s single annotation uses letter "A" with
+        # competency_code "C1" (see fixture) - a rewrite referencing that
+        # same letter but declaring a different (still rubric-valid)
+        # competency must be rejected, not silently accepted.
+        output = build_output(rewrites=[
+            {
+                "letter": "A", "competency_code": "C2",
+                "original": "x", "suggestion": "y", "pedagogical_goal": "z",
+            }
+        ])
+        self._assert_rejected(output, reason_code="REWRITE_COMPETENCY_MISMATCH")
+
     def test_rejects_a_rewrite_with_unknown_competency(self):
         rubric = RubricView(
             rubric_version="ENEM_2025",

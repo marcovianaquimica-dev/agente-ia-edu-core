@@ -148,6 +148,15 @@
       ? `<ol class="essay-action-plan">${actionPlanItems.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>`
       : '<p class="empty-text">Nenhum ponto de melhoria registrado.</p>';
 
+    const nextEssayHtml = feedback.next_essay_strategy
+      ? `<h4>Próxima redação</h4><p>${esc(feedback.next_essay_strategy)}</p>`
+      : '';
+
+    const hasAnyRationaleSplit = rationales.some((r) => r.strengths && r.growth_area);
+    const strengthsFallbackHtml = (!hasAnyRationaleSplit && (feedback.strengths || []).length)
+      ? `<h4>Pontos fortes</h4><ul>${feedback.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`
+      : '';
+
     const closingHtml = correction.closing_message
       ? `<p class="essay-closing-message">${esc(correction.closing_message)}</p>`
       : '';
@@ -163,6 +172,7 @@
       ${competencyBarsHtml}
       <h4>O que você já faz bem e onde pode avançar</h4>
       ${competencyTableHtml}
+      ${strengthsFallbackHtml}
       <h4>Sua redação</h4>
       ${opts.originalContentHtml || ''}
       <h4>Anotações</h4>
@@ -175,6 +185,7 @@
       ${interventionHtml}
       <h4>Plano de ação</h4>
       ${actionPlanHtml}
+      ${nextEssayHtml}
       ${closingHtml}
       ${transparencyHtml}`;
   }

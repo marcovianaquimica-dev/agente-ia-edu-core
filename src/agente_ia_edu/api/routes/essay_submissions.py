@@ -14,7 +14,7 @@ import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -455,6 +455,14 @@ async def confirm_essay_submission(
         return response
 
 
+def _as_list_or_none(value: Any) -> list | None:
+    """Old/malformed ai_output may store this key with the wrong shape (e.g. a
+    seed script's dict instead of the contract's list) - degrade to None
+    (same as a missing key) instead of letting a shape mismatch 500 the
+    student's own devolutiva."""
+    return value if isinstance(value, list) else None
+
+
 class StudentCorrectionResponse(BaseModel):
     essay_submission_id: UUID
     status: str
@@ -523,10 +531,10 @@ async def get_essay_submission_correction(
             final_scores=correction.final_scores, final_feedback=correction.final_feedback,
             annotations=ai_output.get("annotations"), rewrites=ai_output.get("rewrites"),
             intervention=ai_output.get("intervention"), alerts=ai_output.get("alerts"),
-            rationales=ai_output.get("rationales"),
+            rationales=_as_list_or_none(ai_output.get("rationales")),
             intro_message=ai_output.get("intro_message"),
             closing_message=ai_output.get("closing_message"),
-            mechanical_review=ai_output.get("mechanical_review"),
+            mechanical_review=_as_list_or_none(ai_output.get("mechanical_review")),
         )
 
 

@@ -200,12 +200,22 @@ def validate_engine_output(
                 reject("UNKNOWN_SIGNAL_KEY", f"unknown or inactive signal {key!r}")
 
     valid_letters = {annotation.letter for annotation in output.annotations}
+    annotation_competency_by_letter = {
+        annotation.letter: annotation.competency_code for annotation in output.annotations
+    }
     for rewrite in output.rewrites:
         if rewrite.letter not in valid_letters:
             reject(
                 "REWRITE_LETTER_NOT_FOUND",
                 f"rewrite references letter {rewrite.letter!r}, which is not "
                 f"among the annotations' letters {sorted(valid_letters)}",
+            )
+        elif rewrite.competency_code != annotation_competency_by_letter[rewrite.letter]:
+            reject(
+                "REWRITE_COMPETENCY_MISMATCH",
+                f"rewrite for letter {rewrite.letter!r} declares competency "
+                f"{rewrite.competency_code!r} but that annotation is "
+                f"{annotation_competency_by_letter[rewrite.letter]!r}",
             )
         if rewrite.competency_code not in rubric.levels:
             reject(
