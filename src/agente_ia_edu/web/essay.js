@@ -308,9 +308,101 @@
     renderUploadArea(container, prompt.my_submission.id, prompt.my_submission.anchor_mode, 'PHOTO');
   }
 
-  function renderDevolutiva() {
-    // Implementado na Task 7.
-    container.innerHTML = '<div class="card"><p class="empty-text">Devolutiva — próxima etapa.</p></div>';
+  const COMPETENCY_LABELS = {
+    C1: 'Domínio da norma padrão', C2: 'Compreensão do tema', C3: 'Argumentação',
+    C4: 'Coesão textual', C5: 'Proposta de intervenção',
+  };
+
+  async function renderDevolutiva(prompt) {
+    container.innerHTML = '<p class="empty-text">Carregando devolutiva...</p>';
+    const submissionId = prompt.my_submission.id;
+    try {
+      const correction = await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/correction`);
+      if (correction.status === 'PENDING') {
+        container.innerHTML = `
+          <div class="card">
+            <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+            <h3>${escEssay(prompt.title)}</h3>
+            <p class="empty-text">Sua redação ainda está sendo corrigida. Volte mais tarde para ver a devolutiva.</p>
+          </div>`;
+        container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
+        return;
+      }
+      renderApprovedDevolutiva(prompt, correction);
+    } catch (e) {
+      container.innerHTML = `<div class="card"><p class="empty-text">${escEssay(e.message)}</p></div>`;
+    }
+  }
+
+  function renderApprovedDevolutiva(prompt, correction) {
+    const scores = correction.final_scores || {};
+    const perCompetency = scores.per_competency || {};
+    const feedback = correction.final_feedback || {};
+    const annotations = correction.annotations || [];
+    const alerts = correction.alerts || [];
+    const intervention = correction.intervention || {};
+
+    const competencyBars = Object.keys(COMPETENCY_LABELS).map((code) => {
+      const points = (perCompetency[code] || {}).points || 0;
+      const pct = Math.round((points / 200) * 100);
+      return `
+        <div class="essay-competency-row">
+          <span>${code} — ${COMPETENCY_LABELS[code]}</span>
+          <div class="essay-competency-bar"><div class="essay-competency-fill" style="width:${pct}%"></div></div>
+          <span>${points}/200</span>
+        </div>`;
+    }).join('');
+
+    const alertsHtml = alerts.length
+      ? `<div class="essay-alerts">${alerts.map((a) => `<span class="badge badge-accent">${escEssay(a.code)}</span>`).join(' ')}</div>`
+      : '';
+
+    const annotationsHtml = annotations.length
+      ? annotations.map((a) => {
+          const quote = (a.anchor && (a.anchor.quote || a.anchor.read_text)) || '';
+          return `
+            <div class="essay-annotation">
+              <strong>${escEssay(a.letter)} — ${escEssay(a.competency_code)}</strong>
+              <p>${escEssay(a.short_comment)}</p>
+              <p class="empty-text">${escEssay(a.long_comment)}</p>
+              ${quote ? `<blockquote>"${escEssay(quote)}"</blockquote>` : ''}
+            </div>`;
+        }).join('')
+      : '<p class="empty-text">Nenhuma anotação específica.</p>';
+
+    const interventionHtml = `
+      <ul class="essay-intervention-checklist">
+        <li>${intervention.agente ? '✓' : '○'} Agente: ${escEssay(intervention.agente || '—')}</li>
+        <li>${intervention.acao ? '✓' : '○'} Ação: ${escEssay(intervention.acao || '—')}</li>
+        <li>${intervention.meio_modo ? '✓' : '○'} Meio/modo: ${escEssay(intervention.meio_modo || '—')}</li>
+        <li>${intervention.finalidade ? '✓' : '○'} Finalidade: ${escEssay(intervention.finalidade || '—')}</li>
+        <li>${intervention.detalhamento ? '✓' : '○'} Detalhamento: ${escEssay(intervention.detalhamento || '—')}</li>
+      </ul>
+      <p class="${intervention.respeita_direitos_humanos ? '' : 'essay-warning'}">
+        ${intervention.respeita_direitos_humanos ? '✓ Respeita os direitos humanos' : '⚠ Atenção: verificar respeito aos direitos humanos'}
+      </p>`;
+
+    container.innerHTML = `
+      <div class="card">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>${escEssay(prompt.title)}</h3>
+        <div class="essay-total-score">Nota total: ${scores.total != null ? scores.total : '—'} / 1000</div>
+        ${alertsHtml}
+        <h4>Notas por competência</h4>
+        ${competencyBars}
+        <h4>Pontos fortes</h4>
+        <ul>${(feedback.strengths || []).map((s) => `<li>${escEssay(s)}</li>`).join('') || '<li class="empty-text">—</li>'}</ul>
+        <h4>A melhorar</h4>
+        <ul>${(feedback.improvements || []).map((s) => `<li>${escEssay(s)}</li>`).join('') || '<li class="empty-text">—</li>'}</ul>
+        <h4>Próxima redação</h4>
+        <p>${escEssay(feedback.next_essay_strategy || '')}</p>
+        <h4>Anotações</h4>
+        ${annotationsHtml}
+        <h4>Competência 5 — Proposta de intervenção</h4>
+        ${interventionHtml}
+      </div>`;
+
+    container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
   }
 
   async function loadPrompts() {
