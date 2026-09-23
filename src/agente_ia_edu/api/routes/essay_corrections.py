@@ -14,12 +14,13 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, Person, PromptAssignment, Student
+from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, Person, PromptAssignment, Student
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
@@ -62,6 +63,17 @@ class EssayCorrectionResponse(BaseModel):
 class BulkApproveResponse(BaseModel):
     approved: list[EssayCorrectionResponse]
     failures: dict[str, str]
+
+
+class SubmissionPageSummary(BaseModel):
+    page_number: int
+
+
+class SubmissionContentResponse(BaseModel):
+    essay_submission_id: UUID
+    anchor_mode: str
+    canonical_text: Optional[str] = None
+    pages: Optional[list[SubmissionPageSummary]] = None
 
 
 def _correction_to_response(
@@ -263,3 +275,57 @@ async def bulk_approve_essay_corrections(
         )
         await session.commit()
         return response
+
+
+@essay_corrections_router.get(
+    "/{essay_correction_id}/submission-content", response_model=SubmissionContentResponse
+)
+async def get_essay_correction_submission_content(
+    essay_correction_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> SubmissionContentResponse:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        correction = await _correction_for_own_school_or_403(
+            session, essay_correction_id=essay_correction_id, school_id=school_id
+        )
+        submission = await session.get(EssaySubmission, correction.essay_submission_id)
+        pages = None
+        if submission.anchor_mode == "IMAGE_REGION":
+            page_numbers = (
+                await session.execute(
+                    select(EssaySubmissionPage.page_number)
+                    .where(EssaySubmissionPage.essay_submission_id == submission.id)
+                    .order_by(EssaySubmissionPage.page_number)
+                )
+            ).scalars().all()
+            pages = [SubmissionPageSummary(page_number=n) for n in page_numbers]
+        return SubmissionContentResponse(
+            essay_submission_id=submission.id, anchor_mode=submission.anchor_mode,
+            canonical_text=submission.canonical_text if submission.anchor_mode == "TEXT_OFFSET" else None,
+            pages=pages,
+        )
+
+
+@essay_corrections_router.get("/{essay_correction_id}/pages/{page_number}/image")
+async def get_essay_correction_page_image(
+    essay_correction_id: UUID,
+    page_number: int,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        correction = await _correction_for_own_school_or_403(
+            session, essay_correction_id=essay_correction_id, school_id=school_id
+        )
+        page = await session.scalar(
+            select(EssaySubmissionPage).where(
+                EssaySubmissionPage.essay_submission_id == correction.essay_submission_id,
+                EssaySubmissionPage.page_number == page_number,
+            )
+        )
+        if page is None:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return FileResponse(page.storage_uri)
