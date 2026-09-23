@@ -528,6 +528,7 @@ class MySubmissionSummary(BaseModel):
     essay_id: UUID
     status: str
     anchor_mode: str
+    mode: str
 
 
 class EssayPromptForStudentResponse(BaseModel):
@@ -578,6 +579,7 @@ async def list_essay_prompts_for_student(
                 MySubmissionSummary(
                     id=submission.id, essay_id=submission.essay_id,
                     status=submission.status, anchor_mode=submission.anchor_mode,
+                    mode=submission.mode,
                 )
                 if submission is not None
                 else None

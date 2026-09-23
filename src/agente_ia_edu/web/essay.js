@@ -97,6 +97,14 @@
   }
 
   function renderNewSubmissionForm(prompt) {
+    // Tracks the real EssaySubmission this attempt lazily creates (see
+    // renderUploadArea): null until the student actually picks a file.
+    // Threaded through switchMode/renderModeBody so tab-switching stays a
+    // pure UI change - no POST fires just from clicking "Fotografar"/"Enviar
+    // PDF", which is what used to strand uploaded pages on orphaned,
+    // unreachable submissions (repeated tab clicks each created a new one).
+    const state = { submissionId: null, anchorMode: null, mode: null };
+
     container.innerHTML = `
       <div class="card essay-form">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
@@ -110,34 +118,29 @@
         <div id="essay-mode-body"></div>
       </div>`;
 
+    function switchMode(requestedMode) {
+      // Once a real submission exists, its mode is locked (the backend
+      // never lets it change) - clicking a different tab re-shows that same
+      // submission instead of a blank form that would create a competing one.
+      const effectiveMode = state.submissionId ? state.mode : requestedMode;
+      container.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('is-active', b.dataset.mode === effectiveMode));
+      renderModeBody(effectiveMode, prompt, state);
+    }
+
     container.querySelector('[data-back]').addEventListener('click', () => renderList());
     container.querySelectorAll('[data-mode]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        container.querySelectorAll('[data-mode]').forEach((b) => b.classList.remove('is-active'));
-        btn.classList.add('is-active');
-        renderModeBody(btn.dataset.mode, prompt);
-      });
+      btn.addEventListener('click', () => switchMode(btn.dataset.mode));
     });
-    renderModeBody('TYPED', prompt);
+    switchMode('TYPED');
   }
 
-  async function renderModeBody(mode, prompt) {
+  function renderModeBody(mode, prompt, state) {
     const body = container.querySelector('#essay-mode-body');
     if (mode === 'TYPED') {
       renderTypedForm(body, prompt);
       return;
     }
-    body.innerHTML = '<p class="empty-text">Preparando envio...</p>';
-    try {
-      const submission = await essayRequest('/api/v1/student/essay-submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt_assignment_id: prompt.prompt_assignment_id, mode }),
-      });
-      await renderUploadArea(body, submission.id, submission.anchor_mode, mode);
-    } catch (e) {
-      body.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
-    }
+    renderUploadArea(body, prompt, mode, state);
   }
 
   function renderTypedForm(body, prompt) {
@@ -174,7 +177,7 @@
     });
   }
 
-  async function renderUploadArea(target, submissionId, anchorMode, mode) {
+  async function renderUploadArea(target, prompt, mode, state) {
     target.innerHTML = `
       <div class="form-group">
         <label for="essay-file-input">${mode === 'PDF' ? 'Arquivo PDF (até 25MB)' : 'Fotos das páginas (até 25MB cada)'}</label>
@@ -191,33 +194,51 @@
       const msg = target.querySelector('#essay-upload-msg');
       msg.hidden = true;
       try {
+        if (!state.submissionId) {
+          // Lazy creation: the EssaySubmission row (and its uploaded files)
+          // is only worth creating once the student actually commits to a
+          // file, not on every mode-tab click.
+          const submission = await essayRequest('/api/v1/student/essay-submissions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt_assignment_id: prompt.prompt_assignment_id, mode }),
+          });
+          state.submissionId = submission.id;
+          state.anchorMode = submission.anchor_mode;
+          state.mode = mode;
+        }
         if (mode === 'PDF') {
           const form = new FormData();
           form.append('file', files[0]);
-          await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/document`, {
+          await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/document`, {
             method: 'POST', body: form,
           });
         } else {
-          const existing = await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages`);
+          const existing = await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/pages`);
           let nextPage = existing.length + 1;
           for (const file of files) {
             const form = new FormData();
             form.append('page_number', String(nextPage));
             form.append('file', file);
-            await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages`, {
+            await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/pages`, {
               method: 'POST', body: form,
             });
             nextPage += 1;
           }
         }
-        await refreshPages(target, submissionId, anchorMode);
+        await refreshPages(target, state.submissionId, state.anchorMode);
       } catch (e) {
         msg.hidden = false;
         msg.textContent = e.message;
       }
     });
 
-    await refreshPages(target, submissionId, anchorMode);
+    if (state.submissionId) {
+      // Either resuming an already-created submission (renderContinueUpload)
+      // or re-showing this same mode's tab after a submission was already
+      // lazily created above - either way, load what's already there.
+      await refreshPages(target, state.submissionId, state.anchorMode);
+    }
   }
 
   async function refreshPages(target, submissionId, anchorMode) {
@@ -305,7 +326,15 @@
         <h3>${escEssay(prompt.title)}</h3>
       </div>`;
     container.querySelector('[data-back]').addEventListener('click', () => renderList());
-    renderUploadArea(container, prompt.my_submission.id, prompt.my_submission.anchor_mode, 'PHOTO');
+    // The submission already exists (this is a resume, not a fresh
+    // attempt), so the state carries its real id/mode from the start -
+    // my_submission.mode (not a guess) drives which upload UI renders.
+    const state = {
+      submissionId: prompt.my_submission.id,
+      anchorMode: prompt.my_submission.anchor_mode,
+      mode: prompt.my_submission.mode,
+    };
+    renderUploadArea(container, prompt, prompt.my_submission.mode, state);
   }
 
   const COMPETENCY_LABELS = {

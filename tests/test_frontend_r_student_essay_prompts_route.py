@@ -58,7 +58,7 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
     def _as(self, user: str):
         self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
 
-    def _seed(self, code: str, *, with_submission: bool = False):
+    def _seed(self, code: str, *, with_submission: bool = False, assignment_status: str = "OPEN"):
         async def _seed_async():
             async with self.factory() as session:
                 school = School(id=uuid.uuid4(), code=f"SEP-{code}", name=f"school-{code}")
@@ -109,6 +109,7 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
                 assignment = PromptAssignment(
                     id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
                     class_id=klass.id, assigned_by_external_identity="teacher:t",
+                    status=assignment_status,
                 )
                 session.add(assignment)
                 await session.flush()
@@ -151,6 +152,14 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
         self.assertEqual(body[0]["my_submission"]["status"], "SUBMITTED")
         self.assertEqual(body[0]["my_submission"]["id"], str(submission_id))
         self.assertEqual(body[0]["my_submission"]["anchor_mode"], "TEXT_OFFSET")
+        self.assertEqual(body[0]["my_submission"]["mode"], "TYPED")
+
+    def test_closed_assignment_is_not_listed(self):
+        self._seed("closed", assignment_status="CLOSED")
+        self._as("student_closed")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), [])
 
     def test_does_not_leak_another_school_or_class_assignment(self):
         self._seed("3")
