@@ -135,9 +135,9 @@ class TestPortalN1Queries(unittest.IsolatedAsyncioTestCase):
         """build_classroom_items used to run _fetch_students_in_classrooms +
         _fetch_masteries_for_students per classroom_id, plus one
         session.get(CatalogNode, ...) per distinct content a classroom's
-        students had a mastery row for. Post-fix it is 3 batched queries
-        (roster, masteries, content names) no matter how many students are
-        in the classroom."""
+        students had a mastery row for. Post-fix it is 4 batched queries
+        (roster, masteries, content names, class_id resolution) no matter
+        how many students are in the classroom."""
         async with self.session_factory() as session:
             admin_service, school, content_ids = await self._seed_school_with_catalog(session)
             await self._seed_classroom_students(session, admin_service, school.id, "TURMA_SMALL", 3, content_ids)
@@ -160,7 +160,7 @@ class TestPortalN1Queries(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(items_small[0]["student_count"], 3)
         self.assertEqual(items_large[0]["student_count"], 15)
-        self.assertEqual(small_count, 3)
+        self.assertEqual(small_count, 4)
         self.assertEqual(
             small_count, large_count,
             f"query count must not grow with student count (3 students: {small_count}, 15 students: {large_count})",
@@ -168,7 +168,7 @@ class TestPortalN1Queries(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_classroom_items_query_count_independent_of_classroom_count(self):
         """Same call, but scaling the number of CLASSROOMS passed in instead
-        of the number of students per classroom - also must stay at 3
+        of the number of students per classroom - also must stay at 4
         queries total, not one roster/mastery pair per classroom_id."""
         async with self.session_factory() as session:
             admin_service, school, content_ids = await self._seed_school_with_catalog(session)
@@ -195,7 +195,7 @@ class TestPortalN1Queries(unittest.IsolatedAsyncioTestCase):
             six_classrooms_count = qc.count
 
         self.assertEqual(len(items), 6)
-        self.assertEqual(one_classroom_count, 3)
+        self.assertEqual(one_classroom_count, 4)
         self.assertEqual(
             one_classroom_count, six_classrooms_count,
             f"query count must not grow with classroom count (1: {one_classroom_count}, 6: {six_classrooms_count})",

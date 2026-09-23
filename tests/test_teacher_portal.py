@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 import unittest.mock
+import uuid
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from agente_ia_edu.db.models import (
     TeachingLesson,
     UserSchoolLink,
 )
+from agente_ia_edu.db.models.academic import AcademicYear, Class, GradeLevel, Segment, SchoolUnit
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.recommendation import RecommendationEngine
@@ -313,6 +315,67 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
             )
             self.assertGreater(len(classrooms), 0)
             self.assertIn("TURMA_3A", [c["classroom_id"] for c in classrooms])
+
+    async def test_16b_list_teacher_classrooms_resolves_class_id_for_matching_code(self):
+        """A classroom code with a real matching Class row (same school_id,
+        same external_id) must carry that row's UUID as class_id - this is
+        what lets a caller (e.g. the essay-review assign-to-class form) POST
+        a real class_id FK instead of the legacy free-text classroom_id."""
+        async with self.session_factory() as session:
+            sa_id, _, _, _ = await self._seed_data(session)
+
+            unit = SchoolUnit(id=uuid.uuid4(), school_id=sa_id, name="unit", external_id="UNIT-1")
+            segment = Segment(id=uuid.uuid4(), school_id=sa_id, name="segment", external_id="SEG-1")
+            session.add_all([unit, segment])
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=sa_id, segment_id=segment.id,
+                name="grade", external_id="GRADE-1",
+            )
+            year = AcademicYear(id=uuid.uuid4(), school_id=sa_id, year=2026, external_id="YEAR-1")
+            session.add_all([grade, year])
+            await session.flush()
+            klass = Class(
+                id=uuid.uuid4(), school_id=sa_id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="3ª Série A", external_id="TURMA_3A",
+            )
+            session.add(klass)
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            classrooms = await portal_svc.list_teacher_classrooms(
+                teacher_id="user:prof_mendes",
+                school_id=sa_id,
+            )
+            turma_3a = next(c for c in classrooms if c["classroom_id"] == "TURMA_3A")
+            self.assertEqual(turma_3a["class_id"], klass.id)
+
+    async def test_16c_list_teacher_classrooms_class_id_none_when_unresolved(self):
+        """A classroom code with NO matching Class row (school hierarchy not
+        backfilled yet, or a stale/placeholder code) must degrade gracefully:
+        class_id comes back None and the call still succeeds - it must never
+        raise or block the classroom list."""
+        async with self.session_factory() as session:
+            sa_id, _, _, _ = await self._seed_data(session)
+            # No Class rows seeded at all: TURMA_3A has no matching hierarchy row.
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            classrooms = await portal_svc.list_teacher_classrooms(
+                teacher_id="user:prof_mendes",
+                school_id=sa_id,
+            )
+            turma_3a = next(c for c in classrooms if c["classroom_id"] == "TURMA_3A")
+            self.assertIsNone(turma_3a["class_id"])
 
     async def test_17_student_detail_authorized_and_unauthorized(self):
         """17. Visão individual do aluno pelo professor (autorizado x não autorizado)."""

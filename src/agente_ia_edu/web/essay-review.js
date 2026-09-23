@@ -181,7 +181,9 @@
           <div class="form-group">
             <label for="er-assign-class">Turma</label>
             <select id="er-assign-class" class="text-input">
-              ${classrooms.map((c) => `<option value="${tmEsc(c.classroom_id)}">${tmEsc(c.name)}</option>`).join('') || '<option value="">Nenhuma turma disponível</option>'}
+              ${classrooms.map((c) => (c.class_id
+                ? `<option value="${tmEsc(c.class_id)}">${tmEsc(c.name)}</option>`
+                : `<option value="" disabled>${tmEsc(c.name)} (sem turma cadastrada)</option>`)).join('') || '<option value="">Nenhuma turma disponível</option>'}
             </select>
           </div>
           <div class="form-group"><label for="er-assign-due"><input id="er-assign-validation" type="checkbox" checked> Exigir revisão docente</label></div>

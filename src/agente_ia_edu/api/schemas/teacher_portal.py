@@ -19,6 +19,12 @@ class ClassroomSummaryItem(BaseModel):
     student_count: int
     average_mastery: float
     priority_contents: list[str] = Field(default_factory=list)
+    # The real academic-hierarchy row `classroom_id` (a free-text scope code,
+    # e.g. "TURMA_3A") resolves to, when it does. None when the code has no
+    # matching Class row yet (school not backfilled, or a placeholder code) -
+    # callers that need a real FK (e.g. PromptAssignment.class_id) must check
+    # for None rather than assume this is always populated.
+    class_id: Optional[UUID] = None
 
 
 class ContentMasteryBreakdownItem(BaseModel):
