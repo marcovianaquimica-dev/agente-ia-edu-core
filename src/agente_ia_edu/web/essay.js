@@ -121,12 +121,26 @@
     renderModeBody('TYPED', prompt);
   }
 
-  function renderModeBody(mode, prompt) {
+  async function renderModeBody(mode, prompt) {
     const body = container.querySelector('#essay-mode-body');
-    if (mode !== 'TYPED') {
-      body.innerHTML = '<p class="empty-text">Este modo de envio é adicionado na próxima etapa.</p>';
+    if (mode === 'TYPED') {
+      renderTypedForm(body, prompt);
       return;
     }
+    body.innerHTML = '<p class="empty-text">Preparando envio...</p>';
+    try {
+      const submission = await essayRequest('/api/v1/student/essay-submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt_assignment_id: prompt.prompt_assignment_id, mode }),
+      });
+      await renderUploadArea(body, submission.id, submission.anchor_mode, mode);
+    } catch (e) {
+      body.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+    }
+  }
+
+  function renderTypedForm(body, prompt) {
     body.innerHTML = `
       <form id="essay-typed-form">
         <div class="form-group">
@@ -160,9 +174,138 @@
     });
   }
 
-  function renderContinueUpload() {
-    // Implementado na Task 6.
-    container.innerHTML = '<div class="card"><p class="empty-text">Continuar envio de foto/PDF — próxima etapa.</p></div>';
+  async function renderUploadArea(target, submissionId, anchorMode, mode) {
+    target.innerHTML = `
+      <div class="form-group">
+        <label for="essay-file-input">${mode === 'PDF' ? 'Arquivo PDF (até 25MB)' : 'Fotos das páginas (até 25MB cada)'}</label>
+        <input id="essay-file-input" type="file" ${mode === 'PDF' ? 'accept=".pdf"' : 'accept="image/*" multiple capture="environment"'}>
+      </div>
+      <p id="essay-upload-msg" class="tm-msg" hidden></p>
+      <div id="essay-pages-list"></div>
+      <button class="btn btn-primary" type="button" id="essay-confirm-btn" disabled>Confirmar envio</button>
+      <p id="essay-confirm-msg" class="tm-msg" hidden></p>`;
+
+    target.querySelector('#essay-file-input').addEventListener('change', async (ev) => {
+      const files = Array.from(ev.target.files || []);
+      if (!files.length) return;
+      const msg = target.querySelector('#essay-upload-msg');
+      msg.hidden = true;
+      try {
+        if (mode === 'PDF') {
+          const form = new FormData();
+          form.append('file', files[0]);
+          await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/document`, {
+            method: 'POST', body: form,
+          });
+        } else {
+          const existing = await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages`);
+          let nextPage = existing.length + 1;
+          for (const file of files) {
+            const form = new FormData();
+            form.append('page_number', String(nextPage));
+            form.append('file', file);
+            await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages`, {
+              method: 'POST', body: form,
+            });
+            nextPage += 1;
+          }
+        }
+        await refreshPages(target, submissionId, anchorMode);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      }
+    });
+
+    await refreshPages(target, submissionId, anchorMode);
+  }
+
+  async function refreshPages(target, submissionId, anchorMode) {
+    const list = target.querySelector('#essay-pages-list');
+    const confirmBtn = target.querySelector('#essay-confirm-btn');
+    let pages = [];
+    try {
+      pages = await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages`);
+    } catch (e) {
+      list.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+      return;
+    }
+
+    list.innerHTML = pages.map((p) => {
+      const ocrText = (p.ocr_tokens || []).map((t) => t.text).join(' ');
+      const reviewBlock = anchorMode === 'TEXT_OFFSET' ? `
+        <div class="form-group">
+          <label for="essay-review-${p.page_number}">Texto revisado (página ${p.page_number})</label>
+          <textarea id="essay-review-${p.page_number}" rows="6">${escEssay(p.reviewed_text || ocrText)}</textarea>
+        </div>
+        <button class="btn btn-secondary" type="button" data-save-review="${p.page_number}">Salvar revisão</button>
+        <p class="essay-review-status">${p.reviewed_text ? '✓ Revisado' : 'Pendente de revisão'}</p>
+      ` : '<p class="empty-text">Página enviada.</p>';
+      return `
+        <div class="card essay-page-card" data-page="${p.page_number}">
+          <img data-page-image="${p.page_number}" alt="Página ${p.page_number}">
+          ${reviewBlock}
+        </div>`;
+    }).join('');
+
+    // A plain <img src="..."> can't carry the Authorization header this API
+    // requires (essayHeaders()/essayRequest() always add it) - the browser's
+    // own image fetch is header-less, so the endpoint 403s and the <img>
+    // never renders. Fetch each page's bytes through essayRequest's same
+    // auth path instead and point the <img> at a local object URL.
+    list.querySelectorAll('[data-page-image]').forEach((img) => {
+      const pageNumber = img.dataset.pageImage;
+      fetch(`/api/v1/student/essay-submissions/${submissionId}/pages/${pageNumber}/image`, {
+        headers: essayHeaders(),
+      })
+        .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('image fetch failed'))))
+        .then((blob) => { img.src = URL.createObjectURL(blob); })
+        .catch(() => { img.alt = `Não foi possível carregar a página ${pageNumber}.`; });
+    });
+
+    list.querySelectorAll('[data-save-review]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const pageNumber = btn.dataset.saveReview;
+        const text = list.querySelector(`#essay-review-${pageNumber}`).value.trim();
+        btn.disabled = true;
+        try {
+          await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages/${pageNumber}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewed_text: text }),
+          });
+          await refreshPages(target, submissionId, anchorMode);
+        } catch (e) {
+          btn.disabled = false;
+          btn.insertAdjacentHTML('afterend', `<p class="tm-msg">${escEssay(e.message)}</p>`);
+        }
+      });
+    });
+
+    const allReviewed = anchorMode !== 'TEXT_OFFSET' || (pages.length > 0 && pages.every((p) => p.reviewed_text));
+    confirmBtn.disabled = !(pages.length > 0 && allReviewed);
+    confirmBtn.onclick = async () => {
+      const confirmMsg = target.querySelector('#essay-confirm-msg');
+      confirmBtn.disabled = true;
+      try {
+        await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/confirm`, { method: 'POST' });
+        await loadPrompts();
+      } catch (e) {
+        confirmMsg.hidden = false;
+        confirmMsg.textContent = e.message;
+        confirmBtn.disabled = false;
+      }
+    };
+  }
+
+  function renderContinueUpload(prompt) {
+    container.innerHTML = `
+      <div class="card essay-form">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>${escEssay(prompt.title)}</h3>
+      </div>`;
+    container.querySelector('[data-back]').addEventListener('click', () => renderList());
+    renderUploadArea(container, prompt.my_submission.id, prompt.my_submission.anchor_mode, 'PHOTO');
   }
 
   function renderDevolutiva() {

@@ -1581,3 +1581,6 @@ body.sidebar-open {
 .essay-form input:focus, .essay-form textarea:focus {
   border-color: #0f9f91; box-shadow: 0 0 0 3px rgba(15, 159, 145, .14);
 }
+.essay-page-card { display: flex; flex-direction: column; gap: 8px; }
+.essay-page-card img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border, #e2e6ee); }
+.essay-review-status { font-size: 13px; color: var(--text-muted); }

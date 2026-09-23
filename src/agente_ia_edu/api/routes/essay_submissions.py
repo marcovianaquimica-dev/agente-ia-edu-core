@@ -18,6 +18,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -487,6 +488,34 @@ async def get_essay_submission_correction(
             annotations=ai_output.get("annotations"), rewrites=ai_output.get("rewrites"),
             intervention=ai_output.get("intervention"), alerts=ai_output.get("alerts"),
         )
+
+
+@essay_submissions_router.get("/{essay_submission_id}/pages/{page_number}/image")
+async def get_essay_submission_page_image(
+    essay_submission_id: UUID,
+    page_number: int,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+        submission = await _submission_for_own_school_or_403(
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
+        )
+        page = await session.scalar(
+            select(EssaySubmissionPage).where(
+                EssaySubmissionPage.essay_submission_id == submission.id,
+                EssaySubmissionPage.page_number == page_number,
+            )
+        )
+        if page is None:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return FileResponse(page.storage_uri)
 
 
 essay_student_prompts_router = APIRouter(
