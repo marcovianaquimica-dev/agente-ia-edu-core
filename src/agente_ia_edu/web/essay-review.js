@@ -308,6 +308,14 @@
     const isPending = correction.status === 'PENDING_REVIEW';
     const isTerminal = correction.status === 'APPROVED' || correction.status === 'REJECTED';
 
+    // Captured once, at render time, so the approve handler below can tell
+    // an actual edit apart from the field simply still showing what it was
+    // pre-filled with (including the "AI produced no score" default of 0 -
+    // see the dirty-check note by er-approve-btn for why that distinction
+    // matters).
+    const originalScores = ['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => Number((perCompetency[code] || {}).points) || 0);
+    const originalFeedbackText = (feedback.next_essay_strategy || '').trim();
+
     const failureHtml = correction.status === 'NEEDS_REVIEW'
       ? `<div class="alert-banner alert-danger">Falha na correção automática: ${tmEsc(correction.failure_reason || 'motivo não informado')}</div>`
       : '';
@@ -376,23 +384,39 @@
     if (approveBtn) {
       approveBtn.addEventListener('click', async () => {
         approveBtn.disabled = true;
-        const editedPerCompetency = Object.fromEntries(['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => [
-          code,
-          {
-            points: Number(container.querySelector(`#er-score-${code}`).value),
-            confidence: (perCompetency[code] || {}).confidence ?? 1.0,
-          },
-        ]));
-        const editedScores = {
-          per_competency: editedPerCompetency,
-          total: Object.values(editedPerCompetency).reduce((sum, s) => sum + s.points, 0),
-        };
-        const editedFeedback = { ...feedback, next_essay_strategy: container.querySelector('#er-feedback-strategy').value.trim() };
+        const currentScores = ['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => Number(container.querySelector(`#er-score-${code}`).value) || 0);
+        const currentFeedbackText = container.querySelector('#er-feedback-strategy').value.trim();
+        // Dirty-check against what was actually loaded into the form: only
+        // send final_scores/final_feedback when the teacher changed them,
+        // matching spec §5.5's "approve as-is" path. This is also what keeps
+        // an untouched AI-null score (defaults to 0 in the inputs) from
+        // silently becoming a real, published 0/1000 grade - if nothing was
+        // edited, nothing is sent, and the correction's own final_scores
+        // (still null in that case) is left alone.
+        const scoresEdited = currentScores.some((value, i) => value !== originalScores[i]);
+        const feedbackEdited = currentFeedbackText !== originalFeedbackText;
+        const body = {};
+        if (scoresEdited) {
+          const editedPerCompetency = Object.fromEntries(['C1', 'C2', 'C3', 'C4', 'C5'].map((code, i) => [
+            code,
+            {
+              points: currentScores[i],
+              confidence: (perCompetency[code] || {}).confidence ?? 1.0,
+            },
+          ]));
+          body.final_scores = {
+            per_competency: editedPerCompetency,
+            total: currentScores.reduce((sum, value) => sum + value, 0),
+          };
+        }
+        if (feedbackEdited) {
+          body.final_feedback = { ...feedback, next_essay_strategy: currentFeedbackText };
+        }
         try {
           await reviewRequest(`/api/v1/teacher/essay-corrections/${correctionId}/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ final_scores: editedScores, final_feedback: editedFeedback }),
+            body: JSON.stringify(body),
           });
           renderReviewQueue(returnStatus);
         } catch (e) {
