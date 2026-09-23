@@ -304,6 +304,16 @@
     const feedback = correction.final_feedback || {};
     const annotations = aiOutput.annotations || [];
     const alerts = aiOutput.alerts || [];
+    // final_scores/final_feedback (not aiOutput.scores/aiOutput.feedback) are
+    // the source of truth here on purpose: EssayCorrectionService seeds them
+    // from the AI's raw output at correction-creation time, and they're what
+    // approve() actually commits - so this preview always matches what will
+    // be published, even before any teacher edit.
+    const reportCorrection = {
+      ...aiOutput,
+      final_scores: correction.final_scores,
+      final_feedback: correction.final_feedback,
+    };
 
     const isPending = correction.status === 'PENDING_REVIEW';
     const isTerminal = correction.status === 'APPROVED' || correction.status === 'REJECTED';
@@ -349,15 +359,13 @@
           ? `<textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>`
           : `<p class="empty-text">${tmEsc(feedback.next_essay_strategy || '—')}</p>`}
       </div>
-      <h4>Redação do aluno</h4>
-      <div id="er-original-content"><p class="empty-text">Carregando conteúdo original...</p></div>
-      <h4>Anotações da IA</h4>
-      ${annotations.length ? annotations.map((a, i) => `
-        <div class="essay-annotation">
-          <span class="essay-annotation-number essay-mark-${tmEsc(a.competency_code)}">${i + 1}</span>
-          <strong>${tmEsc(a.letter)} — ${tmEsc(a.competency_code)}</strong>
-          <p>${tmEsc(a.short_comment)}</p>
-        </div>`).join('') : '<p class="empty-text">Nenhuma anotação.</p>'}
+      <h4>Pré-visualização da devolutiva (o que o aluno verá)</h4>
+      <div class="essay-report-preview">
+        ${window.EssayReport.renderRichReport(reportCorrection, {
+          editable: true, escFn: tmEsc,
+          originalContentHtml: '<div id="er-original-content"><p class="empty-text">Carregando conteúdo original...</p></div>',
+        })}
+      </div>
     ` : '';
 
     const actionsHtml = isPending ? `
