@@ -131,6 +131,15 @@ async def _assignment_for_own_class_or_403(
         raise HTTPException(
             status_code=403, detail="This proposal was not assigned to your class."
         )
+    # Defense-in-depth: list_essay_prompts_for_student only ever surfaces
+    # OPEN assignments (spec §3/§4), so a CLOSED one should never reach this
+    # far via the normal UI flow - but nothing stops a client from posting a
+    # prompt_assignment_id it saw while the assignment was still open (or
+    # simply guessed), so this is enforced here too, not just in the list.
+    if assignment.status != "OPEN":
+        raise HTTPException(
+            status_code=403, detail="This proposal is closed and no longer accepts submissions."
+        )
     return assignment
 
 
@@ -559,6 +568,7 @@ async def list_essay_prompts_for_student(
                 .where(
                     PromptAssignment.school_id == school_id,
                     PromptAssignment.class_id == enrollment.class_id,
+                    PromptAssignment.status == "OPEN",
                 )
                 .order_by(PromptAssignment.created_at.desc())
             )

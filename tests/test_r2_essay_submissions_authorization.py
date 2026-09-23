@@ -56,7 +56,9 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
     def _as(self, user: str):
         self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
 
-    def _seed_school_with_class_and_assignment(self, code: str, *, module_enabled: bool = True):
+    def _seed_school_with_class_and_assignment(
+        self, code: str, *, module_enabled: bool = True, assignment_status: str = "OPEN",
+    ):
         async def _seed():
             async with self.factory() as session:
                 school = School(id=uuid.uuid4(), code=f"AUT-{code}", name=f"school-{code}")
@@ -91,6 +93,7 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
                 assignment = PromptAssignment(
                     id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
                     class_id=klass.id, assigned_by_external_identity="teacher:t",
+                    status=assignment_status,
                 )
                 session.add(assignment)
                 await session.commit()
@@ -180,6 +183,23 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
         )
         self._enroll_student(school_id, class_id, "no_module_student")
         self._as("no_module_student")
+
+        resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "TYPED", "text": "x"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_closed_assignment_denies_submission(self):
+        # Defense-in-depth companion to list_essay_prompts_for_student's
+        # status="OPEN" filter: even a client that already knows a
+        # prompt_assignment_id (e.g. seen while it was still open) must not
+        # be able to submit against it once it's CLOSED.
+        school_id, class_id, assignment_id = self._seed_school_with_class_and_assignment(
+            "7", assignment_status="CLOSED"
+        )
+        self._enroll_student(school_id, class_id, "closed_assignment_student")
+        self._as("closed_assignment_student")
 
         resp = self.client.post(
             "/api/v1/student/essay-submissions",
