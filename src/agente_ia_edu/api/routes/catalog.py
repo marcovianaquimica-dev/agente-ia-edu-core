@@ -48,6 +48,7 @@ from ...db.models import (
     AdminAuditLog,
     BookletQuestion,
     CatalogNode,
+    ContentResourceLink,
     EducationalResource,
     MaterialBlock,
     MaterialExercise,

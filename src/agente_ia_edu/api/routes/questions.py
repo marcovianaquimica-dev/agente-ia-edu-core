@@ -70,7 +70,19 @@ async def _load_question_for_view(
     identity: ExternalIdentityContext,
     question_id: UUID,
 ) -> tuple[Question, object]:
-    question = await session.get(Question, question_id)
+    # get_question_eligibility hands this Question straight to
+    # QuestionEligibilityCalculator.calculate, a plain synchronous method
+    # that touches question.versions and version.pedagogical_classifications
+    # directly (no await) - against a real async session those are lazy
+    # relationships, and a sync attribute access outside SQLAlchemy's
+    # greenlet bridge raises MissingGreenlet instead of loading. Eager-load
+    # both here, the same shape list_questions' own eligible_only branch
+    # already selectinloads.
+    question = await session.get(
+        Question,
+        question_id,
+        options=[selectinload(Question.versions).selectinload(QuestionVersion.pedagogical_classifications)],
+    )
     if question is None:
         raise HTTPException(status_code=404, detail="Question not found")
 
@@ -85,8 +97,19 @@ async def _load_question_for_manage(
     identity: ExternalIdentityContext,
     question_id: UUID,
 ) -> tuple[Question, object]:
+    # transition_question_status hands this Question to
+    # QuestionStatusWorkflow.transition, a plain synchronous method that
+    # does `hasattr(question, "status_transitions")` then appends to it - the
+    # same lazy-relationship-outside-greenlet hazard as above (question.
+    # versions is needed too, both here and by _load_question_for_manage's
+    # other callers that read question.versions[-1]).
     question = await session.get(
-        Question, question_id, options=[selectinload(Question.versions)]
+        Question,
+        question_id,
+        options=[
+            selectinload(Question.versions),
+            selectinload(Question.status_transitions),
+        ],
     )
     if question is None:
         raise HTTPException(status_code=404, detail="Question not found")

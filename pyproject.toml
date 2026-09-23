@@ -53,3 +53,15 @@ where = ["src"]
 # two files.
 pythonpath = ["src", "."]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# Without this, coverage silently under-reports every route/service that goes
+# through SQLAlchemy's async engine (bridged onto sync DBAPI drivers via
+# greenlet) or through Starlette's TestClient (which runs each request in a
+# background thread via anyio's blocking portal). Line ranges inside
+# "async with session_factory() as session:" blocks, and anything executed
+# during a TestClient request, were showing up as 0% covered even when tests
+# clearly exercised them (asserting on their behavior) - `coverage report`
+# was just blind to those frames. See routes/attempts.py and
+# routes/learning_path.py coverage before/after this change for the effect.
+concurrency = ["thread", "greenlet"]

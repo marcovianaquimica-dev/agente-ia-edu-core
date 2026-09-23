@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI
@@ -495,6 +495,300 @@ class Phase7AssessmentCoreHTTP(unittest.TestCase):
         self.assertEqual(state["evidence_origins"]["OFFICIAL_ASSESSMENT"], 2)
         self.assertEqual(state["unknown_count"], 1)
         self.assertEqual(state["error_count"], 0)
+
+    # ------------------------------------------------------------------
+    # HTTP-layer error handling coverage (attempts.py) - these exercise
+    # branches (auth failures, expiry, data-drift edge cases) that the
+    # happy-path tests above never reach, since they all assert success.
+    # ------------------------------------------------------------------
+
+    def _start_attempt(self, item_count=2, student="student-a"):
+        """Create+publish+assign+start an attempt; return (attempt_id, questions)."""
+        _, _, publication_id, _, _, questions = self.create_published_assessment(item_count)
+        self.assertEqual(self.assign(publication_id, student).status_code, 201)
+        self.become_student(student)
+        started = self.client.post(
+            f"/api/v1/assessments/publications/{publication_id}/attempts"
+        )
+        self.assertEqual(started.status_code, 201, started.text)
+        return started.json()["id"], questions
+
+    async def _expire_attempt(self, attempt_id):
+        async with self.session_factory() as session:
+            attempt = await session.get(AssessmentAttempt, UUID(attempt_id))
+            attempt.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            await session.commit()
+
+    def test_start_attempt_publication_not_found(self):
+        self.become_student("student-a")
+        resp = self.client.post(
+            f"/api/v1/assessments/publications/{uuid4()}/attempts"
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_start_attempt_school_scope_denied_for_mismatched_assignment(self):
+        """An assignment whose school_id has drifted from the assessment's
+        own school (e.g. data left over from a school reassignment) must
+        still be rejected at attempt-start time, even though the assignment
+        row itself exists and is PENDING for this student."""
+        _, _, publication_id, _, _, _ = self.create_published_assessment(1)
+
+        async def seed_mismatched_assignment():
+            async with self.session_factory() as session:
+                publication = await session.get(AssessmentPublication, UUID(publication_id))
+                assessment_id = await session.scalar(
+                    select(AssessmentVersion.assessment_id).where(
+                        AssessmentVersion.id == publication.assessment_version_id
+                    )
+                )
+                session.add(AssessmentAssignment(
+                    assessment_id=assessment_id,
+                    publication_id=publication.id,
+                    school_id=self.school_b,  # drifted: assessment itself is school_a
+                    recipient_type="STUDENT",
+                    recipient_id="student-a",
+                    status="PENDING",
+                ))
+                await session.commit()
+
+        asyncio.run(seed_mismatched_assignment())
+        self.become_student("student-a")
+        resp = self.client.post(
+            f"/api/v1/assessments/publications/{publication_id}/attempts"
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(resp.json()["detail"], "Assessment school scope denied")
+
+    def test_start_attempt_academic_scope_denied(self):
+        """An assignment scoped to one specific class must be rejected for a
+        student whose current classroom differs from that scope."""
+        _, _, publication_id, _, _, _ = self.create_published_assessment(1)
+
+        async def seed_scoped_assignment():
+            async with self.session_factory() as session:
+                publication = await session.get(AssessmentPublication, UUID(publication_id))
+                assessment_id = await session.scalar(
+                    select(AssessmentVersion.assessment_id).where(
+                        AssessmentVersion.id == publication.assessment_version_id
+                    )
+                )
+                session.add(AssessmentAssignment(
+                    assessment_id=assessment_id,
+                    publication_id=publication.id,
+                    school_id=self.school_a,
+                    recipient_type="STUDENT",
+                    recipient_id="student-a",
+                    status="PENDING",
+                    metadata_={"scope_external_id": "CLASS-OTHER"},
+                ))
+                await session.commit()
+
+        asyncio.run(seed_scoped_assignment())
+        self.become_student("student-a")
+        resp = self.client.post(
+            f"/api/v1/assessments/publications/{publication_id}/attempts"
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(resp.json()["detail"], "Assessment academic scope denied")
+
+    def test_start_attempt_rejected_when_publication_paused_after_assignment(self):
+        """A teacher pausing a publication after students were assigned must
+        block new attempts, even though the assignment is still valid."""
+        _, _, publication_id, _, _, _ = self.create_published_assessment(1)
+        self.assertEqual(self.assign(publication_id).status_code, 201)
+
+        async def pause_publication():
+            async with self.session_factory() as session:
+                publication = await session.get(AssessmentPublication, UUID(publication_id))
+                publication.status = "paused"
+                await session.commit()
+
+        asyncio.run(pause_publication())
+        self.become_student("student-a")
+        resp = self.client.post(
+            f"/api/v1/assessments/publications/{publication_id}/attempts"
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(resp.json()["detail"], "Publication is not available")
+
+    def test_start_attempt_limit_exceeded(self):
+        _, _, publication_id, _, _, _ = self.create_published_assessment(1)
+        self.assertEqual(self.assign(publication_id).status_code, 201)
+        self.become_student("student-a")
+        first = self.client.post(
+            f"/api/v1/assessments/publications/{publication_id}/attempts"
+        )
+        self.assertEqual(first.status_code, 201, first.text)
+        second = self.client.post(
+            f"/api/v1/assessments/publications/{publication_id}/attempts"
+        )
+        self.assertEqual(second.status_code, 409, second.text)
+        self.assertEqual(second.json()["detail"], "Attempt limit exceeded")
+
+    def test_attempt_endpoints_404_for_nonexistent_attempt(self):
+        self.become_student("student-a")
+        fake_id = uuid4()
+        fake_item = uuid4()
+        for method, url, kwargs in [
+            ("get", f"/api/v1/assessments/attempts/{fake_id}", {}),
+            ("put", f"/api/v1/assessments/attempts/{fake_id}/answers/{fake_item}", {"json": {}}),
+            ("post", f"/api/v1/assessments/attempts/{fake_id}/submit", {}),
+            ("get", f"/api/v1/assessments/attempts/{fake_id}/result", {}),
+        ]:
+            resp = getattr(self.client, method)(url, **kwargs)
+            self.assertEqual(resp.status_code, 404, f"{method} {url}: {resp.text}")
+
+    def test_attempt_endpoints_403_for_another_students_attempt(self):
+        attempt_id, _ = self._start_attempt(1)
+        detail = self.client.get(f"/api/v1/assessments/attempts/{attempt_id}").json()
+        item_id = detail["items"][0]["id"]
+
+        self.become_student("student-b")
+        for method, url, kwargs in [
+            ("get", f"/api/v1/assessments/attempts/{attempt_id}", {}),
+            ("put", f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}", {"json": {}}),
+            ("post", f"/api/v1/assessments/attempts/{attempt_id}/submit", {}),
+            ("get", f"/api/v1/assessments/attempts/{attempt_id}/result", {}),
+        ]:
+            resp = getattr(self.client, method)(url, **kwargs)
+            self.assertEqual(resp.status_code, 403, f"{method} {url}: {resp.text}")
+
+    def test_get_attempt_expired(self):
+        attempt_id, _ = self._start_attempt(1)
+        asyncio.run(self._expire_attempt(attempt_id))
+
+        resp = self.client.get(f"/api/v1/assessments/attempts/{attempt_id}")
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(resp.json()["detail"], "Attempt has expired")
+
+        async def inspect():
+            async with self.session_factory() as session:
+                return (await session.get(AssessmentAttempt, UUID(attempt_id))).status
+
+        self.assertEqual(asyncio.run(inspect()), "expired")
+
+    def test_save_answer_expired(self):
+        attempt_id, _ = self._start_attempt(1)
+        item_id = self.client.get(
+            f"/api/v1/assessments/attempts/{attempt_id}"
+        ).json()["items"][0]["id"]
+        asyncio.run(self._expire_attempt(attempt_id))
+
+        resp = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}",
+            json={},
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(resp.json()["detail"], "Attempt has expired")
+
+    def test_submit_attempt_expired(self):
+        attempt_id, _ = self._start_attempt(1)
+        asyncio.run(self._expire_attempt(attempt_id))
+
+        resp = self.client.post(f"/api/v1/assessments/attempts/{attempt_id}/submit")
+        self.assertEqual(resp.status_code, 403, resp.text)
+        self.assertEqual(resp.json()["detail"], "Attempt has expired")
+
+    def test_save_answer_item_not_found(self):
+        attempt_id, _ = self._start_attempt(1)
+        resp = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{uuid4()}",
+            json={},
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_save_answer_unknown_cannot_include_answer(self):
+        attempt_id, questions = self._start_attempt(1)
+        item_id = self.client.get(
+            f"/api/v1/assessments/attempts/{attempt_id}"
+        ).json()["items"][0]["id"]
+        resp = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}",
+            json={"is_unknown": True, "selected_option_id": str(questions[0][1])},
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+
+    def test_save_answer_rejects_option_from_another_question(self):
+        attempt_id, questions = self._start_attempt(2)
+        detail = self.client.get(f"/api/v1/assessments/attempts/{attempt_id}").json()
+        first_item = detail["items"][0]
+        other_question = next(
+            q for q in questions if str(q[0]) != first_item["question_version_id"]
+        )
+        resp = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{first_item['id']}",
+            json={"selected_option_id": str(other_question[1])},
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+        self.assertEqual(resp.json()["detail"], "Option does not belong to this question")
+
+    def test_save_answer_rejects_when_not_in_progress(self):
+        attempt_id, _ = self._start_attempt(1)
+        item_id = self.client.get(
+            f"/api/v1/assessments/attempts/{attempt_id}"
+        ).json()["items"][0]["id"]
+        submitted = self.client.post(f"/api/v1/assessments/attempts/{attempt_id}/submit")
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+
+        resp = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}",
+            json={},
+        )
+        self.assertEqual(resp.status_code, 409, resp.text)
+
+    def test_save_answer_updates_existing_answer(self):
+        attempt_id, questions = self._start_attempt(1)
+        item_id = self.client.get(
+            f"/api/v1/assessments/attempts/{attempt_id}"
+        ).json()["items"][0]["id"]
+
+        first = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}",
+            json={"selected_option_id": str(questions[0][1])},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["correction_status"], "pending")
+
+        second = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}",
+            json={"selected_option_id": str(questions[0][2])},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["selected_option_id"], str(questions[0][2]))
+        self.assertEqual(second.json()["correction_status"], "pending")
+        # first_answered_at is set once at creation and must not move on an update.
+        self.assertEqual(second.json()["first_answered_at"], first.json()["first_answered_at"])
+
+    def test_submit_attempt_already_submitted(self):
+        attempt_id, _ = self._start_attempt(1)
+        first = self.client.post(f"/api/v1/assessments/attempts/{attempt_id}/submit")
+        self.assertEqual(first.status_code, 200, first.text)
+        second = self.client.post(f"/api/v1/assessments/attempts/{attempt_id}/submit")
+        self.assertEqual(second.status_code, 409, second.text)
+
+    def test_submit_attempt_with_discursive_answer_is_ungraded(self):
+        attempt_id, _ = self._start_attempt(1)
+        item_id = self.client.get(
+            f"/api/v1/assessments/attempts/{attempt_id}"
+        ).json()["items"][0]["id"]
+        answered = self.client.put(
+            f"/api/v1/assessments/attempts/{attempt_id}/answers/{item_id}",
+            json={"response_text": "Resposta discursiva livre"},
+        )
+        self.assertEqual(answered.status_code, 200, answered.text)
+
+        submitted = self.client.post(f"/api/v1/assessments/attempts/{attempt_id}/submit")
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        payload = submitted.json()
+        self.assertEqual(payload["correct_answers"], 0)
+        self.assertEqual(payload["incorrect_answers"], 0)
+        self.assertEqual(payload["unknown_answers"], 0)
+        self.assertEqual(payload["answered_count"], 1)
+
+    def test_get_result_rejects_before_submission(self):
+        attempt_id, _ = self._start_attempt(1)
+        resp = self.client.get(f"/api/v1/assessments/attempts/{attempt_id}/result")
+        self.assertEqual(resp.status_code, 409, resp.text)
 
 
 if __name__ == "__main__":

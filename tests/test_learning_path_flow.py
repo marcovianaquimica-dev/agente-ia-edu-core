@@ -27,6 +27,7 @@ from agente_ia_edu.db.models import (
     ExamApplication,
     ExamBooklet,
     Institution,
+    PracticeSession,
     Question,
     QuestionClassification,
     QuestionOption,
@@ -632,6 +633,356 @@ class PracticeFlowE2ETests(unittest.TestCase):
 
         # Same DB state (same two candidates, fresh students) => same order.
         self.assertEqual(results[0], results[1])
+
+    # ------------------------------------------------------------------
+    # HTTP-layer error handling coverage (learning_path.py) - these exercise
+    # branches (auth failures, empty/terminal states, data-drift edge cases)
+    # that the happy-path tests above never reach, since they all assert
+    # success on a single, well-formed session.
+    # ------------------------------------------------------------------
+
+    def test_get_practice_session_returns_details_for_owner(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        student = f"getsession-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+
+        resp = self.client.get(f"/api/v1/practice/sessions/{session_id}", headers=headers)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["id"], session_id)
+        self.assertEqual(body["content_node_id"], str(content_node_id))
+        self.assertEqual(body["status"], "active")
+
+    def test_create_practice_session_without_content_or_recommendation_returns_409(self):
+        """No content_node_id given and the student has no pedagogical next
+        action available (fresh student, no catalog/mastery evidence at all)."""
+        student = f"norecommendation-{uuid4().hex[:8]}"
+        resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"requested_question_count": 1},
+            headers=_auth(student),
+        )
+        self.assertEqual(resp.status_code, 409, resp.text)
+
+    def test_list_practice_questions_404_for_nonexistent_session(self):
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{uuid4()}/questions", headers=_auth("someone")
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_list_practice_questions_empty_for_session_without_selections(self):
+        """Defends _load_question_versions' empty-list short-circuit: a
+        session that legitimately has zero question selections (e.g. an
+        administratively pre-created row) must return an empty list, not
+        error out trying to batch-load zero question versions."""
+        student = f"emptysession-{uuid4().hex[:8]}"
+
+        async def seed_empty_session():
+            async with self.session_factory() as session:
+                practice_session = PracticeSession(
+                    external_identity_id=student,
+                    content_node_id=None,
+                    recommended_difficulty="EASY",
+                    requested_question_count=1,
+                    status="active",
+                    started_at=datetime.now(timezone.utc),
+                )
+                session.add(practice_session)
+                await session.commit()
+                return practice_session.id
+
+        session_id = self._seed(seed_empty_session())
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=_auth(student)
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), [])
+
+    def test_get_next_practice_question_404_for_nonexistent_session(self):
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{uuid4()}/next-question", headers=_auth("someone")
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_get_next_practice_question_is_complete_once_all_answered(self):
+        content_node_id = self._seed(self._new_content_node())
+        version_id, options = self._seed(self._seed_question(content_node_id))
+        student = f"allanswered-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+        question = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=headers
+        ).json()[0]
+        self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{question['id']}/answer",
+            json={"selected_option_id": question["options"][0]["id"]},
+            headers=headers,
+        )
+
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/next-question", headers=headers
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertTrue(body["is_complete"])
+        self.assertIsNone(body["question"])
+
+    def test_answer_practice_question_404_for_nonexistent_session(self):
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{uuid4()}/questions/{uuid4()}/answer",
+            json={},
+            headers=_auth("someone"),
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_answer_practice_question_403_for_another_students_session(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        owner = f"owner-{uuid4().hex[:8]}"
+        intruder = f"intruder-{uuid4().hex[:8]}"
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=_auth(owner),
+        )
+        session_id = create_resp.json()["id"]
+        question = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=_auth(owner)
+        ).json()[0]
+
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{question['id']}/answer",
+            json={"selected_option_id": question["options"][0]["id"]},
+            headers=_auth(intruder),
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_answer_practice_question_400_when_session_already_completed(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        student = f"alreadydone-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+        question = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=headers
+        ).json()[0]
+        self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{question['id']}/answer",
+            json={"selected_option_id": question["options"][0]["id"]},
+            headers=headers,
+        )
+        complete_resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/complete", json={}, headers=headers
+        )
+        self.assertEqual(complete_resp.status_code, 200, complete_resp.text)
+
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{question['id']}/answer",
+            json={"selected_option_id": question["options"][0]["id"]},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+
+    def test_answer_practice_question_404_for_nonexistent_selection(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        student = f"noselection-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{uuid4()}/answer",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_answer_practice_question_400_for_selection_from_another_session(self):
+        content_a = self._seed(self._new_content_node())
+        content_b = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_a))
+        self._seed(self._seed_question(content_b))
+        student = f"crosssession-{uuid4().hex[:8]}"
+        headers = _auth(student)
+
+        session_a = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_a), "requested_question_count": 1},
+            headers=headers,
+        ).json()["id"]
+        session_b = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_b), "requested_question_count": 1},
+            headers=headers,
+        ).json()["id"]
+        question_b = self.client.get(
+            f"/api/v1/practice/sessions/{session_b}/questions", headers=headers
+        ).json()[0]
+
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_a}/questions/{question_b['id']}/answer",
+            json={"selected_option_id": question_b["options"][0]["id"]},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+        self.assertEqual(resp.json()["detail"], "Question does not belong to this session")
+
+    def test_answer_practice_question_400_unknown_cannot_include_answer(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        student = f"unknownwithanswer-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+        question = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=headers
+        ).json()[0]
+
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{question['id']}/answer",
+            json={"is_unknown": True, "selected_option_id": question["options"][0]["id"]},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
+
+    def test_complete_practice_session_404_for_nonexistent_session(self):
+        resp = self.client.post(
+            f"/api/v1/practice/sessions/{uuid4()}/complete", json={}, headers=_auth("someone")
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_complete_practice_session_400_when_already_completed(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        student = f"doublecomplete-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+        question = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=headers
+        ).json()[0]
+        self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{question['id']}/answer",
+            json={"selected_option_id": question["options"][0]["id"]},
+            headers=headers,
+        )
+        first = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/complete", json={}, headers=headers
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+
+        second = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/complete", json={}, headers=headers
+        )
+        self.assertEqual(second.status_code, 400, second.text)
+
+    def test_complete_practice_session_with_unanswered_question_is_skipped(self):
+        """Requesting more questions than the student ends up answering must
+        not crash completion, must report the unanswered one, and must not
+        record learning-history/mastery evidence for it."""
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id, correct_key="A"))
+        self._seed(self._seed_question(content_node_id, correct_key="A"))
+        student = f"partialcomplete-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 2},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+        questions = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/questions", headers=headers
+        ).json()
+        self.assertEqual(len(questions), 2)
+        # Answer only the first question; leave the second untouched.
+        self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/questions/{questions[0]['id']}/answer",
+            json={"selected_option_id": questions[0]["options"][0]["id"]},
+            headers=headers,
+        )
+
+        complete_resp = self.client.post(
+            f"/api/v1/practice/sessions/{session_id}/complete", json={}, headers=headers
+        )
+        self.assertEqual(complete_resp.status_code, 200, complete_resp.text)
+        result = complete_resp.json()
+        self.assertEqual(result["answered_count"], 1)
+        self.assertEqual(result["unanswered_count"], 1)
+
+        history_resp = self.client.get("/api/v1/practice/history", headers=headers)
+        # Only the answered question produces a learning-history entry.
+        self.assertEqual(len(history_resp.json()["entries"]), 1)
+
+    def test_get_practice_session_result_404_for_nonexistent_session(self):
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{uuid4()}/result", headers=_auth("someone")
+        )
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_get_practice_session_result_403_for_another_students_session(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        owner = f"resultowner-{uuid4().hex[:8]}"
+        intruder = f"resultintruder-{uuid4().hex[:8]}"
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=_auth(owner),
+        )
+        session_id = create_resp.json()["id"]
+
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/result", headers=_auth(intruder)
+        )
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+    def test_get_practice_session_result_400_before_completion(self):
+        content_node_id = self._seed(self._new_content_node())
+        self._seed(self._seed_question(content_node_id))
+        student = f"notyetdone-{uuid4().hex[:8]}"
+        headers = _auth(student)
+        create_resp = self.client.post(
+            "/api/v1/practice/sessions",
+            json={"content_node_id": str(content_node_id), "requested_question_count": 1},
+            headers=headers,
+        )
+        session_id = create_resp.json()["id"]
+
+        resp = self.client.get(
+            f"/api/v1/practice/sessions/{session_id}/result", headers=headers
+        )
+        self.assertEqual(resp.status_code, 400, resp.text)
 
 
 if __name__ == "__main__":

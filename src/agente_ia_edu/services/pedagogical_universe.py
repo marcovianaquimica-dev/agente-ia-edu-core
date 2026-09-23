@@ -18,6 +18,25 @@ class PedagogicalUniverseService:
         self.session = session
 
     async def create_universe(self, *, external_id: str, slug: str, name: str, owner_type: str, owner_external_id: str | None, performed_by_external_id: str, description: str | None = None, configuration: dict | None = None, configuration_version: str = "v1", status: str = "DRAFT") -> PedagogicalUniverse:
+        # Both columns carry a DB UniqueConstraint (uq_pedagogical_universes_
+        # external_id / _slug). Without this pre-check, a duplicate here
+        # surfaces as an uncaught sqlalchemy.exc.IntegrityError at commit
+        # time - the route only catches ValueError - producing a raw 500
+        # instead of the intended 400. Mirrors PlatformAdminService.
+        # create_school's existing pre-check pattern for the same reason.
+        clean_external_id = external_id.strip()
+        clean_slug = slug.strip().lower()
+        existing_external_id = await self.session.scalar(
+            select(PedagogicalUniverse).where(PedagogicalUniverse.external_id == clean_external_id)
+        )
+        if existing_external_id:
+            raise ValueError(f"Pedagogical universe with external_id '{clean_external_id}' already exists.")
+        existing_slug = await self.session.scalar(
+            select(PedagogicalUniverse).where(PedagogicalUniverse.slug == clean_slug)
+        )
+        if existing_slug:
+            raise ValueError(f"Pedagogical universe with slug '{clean_slug}' already exists.")
+
         universe = PedagogicalUniverse(
             external_id=external_id.strip(), slug=slug.strip().lower(), name=name.strip(), description=description,
             owner_type=owner_type.upper(), owner_external_id=owner_external_id, status=status.upper(),
