@@ -366,11 +366,6 @@
     renderUploadArea(container, prompt, prompt.my_submission.mode, state);
   }
 
-  const COMPETENCY_LABELS = {
-    C1: 'Domínio da norma padrão', C2: 'Compreensão do tema', C3: 'Argumentação',
-    C4: 'Coesão textual', C5: 'Proposta de intervenção',
-  };
-
   async function renderDevolutiva(prompt) {
     container.innerHTML = '<p class="empty-text">Carregando devolutiva...</p>';
     const submissionId = prompt.my_submission.id;
@@ -422,79 +417,21 @@
   }
 
   function renderApprovedDevolutiva(prompt, correction) {
-    const scores = correction.final_scores || {};
-    const perCompetency = scores.per_competency || {};
-    const feedback = correction.final_feedback || {};
     const annotations = correction.annotations || [];
-    const alerts = correction.alerts || [];
-    const intervention = correction.intervention || {};
     const anchorMode = prompt.my_submission.anchor_mode;
-
-    const competencyBars = Object.keys(COMPETENCY_LABELS).map((code) => {
-      const points = (perCompetency[code] || {}).points || 0;
-      const pct = Math.round((points / 200) * 100);
-      return `
-        <div class="essay-competency-row">
-          <span>${code} — ${COMPETENCY_LABELS[code]}</span>
-          <div class="essay-competency-bar"><div class="essay-competency-fill" style="width:${pct}%"></div></div>
-          <span>${points}/200</span>
-        </div>`;
-    }).join('');
-
-    const alertsHtml = alerts.length
-      ? `<div class="essay-alerts">${alerts.map((a) => `<span class="badge badge-accent">${escEssay(a.code)}</span>`).join(' ')}</div>`
-      : '';
-
-    const annotationsHtml = annotations.length
-      ? annotations.map((a, i) => {
-          const quote = (a.anchor && (a.anchor.quote || a.anchor.read_text)) || '';
-          return `
-            <div class="essay-annotation">
-              <span class="essay-annotation-number essay-mark-${escEssay(a.competency_code)}">${i + 1}</span>
-              <strong>${escEssay(a.letter)} — ${escEssay(a.competency_code)}</strong>
-              <p>${escEssay(a.short_comment)}</p>
-              <p class="empty-text">${escEssay(a.long_comment)}</p>
-              ${quote ? `<blockquote>"${escEssay(quote)}"</blockquote>` : ''}
-            </div>`;
-        }).join('')
-      : '<p class="empty-text">Nenhuma anotação específica.</p>';
-
-    const interventionHtml = `
-      <ul class="essay-intervention-checklist">
-        <li>${intervention.agente ? '✓' : '○'} Agente: ${escEssay(intervention.agente || '—')}</li>
-        <li>${intervention.acao ? '✓' : '○'} Ação: ${escEssay(intervention.acao || '—')}</li>
-        <li>${intervention.meio_modo ? '✓' : '○'} Meio/modo: ${escEssay(intervention.meio_modo || '—')}</li>
-        <li>${intervention.finalidade ? '✓' : '○'} Finalidade: ${escEssay(intervention.finalidade || '—')}</li>
-        <li>${intervention.detalhamento ? '✓' : '○'} Detalhamento: ${escEssay(intervention.detalhamento || '—')}</li>
-      </ul>
-      <p class="${intervention.respeita_direitos_humanos ? '' : 'essay-warning'}">
-        ${intervention.respeita_direitos_humanos ? '✓ Respeita os direitos humanos' : '⚠ Atenção: verificar respeito aos direitos humanos'}
-      </p>`;
 
     const originalContentHtml = anchorMode === 'TEXT_OFFSET'
       ? `<div class="essay-highlighted-text">${window.EssayAnnotations.renderHighlightedText(correction.canonical_text || '', annotations)}</div>`
       : '<div id="essay-original-pages"><p class="empty-text">Carregando páginas...</p></div>';
 
+    const reportHtml = window.EssayReport.renderRichReport(correction, {
+      promptTitle: prompt.title, editable: false, escFn: escEssay, originalContentHtml,
+    });
+
     container.innerHTML = `
       <div class="card">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
-        <h3>${escEssay(prompt.title)}</h3>
-        <div class="essay-total-score">Nota total: ${scores.total != null ? scores.total : '—'} / 1000</div>
-        ${alertsHtml}
-        <h4>Notas por competência</h4>
-        ${competencyBars}
-        <h4>Pontos fortes</h4>
-        <ul>${(feedback.strengths || []).map((s) => `<li>${escEssay(s)}</li>`).join('') || '<li class="empty-text">—</li>'}</ul>
-        <h4>A melhorar</h4>
-        <ul>${(feedback.improvements || []).map((s) => `<li>${escEssay(s)}</li>`).join('') || '<li class="empty-text">—</li>'}</ul>
-        <h4>Próxima redação</h4>
-        <p>${escEssay(feedback.next_essay_strategy || '')}</p>
-        <h4>Sua redação</h4>
-        ${originalContentHtml}
-        <h4>Anotações</h4>
-        ${annotationsHtml}
-        <h4>Competência 5 — Proposta de intervenção</h4>
-        ${interventionHtml}
+        ${reportHtml}
       </div>`;
 
     container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
