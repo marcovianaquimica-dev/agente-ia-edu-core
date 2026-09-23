@@ -465,6 +465,10 @@ class StudentCorrectionResponse(BaseModel):
     rewrites: Optional[list] = None
     intervention: Optional[dict] = None
     alerts: Optional[list] = None
+    rationales: Optional[list] = None
+    intro_message: Optional[str] = None
+    closing_message: Optional[str] = None
+    mechanical_review: Optional[list] = None
     # Only ever populated (True/False) in the REJECTED branch - PENDING has no
     # decision to resubmit against yet, and APPROVED is terminal in the other
     # direction (already published, no resubmit UI to gate). Left None there.
@@ -519,6 +523,10 @@ async def get_essay_submission_correction(
             final_scores=correction.final_scores, final_feedback=correction.final_feedback,
             annotations=ai_output.get("annotations"), rewrites=ai_output.get("rewrites"),
             intervention=ai_output.get("intervention"), alerts=ai_output.get("alerts"),
+            rationales=ai_output.get("rationales"),
+            intro_message=ai_output.get("intro_message"),
+            closing_message=ai_output.get("closing_message"),
+            mechanical_review=ai_output.get("mechanical_review"),
         )
 
 

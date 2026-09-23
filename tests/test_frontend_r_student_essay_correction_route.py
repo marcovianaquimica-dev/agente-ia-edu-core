@@ -212,6 +212,82 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
         self.assertEqual(len(body["annotations"]), 1)
         self.assertTrue(body["intervention"]["respeita_direitos_humanos"])
 
+    def test_approved_exposes_the_new_devolutiva_fields(self):
+        submission_id = self._seed_submission("10")
+
+        async def _add():
+            async with self.factory() as session:
+                submission = await session.get(EssaySubmission, submission_id)
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=submission.school_id,
+                    essay_submission_id=submission_id, correction_key="k" * 64,
+                    rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v2", engine_version="r3_correction_engine_v1",
+                    ai_output={
+                        "annotations": [], "rewrites": [],
+                        "intervention": {"respeita_direitos_humanos": True}, "alerts": [],
+                        "rationales": [{
+                            "competency_code": "C1", "summary": "ok",
+                            "strengths": "boa norma", "growth_area": "revisar crase",
+                            "signal_keys": [],
+                        }],
+                        "intro_message": "Ola!", "closing_message": "Continue assim!",
+                        "mechanical_review": [{
+                            "category": "CRASE", "excerpt": "a ela",
+                            "suggested_form": "à ela", "rule_explanation": "fusao de a+a",
+                        }],
+                    },
+                    final_scores={"total": 800}, final_feedback={"next_essay_strategy": "Revisar conectivos."},
+                    status="APPROVED",
+                    reviewed_at=datetime.now(timezone.utc), published_at=datetime.now(timezone.utc),
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add())
+        self._as("student_10")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["rationales"][0]["strengths"], "boa norma")
+        self.assertEqual(body["intro_message"], "Ola!")
+        self.assertEqual(body["closing_message"], "Continue assim!")
+        self.assertEqual(body["mechanical_review"][0]["category"], "CRASE")
+
+    def test_approved_with_old_ai_output_has_none_for_new_fields(self):
+        # ai_output WITHOUT the new keys - simulates a correction approved
+        # before this leva. Must not error: the four new fields come back
+        # as null, same as annotations/rewrites already do in with_content=False.
+        submission_id = self._seed_submission("11")
+
+        async def _add():
+            async with self.factory() as session:
+                submission = await session.get(EssaySubmission, submission_id)
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=submission.school_id,
+                    essay_submission_id=submission_id, correction_key="k" * 64,
+                    rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                    ai_output={
+                        "annotations": [], "rewrites": [],
+                        "intervention": {"respeita_direitos_humanos": True}, "alerts": [],
+                        "rationales": [{"competency_code": "C1", "summary": "ok", "signal_keys": []}],
+                    },
+                    final_scores={"total": 800}, final_feedback={"next_essay_strategy": "Revisar conectivos."},
+                    status="APPROVED",
+                    reviewed_at=datetime.now(timezone.utc), published_at=datetime.now(timezone.utc),
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add())
+        self._as("student_11")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertIsNone(body["intro_message"])
+        self.assertIsNone(body["closing_message"])
+        self.assertIsNone(body["mechanical_review"])
+        self.assertEqual(body["rationales"][0]["summary"], "ok")
+
     def test_another_students_submission_is_403(self):
         submission_id = self._seed_submission("5")
         self._add_correction(submission_id, status="APPROVED", with_content=True)
