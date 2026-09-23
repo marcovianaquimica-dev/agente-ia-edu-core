@@ -8,6 +8,7 @@
   let schoolId = '';
   let teacherId = '';
   let prompts = [];
+  let currentCorrections = [];
 
   function tmEsc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
@@ -231,10 +232,55 @@
     });
   }
 
-  function renderReviewQueue() {
-    // Implementado na Task 9.
-    container.innerHTML = `${renderTabs('queue')}<p class="empty-text">Fila de revisão — próxima etapa.</p>`;
+  async function renderReviewQueue(status) {
+    const currentStatus = status || 'PENDING_REVIEW';
+    container.innerHTML = `
+      ${renderTabs('queue')}
+      <div class="tm-form-row" style="margin: 12px 0;">
+        <div class="form-group"><label for="er-queue-status">Status</label>
+          <select id="er-queue-status" class="text-input">
+            <option value="PENDING_REVIEW">Pendente de revisão</option>
+            <option value="NEEDS_REVIEW">Precisa de atenção (falha)</option>
+            <option value="APPROVED">Aprovadas</option>
+            <option value="REJECTED">Rejeitadas</option>
+          </select>
+        </div>
+      </div>
+      <div id="er-queue-body"><p class="empty-text">Carregando...</p></div>`;
     wireTabs();
+    const statusSelect = container.querySelector('#er-queue-status');
+    statusSelect.value = currentStatus;
+    statusSelect.addEventListener('change', (ev) => renderReviewQueue(ev.target.value));
+
+    const body = container.querySelector('#er-queue-body');
+    try {
+      currentCorrections = await reviewRequest(
+        `/api/v1/teacher/essay-corrections?status=${encodeURIComponent(currentStatus)}`,
+      );
+    } catch (e) {
+      body.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      return;
+    }
+
+    body.innerHTML = `
+      <div class="tm-table-wrap" style="overflow-x:auto;">
+        <table class="tm-table">
+          <thead><tr><th>Aluno</th><th>Proposta</th><th>Enviada em</th><th></th></tr></thead>
+          <tbody>
+            ${currentCorrections.map((c) => `
+              <tr>
+                <td>${tmEsc(c.student_name || '—')}</td>
+                <td>${tmEsc(c.prompt_title || '—')}</td>
+                <td>${c.submitted_at ? new Date(c.submitted_at).toLocaleString('pt-BR') : '—'}</td>
+                <td><button class="btn btn-secondary" type="button" data-open-correction="${tmEsc(c.id)}">Revisar</button></td>
+              </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhuma correção com este status.</td></tr>'}
+          </tbody>
+        </table>
+      </div>`;
+
+    body.querySelectorAll('[data-open-correction]').forEach((btn) => {
+      btn.addEventListener('click', () => renderReviewPanel(btn.dataset.openCorrection, currentStatus));
+    });
   }
 
   function init(currentSchoolId, currentTeacherId) {
