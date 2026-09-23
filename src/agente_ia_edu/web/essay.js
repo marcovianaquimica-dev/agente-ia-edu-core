@@ -23,8 +23,18 @@
     return 'Não foi possível completar a ação.';
   }
 
+  // Mirrors app.js's studentHeaders() default exactly. There, state.studentId
+  // is already the string 'student:alice', so its real fallback token is the
+  // DOUBLE-prefixed 'student:student:alice' - TestExternalIdentityProvider
+  // splits the token on the first ':' as role:identifier, so a single
+  // 'student:alice' token resolves to identifier "alice", which matches no
+  // seeded user (seed_demo_data.py seeds the literal external_user_id
+  // 'student:alice'). Keep DEFAULT_STUDENT_ID in sync with app.js's
+  // state.studentId if that ever changes.
+  const DEFAULT_STUDENT_ID = 'student:alice';
+
   function essayHeaders(extra = {}) {
-    const accessToken = sessionStorage.getItem('studentAccessToken') || 'student:alice';
+    const accessToken = sessionStorage.getItem('studentAccessToken') || `student:${DEFAULT_STUDENT_ID}`;
     return { 'Authorization': `Bearer ${accessToken}`, ...extra };
   }
 
