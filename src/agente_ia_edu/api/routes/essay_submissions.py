@@ -458,6 +458,7 @@ async def confirm_essay_submission(
 class StudentCorrectionResponse(BaseModel):
     essay_submission_id: UUID
     status: str
+    canonical_text: Optional[str] = None
     final_scores: Optional[dict] = None
     final_feedback: Optional[dict] = None
     annotations: Optional[list] = None
@@ -493,6 +494,7 @@ async def get_essay_submission_correction(
         ai_output = correction.ai_output or {}
         return StudentCorrectionResponse(
             essay_submission_id=submission.id, status="APPROVED",
+            canonical_text=submission.canonical_text,
             final_scores=correction.final_scores, final_feedback=correction.final_feedback,
             annotations=ai_output.get("annotations"), rewrites=ai_output.get("rewrites"),
             intervention=ai_output.get("intervention"), alerts=ai_output.get("alerts"),
