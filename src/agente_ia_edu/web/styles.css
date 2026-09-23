@@ -1568,3 +1568,16 @@ body.sidebar-open {
   .mr-section-content { padding: 12px; }
   .mr-section-dot { width: 26px; height: 26px; font-size: 0.75rem; }
 }
+
+/* Módulo Redação */
+.essay-prompt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.essay-prompt-card { display: flex; flex-direction: column; gap: 10px; }
+.essay-mode-tabs { display: flex; gap: 8px; margin: 12px 0; }
+.essay-mode-tabs .is-active { background: var(--primary); color: #fff; }
+.essay-form input, .essay-form textarea, .essay-form select {
+  width: 100%; padding: 12px; color: var(--text-main); font: inherit;
+  background: #fff; border: 1px solid #cbd8e7; border-radius: 6px; outline: none;
+}
+.essay-form input:focus, .essay-form textarea:focus {
+  border-color: #0f9f91; box-shadow: 0 0 0 3px rgba(15, 159, 145, .14);
+}

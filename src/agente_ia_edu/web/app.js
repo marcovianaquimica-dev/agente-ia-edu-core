@@ -139,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (viewName === 'diagnostic') initDiagnosticView();
     if (viewName === 'learning-path') loadLearningPathData();
     if (viewName === 'evolution') loadEvolutionData();
+    if (viewName === 'essay') window.EssayView.init();
     if (viewName === 'materials') loadMaterialsView();
     if (viewName === 'videos') loadVideosView();
     if (viewName === 'activities') loadActivitiesView();
