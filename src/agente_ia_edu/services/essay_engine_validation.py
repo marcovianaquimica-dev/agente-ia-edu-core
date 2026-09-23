@@ -199,6 +199,20 @@ def validate_engine_output(
             if key not in rubric.signal_keys:
                 reject("UNKNOWN_SIGNAL_KEY", f"unknown or inactive signal {key!r}")
 
+    valid_letters = {annotation.letter for annotation in output.annotations}
+    for rewrite in output.rewrites:
+        if rewrite.letter not in valid_letters:
+            reject(
+                "REWRITE_LETTER_NOT_FOUND",
+                f"rewrite references letter {rewrite.letter!r}, which is not "
+                f"among the annotations' letters {sorted(valid_letters)}",
+            )
+        if rewrite.competency_code not in rubric.levels:
+            reject(
+                "UNKNOWN_COMPETENCY",
+                f"rubric has no competency {rewrite.competency_code!r}",
+            )
+
     # --- Layer 3: anchoring ------------------------------------------------
     mode = output.identification.anchor_mode
 

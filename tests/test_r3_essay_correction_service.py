@@ -91,7 +91,11 @@ def _happy_payload(
         {
             "scores": scores,
             "rationales": [
-                {"competency_code": "C1", "summary": "Boa norma padrao.", "signal_keys": []}
+                {
+                    "competency_code": "C1", "summary": "Boa norma padrao.",
+                    "strengths": "Boa norma padrao.", "growth_area": "Aprofundar repertorio.",
+                    "signal_keys": [],
+                }
             ],
             "annotations": [
                 {
@@ -114,6 +118,8 @@ def _happy_payload(
                 "detalhamento": "com fiscalizacao", "respeita_direitos_humanos": True,
             },
             "alerts": [],
+            "intro_message": "Ola! Vamos ver como foi sua redacao.",
+            "closing_message": "Continue praticando, voce esta no caminho certo.",
         }
     )
 

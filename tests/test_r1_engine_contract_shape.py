@@ -26,7 +26,11 @@ def minimal_payload(**overrides):
             "total": 800,
         },
         "rationales": [
-            {"competency_code": c, "summary": "resumo", "signal_keys": []}
+            {
+                "competency_code": c, "summary": "resumo",
+                "strengths": "pontos fortes", "growth_area": "onde avançar",
+                "signal_keys": [],
+            }
             for c in ("C1", "C2", "C3", "C4", "C5")
         ],
         "annotations": [
@@ -48,6 +52,8 @@ def minimal_payload(**overrides):
             "detalhamento": "com metas anuais", "respeita_direitos_humanos": True,
         },
         "alerts": [],
+        "intro_message": "Olá! Vamos ver como foi sua redação.",
+        "closing_message": "Continue praticando, você está no caminho certo.",
     }
     payload.update(overrides)
     return payload
@@ -142,5 +148,54 @@ class TestEngineContractShape(unittest.TestCase):
         payload["annotations"][0]["anchor"] = {
             "type": "TEXT_OFFSET", "start": 10, "end": 3, "quote": "x"
         }
+        with self.assertRaises(ValidationError):
+            EssayEngineOutput.model_validate(payload)
+
+    def test_rewrite_requires_letter_and_competency_code(self):
+        payload = minimal_payload(rewrites=[
+            {"original": "x", "suggestion": "y", "pedagogical_goal": "z"}
+        ])
+        with self.assertRaises(ValidationError):
+            EssayEngineOutput.model_validate(payload)
+
+    def test_accepts_a_rewrite_with_letter_and_competency_code(self):
+        payload = minimal_payload(rewrites=[
+            {
+                "letter": "A", "competency_code": "C1",
+                "original": "x", "suggestion": "y", "pedagogical_goal": "z",
+            }
+        ])
+        output = EssayEngineOutput.model_validate(payload)
+        self.assertEqual(output.rewrites[0].letter, "A")
+
+    def test_missing_intro_message_rejected(self):
+        payload = minimal_payload()
+        del payload["intro_message"]
+        with self.assertRaises(ValidationError):
+            EssayEngineOutput.model_validate(payload)
+
+    def test_missing_closing_message_rejected(self):
+        payload = minimal_payload()
+        del payload["closing_message"]
+        with self.assertRaises(ValidationError):
+            EssayEngineOutput.model_validate(payload)
+
+    def test_mechanical_review_defaults_to_empty_tuple(self):
+        output = EssayEngineOutput.model_validate(minimal_payload())
+        self.assertEqual(output.mechanical_review, ())
+
+    def test_mechanical_review_accepts_occurrences(self):
+        payload = minimal_payload(mechanical_review=[
+            {
+                "category": "CRASE", "excerpt": "a ela",
+                "suggested_form": "à ela", "rule_explanation": "fusão de a + a",
+            }
+        ])
+        output = EssayEngineOutput.model_validate(payload)
+        self.assertEqual(output.mechanical_review[0].category, "CRASE")
+
+    def test_rationale_requires_strengths_and_growth_area(self):
+        payload = minimal_payload()
+        del payload["rationales"][0]["strengths"]
         with self.assertRaises(ValidationError):
             EssayEngineOutput.model_validate(payload)

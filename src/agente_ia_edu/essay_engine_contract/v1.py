@@ -120,6 +120,8 @@ class CompetencyRationale(BaseModel):
 
     competency_code: CompetencyCode
     summary: str
+    strengths: str = Field(min_length=1)
+    growth_area: str = Field(min_length=1)
     signal_keys: tuple[str, ...] = ()
 
 
@@ -140,6 +142,8 @@ class Annotation(BaseModel):
 class Rewrite(BaseModel):
     model_config = _Strict
 
+    letter: str = Field(pattern=r"^[A-Z]{1,2}$")
+    competency_code: CompetencyCode
     original: str = Field(min_length=1)
     suggestion: str = Field(min_length=1)
     pedagogical_goal: str = Field(min_length=1)
@@ -179,6 +183,28 @@ class Alert(BaseModel):
     detail: str | None = None
 
 
+class MechanicalOccurrence(BaseModel):
+    """A confirmed mechanical error, quoted from the essay (spec §2 — the C1
+    checklist's dynamic rows). Never invented to pad the list: an empty
+    ``mechanical_review`` tuple on ``EssayEngineOutput`` is valid and expected
+    for essays with no confirmed errors of these kinds."""
+
+    model_config = _Strict
+
+    category: Literal[
+        "ORTOGRAFIA",
+        "ACENTUACAO",
+        "CRASE",
+        "PORQUES",
+        "CONCORDANCIA",
+        "REGENCIA",
+        "PONTUACAO",
+    ]
+    excerpt: str = Field(min_length=1)
+    suggested_form: str = Field(min_length=1)
+    rule_explanation: str = Field(min_length=1)
+
+
 class EssayEngineOutput(BaseModel):
     model_config = _Strict
 
@@ -190,6 +216,9 @@ class EssayEngineOutput(BaseModel):
     feedback: Feedback
     intervention: InterventionBreakdown
     alerts: tuple[Alert, ...] = ()
+    intro_message: str = Field(min_length=1)
+    closing_message: str = Field(min_length=1)
+    mechanical_review: tuple[MechanicalOccurrence, ...] = ()
 
     @model_validator(mode="after")
     def _anchors_agree_with_declared_mode(self) -> "EssayEngineOutput":
@@ -216,6 +245,7 @@ __all__ = [
     "Identification",
     "ImageRegionAnchor",
     "InterventionBreakdown",
+    "MechanicalOccurrence",
     "OFFICIAL_LEVEL_POINTS",
     "Rewrite",
     "Scores",

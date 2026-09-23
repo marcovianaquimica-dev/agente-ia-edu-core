@@ -48,7 +48,11 @@ def build_payload(**overrides) -> dict:
             "total": 800,
         },
         "rationales": [
-            {"competency_code": c, "summary": "resumo", "signal_keys": []}
+            {
+                "competency_code": c, "summary": "resumo",
+                "strengths": "pontos fortes", "growth_area": "onde avançar",
+                "signal_keys": [],
+            }
             for c in ("C1", "C2", "C3", "C4", "C5")
         ],
         "annotations": [
@@ -66,6 +70,8 @@ def build_payload(**overrides) -> dict:
         "feedback": {"strengths": [], "improvements": [], "next_essay_strategy": "..."},
         "intervention": {"respeita_direitos_humanos": True},
         "alerts": [],
+        "intro_message": "Olá! Vamos ver como foi sua redação.",
+        "closing_message": "Continue praticando, você está no caminho certo.",
     }
     for key, value in overrides.items():
         payload[key] = value
@@ -79,6 +85,41 @@ def build_output(**overrides) -> EssayEngineOutput:
 class TestEngineValidation(unittest.TestCase):
     def test_accepts_a_verifiable_output(self):
         validate_engine_output(build_output(), rubric=RUBRIC, text=TEXT)
+
+    def test_rejects_a_rewrite_referencing_an_unknown_letter(self):
+        output = build_output(rewrites=[
+            {
+                "letter": "Z", "competency_code": "C1",
+                "original": "x", "suggestion": "y", "pedagogical_goal": "z",
+            }
+        ])
+        self._assert_rejected(output, reason_code="REWRITE_LETTER_NOT_FOUND")
+
+    def test_accepts_a_rewrite_referencing_a_real_letter(self):
+        # build_payload()'s single annotation uses letter "A" (see fixture).
+        output = build_output(rewrites=[
+            {
+                "letter": "A", "competency_code": "C1",
+                "original": "x", "suggestion": "y", "pedagogical_goal": "z",
+            }
+        ])
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
+
+    def test_rejects_a_rewrite_with_unknown_competency(self):
+        rubric = RubricView(
+            rubric_version="ENEM_2025",
+            levels={c: frozenset((0, 40, 80, 120, 160, 200)) for c in ("C1", "C2", "C3", "C4")},
+            signal_keys=RUBRIC.signal_keys,
+        )
+        output = build_output(rewrites=[
+            {
+                "letter": "A", "competency_code": "C5",
+                "original": "x", "suggestion": "y", "pedagogical_goal": "z",
+            }
+        ])
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=rubric, text=TEXT)
+        self.assertEqual(caught.exception.reason_code, "UNKNOWN_COMPETENCY")
 
     def _assert_rejected(self, output, *, reason_code, **kwargs):
         with self.assertRaises(EssayEngineOutputRejected) as caught:
@@ -150,7 +191,11 @@ class TestEngineValidation(unittest.TestCase):
         output = build_output(
             scores=None,
             rationales=[
-                {"competency_code": c, "summary": "resumo", "signal_keys": []}
+                {
+                    "competency_code": c, "summary": "resumo",
+                    "strengths": "pontos fortes", "growth_area": "onde avançar",
+                    "signal_keys": [],
+                }
                 for c in ("C2", "C3", "C4", "C5")
             ],
         )
