@@ -279,21 +279,37 @@ async def create_publication(
         if version.status != "published":
             raise HTTPException(status_code=409, detail="Only published versions can be applied")
         service = AssessmentPersistenceService(session)
-        created = await service.create_publication(
-            assessment_version_id=version.id,
-            publication_type=payload.publication_type,
-            released_immediately=payload.released_immediately,
-            starts_at=payload.starts_at,
-            ends_at=payload.ends_at,
-            time_limit_seconds=payload.time_limit_seconds,
-            attempts_allowed=payload.attempts_allowed,
-            source_display=payload.source_display,
-            bncc_display=payload.bncc_display,
-            show_difficulty=payload.show_difficulty,
-        )
+        try:
+            created = await service.create_publication(
+                assessment_version_id=version.id,
+                publication_type=payload.publication_type,
+                released_immediately=payload.released_immediately,
+                starts_at=payload.starts_at,
+                ends_at=payload.ends_at,
+                time_limit_seconds=payload.time_limit_seconds,
+                attempts_allowed=payload.attempts_allowed,
+                source_display=payload.source_display,
+                bncc_display=payload.bncc_display,
+                show_difficulty=payload.show_difficulty,
+            )
+        except ValueError as exc:
+            # Unsupported publication_type or ends_at before starts_at raise a
+            # plain ValueError from the service; without this it propagated as
+            # an unhandled exception -> generic 500 instead of a 4xx the
+            # client could act on (same bug shape as the wave-1 duplicate-key
+            # IntegrityError finding). Raised before session.add()/flush, so
+            # nothing is persisted here.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Capture the assessment id BEFORE commit: `assessment` was loaded by
+        # _load_assessment_for_author() earlier in this session, so commit()
+        # expires it (expire_on_commit=True in production). Reading
+        # `assessment.id` afterwards would trigger a synchronous lazy-refresh
+        # outside the async greenlet bridge -> MissingGreenlet, with the
+        # publication row already committed and no response ever returned.
+        assessment_id_value = assessment.id
         await session.commit()
         publication = await session.get(AssessmentPublication, created.id)
-        return _publication_response(publication, assessment.id)
+        return _publication_response(publication, assessment_id_value)
 
 
 @router.get("/{assessment_id}/publications", response_model=list[AssessmentPublicationResponse])
@@ -440,9 +456,13 @@ async def activate_publication(
                 "publication_id": str(publication.id),
             },
         ))
+        # Same expire-after-commit hazard as create_publication above:
+        # `assessment` was loaded earlier in this session, so it is expired by
+        # commit() and must be captured before, not read from afterwards.
+        assessment_id_value = assessment.id
         await session.commit()
         await session.refresh(publication)
-        return _publication_response(publication, assessment.id)
+        return _publication_response(publication, assessment_id_value)
 
 
 @router.post(
@@ -500,12 +520,17 @@ async def assign_publication_to_student(
             },
         )
         session.add(assignment)
+        # Capture ids from objects loaded earlier in this session (`assessment`
+        # and `publication`) before commit() expires them - same hazard as
+        # create_publication/activate_publication above.
+        assessment_id_value = assessment.id
+        publication_id_value = publication.id
         await session.commit()
         await session.refresh(assignment)
         return AssessmentAssignmentResponse(
             id=assignment.id,
-            assessment_id=assessment.id,
-            publication_id=publication.id,
+            assessment_id=assessment_id_value,
+            publication_id=publication_id_value,
             student_external_id=assignment.recipient_id,
             school_id=assignment.school_id,
             status=assignment.status,

@@ -142,6 +142,20 @@ async def list_ingestions(
 ) -> list[dict]:
     async with session_factory() as session:
         context = await _authorize(identity, session)
+        if context.school_id is None and not context.is_platform_admin:
+            # Same bug class as _require_review_access (see its comment,
+            # and test_r0_authorial_ingestion_scope.py): resolve_context's
+            # fallback grants TEACHER/COORDINATOR/DIRECTOR to any caller
+            # with no real UserSchoolLink at all, purely from a
+            # self-asserted Authorization header, with context.school_id
+            # left None. list_reviews(school_id=None, ...) has no WHERE
+            # clause on school_id, so passing that None straight through
+            # here would list EVERY school's ingestion reviews site-wide.
+            # A non-admin caller with no real school link legitimately gets
+            # an empty scope, not a global one (matches teacher_portal.py's
+            # list_teacher_classrooms/search_students convention for the
+            # exact same situation).
+            return []
         svc = AuthorialMaterialIngestionService(session)
         reviews = await svc.list_reviews(school_id=context.school_id, review_status=review_status)
         return [_review_to_dict(r) for r in reviews]
