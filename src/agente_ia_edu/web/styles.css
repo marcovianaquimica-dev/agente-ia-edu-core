@@ -1635,3 +1635,14 @@ body.sidebar-open {
 .essay-annotation-number.essay-mark-C3 { background-color: var(--danger); }
 .essay-annotation-number.essay-mark-C4 { background-color: var(--warning); }
 .essay-annotation-number.essay-mark-C5 { background-color: var(--success); }
+
+.essay-intro-message { font-style: italic; margin: 12px 0; }
+.essay-competency-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.essay-competency-table th, .essay-competency-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border, #e2e6ee); vertical-align: top; }
+.essay-rewrite-block { border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; background: #fbfdff; }
+.essay-mechanical-reference { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+.essay-mechanical-reference th, .essay-mechanical-reference td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border, #e2e6ee); }
+.essay-mechanical-occurrence { border-left: 3px solid var(--warning); padding: 8px 12px; margin: 10px 0; background: #fffdf7; }
+.essay-action-plan { padding-left: 20px; }
+.essay-closing-message { font-style: italic; margin: 14px 0; }
+.essay-transparency-notice { font-size: 12px; color: var(--text-muted); margin-top: 16px; }
