@@ -370,6 +370,7 @@
     const annotations = correction.annotations || [];
     const alerts = correction.alerts || [];
     const intervention = correction.intervention || {};
+    const anchorMode = prompt.my_submission.anchor_mode;
 
     const competencyBars = Object.keys(COMPETENCY_LABELS).map((code) => {
       const points = (perCompetency[code] || {}).points || 0;
@@ -387,10 +388,11 @@
       : '';
 
     const annotationsHtml = annotations.length
-      ? annotations.map((a) => {
+      ? annotations.map((a, i) => {
           const quote = (a.anchor && (a.anchor.quote || a.anchor.read_text)) || '';
           return `
             <div class="essay-annotation">
+              <span class="essay-annotation-number essay-mark-${escEssay(a.competency_code)}">${i + 1}</span>
               <strong>${escEssay(a.letter)} — ${escEssay(a.competency_code)}</strong>
               <p>${escEssay(a.short_comment)}</p>
               <p class="empty-text">${escEssay(a.long_comment)}</p>
@@ -411,6 +413,10 @@
         ${intervention.respeita_direitos_humanos ? '✓ Respeita os direitos humanos' : '⚠ Atenção: verificar respeito aos direitos humanos'}
       </p>`;
 
+    const originalContentHtml = anchorMode === 'TEXT_OFFSET'
+      ? `<div class="essay-highlighted-text">${window.EssayAnnotations.renderHighlightedText(correction.canonical_text || '', annotations)}</div>`
+      : '<div id="essay-original-pages"><p class="empty-text">Carregando páginas...</p></div>';
+
     container.innerHTML = `
       <div class="card">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
@@ -425,6 +431,8 @@
         <ul>${(feedback.improvements || []).map((s) => `<li>${escEssay(s)}</li>`).join('') || '<li class="empty-text">—</li>'}</ul>
         <h4>Próxima redação</h4>
         <p>${escEssay(feedback.next_essay_strategy || '')}</p>
+        <h4>Sua redação</h4>
+        ${originalContentHtml}
         <h4>Anotações</h4>
         ${annotationsHtml}
         <h4>Competência 5 — Proposta de intervenção</h4>
@@ -432,6 +440,46 @@
       </div>`;
 
     container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
+
+    if (anchorMode === 'TEXT_OFFSET') {
+      window.EssayAnnotations.wirePopovers(container, annotations);
+    } else {
+      loadOriginalPages(prompt, annotations);
+    }
+  }
+
+  async function loadOriginalPages(prompt, annotations) {
+    const submissionId = prompt.my_submission.id;
+    const pagesContainer = container.querySelector('#essay-original-pages');
+    let pages = [];
+    try {
+      pages = await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages`);
+    } catch (e) {
+      pagesContainer.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+      return;
+    }
+    pagesContainer.innerHTML = pages.map((p) => `
+      <div class="essay-page-image-wrap" data-page-wrap="${p.page_number}">
+        <img data-page-image="${p.page_number}" alt="Página ${p.page_number}">
+      </div>`).join('') || '<p class="empty-text">Nenhuma página enviada.</p>';
+
+    pagesContainer.querySelectorAll('[data-page-image]').forEach((img) => {
+      const pageNumber = Number(img.dataset.pageImage);
+      fetch(`/api/v1/student/essay-submissions/${submissionId}/pages/${pageNumber}/image`, {
+        headers: essayHeaders(),
+      })
+        .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('image fetch failed'))))
+        .then((blob) => new Promise((resolve) => {
+          img.onload = resolve;
+          img.src = URL.createObjectURL(blob);
+        }))
+        .then(() => {
+          const wrap = pagesContainer.querySelector(`[data-page-wrap="${pageNumber}"]`);
+          window.EssayAnnotations.renderImageMarkers(wrap, img, annotations, pageNumber);
+          window.EssayAnnotations.wirePopovers(wrap, annotations);
+        })
+        .catch(() => { img.alt = `Não foi possível carregar a página ${pageNumber}.`; });
+    });
   }
 
   async function loadPrompts() {
