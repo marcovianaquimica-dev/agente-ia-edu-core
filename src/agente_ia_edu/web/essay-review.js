@@ -493,8 +493,9 @@
         headers: reviewHeaders(),
       })
         .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('image fetch failed'))))
-        .then((blob) => new Promise((resolve) => {
+        .then((blob) => new Promise((resolve, reject) => {
           img.onload = resolve;
+          img.onerror = () => reject(new Error('image decode failed'));
           img.src = URL.createObjectURL(blob);
         }))
         .then(() => {
