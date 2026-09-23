@@ -187,7 +187,8 @@
                 : `<option value="" disabled>${tmEsc(c.name)} (sem turma cadastrada)</option>`)).join('') || '<option value="">Nenhuma turma disponível</option>'}
             </select>
           </div>
-          <div class="form-group"><label for="er-assign-due"><input id="er-assign-validation" type="checkbox" checked> Exigir revisão docente</label></div>
+          <div class="form-group"><label for="er-assign-due">Prazo (opcional)</label><input id="er-assign-due" class="text-input" type="date"></div>
+          <div class="form-group"><label for="er-assign-validation"><input id="er-assign-validation" type="checkbox" checked> Exigir revisão docente</label></div>
           <button class="btn btn-primary" type="submit">Atribuir</button>
         </form>
         <p id="er-assign-msg" class="tm-msg" hidden></p>
@@ -217,12 +218,20 @@
       ev.preventDefault();
       const classId = container.querySelector('#er-assign-class').value;
       const validationEnabled = container.querySelector('#er-assign-validation').checked;
+      const dueDate = container.querySelector('#er-assign-due').value;
       const msg = container.querySelector('#er-assign-msg');
       if (!classId) return;
       try {
         await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignments`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ class_id: classId, validation_enabled: validationEnabled }),
+          body: JSON.stringify({
+            class_id: classId,
+            validation_enabled: validationEnabled,
+            // <input type="date"> gives "YYYY-MM-DD" or "" when left blank -
+            // never send an empty string as due_at, the backend expects a
+            // real datetime or the field omitted entirely.
+            due_at: dueDate ? new Date(dueDate).toISOString() : null,
+          }),
         });
         renderPromptDetail(promptId);
       } catch (e) {
