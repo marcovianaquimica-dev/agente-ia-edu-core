@@ -62,7 +62,7 @@
       return `
         <div class="essay-competency-row">
           <span>${code} — ${esc(COMPETENCY_LABELS[code])}</span>
-          <div class="essay-competency-bar"><div class="essay-competency-fill" style="width:${pct}%"></div></div>
+          <div class="essay-competency-bar"><div class="essay-competency-fill essay-mark-${code}" style="width:${pct}%"></div></div>
           <span>${points}/200</span>
         </div>`;
     }).join('');
@@ -76,7 +76,7 @@
       const cells = hasSplit
         ? `<td>${esc(rationale.strengths)}</td><td>${esc(rationale.growth_area)}</td>`
         : `<td colspan="2">${esc(rationale.summary || '')}</td>`;
-      return `<tr><th scope="row">${code} — ${esc(COMPETENCY_LABELS[code])}</th>${cells}</tr>`;
+      return `<tr><th scope="row" class="essay-mark-${code}">${code} — ${esc(COMPETENCY_LABELS[code])}</th>${cells}</tr>`;
     }).join('');
     const competencyTableHtml = competencyTableRows
       ? `<table class="essay-competency-table">
@@ -89,7 +89,7 @@
       ? annotations.map((a, i) => {
           const quote = (a.anchor && (a.anchor.quote || a.anchor.read_text)) || '';
           return `
-            <div class="essay-annotation">
+            <div class="essay-annotation essay-mark-${esc(a.competency_code)}">
               <span class="essay-annotation-number essay-mark-${esc(a.competency_code)}">${i + 1}</span>
               <strong>${esc(a.letter)} — ${esc(a.competency_code)}</strong>
               <p>${esc(a.short_comment)}</p>
@@ -104,8 +104,9 @@
           const header = (r.letter && r.competency_code)
             ? `<strong>${esc(r.letter)} — ${esc(r.competency_code)}</strong>`
             : '';
+          const markClass = r.competency_code ? ` essay-mark-${esc(r.competency_code)}` : '';
           return `
-            <div class="essay-rewrite-block">
+            <div class="essay-rewrite-block${markClass}">
               ${header}
               <p class="empty-text">Trecho original:</p>
               <blockquote>"${esc(r.original)}"</blockquote>

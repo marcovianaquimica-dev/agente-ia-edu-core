@@ -38,6 +38,12 @@ _COMPETENCY_LABELS: dict[str, str] = {
 _COMPETENCY_COLORS: dict[str, str] = {
     "C1": "#eef2ff", "C2": "#ecfeff", "C3": "#fef2f2", "C4": "#fffbeb", "C5": "#ecfdf5",
 }
+# Solid variants of _COMPETENCY_COLORS above (same hex as styles.css's
+# --primary/--accent/--danger/--warning/--success) - used for anything that
+# needs a strong fill/border rather than a light background tint.
+_COMPETENCY_SOLID_COLORS: dict[str, str] = {
+    "C1": "#4f46e5", "C2": "#06b6d4", "C3": "#ef4444", "C4": "#f59e0b", "C5": "#10b981",
+}
 _MECHANICAL_REFERENCE: tuple[dict[str, str], ...] = (
     {"label": "Ortografia", "description": "Grafia correta das palavras conforme a norma padrão."},
     {"label": "Acentuação", "description": "Uso correto dos acentos gráficos."},
@@ -167,8 +173,14 @@ def _competency_bars_html(model: dict) -> str:
     rows = []
     for code in _COMPETENCY_CODES:
         points = model["points_by_competency"].get(code) or 0
+        pct = round((points / 200) * 100)
+        color = _COMPETENCY_SOLID_COLORS[code]
         rows.append(
-            f'<p><b>{_esc(code)} — {_esc(_COMPETENCY_LABELS[code])}:</b> {_esc(points)}/200</p>'
+            f'<div style="margin:6px 0;">'
+            f'<span><b>{_esc(code)} — {_esc(_COMPETENCY_LABELS[code])}:</b> {_esc(points)}/200</span>'
+            f'<div style="background:#eef2f7;border-radius:4px;height:8px;margin-top:2px;">'
+            f'<div style="background:{color};height:8px;border-radius:4px;width:{pct}%;"></div>'
+            f"</div></div>"
         )
     return "".join(rows)
 
@@ -178,12 +190,17 @@ def _competency_table_html(model: dict) -> str:
         return "<p><i>Nenhuma avaliação por competência.</i></p>"
     rows_html = []
     for row in model["competency_rows"]:
-        header = f'{_esc(row["code"])} — {_esc(row["label"])}'
+        code = row["code"]
+        bg = _COMPETENCY_COLORS[code]
+        fg = _COMPETENCY_SOLID_COLORS[code]
+        header = f'{_esc(code)} — {_esc(row["label"])}'
         if row["has_split"]:
             cells = f'<td>{_esc(row["strengths"])}</td><td>{_esc(row["growth_area"])}</td>'
         else:
             cells = f'<td colspan="2">{_esc(row["summary"])}</td>'
-        rows_html.append(f"<tr><th>{header}</th>{cells}</tr>")
+        rows_html.append(
+            f'<tr style="background:{bg};"><th style="color:{fg};">{header}</th>{cells}</tr>'
+        )
     return (
         "<table><thead><tr><th>Competência</th><th>Você já faz bem</th>"
         f'<th>Onde pode avançar</th></tr></thead><tbody>{"".join(rows_html)}</tbody></table>'
@@ -208,8 +225,9 @@ def _annotations_html(model: dict) -> str:
         anchor = _as_dict(a.get("anchor"))
         quote = anchor.get("quote") or anchor.get("read_text") or ""
         quote_html = f"<blockquote>&ldquo;{_esc(quote)}&rdquo;</blockquote>" if quote else ""
+        color = _COMPETENCY_SOLID_COLORS.get(a.get("competency_code"), "#4f46e5")
         parts.append(
-            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid #4f46e5;">'
+            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid {color};">'
             f'<b>{i}. {_esc(a.get("letter"))} — {_esc(a.get("competency_code"))}</b>'
             f'<p>{_esc(a.get("short_comment"))}</p>'
             f'<p style="color:#64748b;">{_esc(a.get("long_comment"))}</p>'
@@ -230,8 +248,9 @@ def _rewrites_html(model: dict) -> str:
             f'<b>{_esc(r.get("letter"))} — {_esc(r.get("competency_code"))}</b>'
             if r.get("letter") and r.get("competency_code") else ""
         )
+        color = _COMPETENCY_SOLID_COLORS.get(r.get("competency_code"), "#06b6d4")
         parts.append(
-            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid #06b6d4;">'
+            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid {color};">'
             f"{header}"
             f'<p style="color:#64748b;">Trecho original:</p>'
             f'<blockquote>&ldquo;{_esc(r.get("original"))}&rdquo;</blockquote>'

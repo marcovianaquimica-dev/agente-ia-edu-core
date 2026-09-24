@@ -1588,8 +1588,18 @@ body.sidebar-open {
 .essay-competency-row { display: grid; grid-template-columns: 220px 1fr 60px; align-items: center; gap: 10px; margin: 8px 0; }
 .essay-competency-bar { background: #eef2f7; border-radius: 6px; height: 10px; overflow: hidden; }
 .essay-competency-fill { background: var(--primary); height: 100%; }
+.essay-competency-fill.essay-mark-C1 { background: var(--primary); }
+.essay-competency-fill.essay-mark-C2 { background: var(--accent); }
+.essay-competency-fill.essay-mark-C3 { background: var(--danger); }
+.essay-competency-fill.essay-mark-C4 { background: var(--warning); }
+.essay-competency-fill.essay-mark-C5 { background: var(--success); }
 .essay-alerts { margin: 10px 0; }
 .essay-annotation { border-left: 3px solid var(--primary); padding: 8px 12px; margin: 10px 0; background: #fbfdff; }
+.essay-annotation.essay-mark-C1 { border-left-color: var(--primary); }
+.essay-annotation.essay-mark-C2 { border-left-color: var(--accent); }
+.essay-annotation.essay-mark-C3 { border-left-color: var(--danger); }
+.essay-annotation.essay-mark-C4 { border-left-color: var(--warning); }
+.essay-annotation.essay-mark-C5 { border-left-color: var(--success); }
 .essay-annotation blockquote { margin: 6px 0 0; font-style: italic; color: var(--text-muted); }
 .essay-intervention-checklist { list-style: none; padding: 0; }
 .essay-intervention-checklist li { padding: 4px 0; }
@@ -1639,7 +1649,17 @@ body.sidebar-open {
 .essay-intro-message { font-style: italic; margin: 12px 0; }
 .essay-competency-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
 .essay-competency-table th, .essay-competency-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border, #e2e6ee); vertical-align: top; }
+.essay-competency-table th.essay-mark-C1 { background: var(--primary-light); color: var(--primary); }
+.essay-competency-table th.essay-mark-C2 { background: var(--accent-light); color: var(--accent); }
+.essay-competency-table th.essay-mark-C3 { background: var(--danger-light); color: var(--danger); }
+.essay-competency-table th.essay-mark-C4 { background: var(--warning-light); color: var(--warning); }
+.essay-competency-table th.essay-mark-C5 { background: var(--success-light); color: var(--success); }
 .essay-rewrite-block { border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; background: #fbfdff; }
+.essay-rewrite-block.essay-mark-C1 { border-left-color: var(--primary); }
+.essay-rewrite-block.essay-mark-C2 { border-left-color: var(--accent); }
+.essay-rewrite-block.essay-mark-C3 { border-left-color: var(--danger); }
+.essay-rewrite-block.essay-mark-C4 { border-left-color: var(--warning); }
+.essay-rewrite-block.essay-mark-C5 { border-left-color: var(--success); }
 .essay-mechanical-reference { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
 .essay-mechanical-reference th, .essay-mechanical-reference td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border, #e2e6ee); }
 .essay-mechanical-occurrence { border-left: 3px solid var(--warning); padding: 8px 12px; margin: 10px 0; background: #fffdf7; }
