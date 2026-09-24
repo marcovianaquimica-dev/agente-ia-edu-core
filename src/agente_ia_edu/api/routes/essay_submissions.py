@@ -29,6 +29,7 @@ from ...identity import ExternalIdentityContext
 from ...services.admin import PlatformModuleKey
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
+from ...services.essay_evolution import EssayEvolutionResponse, build_evolution
 from ...services.essay_pdf_export import build_render_model, filename_for_title, pdf_available, render_pdf
 from ...services.essay_submission import EssayResubmissionBlockedError, EssaySubmissionService
 from ...services.institution_settings import InstitutionSettingsService
@@ -714,3 +715,23 @@ async def list_essay_prompts_for_student(
                 )
             )
         return results
+
+
+essay_evolution_student_router = APIRouter(
+    prefix="/api/v1/student/essay-evolution", tags=["essay-evolution"]
+)
+
+
+@essay_evolution_student_router.get("", response_model=EssayEvolutionResponse)
+async def get_student_essay_evolution(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayEvolutionResponse:
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+        data = await build_evolution(session, school_id=school_id, student_id=enrollment.student_id)
+        return EssayEvolutionResponse(**data)
