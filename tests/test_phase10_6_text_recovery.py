@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,7 @@ from agente_ia_edu.services.text_recovery import (  # noqa: E402
     STATUS_OK,
     STATUS_RECOVERED,
     STATUS_RECOVERY_PENDING,
+    extract_pymupdf_pages,
     pymupdf_available,
     recover_pdf_text,
     score_pages,
@@ -208,6 +210,67 @@ class DecisionLogicTests(unittest.TestCase):
         a = recover_pdf_text("x.pdf", expected_questions=90).as_dict()
         b = recover_pdf_text("x.pdf", expected_questions=90).as_dict()
         self.assertEqual(a, b)
+
+    # -- chosen_pages property mirrors chosen_text -----------------------
+    def test_chosen_pages_returns_recovered_pages_when_recovery_wins(self):
+        self._set(_clean_booklet(4), _clean_booklet(90))
+        r = recover_pdf_text("x.pdf", expected_questions=90)
+        self.assertEqual(r.extraction_method, RECOVERED_PYMUPDF)
+        self.assertEqual(r.chosen_pages, r.recovered_pages)
+        self.assertNotEqual(r.chosen_pages, r.native_pages)
+
+    def test_chosen_pages_returns_native_pages_when_native_wins(self):
+        native = _clean_booklet(90)
+        self._set(native, None)
+        r = recover_pdf_text("x.pdf", expected_questions=90)
+        self.assertEqual(r.extraction_method, NATIVE_PYPDF)
+        self.assertEqual(r.chosen_pages, r.native_pages)
+        self.assertEqual(r.chosen_pages, native)
+
+    # -- no expected_questions: falls back to the DISTINCT_FLOOR heuristic -
+    def test_no_expected_questions_uses_distinct_floor_and_full_coverage(self):
+        # 10 native headers with no expected count given falls below
+        # DISTINCT_FLOOR (60) -> native is judged degraded on that basis
+        # alone (_native_is_degraded's "no expected count" branch), and
+        # _coverage() with expected=None always reports full (1.0) coverage
+        # rather than dividing by a missing denominator.
+        self._set(_clean_booklet(10), _clean_booklet(90))
+        r = recover_pdf_text("x.pdf", expected_questions=None)
+        self.assertEqual(r.native_score.distinct_numbers, 10)
+        self.assertEqual(r.recovery_status, STATUS_RECOVERED)
+        self.assertEqual(r.extraction_method, RECOVERED_PYMUPDF)
+        self.assertTrue(any("no expected count given" in n for n in r.notes))
+
+    # -- recovery attempted, legible but coverage still short -> RECOVERY_PENDING
+    def test_legible_but_under_covered_recovery_is_recovery_pending_not_ocr(self):
+        # Both native and recovered text are perfectly legible; the recovered
+        # text simply does not reach RECOVERED_COVERAGE_MIN of the expected
+        # question count. This must NOT be reported as OCR_PENDING (that is
+        # reserved for genuinely illegible text) - it is a RECOVERY_PENDING.
+        self._set(_clean_booklet(4), _clean_booklet(50))
+        r = recover_pdf_text("x.pdf", expected_questions=90)
+        self.assertEqual(r.recovery_status, STATUS_RECOVERY_PENDING)
+        self.assertEqual(r.extraction_method, NATIVE_PYPDF)
+        self.assertGreaterEqual(r.recovered_score.legibility_ratio, 0.68)
+        self.assertIsNotNone(r.recovered_text)  # attempt kept for the record
+
+
+# --------------------------------------------------------------------------- #
+# pymupdf/fitz import-fallback branches - simulated via sys.modules, since
+# this environment normally HAS pymupdf installed (optional dependency).
+# Setting sys.modules[name] = None is the standard way to force the next
+# `import name` to raise ModuleNotFoundError without uninstalling anything.
+# --------------------------------------------------------------------------- #
+
+
+class ImportFallbackTests(unittest.TestCase):
+    def test_pymupdf_available_is_false_when_neither_backend_importable(self):
+        with unittest.mock.patch.dict(sys.modules, {"pymupdf": None, "fitz": None}):
+            self.assertFalse(pymupdf_available())
+
+    def test_extract_pymupdf_pages_returns_none_when_neither_backend_importable(self):
+        with unittest.mock.patch.dict(sys.modules, {"pymupdf": None, "fitz": None}):
+            self.assertIsNone(extract_pymupdf_pages("x.pdf"))
 
 
 # --------------------------------------------------------------------------- #
