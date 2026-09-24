@@ -348,21 +348,22 @@ async def export_essay_correction_pdf(
             "mechanical_review": ai_output.get("mechanical_review"),
         })
 
-        page_image_paths = None
+        page_images = None
         if submission.anchor_mode == "IMAGE_REGION":
-            page_image_paths = list(
-                (
+            page_images = [
+                (page_number, storage_uri)
+                for page_number, storage_uri in (
                     await session.execute(
-                        select(EssaySubmissionPage.storage_uri)
+                        select(EssaySubmissionPage.page_number, EssaySubmissionPage.storage_uri)
                         .where(EssaySubmissionPage.essay_submission_id == submission.id)
                         .order_by(EssaySubmissionPage.page_number)
                     )
-                ).scalars().all()
-            )
+                ).all()
+            ]
 
         pdf_bytes = render_pdf(
             model, title=prompt_title, anchor_mode=submission.anchor_mode,
-            canonical_text=submission.canonical_text, page_image_paths=page_image_paths,
+            canonical_text=submission.canonical_text, page_images=page_images,
         )
     return Response(
         content=pdf_bytes, media_type="application/pdf",

@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 
 from agente_ia_edu.services.essay_pdf_export import (
@@ -116,7 +118,7 @@ class EssayPdfExportTests(unittest.TestCase):
 
     def test_render_pdf_image_region_with_no_pages_produces_valid_pdf_bytes(self):
         model = build_render_model(_full_correction_view())
-        pdf_bytes = render_pdf(model, title="Foto de teste", anchor_mode="IMAGE_REGION", page_image_paths=None)
+        pdf_bytes = render_pdf(model, title="Foto de teste", anchor_mode="IMAGE_REGION", page_images=None)
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
         self.assertGreater(len(pdf_bytes), 500)
 
@@ -133,6 +135,62 @@ class EssayPdfExportTests(unittest.TestCase):
             canonical_text="Um texto qualquer para o teste.",
         )
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+
+    def test_render_pdf_image_region_draws_overlay_only_for_localized_annotation(self):
+        """The main job of render_pdf's IMAGE_REGION-with-pages branch: a real
+        page image gets embedded, a LOCALIZED IMAGE_REGION annotation gets an
+        overlay box drawn on it, and a GLOBAL IMAGE_REGION annotation (which
+        isn't pinned to a spot) does NOT (Fix 5's exclusion, exercised here
+        for the first time - see Fix 6 of the 2026-09-24 whole-branch review)."""
+        import pymupdf
+
+        fd, png_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        try:
+            src_doc = pymupdf.open()
+            src_doc.new_page(width=200, height=300)
+            pix = src_doc[0].get_pixmap()
+            pix.save(png_path)
+            src_doc.close()
+
+            view = _full_correction_view(
+                annotations=[
+                    {
+                        "letter": "A", "competency_code": "C1", "evidence_kind": "LOCALIZED",
+                        "anchor": {
+                            "type": "IMAGE_REGION", "page": 1, "x": 10, "y": 10,
+                            "width": 50, "height": 20, "read_text": "trecho localizado",
+                        },
+                        "short_comment": "curto", "long_comment": "longo",
+                    },
+                    {
+                        "letter": "B", "competency_code": "C2", "evidence_kind": "GLOBAL",
+                        "anchor": {
+                            "type": "IMAGE_REGION", "page": 1, "x": 20, "y": 40,
+                            "width": 30, "height": 15, "read_text": "trecho global",
+                        },
+                        "short_comment": "curto global", "long_comment": "longo global",
+                    },
+                ],
+            )
+            model = build_render_model(view)
+            pdf_bytes = render_pdf(
+                model, title="Foto com anotações", anchor_mode="IMAGE_REGION",
+                page_images=[(1, png_path)],
+            )
+            self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+
+            result_doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+            try:
+                image_pages = [p for p in result_doc if len(p.get_images()) > 0]
+                self.assertEqual(len(image_pages), 1, "expected exactly one manually-drawn image page")
+                image_page = image_pages[0]
+                self.assertEqual(len(image_page.get_images()), 1)
+                self.assertEqual(len(image_page.get_drawings()), 1)
+            finally:
+                result_doc.close()
+        finally:
+            os.unlink(png_path)
 
 
 if __name__ == "__main__":

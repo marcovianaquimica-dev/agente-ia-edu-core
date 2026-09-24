@@ -432,11 +432,37 @@
     container.innerHTML = `
       <div class="card">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
-        <a class="btn btn-secondary" href="/api/v1/student/essay-submissions/${submissionId}/correction/export.pdf">Exportar PDF</a>
+        <button class="btn btn-secondary" type="button" id="essay-export-pdf-btn">Exportar PDF</button>
         ${reportHtml}
       </div>`;
 
     container.querySelector('[data-back]').addEventListener('click', () => loadPrompts());
+
+    const exportBtn = container.querySelector('#essay-export-pdf-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', async () => {
+        exportBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/v1/student/essay-submissions/${submissionId}/correction/export.pdf`, {
+            headers: essayHeaders(),
+          });
+          if (!res.ok) throw new Error('export failed');
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'devolutiva.pdf';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          alert('Não foi possível exportar o PDF.');
+        } finally {
+          exportBtn.disabled = false;
+        }
+      });
+    }
 
     if (anchorMode === 'TEXT_OFFSET') {
       window.EssayAnnotations.wirePopovers(container, annotations);

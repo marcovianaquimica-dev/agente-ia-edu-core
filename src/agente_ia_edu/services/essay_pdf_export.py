@@ -132,7 +132,11 @@ def build_render_model(correction_view: dict) -> dict:
             "growth_area": rationale.get("growth_area"),
             "summary": rationale.get("summary") or "",
         })
-    has_any_split = any(row["has_split"] for row in competency_rows)
+    has_any_split = any(
+        bool(r.get("strengths")) and bool(r.get("growth_area"))
+        for r in rationales
+        if isinstance(r, dict)
+    )
 
     return {
         "total": scores.get("total"),
@@ -162,7 +166,7 @@ def build_render_model(correction_view: dict) -> dict:
 def _competency_bars_html(model: dict) -> str:
     rows = []
     for code in _COMPETENCY_CODES:
-        points = model["points_by_competency"].get(code, 0)
+        points = model["points_by_competency"].get(code) or 0
         rows.append(
             f'<p><b>{_esc(code)} — {_esc(_COMPETENCY_LABELS[code])}:</b> {_esc(points)}/200</p>'
         )
@@ -339,7 +343,7 @@ def _group_image_annotations_by_page(annotations: list) -> dict[int, list[tuple[
         if not isinstance(a, dict):
             continue
         anchor = _as_dict(a.get("anchor"))
-        if anchor.get("type") != "IMAGE_REGION":
+        if anchor.get("type") != "IMAGE_REGION" or a.get("evidence_kind") == "GLOBAL":
             continue
         page_number = anchor.get("page", 1)
         grouped.setdefault(page_number, []).append((i, a))
@@ -358,7 +362,7 @@ def _document_before_html(model: dict, *, title: str | None) -> str:
         if model["intro_message"] else ""
     )
     total = model["total"]
-    total_text = f"{total} / 1000" if total is not None else "—"
+    total_text = f"{total} / 1000" if total is not None else "— / 1000"
     alerts_html = (
         " ".join(
             f'<span style="background:#ecfeff;padding:2px 6px;border-radius:4px;">{_esc(a)}</span>'
@@ -421,7 +425,7 @@ def render_pdf(
     title: str | None,
     anchor_mode: str,
     canonical_text: str | None = None,
-    page_image_paths: list[str] | None = None,
+    page_images: list[tuple[int, str]] | None = None,
 ) -> bytes:
     import pymupdf
 
@@ -436,7 +440,7 @@ def render_pdf(
 
     # IMAGE_REGION, no pages at all: still a single Story pass, same "Nenhuma
     # página enviada." text the frontend already uses in this case.
-    if not page_image_paths:
+    if not page_images:
         body = (
             _document_before_html(model, title=title)
             + "<h4>Sua redação</h4><p><i>Nenhuma página enviada.</i></p>"
@@ -455,8 +459,27 @@ def render_pdf(
 
     mediabox = pymupdf.paper_rect("a4")
     margin = 40.0
-    for page_number, path in enumerate(page_image_paths, start=1):
-        src = pymupdf.Pixmap(path)
+    # page_number is each page's REAL page_number (not its position in this
+    # list) - the manual per-page upload endpoint lets a caller supply any
+    # page_number with no contiguity guarantee, so overlays must be matched
+    # by that real number, not by enumerate() position (see Fix 4 in the
+    # 2026-09-24 whole-branch review).
+    for page_number, path in page_images:
+        try:
+            src = pymupdf.Pixmap(path)
+            if src.width <= 0 or src.height <= 0:
+                raise ValueError(f"empty pixmap for page {page_number}: {path!r}")
+        except Exception:
+            # A missing/corrupt page image must not take down the whole
+            # export - render a short placeholder page instead and keep
+            # going, so every other section (and every other page) still
+            # comes through (Fix 3 in the 2026-09-24 whole-branch review).
+            error_bytes = _story_pdf_bytes(
+                f"<p>Não foi possível carregar a página {page_number}.</p>"
+            )
+            final_doc.insert_pdf(pymupdf.open(stream=error_bytes, filetype="pdf"))
+            continue
+
         page = final_doc.new_page(width=mediabox.width, height=mediabox.height)
         max_w, max_h = mediabox.width - 2 * margin, mediabox.height - 2 * margin
         scale = min(max_w / src.width, max_h / src.height)
@@ -466,6 +489,11 @@ def render_pdf(
             anchor = _as_dict(annotation.get("anchor"))
             x, y = anchor.get("x", 0), anchor.get("y", 0)
             w, h = anchor.get("width", 0), anchor.get("height", 0)
+            # Same minimum-visibility clamp as the frontend's
+            # renderImageMarkers (Math.max(..., 3) of the natural image
+            # dimension) - a tiny annotation region must still be visible.
+            w = max(w, src.width * 0.03)
+            h = max(h, src.height * 0.03)
             overlay = pymupdf.Rect(
                 margin + x * scale, margin + y * scale,
                 margin + (x + w) * scale, margin + (y + h) * scale,
@@ -475,7 +503,10 @@ def render_pdf(
             page.insert_text((overlay.x0 + 2, overlay.y0 + 10), str(number), fontsize=8, color=rgb)
 
     final_doc.insert_pdf(pymupdf.open(stream=after_bytes, filetype="pdf"))
-    out = final_doc.tobytes()
+    # deflate+garbage: without these, embedded page-image streams are stored
+    # uncompressed - a 29KB source PNG produced a 23MB PDF (Fix 2 in the
+    # 2026-09-24 whole-branch review).
+    out = final_doc.tobytes(deflate=True, garbage=3)
     final_doc.close()
     return out
 

@@ -369,7 +369,7 @@
     ` : '';
 
     const exportHtml = (isPending || correction.status === 'APPROVED')
-      ? `<a class="btn btn-secondary" href="/api/v1/teacher/essay-corrections/${correctionId}/export.pdf">Exportar PDF</a>`
+      ? '<button class="btn btn-secondary" type="button" id="er-export-pdf-btn">Exportar PDF</button>'
       : '';
 
     const actionsHtml = isPending ? `
@@ -398,6 +398,32 @@
 
     if (showsContent) {
       loadOriginalContent(correctionId, annotations);
+    }
+
+    const exportBtn = container.querySelector('#er-export-pdf-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', async () => {
+        exportBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/v1/teacher/essay-corrections/${correctionId}/export.pdf`, {
+            headers: reviewHeaders(),
+          });
+          if (!res.ok) throw new Error('export failed');
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'devolutiva.pdf';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          alert('Não foi possível exportar o PDF.');
+        } finally {
+          exportBtn.disabled = false;
+        }
+      });
     }
 
     const msg = container.querySelector('#er-review-msg');
