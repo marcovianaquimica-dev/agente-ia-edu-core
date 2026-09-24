@@ -87,6 +87,10 @@ class AssessmentVersionRepository:
         status: str = "draft",
         created_by_external_identity: str | None = None,
     ) -> AssessmentVersion:
+        assessment = await self.session.get(Assessment, assessment_id)
+        if assessment is None:
+            raise ValueError("Assessment does not exist")
+
         version = AssessmentVersion(
             assessment_id=assessment_id,
             version_number=version_number,
@@ -154,6 +158,13 @@ class AssessmentItemRepository:
         question_version = await self.session.get(QuestionVersion, question_version_id)
         if question_version is None:
             raise ValueError("Question version does not exist")
+
+        existing_question_stmt = select(AssessmentItem).where(
+            AssessmentItem.assessment_version_id == assessment_version_id,
+            AssessmentItem.question_version_id == question_version_id,
+        )
+        if await self.session.scalar(existing_question_stmt) is not None:
+            raise ValueError("Question version is already part of this assessment version")
 
         item = AssessmentItem(
             assessment_version_id=assessment_version_id,

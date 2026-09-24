@@ -9,6 +9,7 @@ from agente_ia_edu import classification_prompts
 from agente_ia_edu.classification_prompts import (
     DEFAULT_VERSION,
     ClassificationPrompt,
+    artifact_version_for_prompt_version,
     available_versions,
     get_classification_prompt,
 )
@@ -141,6 +142,27 @@ class ClassificationPromptArtifactTests(unittest.TestCase):
         for path in providers_dir.rglob("*.py"):
             text = path.read_text()
             self.assertNotIn("classification_prompt", text, f"{path} references the prompt artifact")
+
+    # 7 - artifact_version_for_prompt_version: None -> DEFAULT_VERSION
+    def test_artifact_version_for_prompt_version_none_defaults(self):
+        self.assertEqual(artifact_version_for_prompt_version(None), DEFAULT_VERSION)
+
+    # 7b - an exact artifact id passed through resolves to itself, not the default
+    def test_artifact_version_for_prompt_version_exact_artifact_id(self):
+        self.assertEqual(artifact_version_for_prompt_version("v1"), "v1")
+        self.assertEqual(artifact_version_for_prompt_version("v2"), "v2")
+
+    # 7c - a known pre-PHASE-11.18 historical label maps to the artifact that
+    # actually built its prompt text (v1, per HISTORICAL_PROMPT_VERSION_TO_ARTIFACT)
+    def test_artifact_version_for_prompt_version_known_historical_label(self):
+        historical_label = next(iter(classification_prompts.HISTORICAL_PROMPT_VERSION_TO_ARTIFACT))
+        self.assertEqual(artifact_version_for_prompt_version(historical_label), "v1")
+
+    # 7d - anything else (unknown label) falls back to DEFAULT_VERSION, not an error
+    def test_artifact_version_for_prompt_version_unknown_label_defaults(self):
+        self.assertEqual(
+            artifact_version_for_prompt_version("some-unrecognized-label"), DEFAULT_VERSION
+        )
 
     def test_artifact_is_provider_independent_object(self):
         prompt = get_classification_prompt()

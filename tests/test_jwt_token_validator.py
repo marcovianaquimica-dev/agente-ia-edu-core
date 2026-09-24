@@ -126,3 +126,14 @@ class TestJWTTokenValidator(unittest.IsolatedAsyncioTestCase):
 
         payload = await validator.validate(token)
         self.assertEqual(payload.metadata.get("school_id"), "escola-partner-123")
+
+    def test_rejects_construction_with_an_empty_secret(self):
+        """There is no anonymous mode: an empty/falsy secret must fail fast at
+        construction time rather than silently producing a validator that (with
+        some JWT libraries) could be coaxed into accepting unsigned tokens."""
+        with self.assertRaises(ValueError):
+            JWTTokenValidator(secret="")
+
+    def test_rejects_construction_with_none_secret(self):
+        with self.assertRaises(ValueError):
+            JWTTokenValidator(secret=None)

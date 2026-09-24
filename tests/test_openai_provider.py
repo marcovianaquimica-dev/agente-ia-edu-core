@@ -10,6 +10,7 @@ from agente_ia_edu.providers.errors import (
     AllProvidersFailedError,
     ProviderAuthenticationError,
     ProviderConfigurationError,
+    ProviderInvalidResponseError,
     ProviderRateLimitError,
     ProviderTimeoutError,
     ProviderUnavailableError,
@@ -46,6 +47,21 @@ class OpenAIProviderTests(unittest.TestCase):
             provider = OpenAIProvider(api_key="", model="test", client=object())
             with self.assertRaises(ProviderConfigurationError):
                 asyncio.run(provider.generate(TextGenerationRequest(prompt="{}")))
+
+    def test_generate_raises_when_model_not_configured(self):
+        # api_key present but neither request.model nor OPENAI_MODEL/self._model
+        # is set - distinct branch from test_requires_key_and_model above.
+        with patch.dict(os.environ, {"OPENAI_MODEL": ""}):
+            provider = OpenAIProvider(api_key="test-key", model="", client=object())
+            with self.assertRaises(ProviderConfigurationError):
+                asyncio.run(provider.generate(TextGenerationRequest(prompt="{}")))
+
+    def test_generate_raises_invalid_response_on_empty_content(self):
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=""))])
+        client, _ = client_for(response)
+        provider = OpenAIProvider(api_key="test-key", model="test-model", client=client)
+        with self.assertRaises(ProviderInvalidResponseError):
+            asyncio.run(provider.generate(TextGenerationRequest(prompt="payload")))
 
     def test_returns_json_content_through_provider_router(self):
         response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))])

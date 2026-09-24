@@ -3,9 +3,14 @@ import base64
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from agente_ia_edu.providers.adapters.openai import OpenAIProvider
-from agente_ia_edu.providers.errors import ProviderConfigurationError
+from agente_ia_edu.providers.errors import (
+    ProviderConfigurationError,
+    ProviderInvalidResponseError,
+    ProviderUnavailableError,
+)
 from agente_ia_edu.providers.factory import build_essay_image_corrector
 from agente_ia_edu.providers.models import EssayImageCorrectionRequest
 
@@ -75,10 +80,83 @@ class OpenAIImageCorrectionTests(unittest.TestCase):
         page2.unlink(missing_ok=True)
 
 
+    def test_raises_when_vision_model_not_configured_but_key_present(self):
+        # Distinct branch from test_raises_when_not_configured: api_key IS
+        # set (and request.model is unset), only vision_model is missing.
+        provider = OpenAIProvider(api_key="sk-test", vision_model=None)
+        request = EssayImageCorrectionRequest(
+            image_paths=(Path("/tmp/page1.png"),), mime_type="image/png", prompt="corrija",
+        )
+        with self.assertRaises(ProviderConfigurationError):
+            asyncio.run(provider.correct_from_images(request))
+
+    def test_raises_invalid_response_on_empty_correction(self):
+        page = Path("/tmp/r3_empty_test_page.png")
+        page.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=""))])
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayImageCorrectionRequest(
+            image_paths=(page,), mime_type="image/png", prompt="corrija",
+        )
+        with self.assertRaises(ProviderInvalidResponseError):
+            asyncio.run(provider.correct_from_images(request))
+        page.unlink(missing_ok=True)
+
+    def test_maps_generic_exception_during_correction(self):
+        page = Path("/tmp/r3_error_test_page.png")
+        page.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            raise RuntimeError("boom")
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayImageCorrectionRequest(
+            image_paths=(page,), mime_type="image/png", prompt="corrija",
+        )
+        with self.assertRaises(ProviderUnavailableError):
+            asyncio.run(provider.correct_from_images(request))
+        page.unlink(missing_ok=True)
+
+
 class FactoryTests(unittest.TestCase):
     def test_build_essay_image_corrector_requires_configuration(self):
         with self.assertRaises(ProviderConfigurationError):
             build_essay_image_corrector("openai")
+
+    def test_build_essay_image_corrector_raises_when_vision_model_missing(self):
+        with patch.dict(
+            "os.environ",
+            {"AI_PROVIDER": "openai", "OPENAI_API_KEY": "test-key"},
+            clear=False,
+        ):
+            import os as _os
+            _os.environ.pop("OPENAI_VISION_MODEL", None)
+            with self.assertRaises(ProviderConfigurationError) as ctx:
+                build_essay_image_corrector("openai")
+        self.assertIn("OPENAI_VISION_MODEL", str(ctx.exception))
+
+    def test_build_essay_image_corrector_succeeds_with_full_configuration(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_PROVIDER": "openai",
+                "OPENAI_API_KEY": "test-key",
+                "OPENAI_VISION_MODEL": "gpt-4o-mini",
+            },
+            clear=False,
+        ):
+            provider = build_essay_image_corrector("openai")
+        self.assertIsInstance(provider, OpenAIProvider)
+
+    def test_build_essay_image_corrector_raises_for_unsupported_provider(self):
+        with self.assertRaises(ProviderConfigurationError) as ctx:
+            build_essay_image_corrector("provider_x")
+        self.assertIn("provider_x", str(ctx.exception))
 
 
 if __name__ == "__main__":
