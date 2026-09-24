@@ -357,5 +357,153 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 503)
 
 
+class EssayEvolutionTeacherRoutesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.loop = asyncio.new_event_loop()
+        cls.engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+        cls.factory = async_sessionmaker(cls.engine, class_=AsyncSession, expire_on_commit=False)
+
+        async def _prep():
+            async with cls.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+        cls.loop.run_until_complete(_prep())
+        cls.app = create_app()
+        cls.app.dependency_overrides[get_session_factory] = lambda: cls.factory
+        cls.client = TestClient(cls.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.dependency_overrides.clear()
+        cls.loop.run_until_complete(cls.engine.dispose())
+        cls.loop.close()
+
+    def _as(self, user: str):
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
+
+    def _seed_school_with_teacher(self, code: str):
+        async def _seed():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"EVT-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id=f"teacher_{code}", school_id=school.id, role="TEACHER",
+                    scope_type="SCHOOL", active=True,
+                ))
+                await session.commit()
+                return school.id
+
+        return self.loop.run_until_complete(_seed())
+
+    def _seed_student_with_correction(self, code: str, school_id, *, student_name: str, total):
+        async def _seed():
+            async with self.factory() as session:
+                person = Person(id=uuid.uuid4(), school_id=school_id, full_name=student_name)
+                session.add(person)
+                await session.flush()
+                student = Student(id=uuid.uuid4(), school_id=school_id, person_id=person.id, student_code=f"ST-{code}")
+                session.add(student)
+                prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school_id, title="Tema", statement="Disserte.",
+                    year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                )
+                session.add(prompt)
+                await session.flush()
+                assignment = PromptAssignment(
+                    id=uuid.uuid4(), school_id=school_id, essay_prompt_id=prompt.id,
+                    class_id=uuid.uuid4(), assigned_by_external_identity="teacher:t",
+                )
+                session.add(assignment)
+                await session.flush()
+                now = datetime.now(timezone.utc)
+                submission = EssaySubmission(
+                    id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=school_id,
+                    prompt_assignment_id=assignment.id, student_id=student.id,
+                    mode="TYPED", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
+                    canonical_text="Redacao.", normalized_text_hash="a" * 64,
+                    submitted_at=now,
+                )
+                session.add(submission)
+                await session.flush()
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=school_id, essay_submission_id=submission.id,
+                    correction_key="k" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                    ai_output={"annotations": [], "rewrites": [], "intervention": {}, "alerts": []},
+                    final_scores={
+                        "total": total,
+                        "per_competency": {
+                            c: {"points": total // 5, "confidence": 1.0} for c in ("C1", "C2", "C3", "C4", "C5")
+                        },
+                    },
+                    final_feedback={}, status="APPROVED", reviewed_at=now, published_at=now,
+                ))
+                await session.commit()
+                return student.id
+
+        return self.loop.run_until_complete(_seed())
+
+    def test_evolution_for_student_in_own_school(self):
+        school_id = self._seed_school_with_teacher("1")
+        student_id = self._seed_student_with_correction("1", school_id, student_name="Ana", total=700)
+        self._as("teacher_1")
+        resp = self.client.get(f"/api/v1/teacher/essay-evolution?student_id={student_id}")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(len(body["entries"]), 1)
+        self.assertEqual(body["entries"][0]["total"], 700)
+
+    def test_evolution_for_student_in_another_school_returns_empty(self):
+        school_id = self._seed_school_with_teacher("2")
+        other_school_id = self._seed_school_with_teacher("3")
+        other_student_id = self._seed_student_with_correction(
+            "3", other_school_id, student_name="Bia", total=700,
+        )
+        self._as("teacher_2")
+        resp = self.client.get(f"/api/v1/teacher/essay-evolution?student_id={other_student_id}")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        # school_id scoping in build_evolution() means a student from a
+        # DIFFERENT school simply has no matching rows, not a 403 - same
+        # non-restrictive-by-classroom rule list_essay_corrections already
+        # uses (dashboard spec §4).
+        self.assertEqual(resp.json()["entries"], [])
+
+    def test_list_students_filters_by_school_and_name(self):
+        school_id = self._seed_school_with_teacher("4")
+        self._seed_student_with_correction("4a", school_id, student_name="Carla Souza", total=700)
+        self._seed_student_with_correction("4b", school_id, student_name="Daniel Reis", total=650)
+        self._as("teacher_4")
+        resp = self.client.get("/api/v1/teacher/essay-evolution/students")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        names = sorted(row["student_name"] for row in resp.json())
+        self.assertEqual(names, ["Carla Souza", "Daniel Reis"])
+
+        resp = self.client.get("/api/v1/teacher/essay-evolution/students?q=carla")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        names = [row["student_name"] for row in resp.json()]
+        self.assertEqual(names, ["Carla Souza"])
+
+    def test_list_students_excludes_students_without_approved_corrections(self):
+        school_id = self._seed_school_with_teacher("5")
+        # A student who exists but has no APPROVED correction yet must not
+        # show up in the selector (dashboard spec §2: "lists students ...
+        # with >= 1 approved correction").
+        async def _seed_unapproved():
+            async with self.factory() as session:
+                person = Person(id=uuid.uuid4(), school_id=school_id, full_name="Sem Correção")
+                session.add(person)
+                await session.flush()
+                session.add(Student(id=uuid.uuid4(), school_id=school_id, person_id=person.id, student_code="ST-5x"))
+                await session.commit()
+
+        self.loop.run_until_complete(_seed_unapproved())
+        self._as("teacher_5")
+        resp = self.client.get("/api/v1/teacher/essay-evolution/students")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
