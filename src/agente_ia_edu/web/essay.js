@@ -428,9 +428,11 @@
       promptTitle: prompt.title, editable: false, escFn: escEssay, originalContentHtml,
     });
 
+    const submissionId = prompt.my_submission.id;
     container.innerHTML = `
       <div class="card">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <a class="btn btn-secondary" href="/api/v1/student/essay-submissions/${submissionId}/correction/export.pdf">Exportar PDF</a>
         ${reportHtml}
       </div>`;
 
