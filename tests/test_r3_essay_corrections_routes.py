@@ -158,6 +158,18 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
                         status="NEEDS_REVIEW",
                     )
                 else:
+                    # Terminal statuses (APPROVED/REJECTED) have two CHECK
+                    # constraints not exercised by any pre-existing caller of
+                    # this helper (which only ever passed NEEDS_REVIEW or the
+                    # PENDING_REVIEW default): ck_essay_corrections_terminal_
+                    # has_reviewed_at requires reviewed_at whenever status is
+                    # APPROVED or REJECTED, and ck_essay_corrections_approved_
+                    # has_published_at requires published_at specifically for
+                    # APPROVED. Both are set here so status="APPROVED"/
+                    # "REJECTED" (as the docstring above already promises)
+                    # actually inserts instead of raising IntegrityError.
+                    now = datetime.now(timezone.utc)
+                    is_terminal = status in ("APPROVED", "REJECTED")
                     correction = EssayCorrection(
                         id=uuid.uuid4(), school_id=target_school_id, essay_submission_id=submission.id,
                         correction_key="k" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
@@ -173,6 +185,9 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
                         },
                         final_feedback={"strengths": [], "improvements": [], "next_essay_strategy": "..."},
                         status=status,
+                        reviewed_by_external_identity=f"teacher:{code}" if is_terminal else None,
+                        reviewed_at=now if is_terminal else None,
+                        published_at=now if status == "APPROVED" else None,
                     )
                 session.add(correction)
                 await session.commit()
@@ -299,6 +314,47 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
         # for not yours" rule being checked BEFORE the service sees the id.
         resp = self.client.post(f"/api/v1/teacher/essay-corrections/{correction_id}/retry")
         self.assertEqual(resp.status_code, 403)
+
+    def test_export_pdf_approved_returns_pdf_bytes(self):
+        correction_id, _school_id = self._seed_pending_correction("20", status="APPROVED")
+        self._as("teacher_20")
+        resp = self.client.get(f"/api/v1/teacher/essay-corrections/{correction_id}/export.pdf")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.headers["content-type"], "application/pdf")
+        self.assertTrue(resp.content.startswith(b"%PDF-"))
+
+    def test_export_pdf_pending_review_returns_pdf_bytes(self):
+        """Unlike the student route, PENDING_REVIEW is exportable for the teacher."""
+        correction_id, _school_id = self._seed_pending_correction("21")
+        self._as("teacher_21")
+        resp = self.client.get(f"/api/v1/teacher/essay-corrections/{correction_id}/export.pdf")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def test_export_pdf_needs_review_is_404(self):
+        correction_id, _school_id = self._seed_pending_correction("22", status="NEEDS_REVIEW")
+        self._as("teacher_22")
+        resp = self.client.get(f"/api/v1/teacher/essay-corrections/{correction_id}/export.pdf")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_export_pdf_rejected_is_404(self):
+        correction_id, _school_id = self._seed_pending_correction("23", status="REJECTED")
+        self._as("teacher_23")
+        resp = self.client.get(f"/api/v1/teacher/essay-corrections/{correction_id}/export.pdf")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_export_pdf_from_another_school_is_403(self):
+        correction_id, _school_id = self._seed_pending_correction("24", status="APPROVED")
+        self._seed_pending_correction("25")
+        self._as("teacher_25")
+        resp = self.client.get(f"/api/v1/teacher/essay-corrections/{correction_id}/export.pdf")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_export_pdf_503_when_pymupdf_unavailable(self):
+        correction_id, _school_id = self._seed_pending_correction("26", status="APPROVED")
+        self._as("teacher_26")
+        with patch("agente_ia_edu.api.routes.essay_corrections.pdf_available", return_value=False):
+            resp = self.client.get(f"/api/v1/teacher/essay-corrections/{correction_id}/export.pdf")
+        self.assertEqual(resp.status_code, 503)
 
 
 if __name__ == "__main__":
