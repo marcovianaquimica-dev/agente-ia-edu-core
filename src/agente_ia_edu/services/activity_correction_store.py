@@ -192,6 +192,11 @@ class ActivityCorrectionStore:
             "assessment_version_id": str(assignment.assessment_version_id),
             "title": assessment.title,
         }
+        # Same reason: the race handler below reads this AFTER a rollback(),
+        # which expires `attempt` just like a commit does - a bare `attempt.id`
+        # there would need an implicit reload outside any await, raising
+        # MissingGreenlet instead of gracefully returning the competitor's row.
+        attempt_id = attempt.id
 
         existing = await self._load_result(attempt.id)
         if existing is not None:
@@ -295,14 +300,19 @@ class ActivityCorrectionStore:
         self._session.add(result)
         if history_rows:
             self._session.add_all(history_rows)
-        await self._session.flush()
-        new_id = result.id
         try:
+            # flush() - not just commit() - is where the UNIQUE(attempt_id)
+            # violation actually surfaces (SQLite and PostgreSQL both check
+            # UNIQUE at INSERT time, not deferred to COMMIT), so it has to be
+            # inside this try too or a genuine concurrent-correction race
+            # crashes correct() instead of falling back to the winner's row.
+            await self._session.flush()
+            new_id = result.id
             await self._session.commit()
         except IntegrityError:
             # a concurrent corrector won the UNIQUE(attempt_id) race
             await self._session.rollback()
-            existing = await self._load_result(attempt.id)
+            existing = await self._load_result(attempt_id)
             if existing is None:  # pragma: no cover - re-raise if it was a different violation
                 raise
             return await self._result_dict(activity_ctx, existing)

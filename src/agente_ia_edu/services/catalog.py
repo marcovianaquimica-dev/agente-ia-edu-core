@@ -164,8 +164,9 @@ class EducationalResourceService:
                 ResourceAccessGrant.grantee_external_id == str(grantee_external_id).strip(),
             )
         )
-        if existing.scalar_one_or_none() is not None:
-            return existing.scalar_one_or_none()
+        existing_grant = existing.scalar_one_or_none()
+        if existing_grant is not None:
+            return existing_grant
 
         grant = ResourceAccessGrant(
             resource_id=resource_id,

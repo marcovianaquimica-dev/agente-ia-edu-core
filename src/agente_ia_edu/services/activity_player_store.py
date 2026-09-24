@@ -295,15 +295,25 @@ class ActivityPlayerStore:
             key = opt.option_key
 
         now = _now()
+        # Captured as plain values (not re-read from the ORM objects) so they
+        # stay usable even if a failed flush/commit below leaves this
+        # session's tracked objects expired / pending-rollback: touching an
+        # ORM attribute in that state - even a GET of an already-loaded value
+        # like attempt.id - raises PendingRollbackError or MissingGreenlet
+        # instead of transparently reloading, since that reload would need
+        # the async greenlet bridge that isn't active at that point.
+        attempt_id = attempt.id
+        qvid = item.question_version_id
+        position = item.position
         answer = (await self._session.execute(
             select(ActivityAnswer).where(
-                ActivityAnswer.attempt_id == attempt.id,
-                ActivityAnswer.question_version_id == item.question_version_id,
+                ActivityAnswer.attempt_id == attempt_id,
+                ActivityAnswer.question_version_id == qvid,
             )
         )).scalar_one_or_none()
         if answer is None:
             answer = ActivityAnswer(
-                attempt_id=attempt.id, question_version_id=item.question_version_id,
+                attempt_id=attempt_id, question_version_id=qvid,
                 selected_option_id=option_id, selected_option_key=key, answered_at=now)
             self._session.add(answer)
         else:
@@ -311,21 +321,24 @@ class ActivityPlayerStore:
             answer.selected_option_key = key
             answer.answered_at = now
         attempt.last_activity_at = now
-        attempt.current_position = item.position
+        attempt.current_position = position
         try:
             await self._session.commit()
         except IntegrityError:
-            # concurrent first-write of the same (attempt, question) - retry as update
+            # Concurrent first-write of the same (attempt, question) - retry
+            # as an update against the row that won the race.
             await self._session.rollback()
             answer = (await self._session.execute(
                 select(ActivityAnswer).where(
-                    ActivityAnswer.attempt_id == attempt.id,
-                    ActivityAnswer.question_version_id == item.question_version_id,
+                    ActivityAnswer.attempt_id == attempt_id,
+                    ActivityAnswer.question_version_id == qvid,
                 )
             )).scalar_one()
             answer.selected_option_id = option_id
             answer.selected_option_key = key
             answer.answered_at = now
+            attempt.last_activity_at = now
+            attempt.current_position = position
             await self._session.commit()
 
         state = await self._state(assignment_id, requester=requester)

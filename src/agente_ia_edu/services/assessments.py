@@ -633,21 +633,25 @@ class ExerciseListPersistenceService(AssessmentPersistenceService):
         if assessment is None:
             raise ValueError("Exercise list not found")
 
-        if school_id is not None:
-            if assessment.school_id is not None and str(assessment.school_id) != str(school_id):
-                raise PermissionError("Assignment school mismatch: recipient school does not match list school")
-            if assessment.school_id is None and str(school_id) != "":
-                # Safe default: a school-scoped assignment must belong to the list's school.
-                pass
+        # BUG FIX: the original code compared `str(assessment.school_id)` (a
+        # canonical, lowercase UUID string) against the raw `str(school_id)`
+        # argument *before* normalizing it through uuid.UUID(). A caller
+        # passing the same school UUID with different casing (e.g. uppercase)
+        # was rejected with a false PermissionError, even though it is the
+        # same school. Normalize once, up front, and compare UUID objects
+        # directly so the check is case-insensitive and unambiguous. A
+        # second, string-based re-check used to exist further down using the
+        # normalized value - it was provably unreachable (any real mismatch
+        # was already caught by the raw-string comparison above) and has been
+        # removed along with the redundant `pass` branch.
+        resolved_school_id = None if school_id is None else uuid.UUID(str(school_id))
+        if assessment.school_id is not None and resolved_school_id is not None and assessment.school_id != resolved_school_id:
+            raise PermissionError("Assignment school mismatch: recipient school does not match list school")
 
         resolved_type = str(recipient_type).upper()
         allowed_types = {"STUDENT", "CLASS", "GRADE", "CLASSROOM", "UNIT", "SCHOOL", "USER"}
         if resolved_type not in allowed_types:
             raise ValueError(f"Unsupported assignment recipient type: {recipient_type}")
-
-        resolved_school_id = None if school_id is None else uuid.UUID(str(school_id))
-        if assessment.school_id is not None and resolved_school_id is not None and str(assessment.school_id) != str(resolved_school_id):
-            raise PermissionError("Assignment school mismatch: recipient school does not match list school")
 
         assignment = await self.session.scalar(
             select(AssessmentAssignmentModel).where(
