@@ -164,7 +164,7 @@ def _competency_bars_html(model: dict) -> str:
     for code in _COMPETENCY_CODES:
         points = model["points_by_competency"].get(code, 0)
         rows.append(
-            f'<p><b>{_esc(code)} — {_esc(_COMPETENCY_LABELS[code])}:</b> {points}/200</p>'
+            f'<p><b>{_esc(code)} — {_esc(_COMPETENCY_LABELS[code])}:</b> {_esc(points)}/200</p>'
         )
     return "".join(rows)
 
@@ -368,7 +368,7 @@ def _document_before_html(model: dict, *, title: str | None) -> str:
     )
     return (
         f"{title_html}{intro_html}"
-        f'<p style="font-size:16px;font-weight:bold;">Nota total: {total_text}</p>'
+        f'<p style="font-size:16px;font-weight:bold;">Nota total: {_esc(total_text)}</p>'
         f"{alerts_html}"
         "<h4>Notas por competência</h4>" + _competency_bars_html(model)
         + "<h4>O que você já faz bem e onde pode avançar</h4>" + _competency_table_html(model)
