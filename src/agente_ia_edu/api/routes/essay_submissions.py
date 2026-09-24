@@ -18,7 +18,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,7 @@ from ...identity import ExternalIdentityContext
 from ...services.admin import PlatformModuleKey
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
+from ...services.essay_pdf_export import build_render_model, filename_for_title, pdf_available, render_pdf
 from ...services.essay_submission import EssayResubmissionBlockedError, EssaySubmissionService
 from ...services.institution_settings import InstitutionSettingsService
 from ...services.student_enrollment_resolution import resolve_active_enrollment
@@ -536,6 +537,74 @@ async def get_essay_submission_correction(
             closing_message=ai_output.get("closing_message"),
             mechanical_review=_as_list_or_none(ai_output.get("mechanical_review")),
         )
+
+
+@essay_submissions_router.get("/{essay_submission_id}/correction/export.pdf")
+async def export_essay_submission_correction_pdf(
+    essay_submission_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    if not pdf_available():
+        raise HTTPException(status_code=503, detail="PDF export requires the 'pymupdf' package")
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        enrollment = await _resolve_enrollment_or_403(
+            session, school_id=school_id, external_user_id=identity.external_user_id
+        )
+        submission = await _submission_for_own_school_or_403(
+            session, essay_submission_id=essay_submission_id, school_id=school_id,
+            student_id=enrollment.student_id,
+        )
+        correction = await session.scalar(
+            select(EssayCorrection).where(EssayCorrection.essay_submission_id == submission.id)
+        )
+        if correction is None or correction.status != "APPROVED":
+            raise HTTPException(status_code=404, detail="No approved correction to export yet.")
+
+        prompt_title = (
+            await session.execute(
+                select(EssayPrompt.title)
+                .join(PromptAssignment, PromptAssignment.essay_prompt_id == EssayPrompt.id)
+                .where(PromptAssignment.id == submission.prompt_assignment_id)
+            )
+        ).scalar_one_or_none() or "Redação"
+
+        ai_output = correction.ai_output or {}
+        model = build_render_model({
+            "final_scores": correction.final_scores,
+            "final_feedback": correction.final_feedback,
+            "annotations": ai_output.get("annotations"),
+            "rewrites": ai_output.get("rewrites"),
+            "alerts": ai_output.get("alerts"),
+            "intervention": ai_output.get("intervention"),
+            "rationales": ai_output.get("rationales"),
+            "intro_message": ai_output.get("intro_message"),
+            "closing_message": ai_output.get("closing_message"),
+            "mechanical_review": ai_output.get("mechanical_review"),
+        })
+
+        page_image_paths = None
+        if submission.anchor_mode == "IMAGE_REGION":
+            page_image_paths = list(
+                (
+                    await session.execute(
+                        select(EssaySubmissionPage.storage_uri)
+                        .where(EssaySubmissionPage.essay_submission_id == submission.id)
+                        .order_by(EssaySubmissionPage.page_number)
+                    )
+                ).scalars().all()
+            )
+
+        pdf_bytes = render_pdf(
+            model, title=prompt_title, anchor_mode=submission.anchor_mode,
+            canonical_text=submission.canonical_text, page_image_paths=page_image_paths,
+        )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename_for_title(prompt_title)}"'},
+    )
 
 
 @essay_submissions_router.get("/{essay_submission_id}/pages/{page_number}/image")
