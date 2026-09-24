@@ -2,6 +2,7 @@ import asyncio
 import unittest
 import uuid
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -398,6 +399,45 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 409, resp.text)
+
+    def test_export_pdf_approved_returns_pdf_bytes(self):
+        submission_id = self._seed_submission("13")
+        self._add_correction(submission_id, status="APPROVED", with_content=True)
+        self._as("student_13")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction/export.pdf")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.headers["content-type"], "application/pdf")
+        self.assertTrue(resp.content.startswith(b"%PDF-"))
+
+    def test_export_pdf_pending_review_is_404(self):
+        submission_id = self._seed_submission("14")
+        self._add_correction(submission_id, status="PENDING_REVIEW", with_content=False)
+        self._as("student_14")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction/export.pdf")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_export_pdf_rejected_is_404(self):
+        submission_id = self._seed_submission("15")
+        self._add_correction(submission_id, status="REJECTED", with_content=True)
+        self._as("student_15")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction/export.pdf")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_export_pdf_another_students_submission_is_403(self):
+        submission_id = self._seed_submission("16")
+        self._add_correction(submission_id, status="APPROVED", with_content=True)
+        self._seed_submission("17")
+        self._as("student_17")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction/export.pdf")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_export_pdf_503_when_pymupdf_unavailable(self):
+        submission_id = self._seed_submission("18")
+        self._add_correction(submission_id, status="APPROVED", with_content=True)
+        self._as("student_18")
+        with patch("agente_ia_edu.api.routes.essay_submissions.pdf_available", return_value=False):
+            resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction/export.pdf")
+        self.assertEqual(resp.status_code, 503)
 
 
 if __name__ == "__main__":
