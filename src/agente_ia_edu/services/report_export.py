@@ -20,6 +20,8 @@ class ReportExportService:
         fmt = export_format.lower()
         if fmt not in ("pdf", "xlsx", "excel"):
             raise ValueError(f"Unsupported export format: {export_format}. Supported: pdf, xlsx.")
+        if fmt == "excel":
+            fmt = "xlsx"
 
         # `.get(key, default)` only falls back for a MISSING key - a caller
         # reporting "no specific classroom" (whole-school scope) passes the
@@ -57,8 +59,14 @@ class ReportExportService:
         fmt = export_format.lower()
         if fmt not in ("pdf", "xlsx", "excel"):
             raise ValueError(f"Unsupported export format: {export_format}. Supported: pdf, xlsx.")
+        if fmt == "excel":
+            fmt = "xlsx"
 
-        student_id = student_data.get("student_id", "ALUNO")
+        # Same "key present with value None" trap as export_classroom_report's
+        # classroom_id: `.get(key, default)` only falls back for a MISSING
+        # key, so `.get("student_id") or "ALUNO"` is required to avoid
+        # `None.replace(...)` blowing up below.
+        student_id = student_data.get("student_id") or "ALUNO"
         clean_sid = student_id.replace(":", "_")
         now = datetime.now(timezone.utc)
         timestamp_str = now.strftime("%Y%m%d_%H%M%S")

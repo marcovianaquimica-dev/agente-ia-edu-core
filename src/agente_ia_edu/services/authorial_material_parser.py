@@ -277,7 +277,16 @@ def parse_authorial_text(filepath: Path) -> ParsedDocument:
     current: ParsedSection | None = None
     position = 0
     title = filepath.stem
-    first_line_used_as_title = False
+    # the "first line becomes the title" convention only ever applies to the
+    # literal FIRST non-blank line of the file - not to whichever line
+    # happens to be the first non-heading one. Gating on that alone (as a
+    # previous version of this loop did) meant a document that OPENS with a
+    # heading ("# Capítulo 1" / an ALL-CAPS TXT heading) would silently steal
+    # its own first paragraph as the document title, on the theory that no
+    # title-line had been "used" yet - dropping that paragraph from
+    # content_lines entirely. A document that opens with a heading has no
+    # separate title line at all; title stays filepath.stem, as intended.
+    first_line_seen = False
 
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
@@ -291,10 +300,11 @@ def parse_authorial_text(filepath: Path) -> ParsedDocument:
         elif not is_md and len(stripped) <= 80 and stripped.upper() == stripped and any(c.isalpha() for c in stripped):
             is_heading = True
 
-        if not first_line_used_as_title and not is_heading:
-            title = stripped[:200]
-            first_line_used_as_title = True
-            continue
+        if not first_line_seen:
+            first_line_seen = True
+            if not is_heading:
+                title = stripped[:200]
+                continue
 
         if is_heading:
             position += 1
