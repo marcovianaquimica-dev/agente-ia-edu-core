@@ -69,7 +69,7 @@ class EssayPdfExportTests(unittest.TestCase):
         self.assertEqual(filename_for_title("Redação: Redes Sociais!"), "devolutiva-Redação_ Redes Sociais_.pdf")
 
     def test_filename_for_title_falls_back_when_title_is_empty_after_sanitizing(self):
-        self.assertEqual(filename_for_title("???"), "devolutiva-___.pdf")
+        self.assertEqual(filename_for_title("   "), "devolutiva-devolutiva.pdf")
 
     def test_build_render_model_full_shape(self):
         model = build_render_model(_full_correction_view())
