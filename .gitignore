@@ -25,3 +25,6 @@ tests/_p10tmp/mf_*.json
 
 # Worktrees isolados criados por sessão (nunca versionados).
 .claude/worktrees/
+
+# Artefatos de sessão do superpowers (ledgers SDD, mockups do companion visual).
+.superpowers/
