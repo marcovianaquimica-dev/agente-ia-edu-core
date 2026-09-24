@@ -368,6 +368,10 @@
       </div>
     ` : '';
 
+    const exportHtml = (isPending || correction.status === 'APPROVED')
+      ? `<a class="btn btn-secondary" href="/api/v1/teacher/essay-corrections/${correctionId}/export.pdf">Exportar PDF</a>`
+      : '';
+
     const actionsHtml = isPending ? `
         <button class="btn btn-primary" type="button" id="er-approve-btn">Aprovar</button>
         <button class="btn btn-secondary" type="button" id="er-reject-btn">Rejeitar</button>
@@ -383,6 +387,7 @@
       <div class="card tm-detail-grid">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar à fila</button>
         ${failureHtml}
+        ${exportHtml}
         ${alertsHtml}
         ${scoresFeedbackHtml}
         <div class="tm-form-actions">${actionsHtml}</div>
