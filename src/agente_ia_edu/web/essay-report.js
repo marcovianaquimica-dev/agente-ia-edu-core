@@ -33,6 +33,31 @@
     + 'inteligência artificial e revisada por um professor: ela apoia o processo de '
     + 'aprendizagem, mas não substitui a avaliação oficial do ENEM ou de qualquer banca examinadora.';
 
+  function renderCompetencyChecklist(rationales, feedbackStrengths, esc) {
+    const rationaleByCode = {};
+    (rationales || []).forEach((r) => { rationaleByCode[r.competency_code] = r; });
+    const competencyTableRows = Object.keys(COMPETENCY_LABELS).map((code) => {
+      const rationale = rationaleByCode[code];
+      if (!rationale) return '';
+      const hasSplit = rationale.strengths && rationale.growth_area;
+      const cells = hasSplit
+        ? `<td>${esc(rationale.strengths)}</td><td>${esc(rationale.growth_area)}</td>`
+        : `<td colspan="2">${esc(rationale.summary || '')}</td>`;
+      return `<tr><th scope="row" class="essay-mark-${code}">${code} — ${esc(COMPETENCY_LABELS[code])}</th>${cells}</tr>`;
+    }).join('');
+    const competencyTableHtml = competencyTableRows
+      ? `<table class="essay-competency-table">
+          <thead><tr><th>Competência</th><th>Você já faz bem</th><th>Onde pode avançar</th></tr></thead>
+          <tbody>${competencyTableRows}</tbody>
+        </table>`
+      : '<p class="empty-text">Nenhuma avaliação por competência.</p>';
+    const hasAnyRationaleSplit = (rationales || []).some((r) => r.strengths && r.growth_area);
+    const strengthsFallbackHtml = (!hasAnyRationaleSplit && (feedbackStrengths || []).length)
+      ? `<h4>Pontos fortes</h4><ul>${feedbackStrengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`
+      : '';
+    return competencyTableHtml + strengthsFallbackHtml;
+  }
+
   function renderRichReport(correction, options) {
     const opts = options || {};
     const esc = opts.escFn;
@@ -67,23 +92,7 @@
         </div>`;
     }).join('');
 
-    const rationaleByCode = {};
-    rationales.forEach((r) => { rationaleByCode[r.competency_code] = r; });
-    const competencyTableRows = Object.keys(COMPETENCY_LABELS).map((code) => {
-      const rationale = rationaleByCode[code];
-      if (!rationale) return '';
-      const hasSplit = rationale.strengths && rationale.growth_area;
-      const cells = hasSplit
-        ? `<td>${esc(rationale.strengths)}</td><td>${esc(rationale.growth_area)}</td>`
-        : `<td colspan="2">${esc(rationale.summary || '')}</td>`;
-      return `<tr><th scope="row" class="essay-mark-${code}">${code} — ${esc(COMPETENCY_LABELS[code])}</th>${cells}</tr>`;
-    }).join('');
-    const competencyTableHtml = competencyTableRows
-      ? `<table class="essay-competency-table">
-          <thead><tr><th>Competência</th><th>Você já faz bem</th><th>Onde pode avançar</th></tr></thead>
-          <tbody>${competencyTableRows}</tbody>
-        </table>`
-      : '<p class="empty-text">Nenhuma avaliação por competência.</p>';
+    const competencyTableHtml = renderCompetencyChecklist(rationales, feedback.strengths, esc);
 
     const annotationsHtml = annotations.length
       ? annotations.map((a, i) => {
@@ -153,11 +162,6 @@
       ? `<h4>Próxima redação</h4><p>${esc(feedback.next_essay_strategy)}</p>`
       : '';
 
-    const hasAnyRationaleSplit = rationales.some((r) => r.strengths && r.growth_area);
-    const strengthsFallbackHtml = (!hasAnyRationaleSplit && (feedback.strengths || []).length)
-      ? `<h4>Pontos fortes</h4><ul>${feedback.strengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`
-      : '';
-
     const closingHtml = correction.closing_message
       ? `<p class="essay-closing-message">${esc(correction.closing_message)}</p>`
       : '';
@@ -173,7 +177,6 @@
       ${competencyBarsHtml}
       <h4>O que você já faz bem e onde pode avançar</h4>
       ${competencyTableHtml}
-      ${strengthsFallbackHtml}
       <h4>Sua redação</h4>
       ${opts.originalContentHtml || ''}
       <h4>Anotações</h4>
@@ -191,5 +194,5 @@
       ${transparencyHtml}`;
   }
 
-  return { renderRichReport };
+  return { renderRichReport, renderCompetencyChecklist };
 });
