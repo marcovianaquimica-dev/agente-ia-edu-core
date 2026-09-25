@@ -217,8 +217,11 @@ class TestEngineValidation(unittest.TestCase):
         self.assertEqual(caught.exception.reason_code, "UNKNOWN_COMPETENCY")
         self.assertIn("C1", str(caught.exception))
 
-    def test_rejects_an_unknown_signal_key(self):
-        """Rejection 7."""
+    def test_tolerates_an_unknown_signal_key_on_an_annotation(self):
+        """signal_keys are auxiliary tags nothing downstream reads, and the
+        engine prompt never enumerates the rubric's real registered keys -
+        the model has no way to know which ones are valid, so a made-up tag
+        must not sink an otherwise-sound annotation's real content."""
         output = build_output(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "LOCALIZED",
@@ -226,7 +229,18 @@ class TestEngineValidation(unittest.TestCase):
             "short_comment": "curto", "long_comment": "longo",
             "signal_keys": ["sinal_inventado"],
         }])
-        self._assert_rejected(output, reason_code="UNKNOWN_SIGNAL_KEY")
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
+
+    def test_tolerates_an_unknown_signal_key_on_a_rationale(self):
+        output = build_output(rationales=[
+            {
+                "competency_code": c, "summary": "resumo",
+                "strengths": "pontos fortes", "growth_area": "onde avançar",
+                "signal_keys": ["sinal_inventado"] if c == "C1" else [],
+            }
+            for c in ("C1", "C2", "C3", "C4", "C5")
+        ])
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
 
     def test_rejects_a_quote_that_does_not_match_the_text(self):
         """Rejection 4: the anti-hallucination guard."""
