@@ -66,6 +66,15 @@ def _make_jpg(path: Path) -> None:
     pix.save(str(path))
 
 
+class _RefusingTranscriber:
+    """Test double for a provider that refuses to transcribe (see
+    providers/adapters/openai.py's refusal detection)."""
+
+    async def transcribe_page(self, request):
+        from agente_ia_edu.providers.errors import ProviderInvalidResponseError
+        raise ProviderInvalidResponseError("OpenAI refused to transcribe the image: sorry")
+
+
 class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.engine = create_async_engine(
@@ -117,6 +126,38 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
 
             refreshed = await session.get(type(submission), submission.id)
             self.assertEqual(refreshed.status, "PENDING_CONFIRMATION")
+
+    async def test_upload_page_falls_back_to_image_region_on_a_transcription_refusal(self):
+        """Confirmed live (2026-09-25): the vision model sometimes refuses to
+        transcribe a real handwritten page. Rather than blocking the student
+        entirely, upload_page must fall back the submission to IMAGE_REGION
+        mode (direct image correction, no transcript) so they can still
+        submit - not propagate the error and not crash."""
+        async with self.session_factory() as session:
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root),
+                transcriber=_RefusingTranscriber(),
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            self.assertEqual(submission.anchor_mode, "TEXT_OFFSET")
+
+            source = self.tmp_dir / "page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+            self.assertIsNone(page.ocr_tokens)
+
+            refreshed = await session.get(type(submission), submission.id)
+            self.assertEqual(refreshed.anchor_mode, "IMAGE_REGION")
+            # Not PENDING_CONFIRMATION - IMAGE_REGION mode never needed a
+            # review step, so the submission stays ready to /confirm.
+            self.assertEqual(refreshed.status, "PENDING_TRANSCRIPTION")
 
     async def test_reuploading_the_same_page_number_replaces_it(self):
         async with self.session_factory() as session:

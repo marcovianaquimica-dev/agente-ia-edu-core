@@ -122,16 +122,43 @@
     const naturalHeight = imgEl.naturalHeight || 1;
     wrapEl.querySelectorAll('.essay-image-marker').forEach((el) => el.remove());
     items.forEach(({ a, number }) => {
-      const { x, y, width, height } = a.anchor;
+      const anchor = a.anchor;
+      const isLineBased = anchor.line != null && anchor.total_lines != null;
+      let left; let top; let width; let height;
+      if (isLineBased) {
+        // Line-based (contract v2+): a full-width band for that line - the
+        // model counts far more reliably than it estimates pixel position,
+        // see essay_engine_contract/v2.py. RULED_AREA_BOTTOM_MARGIN accounts
+        // for the blank paper border below the last ruled line in a real
+        // photo (confirmed live 2026-09-25: dividing the FULL image height
+        // by total_lines drifted later lines increasingly downward, landing
+        // on the blank lines below the actual last line of writing).
+        const RULED_AREA_BOTTOM_MARGIN = 0.04;
+        const ruledAreaFraction = 1 - RULED_AREA_BOTTOM_MARGIN;
+        left = 2;
+        width = 96;
+        top = ((anchor.line - 1) / anchor.total_lines) * ruledAreaFraction * 100;
+        height = (1 / anchor.total_lines) * ruledAreaFraction * 100;
+      } else {
+        // Pixel-based (contract v1, historical corrections only).
+        left = (anchor.x / naturalWidth) * 100;
+        top = (anchor.y / naturalHeight) * 100;
+        width = Math.max((anchor.width / naturalWidth) * 100, 3);
+        height = Math.max((anchor.height / naturalHeight) * 100, 3);
+      }
       const marker = document.createElement('span');
-      marker.className = `essay-image-marker essay-mark-${esc(a.competency_code)}`;
+      const pixelClass = isLineBased ? '' : ' essay-image-marker-pixel';
+      marker.className = `essay-image-marker${pixelClass} essay-mark-${esc(a.competency_code)}`;
       marker.dataset.markerNumber = String(number);
       marker.tabIndex = 0;
-      marker.style.left = `${(x / naturalWidth) * 100}%`;
-      marker.style.top = `${(y / naturalHeight) * 100}%`;
-      marker.style.width = `${Math.max((width / naturalWidth) * 100, 3)}%`;
-      marker.style.height = `${Math.max((height / naturalHeight) * 100, 3)}%`;
-      marker.textContent = String(number);
+      marker.style.left = `${left}%`;
+      marker.style.top = `${top}%`;
+      marker.style.width = `${width}%`;
+      marker.style.height = `${height}%`;
+      const badge = document.createElement('span');
+      badge.className = `essay-image-marker-number essay-mark-${esc(a.competency_code)}`;
+      badge.textContent = String(number);
+      marker.appendChild(badge);
       wrapEl.appendChild(marker);
     });
   }

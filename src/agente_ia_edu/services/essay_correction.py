@@ -40,7 +40,7 @@ from ..db.models import (
     EssaySubmissionPage,
     PromptAssignment,
 )
-from ..essay_engine_contract.v1 import CONTRACT_VERSION, Feedback, Scores
+from ..essay_engine_contract.v2 import CONTRACT_VERSION, Feedback, Scores
 from ..essay_prompts import get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
@@ -60,7 +60,7 @@ from .institution_settings import InstitutionSettingsService
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v1"
-_PROMPT_VERSION = "essay_correction_v4"
+_PROMPT_VERSION = "essay_correction_v6"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 
@@ -502,7 +502,6 @@ class EssayCorrectionService:
         prompt_text = prompt_artifact.build(
             anchor_mode="IMAGE_REGION", essay_statement=essay_prompt.statement,
             rubric=rubric_payload, include_scores=include_scores, page_count=len(pages),
-            page_dimensions=[(page.width, page.height) for page in pages],
         )
         image_paths = tuple(Path(page.storage_uri) for page in pages)
         request = EssayImageCorrectionRequest(

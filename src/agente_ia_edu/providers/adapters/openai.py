@@ -23,6 +23,24 @@ from ..models import (
 )
 
 
+# Confirmed live (2026-09-25): the model sometimes declines to transcribe a
+# real handwritten essay page, returning a short apology as plain `content`
+# instead of populating the SDK's `message.refusal` field - the pipeline then
+# treated the refusal sentence itself as the transcription. This is a
+# best-effort net for that failure mode (checked first: the proper
+# `message.refusal` field, when the model does populate it).
+_REFUSAL_PREFIXES = (
+    "i'm sorry", "i am sorry", "sorry, but", "i can't", "i cannot",
+    "desculpe", "sinto muito", "não posso", "nao posso",
+    "i'm unable", "i am unable",
+)
+
+
+def _looks_like_a_refusal(content: str) -> bool:
+    normalized = content.strip().lower()
+    return normalized.startswith(_REFUSAL_PREFIXES)
+
+
 class OpenAIProvider:
     provider = "openai"
 
@@ -99,9 +117,17 @@ class OpenAIProvider:
                 timeout=self._timeout_seconds,
             )
             choice = response.choices[0]
+            if getattr(choice.message, "refusal", None):
+                raise ProviderInvalidResponseError(
+                    f"OpenAI refused to transcribe the image: {choice.message.refusal}"
+                )
             content = choice.message.content
             if not content:
                 raise ProviderInvalidResponseError("OpenAI returned an empty transcription")
+            if _looks_like_a_refusal(content):
+                raise ProviderInvalidResponseError(
+                    f"OpenAI refused to transcribe the image: {content}"
+                )
             tokens = self._tokens_from_logprobs(content, choice.logprobs)
             return EssayPageTranscriptionResult(
                 tokens=tokens, provider=self.provider, model=self._vision_model

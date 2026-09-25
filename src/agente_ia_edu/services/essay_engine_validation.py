@@ -38,7 +38,7 @@ from agente_ia_edu.db.models import (
     EssayRubricLevel,
     EssayRubricSignal,
 )
-from agente_ia_edu.essay_engine_contract.v1 import EssayEngineOutput
+from agente_ia_edu.essay_engine_contract.v2 import EssayEngineOutput
 
 
 class EssayEngineOutputRejected(ValueError):
@@ -273,13 +273,18 @@ def validate_engine_output(
                     f"annotation {annotation.letter!r} anchors on page "
                     f"{anchor.page}, which does not exist",
                 )
-            width, height = box
-            if anchor.x + anchor.width > width or anchor.y + anchor.height > height:
-                reject(
-                    "REGION_OUT_OF_PAGE",
-                    f"annotation {annotation.letter!r} anchors outside page "
-                    f"{anchor.page} ({width}x{height})",
-                )
+            if hasattr(anchor, "x"):
+                # Pixel-based (contract v1, historical corrections only).
+                width, height = box
+                if anchor.x + anchor.width > width or anchor.y + anchor.height > height:
+                    reject(
+                        "REGION_OUT_OF_PAGE",
+                        f"annotation {annotation.letter!r} anchors outside page "
+                        f"{anchor.page} ({width}x{height})",
+                    )
+            # Line-based (contract v2+): line <= total_lines is already
+            # enforced by ImageRegionAnchor's own validator - no pixel
+            # bound to check here.
             _require_evidence(annotation, anchor.read_text, reject)
 
 
