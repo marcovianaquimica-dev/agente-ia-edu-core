@@ -17,11 +17,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from . import v1, v2, v3, v4
+from . import v1, v2, v3, v4, v5, v6
 
 # artifact version id -> module exposing VERSION, RESPONSE_SCHEMA, build_prompt(...)
 _ARTIFACTS: dict[str, Any] = {
-    v1.VERSION: v1, v2.VERSION: v2, v3.VERSION: v3, v4.VERSION: v4,
+    v1.VERSION: v1, v2.VERSION: v2, v3.VERSION: v3, v4.VERSION: v4, v5.VERSION: v5,
+    v6.VERSION: v6,
 }
 
 

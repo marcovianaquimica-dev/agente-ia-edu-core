@@ -213,6 +213,94 @@ class EssayPdfExportTests(unittest.TestCase):
         finally:
             os.unlink(png_path)
 
+    def test_render_pdf_image_region_overlay_uses_line_based_anchor(self):
+        """Line-based anchors (contract v2+, no x/y/width/height) must still
+        draw a visible overlay - converted to a full-width band for that
+        line, mirroring essay-annotations.js's renderImageMarkers."""
+        import pymupdf
+
+        fd, png_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        try:
+            src_doc = pymupdf.open()
+            src_doc.new_page(width=400, height=3000)
+            pix = src_doc[0].get_pixmap()
+            pix.save(png_path)
+            src_doc.close()
+
+            view = _full_correction_view(annotations=[{
+                "letter": "A", "competency_code": "C2", "evidence_kind": "LOCALIZED",
+                "anchor": {
+                    "type": "IMAGE_REGION", "page": 1, "line": 3, "total_lines": 30,
+                    "read_text": "trecho na linha 3",
+                },
+                "short_comment": "curto", "long_comment": "longo",
+            }])
+            model = build_render_model(view)
+            pdf_bytes = render_pdf(
+                model, title="Foto com anotações", anchor_mode="IMAGE_REGION",
+                page_images=[(1, png_path)],
+            )
+            self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+
+            result_doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+            try:
+                image_page = next(p for p in result_doc if len(p.get_images()) > 0)
+                self.assertEqual(len(image_page.get_drawings()), 1)
+                rect = image_page.get_drawings()[0]["rect"]
+                # Line 3 of 30 on a 3000pt-tall source, scaled to fit the
+                # page - the overlay must sit near the top, not at (0, 0).
+                self.assertGreater(rect.y0, 0)
+            finally:
+                result_doc.close()
+        finally:
+            os.unlink(png_path)
+
+    def test_render_pdf_image_region_overlay_uses_a_visible_solid_color(self):
+        """Confirmed live (2026-09-25): the overlay was drawn with the pale
+        _COMPETENCY_COLORS background tint instead of _COMPETENCY_SOLID_COLORS,
+        making a 2pt border essentially invisible against a white page - the
+        student reported the devolutiva as having no markings at all. The
+        overlay's stroke must be a solid, high-contrast color."""
+        import pymupdf
+
+        from agente_ia_edu.services.essay_pdf_export import _COMPETENCY_SOLID_COLORS, _hex_to_rgb
+
+        fd, png_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        try:
+            src_doc = pymupdf.open()
+            src_doc.new_page(width=200, height=300)
+            pix = src_doc[0].get_pixmap()
+            pix.save(png_path)
+            src_doc.close()
+
+            view = _full_correction_view(annotations=[{
+                "letter": "A", "competency_code": "C3", "evidence_kind": "LOCALIZED",
+                "anchor": {
+                    "type": "IMAGE_REGION", "page": 1, "x": 10, "y": 10,
+                    "width": 50, "height": 20, "read_text": "trecho localizado",
+                },
+                "short_comment": "curto", "long_comment": "longo",
+            }])
+            model = build_render_model(view)
+            pdf_bytes = render_pdf(
+                model, title="Foto com anotações", anchor_mode="IMAGE_REGION",
+                page_images=[(1, png_path)],
+            )
+
+            result_doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+            try:
+                image_page = next(p for p in result_doc if len(p.get_images()) > 0)
+                drawing = image_page.get_drawings()[0]
+                expected = _hex_to_rgb(_COMPETENCY_SOLID_COLORS["C3"])
+                for actual, wanted in zip(drawing["color"], expected):
+                    self.assertAlmostEqual(actual, wanted, places=2)
+            finally:
+                result_doc.close()
+        finally:
+            os.unlink(png_path)
+
 
 if __name__ == "__main__":
     unittest.main()

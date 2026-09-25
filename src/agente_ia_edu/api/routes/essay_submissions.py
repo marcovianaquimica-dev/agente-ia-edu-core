@@ -31,6 +31,7 @@ from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
 from ...services.essay_evolution import EssayEvolutionResponse, build_evolution
 from ...services.essay_pdf_export import build_render_model, filename_for_title, pdf_available, render_pdf
+from ...providers.errors import ProviderError
 from ...services.essay_submission import EssayResubmissionBlockedError, EssaySubmissionService
 from ...services.institution_settings import InstitutionSettingsService
 from ...services.student_enrollment_resolution import resolve_active_enrollment
@@ -291,6 +292,14 @@ async def upload_essay_submission_page(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ProviderError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Não foi possível ler o texto desta imagem automaticamente. "
+                    "Tente enviar uma foto mais nítida, bem iluminada e sem sombras."
+                ),
+            ) from exc
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -349,6 +358,14 @@ async def upload_essay_submission_document(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ProviderError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Não foi possível ler o texto deste documento automaticamente. "
+                    "Tente enviar um arquivo mais nítido ou uma foto melhor iluminada."
+                ),
+            ) from exc
         finally:
             # rmtree, not unlink+rmdir: _split_pdf_pages wrote a "<stem>_pages"
             # subdirectory of rasterized PNGs alongside the uploaded PDF, and

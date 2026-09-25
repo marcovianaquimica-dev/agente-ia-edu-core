@@ -1605,6 +1605,14 @@ body.sidebar-open {
 .essay-page-card { display: flex; flex-direction: column; gap: 8px; }
 .essay-page-card img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border, #e2e6ee); }
 .essay-review-status { font-size: 13px; color: var(--text-muted); }
+.essay-review-hint { font-size: 13px; color: var(--text-muted); margin: 4px 0; }
+.essay-transcription-preview {
+  white-space: pre-wrap; line-height: 1.6; padding: 10px 12px; border-radius: 6px;
+  background: #fafbfc; border: 1px solid var(--border, #e2e6ee); margin-bottom: 8px;
+  min-height: 120px; cursor: text;
+}
+.essay-transcription-preview:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
+.essay-token-low-confidence { color: var(--danger, #d64545); font-weight: 700; text-decoration: underline wavy; }
 .essay-total-score { font-size: 22px; font-weight: 800; margin: 12px 0; }
 .essay-competency-row { display: grid; grid-template-columns: 220px 1fr 60px; align-items: center; gap: 10px; margin: 8px 0; }
 @media (max-width: 560px) {
@@ -1645,15 +1653,28 @@ body.sidebar-open {
 .essay-mark-C5 { background-color: var(--success-light); border-bottom: 2px solid var(--success); }
 
 .essay-image-marker {
-  position: absolute; display: flex; align-items: center; justify-content: center;
-  border-radius: 4px; border: 2px solid; font-size: 11px; font-weight: 700; color: #fff;
+  position: absolute; border-radius: 4px; border: 2px solid;
   cursor: pointer; min-width: 18px; min-height: 18px;
 }
-.essay-image-marker.essay-mark-C1 { background-color: var(--primary); border-color: var(--primary); }
-.essay-image-marker.essay-mark-C2 { background-color: var(--accent); border-color: var(--accent); }
-.essay-image-marker.essay-mark-C3 { background-color: var(--danger); border-color: var(--danger); }
-.essay-image-marker.essay-mark-C4 { background-color: var(--warning); border-color: var(--warning); }
-.essay-image-marker.essay-mark-C5 { background-color: var(--success); border-color: var(--success); }
+/* Historical (contract v1, pixel-based) markers only - line-based markers
+   (contract v2+) compute an exact fraction and never need clamping. */
+.essay-image-marker.essay-image-marker-pixel { max-width: 55%; max-height: 4.5%; }
+.essay-image-marker.essay-mark-C1 { border-color: var(--primary); background-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+.essay-image-marker.essay-mark-C2 { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.essay-image-marker.essay-mark-C3 { border-color: var(--danger); background-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+.essay-image-marker.essay-mark-C4 { border-color: var(--warning); background-color: color-mix(in srgb, var(--warning) 30%, transparent); }
+.essay-image-marker.essay-mark-C5 { border-color: var(--success); background-color: color-mix(in srgb, var(--success) 30%, transparent); }
+
+.essay-image-marker-number {
+  position: absolute; top: -9px; left: -9px; width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  font-size: 11px; font-weight: 700; color: #fff; border: 2px solid #fff;
+}
+.essay-image-marker-number.essay-mark-C1 { background-color: var(--primary); }
+.essay-image-marker-number.essay-mark-C2 { background-color: var(--accent); }
+.essay-image-marker-number.essay-mark-C3 { background-color: var(--danger); }
+.essay-image-marker-number.essay-mark-C4 { background-color: var(--warning); }
+.essay-image-marker-number.essay-mark-C5 { background-color: var(--success); }
 
 .essay-page-image-wrap { position: relative; display: inline-block; max-width: 100%; }
 .essay-page-image-wrap img { max-width: 100%; height: auto; display: block; }

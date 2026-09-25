@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import EssaySubmission, EssaySubmissionPage
 from ..providers.contracts import EssayTranscriptionProvider
+from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_transcriber
 from ..providers.models import EssayPageTranscriptionRequest
 from .essay_correction_key import essay_text_hash, normalize_essay_text
@@ -204,8 +205,20 @@ class EssaySubmissionService:
         await self.session.flush()
 
         if transcription_enabled:
-            await self._ocr_page(page, dest)
-            submission.status = "PENDING_CONFIRMATION"
+            try:
+                await self._ocr_page(page, dest)
+                submission.status = "PENDING_CONFIRMATION"
+            except ProviderError:
+                # The vision model sometimes refuses to transcribe a real
+                # handwritten page (confirmed live 2026-09-25 - a legible
+                # ENEM-template photo, refused consistently across retries).
+                # Rather than blocking the student entirely, fall back to
+                # IMAGE_REGION mode for this submission (direct image
+                # correction, no transcript) so they can still submit.
+                # confirm_submission already branches on anchor_mode at
+                # confirm time, so this is a safe downgrade mid-flow.
+                submission.anchor_mode = "IMAGE_REGION"
+                page.ocr_tokens = None
             await self.session.flush()
         return page
 

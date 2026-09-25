@@ -74,7 +74,10 @@
       if (mySubmission.correction_status === 'REJECTED') {
         return { label: 'Ver detalhes', badge: 'badge-primary', btnClass: 'btn-primary' };
       }
-      // Sem correção ainda, ou PENDING_REVIEW/NEEDS_REVIEW - ainda em correção.
+      if (mySubmission.correction_status === 'PENDING_REVIEW') {
+        return { label: 'Aguardando liberação do professor', badge: 'badge-warning', btnClass: 'btn-warning' };
+      }
+      // Sem correção ainda, ou NEEDS_REVIEW - ainda em correção.
       return { label: 'Em correção', badge: 'badge-warning', btnClass: 'btn-warning' };
     }
     return { label: 'Ver detalhes', badge: 'badge-primary', btnClass: 'btn-primary' };
@@ -351,6 +354,16 @@
           }
         }
         msg.hidden = true;
+        // The upload may have fallen back from TEXT_OFFSET to IMAGE_REGION
+        // server-side (essay_submission.py's upload_page) if the vision
+        // model refused to transcribe this specific page - re-sync before
+        // deciding which review UI to render, rather than trusting the
+        // anchor_mode captured when the submission was first created.
+        try {
+          const allPrompts = await essayRequest('/api/v1/student/essay-prompts');
+          const refreshed = allPrompts.find((p) => p.my_submission && p.my_submission.id === state.submissionId);
+          if (refreshed) state.anchorMode = refreshed.my_submission.anchor_mode;
+        } catch (e) { /* best-effort resync; fall through with the mode already known */ }
         await refreshPages(target, state.submissionId, state.anchorMode);
       } catch (e) {
         msg.hidden = false;
@@ -380,14 +393,24 @@
     }
 
     list.innerHTML = pages.map((p) => {
-      const ocrText = (p.ocr_tokens || []).map((t) => t.text).join(' ');
+      const tokens = p.ocr_tokens || [];
+      // If the student already edited and saved a reviewed_text, there's no
+      // per-token confidence for it anymore (it's their own confirmed
+      // words) - show it plain. Otherwise show the fresh OCR tokens with
+      // low-confidence ones in red, directly editable in place.
+      const editableHtml = p.reviewed_text
+        ? escEssay(p.reviewed_text)
+        : tokens.map((t) => {
+            const lowConfidence = typeof t.confidence === 'number' && t.confidence < 0.8;
+            const cls = lowConfidence ? ' class="essay-token-low-confidence"' : '';
+            return `<span${cls}>${escEssay(t.text)}</span>`;
+          }).join('');
       const reviewBlock = anchorMode === 'TEXT_OFFSET' ? `
+        <p class="essay-review-hint">Revise o texto abaixo - as palavras em vermelho tiveram baixa confiança na leitura automática. Você pode editar diretamente.</p>
         <div class="form-group">
-          <label for="essay-review-${p.page_number}">Texto revisado (página ${p.page_number})</label>
-          <textarea id="essay-review-${p.page_number}" rows="6">${escEssay(p.reviewed_text || ocrText)}</textarea>
+          <label>Texto revisado (página ${p.page_number})</label>
+          <div id="essay-review-${p.page_number}" class="essay-transcription-preview" contenteditable="true">${editableHtml}</div>
         </div>
-        <button class="btn btn-secondary" type="button" data-save-review="${p.page_number}">Salvar revisão</button>
-        <p class="essay-review-status">${p.reviewed_text ? '✓ Revisado' : 'Pendente de revisão'}</p>
       ` : '<p class="empty-text">Página enviada.</p>';
       return `
         <div class="card essay-page-card" data-page="${p.page_number}">
@@ -411,31 +434,26 @@
         .catch(() => { img.alt = `Não foi possível carregar a página ${pageNumber}.`; });
     });
 
-    list.querySelectorAll('[data-save-review]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const pageNumber = btn.dataset.saveReview;
-        const text = list.querySelector(`#essay-review-${pageNumber}`).value.trim();
-        btn.disabled = true;
-        try {
-          await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages/${pageNumber}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reviewed_text: text }),
-          });
-          await refreshPages(target, submissionId, anchorMode);
-        } catch (e) {
-          btn.disabled = false;
-          btn.insertAdjacentHTML('afterend', `<p class="tm-msg">${escEssay(e.message)}</p>`);
-        }
-      });
-    });
-
-    const allReviewed = anchorMode !== 'TEXT_OFFSET' || (pages.length > 0 && pages.every((p) => p.reviewed_text));
-    confirmBtn.disabled = !(pages.length > 0 && allReviewed);
+    confirmBtn.disabled = pages.length === 0;
     confirmBtn.onclick = async () => {
       const confirmMsg = target.querySelector('#essay-confirm-msg');
+      confirmMsg.hidden = true;
       confirmBtn.disabled = true;
       try {
+        // Single-step confirm (TEXT_OFFSET only): save whatever the student
+        // is currently looking at as reviewed_text for every page, THEN
+        // confirm the submission - no separate per-page save step.
+        if (anchorMode === 'TEXT_OFFSET') {
+          for (const p of pages) {
+            const editable = list.querySelector(`#essay-review-${p.page_number}`);
+            const text = (editable ? editable.textContent : '').trim();
+            await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/pages/${p.page_number}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reviewed_text: text }),
+            });
+          }
+        }
         await essayRequest(`/api/v1/student/essay-submissions/${submissionId}/confirm`, { method: 'POST' });
         await loadPrompts();
       } catch (e) {

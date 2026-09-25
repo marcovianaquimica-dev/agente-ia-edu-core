@@ -69,8 +69,7 @@ def _happy_payload(
         anchor = {"type": "TEXT_OFFSET", "start": 0, "end": 10, "quote": quote}
     else:
         anchor = {
-            "type": "IMAGE_REGION", "page": page, "x": 5.0, "y": 5.0,
-            "width": min(50.0, box[0] - 5.0), "height": min(20.0, box[1] - 5.0),
+            "type": "IMAGE_REGION", "page": page, "line": 2, "total_lines": 30,
             "read_text": "trecho lido na imagem",
         }
     scores = (
@@ -533,9 +532,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v4(self):
+    def test_production_prompt_version_is_v6(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v4")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v6")
 
 
 if __name__ == "__main__":

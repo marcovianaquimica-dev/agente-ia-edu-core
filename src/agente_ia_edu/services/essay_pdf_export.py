@@ -518,20 +518,34 @@ def render_pdf(
         page.insert_image(rect, filename=path)
         for number, annotation in page_annotations.get(page_number, []):
             anchor = _as_dict(annotation.get("anchor"))
-            x, y = anchor.get("x", 0), anchor.get("y", 0)
-            w, h = anchor.get("width", 0), anchor.get("height", 0)
-            # Same minimum-visibility clamp as the frontend's
-            # renderImageMarkers (Math.max(..., 3) of the natural image
-            # dimension) - a tiny annotation region must still be visible.
-            w = max(w, src.width * 0.03)
-            h = max(h, src.height * 0.03)
+            if anchor.get("line") is not None and anchor.get("total_lines") is not None:
+                # Line-based (contract v2+): a full-width band for that line -
+                # see essay_engine_contract/v2.py and essay-annotations.js's
+                # renderImageMarkers, which this mirrors (including the
+                # bottom-margin correction - see that file's comment).
+                total_lines = anchor["total_lines"]
+                ruled_area_fraction = 1 - 0.04
+                x, w = src.width * 0.02, src.width * 0.96
+                y = (anchor["line"] - 1) / total_lines * ruled_area_fraction * src.height
+                h = src.height / total_lines * ruled_area_fraction
+            else:
+                # Pixel-based (contract v1, historical corrections only).
+                x, y = anchor.get("x", 0), anchor.get("y", 0)
+                w, h = anchor.get("width", 0), anchor.get("height", 0)
+                # Same minimum-visibility clamp as the frontend's
+                # renderImageMarkers (Math.max(..., 3) of the natural image
+                # dimension) - a tiny annotation region must still be visible.
+                w = max(w, src.width * 0.03)
+                h = max(h, src.height * 0.03)
             overlay = pymupdf.Rect(
                 margin + x * scale, margin + y * scale,
                 margin + (x + w) * scale, margin + (y + h) * scale,
             )
-            rgb = _hex_to_rgb(_COMPETENCY_COLORS.get(annotation.get("competency_code"), "#eef2ff"))
+            rgb = _hex_to_rgb(
+                _COMPETENCY_SOLID_COLORS.get(annotation.get("competency_code"), "#4f46e5")
+            )
             page.draw_rect(overlay, color=rgb, width=2)
-            page.insert_text((overlay.x0 + 2, overlay.y0 + 10), str(number), fontsize=8, color=rgb)
+            page.insert_text((overlay.x0 + 2, overlay.y0 + 10), str(number), fontsize=10, color=rgb)
 
     final_doc.insert_pdf(pymupdf.open(stream=after_bytes, filetype="pdf"))
     # deflate+garbage: without these, embedded page-image streams are stored

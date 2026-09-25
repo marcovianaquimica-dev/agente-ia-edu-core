@@ -78,6 +78,50 @@ class OpenAIProviderTranscriptionTests(unittest.TestCase):
         image_path.unlink(missing_ok=True)
 
 
+    def test_raises_when_the_model_populates_the_refusal_field(self):
+        image_path = Path("/tmp/r2_refusal_field_test_page.png")
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content=None, refusal="I can't help with that."),
+                    logprobs=None,
+                )]
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayPageTranscriptionRequest(image_path=image_path, mime_type="image/png")
+        with self.assertRaises(ProviderInvalidResponseError):
+            asyncio.run(provider.transcribe_page(request))
+        image_path.unlink(missing_ok=True)
+
+    def test_raises_when_a_refusal_sentence_lands_in_content_instead(self):
+        """Confirmed live (2026-09-25): the model sometimes declines by
+        putting an apology directly in `content` rather than populating the
+        SDK's `refusal` field - previously the pipeline accepted that
+        apology as the transcribed essay text."""
+        image_path = Path("/tmp/r2_refusal_content_test_page.png")
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="Desculpe, mas não posso ajudar com isso.", refusal=None,
+                    ),
+                    logprobs=None,
+                )]
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayPageTranscriptionRequest(image_path=image_path, mime_type="image/png")
+        with self.assertRaises(ProviderInvalidResponseError):
+            asyncio.run(provider.transcribe_page(request))
+        image_path.unlink(missing_ok=True)
+
     def test_raises_when_vision_model_not_configured_but_key_present(self):
         # Distinct branch from test_raises_when_not_configured: api_key IS set,
         # only vision_model is missing.
