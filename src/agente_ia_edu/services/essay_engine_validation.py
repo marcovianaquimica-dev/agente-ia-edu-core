@@ -25,6 +25,7 @@ only part that touches the database.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -39,6 +40,8 @@ from agente_ia_edu.db.models import (
     EssayRubricSignal,
 )
 from agente_ia_edu.essay_engine_contract.v2 import EssayEngineOutput
+
+logger = logging.getLogger(__name__)
 
 
 class EssayEngineOutputRejected(ValueError):
@@ -241,18 +244,43 @@ def validate_engine_output(
                 # GLOBAL sem âncora - Camada 1 já garante que só GLOBAL chega
                 # aqui sem anchor; nada de posição/texto pra verificar.
                 continue
-            if anchor.end > len(text):
-                reject(
-                    "OFFSET_OUT_OF_BOUNDS",
-                    f"annotation {annotation.letter!r} ends at {anchor.end} but the "
-                    f"text has {len(text)} characters",
-                )
-            if not _quote_matches(text, anchor.start, anchor.end, anchor.quote):
+            # The bounds check used to run first, before the quote check. It
+            # now runs only as a fallback reason, because an anchor whose
+            # offsets drifted past the end of the text (the drift described in
+            # _resolve_text_offset is just as likely on the last paragraph as
+            # on the first) can still be re-anchored exactly, and re-anchoring
+            # it is strictly better than rejecting the whole correction. An
+            # anchor that cannot be resolved still reports OFFSET_OUT_OF_BOUNDS
+            # when that is what is wrong with it, and QUOTE_DOES_NOT_MATCH_TEXT
+            # otherwise.
+            resolved = _resolve_text_offset(
+                text, anchor.start, anchor.end, anchor.quote
+            )
+            if resolved is None:
+                if anchor.end > len(text):
+                    reject(
+                        "OFFSET_OUT_OF_BOUNDS",
+                        f"annotation {annotation.letter!r} ends at {anchor.end} but the "
+                        f"text has {len(text)} characters",
+                    )
                 reject(
                     "QUOTE_DOES_NOT_MATCH_TEXT",
                     f"annotation {annotation.letter!r} quotes {anchor.quote!r} but "
                     f"the text reads {text[anchor.start : anchor.end]!r}",
                 )
+            elif (anchor.start, anchor.end) != (resolved, resolved + len(anchor.quote)):
+                # Re-anchor in place: the quote was found verbatim, just not
+                # where the model claimed. ``output`` is what the caller
+                # persists as ai_output (see EssayCorrectionService.correct),
+                # so the corrected offsets - not the model's drifted ones -
+                # are what the student's highlighted text will use.
+                logger.info(
+                    "re-anchored annotation %r: model claimed start=%d, real "
+                    "offset was %d (delta=%+d)",
+                    annotation.letter, anchor.start, resolved, resolved - anchor.start,
+                )
+                anchor.start = resolved
+                anchor.end = resolved + len(anchor.quote)
             _require_evidence(annotation, anchor.quote, reject)
     else:
         if page_boxes is None:
@@ -335,6 +363,97 @@ def validate_engine_output_from_payload(
         input_hash=input_hash,
     )
     return output
+
+
+#: How far from the offsets the model claimed we are willing to look for its
+#: quote. Both live 2026-09-25 cases drifted by less than one transcription
+#: line in one direction (-1 and -82 characters); 400 characters is roughly
+#: five transcribed lines, wide enough to absorb a multi-line miscount while
+#: still being a local search rather than a hunt through the whole essay.
+_ANCHOR_DRIFT_WINDOW = 400
+
+#: A quote found exactly once in the WHOLE text is unambiguous wherever it
+#: sits, so distance stops mattering - but only once the quote is long enough
+#: that its single occurrence is meaningful and not a coincidence of a short
+#: fragment. Line-numbered transcriptions make even short quotes distinctive
+#: ("4. sas principais"), so this floor is deliberately low.
+_MIN_UNIQUE_REANCHOR_CHARS = 12
+
+
+def _resolve_text_offset(text: str, start: int, end: int, quote: str) -> int | None:
+    """Where ``quote`` really starts in ``text``, or ``None`` if it isn't there.
+
+    ``start``/``end`` are what the model claimed. When they are right (exactly,
+    or with the whitespace padding :func:`_quote_matches` already tolerated),
+    this returns the offset the quote occupies inside that claimed span. When
+    they are wrong but the quote itself appears verbatim in the text, this
+    returns the real offset so the caller can re-anchor the annotation instead
+    of throwing the whole correction away.
+
+    Why this exists - confirmed live, not hypothetical
+    -------------------------------------------------
+    Two real corrections of the same handwritten essay (2026-09-25), both
+    rejected with ``QUOTE_DOES_NOT_MATCH_TEXT`` although the model's quote was
+    a verbatim, correctly-chosen passage of the essay:
+
+    * the model quoted ``"4. sas principais"`` (the start of transcription
+      line 4, which continues a word hyphenated at the end of line 3) and its
+      offsets landed 82 characters early, on the start of line 3;
+    * the model quoted a whole 101-character transcription line and its ``end``
+      was 1 too low, cutting off the line's last character.
+
+    The obvious suspect - the model counting UTF-8 bytes or JSON-escaped
+    characters instead of Python/Unicode codepoints, which is a real failure
+    mode on accented Portuguese - was measured against both cases and ruled
+    out: byte counting would have put the offsets 6 and 10 characters too
+    HIGH respectively (one per multi-byte character before the anchor), and
+    counting the JSON-escaped form the prompt shows would have put them 4
+    characters too high; the observed drifts were -1 and -82. The sign is
+    wrong for both hypotheses and the magnitude matches neither, and the drift
+    does not scale with the number of accented characters before the anchor.
+    What is left is plain arithmetic: summing the lengths of many transcribed
+    lines to locate a passage is something the model gets slightly wrong,
+    non-systematically, at line-wrap and hyphenation boundaries. That is not
+    something prompt wording can make exact (the prompt does state the rule
+    more explicitly from essay_correction_v8 on), so the offsets are treated
+    as approximate and the quote - which the model copies reliably - as
+    authoritative.
+
+    Safety: this NEVER accepts an approximate or fuzzy text match. The quote
+    must occur in the text character for character; only its position is
+    allowed to differ from what the model claimed, and only when that position
+    is unambiguous - a single occurrence within
+    :data:`_ANCHOR_DRIFT_WINDOW` characters of the claimed start, or a single
+    occurrence in the whole text for a quote of at least
+    :data:`_MIN_UNIQUE_REANCHOR_CHARS` characters. Several candidate positions
+    means we cannot tell which passage the model meant, so it stays a
+    rejection rather than a guess at the student's expense.
+    """
+    if _quote_matches(text, start, end, quote):
+        # The claimed span is right; if it was padded with whitespace, tighten
+        # it onto the quote itself (the quote is inside the span by
+        # construction - _quote_matches only trims whitespace off the span).
+        found = text.find(quote, start, end)
+        return found if found >= 0 else start
+
+    occurrences: list[int] = []
+    at = text.find(quote)
+    while at >= 0:
+        occurrences.append(at)
+        at = text.find(quote, at + 1)
+    if not occurrences:
+        return None
+
+    nearby = [
+        offset
+        for offset in occurrences
+        if abs(offset - start) <= _ANCHOR_DRIFT_WINDOW
+    ]
+    if len(nearby) == 1:
+        return nearby[0]
+    if len(occurrences) == 1 and len(quote.strip()) >= _MIN_UNIQUE_REANCHOR_CHARS:
+        return occurrences[0]
+    return None
 
 
 def _quote_matches(text: str, start: int, end: int, quote: str) -> bool:

@@ -1706,6 +1706,17 @@ body.sidebar-open {
 .essay-competency-table th.essay-mark-C3 { background: var(--danger-light); color: var(--danger); }
 .essay-competency-table th.essay-mark-C4 { background: var(--warning-light); color: var(--warning); }
 .essay-competency-table th.essay-mark-C5 { background: var(--success-light); color: var(--success); }
+@media (max-width: 640px) {
+  .essay-competency-table thead { display: none; }
+  .essay-competency-table, .essay-competency-table tbody, .essay-competency-table tr,
+  .essay-competency-table th, .essay-competency-table td { display: block; width: 100%; }
+  .essay-competency-table tr { border-bottom: 1px solid var(--border, #e2e6ee); margin: 0 0 10px; padding-bottom: 6px; }
+  .essay-competency-table th, .essay-competency-table td { border-bottom: none; padding: 4px 8px; }
+  .essay-competency-table td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 0.75em; font-weight: 600;
+    color: var(--text-secondary, #6b7280); margin-bottom: 2px;
+  }
+}
 .essay-rewrite-block { border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; background: #fbfdff; }
 .essay-rewrite-block.essay-mark-C1 { border-left-color: var(--primary); }
 .essay-rewrite-block.essay-mark-C2 { border-left-color: var(--accent); }

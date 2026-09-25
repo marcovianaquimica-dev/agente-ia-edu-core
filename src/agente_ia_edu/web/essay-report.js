@@ -41,7 +41,7 @@
       if (!rationale) return '';
       const hasSplit = rationale.strengths && rationale.growth_area;
       const cells = hasSplit
-        ? `<td>${esc(rationale.strengths)}</td><td>${esc(rationale.growth_area)}</td>`
+        ? `<td data-label="Você já faz bem">${esc(rationale.strengths)}</td><td data-label="Onde pode avançar">${esc(rationale.growth_area)}</td>`
         : `<td colspan="2">${esc(rationale.summary || '')}</td>`;
       return `<tr><th scope="row" class="essay-mark-${code}">${code} — ${esc(COMPETENCY_LABELS[code])}</th>${cells}</tr>`;
     }).join('');

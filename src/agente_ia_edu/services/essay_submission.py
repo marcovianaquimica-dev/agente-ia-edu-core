@@ -14,6 +14,7 @@ database can't express as a CHECK constraint.
 from __future__ import annotations
 
 import asyncio
+import logging
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -29,6 +30,8 @@ from ..providers.factory import build_essay_transcriber
 from ..providers.models import EssayPageTranscriptionRequest
 from .essay_correction_key import essay_text_hash, normalize_essay_text
 from .material_storage import MaterialStorage
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -237,14 +240,33 @@ class EssaySubmissionService:
             pages.append(page)
         return pages
 
+    # Confirmed live (2026-09-25): a transcription refusal/failure is often
+    # transient - the same photo frequently succeeds on a second or third
+    # attempt with no change at all. Retrying here, inside one upload call,
+    # spares the student from re-clicking upload themselves.
+    _OCR_ATTEMPTS = 3
+
     async def _ocr_page(self, page: EssaySubmissionPage, image_path: Path) -> None:
-        result = await self._get_transcriber().transcribe_page(
-            EssayPageTranscriptionRequest(image_path=image_path, mime_type=_guess_mime(image_path))
-        )
-        page.ocr_tokens = [
-            {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
-            for t in result.tokens
-        ]
+        last_error: ProviderError | None = None
+        for attempt in range(1, self._OCR_ATTEMPTS + 1):
+            try:
+                result = await self._get_transcriber().transcribe_page(
+                    EssayPageTranscriptionRequest(
+                        image_path=image_path, mime_type=_guess_mime(image_path)
+                    )
+                )
+                page.ocr_tokens = [
+                    {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
+                    for t in result.tokens
+                ]
+                return
+            except ProviderError as exc:
+                last_error = exc
+                logger.warning(
+                    "transcription attempt %d/%d failed for page %s: %s",
+                    attempt, self._OCR_ATTEMPTS, page.id, exc,
+                )
+        raise last_error
 
     def _get_transcriber(self) -> EssayTranscriptionProvider:
         if self._transcriber is None:
