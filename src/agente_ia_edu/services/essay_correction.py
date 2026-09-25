@@ -60,7 +60,7 @@ from .institution_settings import InstitutionSettingsService
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v1"
-_PROMPT_VERSION = "essay_correction_v6"
+_PROMPT_VERSION = "essay_correction_v7"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 

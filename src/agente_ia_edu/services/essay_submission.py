@@ -205,20 +205,16 @@ class EssaySubmissionService:
         await self.session.flush()
 
         if transcription_enabled:
-            try:
-                await self._ocr_page(page, dest)
-                submission.status = "PENDING_CONFIRMATION"
-            except ProviderError:
-                # The vision model sometimes refuses to transcribe a real
-                # handwritten page (confirmed live 2026-09-25 - a legible
-                # ENEM-template photo, refused consistently across retries).
-                # Rather than blocking the student entirely, fall back to
-                # IMAGE_REGION mode for this submission (direct image
-                # correction, no transcript) so they can still submit.
-                # confirm_submission already branches on anchor_mode at
-                # confirm time, so this is a safe downgrade mid-flow.
-                submission.anchor_mode = "IMAGE_REGION"
-                page.ocr_tokens = None
+            # Explicit product decision (2026-09-25): always transcribe,
+            # regardless of image quality - never silently fall back to
+            # IMAGE_REGION (that mode's own anchor precision is worse, and
+            # switching modes mid-flow surprised the student). A refusal or
+            # any other transcription failure must surface as a clear error
+            # (ProviderError propagates to the route's 502 handler below) so
+            # the student retries with a better photo - it must not
+            # silently downgrade to a less precise correction.
+            await self._ocr_page(page, dest)
+            submission.status = "PENDING_CONFIRMATION"
             await self.session.flush()
         return page
 

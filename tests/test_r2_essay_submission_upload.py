@@ -127,12 +127,15 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             refreshed = await session.get(type(submission), submission.id)
             self.assertEqual(refreshed.status, "PENDING_CONFIRMATION")
 
-    async def test_upload_page_falls_back_to_image_region_on_a_transcription_refusal(self):
-        """Confirmed live (2026-09-25): the vision model sometimes refuses to
-        transcribe a real handwritten page. Rather than blocking the student
-        entirely, upload_page must fall back the submission to IMAGE_REGION
-        mode (direct image correction, no transcript) so they can still
-        submit - not propagate the error and not crash."""
+    async def test_upload_page_propagates_a_transcription_refusal(self):
+        """Explicit product decision (2026-09-25): always transcribe,
+        regardless of image quality - never silently fall back to
+        IMAGE_REGION mode (its anchor precision is worse, and switching
+        modes mid-flow without telling the student is confusing). A
+        transcription failure must propagate as ProviderError so the route
+        surfaces a clear error and the student retries with a better photo."""
+        from agente_ia_edu.providers.errors import ProviderError
+
         async with self.session_factory() as session:
             svc = EssaySubmissionService(
                 session, storage=MaterialStorage(root=self.storage_root),
@@ -148,16 +151,14 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
 
             source = self.tmp_dir / "page1.png"
             _make_png(source)
-            page = await svc.upload_page(
-                essay_submission_id=submission.id, page_number=1, source_path=source,
-            )
-            self.assertIsNone(page.ocr_tokens)
+            with self.assertRaises(ProviderError):
+                await svc.upload_page(
+                    essay_submission_id=submission.id, page_number=1, source_path=source,
+                )
 
+            # anchor_mode must NOT have been downgraded.
             refreshed = await session.get(type(submission), submission.id)
-            self.assertEqual(refreshed.anchor_mode, "IMAGE_REGION")
-            # Not PENDING_CONFIRMATION - IMAGE_REGION mode never needed a
-            # review step, so the submission stays ready to /confirm.
-            self.assertEqual(refreshed.status, "PENDING_TRANSCRIPTION")
+            self.assertEqual(refreshed.anchor_mode, "TEXT_OFFSET")
 
     async def test_reuploading_the_same_page_number_replaces_it(self):
         async with self.session_factory() as session:
