@@ -25,6 +25,24 @@ from agente_ia_edu.services.essay_engine_validation import (
 
 TEXT = "A valorização da cultura é um direito de todos os brasileiros."
 
+#: Shape of a real transcribed handwritten essay (2026-09-25): one numbered
+#: line per physical line of the answer sheet, words hyphenated across the line
+#: break, accents everywhere. The line-number prefixes are inconsistent ("1 "
+#: vs "3. ") exactly as the live transcription had them. The two passages the
+#: drift tests below use - "4. sas principais" and the 101-character line 1 -
+#: are the ones from the two live QUOTE_DOES_NOT_MATCH_TEXT rejections.
+LIVE_TRANSCRIPTION = "\n".join([
+    "1 O trabalho de cuidado se mostra necessário na medida em que é responsável pela gestão da crianção e",
+    "2 idosos, sendo um serviço essencial para a manutenção da sociedade brasileira. Entretanto, esse",
+    "3. a invisibilidade desse trabalho no Brasil decorre de duas cau-",
+    "4. sas principais: a herança histórica da escravidão e a desvalorização social do cuidado.",
+    "5 Em primeiro lugar, é importante ressaltar que o período escravocrata deixou marcas",
+    "6 profundas na organização do trabalho no país, delegando às mulheres negras as tare-",
+    "7 fas domésticas sem qualquer reconhecimento formal ou remuneração adequada.",
+    "8 Além disso, a ausência de políticas públicas voltadas ao cuidado agrava o problema,",
+    "9 uma vez que sobrecarrega as famílias mais pobres e perpetua a desigualdade de gênero.",
+])
+
 RUBRIC = RubricView(
     rubric_version="ENEM_2025",
     levels={c: frozenset((0, 40, 80, 120, 160, 200)) for c in ("C1", "C2", "C3", "C4", "C5")},
@@ -302,6 +320,180 @@ class TestEngineValidation(unittest.TestCase):
         with self.assertRaises(EssayEngineOutputRejected) as caught:
             validate_engine_output(output, rubric=RUBRIC, text=text)
         self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
+    # --- live offset-drift cases (2026-09-25) ------------------------------
+    #
+    # Both cases below are real model outputs on the same real handwritten
+    # essay, rejected with QUOTE_DOES_NOT_MATCH_TEXT although the quote was a
+    # verbatim, correctly-chosen passage - the offsets simply drifted. See
+    # _resolve_text_offset's docstring in essay_engine_validation.py for the
+    # measurements that ruled out UTF-8-byte and JSON-escape miscounting as
+    # the cause.
+
+    def _anchored(self, *, start, end, quote):
+        return build_output(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": start, "end": end, "quote": quote,
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+
+    def test_reanchors_a_quote_whose_offsets_landed_one_line_early(self):
+        """Live case 1: the model quoted the start of transcription line 4 -
+        which continues "cau-", the word hyphenated at the end of line 3 - and
+        its offsets landed one whole transcription line early, on the start of
+        line 3 (82 characters early in the live essay; one line of this
+        fixture, which has shorter lines). The quote is verbatim and occurs
+        once, so the annotation must be re-anchored onto it instead of sinking
+        the whole correction."""
+        text = LIVE_TRANSCRIPTION
+        quote = "4. sas principais"
+        real_start = text.index(quote)
+        drifted_start = text.index("3. a invisibilida")
+        # This is exactly what the live log reported as the mismatch.
+        self.assertEqual(text[drifted_start : drifted_start + len(quote)],
+                         "3. a invisibilida")
+        # Off by exactly one transcription line, as in the live rejection
+        # (there the gap was 82 characters).
+        self.assertEqual(
+            real_start - drifted_start, len(text.split("\n")[2]) + 1
+        )
+
+        output = self._anchored(
+            start=drifted_start, end=drifted_start + len(quote), quote=quote
+        )
+        validate_engine_output(output, rubric=RUBRIC, text=text)
+
+        anchor = output.annotations[0].anchor
+        self.assertEqual(anchor.start, real_start)
+        self.assertEqual(anchor.end, real_start + len(quote))
+        self.assertEqual(text[anchor.start : anchor.end], quote)
+
+    def test_reanchors_a_quote_whose_end_was_one_character_too_low(self):
+        """Live case 2: the model quoted a whole 101-character transcription
+        line and reported an ``end`` one character too low, cutting off the
+        line's last character (the "e" of "e idosos", wrapping to line 2)."""
+        text = LIVE_TRANSCRIPTION
+        quote = text.split("\n")[0]
+        drifted_end = len(quote) - 1
+        self.assertTrue(text[0:drifted_end].endswith("crianção "))
+        self.assertTrue(quote.endswith("crianção e"))
+
+        output = self._anchored(start=0, end=drifted_end, quote=quote)
+        validate_engine_output(output, rubric=RUBRIC, text=text)
+
+        anchor = output.annotations[0].anchor
+        self.assertEqual((anchor.start, anchor.end), (0, len(quote)))
+        self.assertEqual(text[anchor.start : anchor.end], quote)
+
+    def test_the_corrected_offsets_are_what_the_caller_persists(self):
+        """The service stores ``output.model_dump()`` as ai_output and the
+        student's highlighted text is rendered from those offsets, so the
+        repair has to be visible on the returned output, not just internal."""
+        text = LIVE_TRANSCRIPTION
+        quote = "4. sas principais"
+        drifted_start = text.index("3. a invisibilida")
+        payload = build_payload_v2(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": drifted_start,
+                "end": drifted_start + len(quote), "quote": quote,
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        output = validate_engine_output_from_payload(payload, rubric=RUBRIC, text=text)
+        dumped = output.model_dump(mode="json")["annotations"][0]["anchor"]
+        self.assertEqual(dumped["start"], text.index(quote))
+        self.assertEqual(text[dumped["start"] : dumped["end"]], quote)
+
+    def test_reanchors_an_anchor_whose_drift_ran_past_the_end_of_the_text(self):
+        """Drift is as likely on the last paragraph as on the first, and there
+        the same miscount produces offsets beyond the text. The quote is still
+        verbatim and unique, so this must be repaired rather than rejected as
+        OFFSET_OUT_OF_BOUNDS."""
+        text = LIVE_TRANSCRIPTION
+        quote = "desvalorização social do cuidado."
+        real_start = text.index(quote)
+        output = self._anchored(
+            start=len(text) - 3, end=len(text) + len(quote) - 3, quote=quote
+        )
+        validate_engine_output(output, rubric=RUBRIC, text=text)
+        anchor = output.annotations[0].anchor
+        self.assertEqual((anchor.start, anchor.end), (real_start, real_start + len(quote)))
+
+    def test_reanchors_a_long_quote_that_occurs_exactly_once_however_far_away(self):
+        """A quote found exactly once in the whole text is unambiguous wherever
+        it sits, so a drift wider than the local window is still safe to fix -
+        as long as the quote is long enough for that single occurrence to mean
+        something (_MIN_UNIQUE_REANCHOR_CHARS)."""
+        text = LIVE_TRANSCRIPTION
+        quote = "sobrecarrega as famílias mais pobres"
+        real_start = text.index(quote)
+        self.assertGreater(real_start, 400)  # beyond _ANCHOR_DRIFT_WINDOW from 0
+        output = self._anchored(start=0, end=len(quote), quote=quote)
+        validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(output.annotations[0].anchor.start, real_start)
+
+    def test_still_rejects_a_quote_that_is_only_approximately_in_the_text(self):
+        """The repair is an EXACT substring search, never a fuzzy match: a
+        quote that differs from the text by a single character (here a missing
+        accent) is not the same passage and must still be rejected, otherwise
+        the guard against invented evidence is gone."""
+        text = LIVE_TRANSCRIPTION
+        quote = "a heranca historica da escravidao"  # accents dropped
+        self.assertNotIn(quote, text)
+        start = text.index("a herança")
+        output = self._anchored(start=start, end=start + len(quote), quote=quote)
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
+    def test_still_rejects_a_quote_whose_position_is_ambiguous(self):
+        """Two candidate positions near the claimed offsets means we cannot
+        tell which passage the model meant. Guessing would risk anchoring a
+        criticism on the wrong sentence, so this stays a rejection."""
+        text = "1 o trabalho de cuidado é essencial.\n2 o trabalho de cuidado é essencial."
+        quote = "o trabalho de cuidado"
+        self.assertEqual(text.count(quote), 2)
+        output = self._anchored(start=0, end=len(quote), quote=quote)
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
+    def test_still_rejects_a_short_unique_quote_claimed_far_from_where_it_is(self):
+        """The whole-text uniqueness fallback requires a quote long enough for
+        its single occurrence to be meaningful; a handful of characters found
+        once, hundreds of characters away from where the model said it was, is
+        not evidence of a mere miscount."""
+        text = LIVE_TRANSCRIPTION
+        quote = "crianção"  # 8 characters, below the uniqueness floor
+        self.assertEqual(text.count(quote), 1)
+        far = len(text) - len(quote)
+        self.assertGreater(abs(far - text.index(quote)), 400)
+        output = self._anchored(start=far, end=far + len(quote), quote=quote)
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
+    def test_offset_drift_is_not_explained_by_utf8_byte_counting(self):
+        """Pins the root-cause finding, so nobody re-opens the investigation
+        on the tempting hypothesis. If the model were counting UTF-8 bytes (or
+        the JSON-escaped form the prompt shows it) its offsets would come back
+        HIGHER than the real ones, by one per multi-byte character before the
+        anchor. Both live cases drifted the other way and by amounts unrelated
+        to the accented-character count - so this is plain arithmetic error,
+        and only an exact re-anchor on the quote can repair it."""
+        text = LIVE_TRANSCRIPTION
+        real_start = text.index("4. sas principais")
+        byte_delta = len(text[:real_start].encode("utf-8")) - real_start
+        self.assertEqual(byte_delta, sum(1 for c in text[:real_start] if ord(c) > 127))
+        self.assertGreater(byte_delta, 0)  # byte counting drifts POSITIVE...
+        drift = text.index("3. a invisibilida") - real_start
+        self.assertLess(drift, 0)  # ...but the observed drift was negative
+        self.assertNotEqual(abs(drift), byte_delta)
 
     def test_rejects_an_offset_beyond_the_text(self):
         """Rejection 5."""

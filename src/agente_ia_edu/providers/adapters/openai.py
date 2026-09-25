@@ -35,10 +35,29 @@ _REFUSAL_PREFIXES = (
     "i'm unable", "i am unable",
 )
 
+# Confirmed live (2026-09-25), a second failure mode: the model transcribes
+# a real prefix of the page, then gives up partway through and appends its
+# own refusal INSIDE the content instead of a clean, prefix-only refusal -
+# e.g. "...(Continua com o resto do texto, mas não posso transcrever mais)."
+# A prefix check never catches this; only a substring search does. This
+# must reject the whole transcription (a silently truncated page is as
+# unsafe to correct against as an outright refusal), not just strip the
+# trailing note.
+_REFUSAL_SUBSTRINGS = (
+    "não posso transcrever", "nao posso transcrever",
+    "não posso continuar", "nao posso continuar",
+    "não posso ler o resto", "nao posso ler o resto",
+    "continua com o resto do texto",
+    "i cannot transcribe the rest", "i can't transcribe the rest",
+    "i cannot continue", "i can't continue",
+)
+
 
 def _looks_like_a_refusal(content: str) -> bool:
     normalized = content.strip().lower()
-    return normalized.startswith(_REFUSAL_PREFIXES)
+    if normalized.startswith(_REFUSAL_PREFIXES):
+        return True
+    return any(phrase in normalized for phrase in _REFUSAL_SUBSTRINGS)
 
 
 class OpenAIProvider:
@@ -97,7 +116,13 @@ class OpenAIProvider:
                             "imagem, palavra por palavra, na ordem em que aparece. Nao "
                             "corrija ortografia, gramatica ou concordancia - reproduza "
                             "exatamente o que esta escrito, mesmo que contenha erros. "
-                            "Nao adicione nenhum texto que nao esteja na imagem."
+                            "Nao adicione nenhum texto que nao esteja na imagem. Se uma "
+                            "palavra ou trecho estiver genuinamente ilegivel, escreva "
+                            "[ilegivel] no lugar dele em vez de adivinhar - nunca invente "
+                            "uma palavra plausivel para preencher um trecho que voce nao "
+                            "conseguiu ler. Transcreva a pagina inteira, do inicio ao fim; "
+                            "nunca pare no meio e nunca escreva um pedido de desculpas ou "
+                            "explicacao sobre nao conseguir continuar."
                         ),
                     },
                     {
@@ -106,7 +131,8 @@ class OpenAIProvider:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:{request.mime_type};base64,{image_b64}"
+                                    "url": f"data:{request.mime_type};base64,{image_b64}",
+                                    "detail": "high",
                                 },
                             }
                         ],

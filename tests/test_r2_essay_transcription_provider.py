@@ -122,6 +122,39 @@ class OpenAIProviderTranscriptionTests(unittest.TestCase):
             asyncio.run(provider.transcribe_page(request))
         image_path.unlink(missing_ok=True)
 
+    def test_raises_when_a_refusal_is_embedded_after_real_transcribed_content(self):
+        """Confirmed live (2026-09-25): the model sometimes transcribes a real
+        prefix of the page, then gives up partway through and appends its own
+        refusal INSIDE the content - e.g. "...(Continua com o resto do texto,
+        mas não posso transcrever mais)." A prefix-only check never catches
+        this; the whole (truncated) transcription must be rejected so the
+        retry loop runs instead of silently accepting a partial page."""
+        image_path = Path("/tmp/r2_refusal_embedded_test_page.png")
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        embedded_content = (
+            "As comunidades indigenas consideram os idosos detentores de "
+            "experiencia e sabedoria, com papel de respeito na sociedade "
+            "brasileira. Em primeira analise, e evidente que o valor do "
+            "idoso foi reduzido pela chegada da industrializacao. "
+            "(Continua com o resto do texto, mas não posso transcrever mais)."
+        )
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content=embedded_content, refusal=None),
+                    logprobs=None,
+                )]
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayPageTranscriptionRequest(image_path=image_path, mime_type="image/png")
+        with self.assertRaises(ProviderInvalidResponseError):
+            asyncio.run(provider.transcribe_page(request))
+        image_path.unlink(missing_ok=True)
+
     def test_raises_when_vision_model_not_configured_but_key_present(self):
         # Distinct branch from test_raises_when_not_configured: api_key IS set,
         # only vision_model is missing.

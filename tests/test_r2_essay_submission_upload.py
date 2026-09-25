@@ -75,6 +75,24 @@ class _RefusingTranscriber:
         raise ProviderInvalidResponseError("OpenAI refused to transcribe the image: sorry")
 
 
+class _FlakyThenSucceedsTranscriber:
+    """Test double: refuses on the first N-1 calls, then succeeds - the
+    same pattern confirmed live (2026-09-25): a retried upload of the exact
+    same photo often succeeds on the second or third try."""
+
+    def __init__(self, tokens, fail_times: int):
+        self._tokens = tokens
+        self._fail_times = fail_times
+        self.calls = 0
+
+    async def transcribe_page(self, request):
+        from agente_ia_edu.providers.errors import ProviderInvalidResponseError
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise ProviderInvalidResponseError("OpenAI refused to transcribe the image: sorry")
+        return EssayPageTranscriptionResult(tokens=self._tokens, provider="flaky", model="v1")
+
+
 class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.engine = create_async_engine(
@@ -125,6 +143,36 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(page.reviewed_text)
 
             refreshed = await session.get(type(submission), submission.id)
+            self.assertEqual(refreshed.status, "PENDING_CONFIRMATION")
+
+    async def test_upload_page_retries_a_refusal_and_succeeds(self):
+        """Confirmed live (2026-09-25): the exact same photo, retried with
+        no changes, frequently succeeds after 1-2 refusals. upload_page
+        must retry internally (up to _OCR_ATTEMPTS) before giving up, so
+        the student doesn't have to keep re-clicking upload themselves."""
+        async with self.session_factory() as session:
+            tokens = (EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),)
+            transcriber = _FlakyThenSucceedsTranscriber(tokens, fail_times=2)
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root),
+                transcriber=transcriber,
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            source = self.tmp_dir / "page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            self.assertEqual(transcriber.calls, 3)
+            self.assertEqual(len(page.ocr_tokens), 1)
+            refreshed = await session.get(type(submission), submission.id)
+            self.assertEqual(refreshed.anchor_mode, "TEXT_OFFSET")
             self.assertEqual(refreshed.status, "PENDING_CONFIRMATION")
 
     async def test_upload_page_propagates_a_transcription_refusal(self):
