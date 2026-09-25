@@ -553,6 +553,205 @@ class Phase30ClassificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.status, "NEEDS_REVIEW")
         self.assertEqual(outcome.review_reason, "DIFFICULTY_UNCERTAIN")
 
+    # -- coverage: read-side empty results ------------------------------
+    async def test_get_history_returns_empty_list_when_no_classification_exists(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            history = await svc.get_history(vid)
+        self.assertEqual(history, [])
+
+    async def test_batch_classify_with_empty_id_list_is_a_noop(self):
+        async with self.factory() as s:
+            svc = AuthorialQuestionClassificationService(s)
+            result = await svc.batch_classify([], ScriptedProvider([]), actor="prof_a")
+        self.assertEqual(result.questions_processed, 0)
+        self.assertEqual(result.outcomes, [])
+
+    # -- coverage: difficulty response shape/value validation ------------
+    async def test_difficulty_response_that_is_not_a_json_object_falls_back_to_unknown(self):
+        # valid JSON, but a list rather than an object - distinct from
+        # "not valid json at all" (already covered): this exercises the
+        # `isinstance(payload, dict)` guard itself, not json.loads failing.
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            provider = ScriptedProvider([dict(_DILUTION_RESPONSE)], difficulty_queue=["[1, 2, 3]"])
+            outcome = await svc.classify_question_version(vid, provider, actor="prof_a")
+        self.assertEqual(outcome.classification.difficulty, "UNKNOWN")
+        self.assertEqual(outcome.status, "NEEDS_REVIEW")
+        self.assertEqual(outcome.review_reason, "DIFFICULTY_UNCERTAIN")
+        self.assertIn("must be an object", outcome.classification.metadata_["difficulty_error"])
+
+    async def test_difficulty_value_outside_the_enum_falls_back_to_unknown(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            provider = ScriptedProvider(
+                [dict(_DILUTION_RESPONSE)],
+                difficulty_queue=[{"difficulty": "IMPOSSIVEL", "confidence": 0.8, "reasoning": "x"}],
+            )
+            outcome = await svc.classify_question_version(vid, provider, actor="prof_a")
+        self.assertEqual(outcome.classification.difficulty, "UNKNOWN")
+        self.assertEqual(outcome.status, "NEEDS_REVIEW")
+        self.assertIn("invalid difficulty value", outcome.classification.metadata_["difficulty_error"])
+
+    async def test_difficulty_confidence_out_of_range_falls_back_to_unknown(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            provider = ScriptedProvider(
+                [dict(_DILUTION_RESPONSE)],
+                difficulty_queue=[{"difficulty": "MEDIUM", "confidence": 1.5, "reasoning": "x"}],
+            )
+            outcome = await svc.classify_question_version(vid, provider, actor="prof_a")
+        self.assertEqual(outcome.classification.difficulty, "UNKNOWN")
+        self.assertIn("invalid difficulty confidence", outcome.classification.metadata_["difficulty_error"])
+
+    async def test_difficulty_confidence_as_bool_is_rejected(self):
+        # `isinstance(True, (int, float))` is True in Python - the explicit
+        # `isinstance(confidence, bool)` guard exists specifically to stop a
+        # stray JSON `true`/`false` from being silently treated as 1.0/0.0.
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            provider = ScriptedProvider(
+                [dict(_DILUTION_RESPONSE)],
+                difficulty_queue=[{"difficulty": "MEDIUM", "confidence": True, "reasoning": "x"}],
+            )
+            outcome = await svc.classify_question_version(vid, provider, actor="prof_a")
+        self.assertEqual(outcome.classification.difficulty, "UNKNOWN")
+        self.assertIn("invalid difficulty confidence", outcome.classification.metadata_["difficulty_error"])
+
+    async def test_missing_difficulty_reasoning_falls_back_to_unknown(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            provider = ScriptedProvider(
+                [dict(_DILUTION_RESPONSE)],
+                difficulty_queue=[{"difficulty": "MEDIUM", "confidence": 0.8, "reasoning": "   "}],
+            )
+            outcome = await svc.classify_question_version(vid, provider, actor="prof_a")
+        self.assertEqual(outcome.classification.difficulty, "UNKNOWN")
+        self.assertIn("missing difficulty reasoning", outcome.classification.metadata_["difficulty_error"])
+
+    async def test_low_difficulty_confidence_downgrades_an_otherwise_classified_result(self):
+        # content classification alone would be CLASSIFIED (HIGH confidence,
+        # unambiguous candidate) - a syntactically VALID difficulty response
+        # with a LOW-banded confidence must still downgrade it, independent
+        # of any content-side review_reason (lines 331-332).
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            provider = ScriptedProvider(
+                [dict(_DILUTION_RESPONSE)],
+                difficulty_queue=[{"difficulty": "MEDIUM", "confidence": 0.5, "reasoning": "incerteza real sobre a dificuldade"}],
+            )
+            outcome = await svc.classify_question_version(vid, provider, actor="prof_a")
+        self.assertEqual(outcome.classification.difficulty, "MEDIUM")
+        self.assertEqual(float(outcome.classification.difficulty_confidence), 0.5)
+        self.assertEqual(outcome.status, "NEEDS_REVIEW")
+        self.assertEqual(outcome.review_reason, "DIFFICULTY_UNCERTAIN")
+
+    # -- coverage: batch_classify outcome-bucketing (classified/needs_review/error) --
+    async def test_batch_classify_buckets_classified_needs_review_and_error_independently(self):
+        async with self.factory() as s:
+            v_ok = await self._make_question_version(_DILUTION_STATEMENT)
+            v_low = await self._make_question_version(_DILUTION_STATEMENT)
+            v_fail = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            low = {**_DILUTION_RESPONSE, "confidence": "LOW", "status": "NEEDS_REVIEW", "review_reason": "LOW_CONFIDENCE"}
+            provider = ScriptedProvider([
+                dict(_DILUTION_RESPONSE),  # v_ok -> CLASSIFIED
+                low,                        # v_low -> NEEDS_REVIEW, no error
+                ProviderTimeoutError("timeout"),  # v_fail -> NEEDS_REVIEW, with error
+            ])
+            result = await svc.batch_classify([v_ok, v_low, v_fail], provider, actor="prof_a")
+        self.assertEqual(result.questions_processed, 3)
+        self.assertEqual(result.classified, 1)
+        self.assertEqual(result.needs_review, 1)
+        self.assertEqual(result.errors, 1)
+
+    # -- coverage: manual_classify validation / re-classification ---------
+    async def test_manual_classify_requires_a_content_code(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            with self.assertRaises(ClassificationValidationError):
+                await svc.manual_classify(
+                    vid, discipline_code="CHEMISTRY", area_code="CHEMISTRY-PHYSICAL",
+                    content_code="", subcontent_code=None,
+                    difficulty="EASY", reason="x", actor="prof_a", actor_type="TEACHER",
+                )
+
+    async def test_manual_classify_twice_supersedes_the_previous_active_row(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            first = await svc.manual_classify(
+                vid, discipline_code="CHEMISTRY", area_code="CHEMISTRY-PHYSICAL",
+                content_code="CHEMISTRY-SOLUTIONS", subcontent_code="CHEMISTRY-SOLUTIONS-CONCENTRATION",
+                difficulty="EASY", reason="classificacao manual inicial", actor="prof_a", actor_type="TEACHER",
+            )
+            second = await svc.manual_classify(
+                vid, discipline_code="CHEMISTRY", area_code="CHEMISTRY-PHYSICAL",
+                content_code="CHEMISTRY-SOLUTIONS", subcontent_code="CHEMISTRY-SOLUTIONS-DILUTION",
+                difficulty="MEDIUM", reason="correcao do professor", actor="prof_a", actor_type="TEACHER",
+            )
+            refreshed_first = await s.get(PedagogicalClassification, first.id)
+            active = await svc.get_active_classification(vid)
+        self.assertEqual(refreshed_first.lifecycle, "SUPERSEDED")
+        self.assertEqual(second.lifecycle, "ACTIVE")
+        self.assertEqual(second.supersedes_id, first.id)
+        self.assertEqual(active.id, second.id)
+
+    # -- coverage: reclassify's own provider-failure rollback (458-461) ---
+    async def test_reclassify_provider_failure_restores_previous_active_classification(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            first = await svc.manual_classify(
+                vid, discipline_code="CHEMISTRY", area_code="CHEMISTRY-PHYSICAL",
+                content_code="CHEMISTRY-SOLUTIONS", subcontent_code="CHEMISTRY-SOLUTIONS-CONCENTRATION",
+                difficulty="EASY", reason="classificacao manual inicial", actor="prof_a", actor_type="TEACHER",
+            )
+            bad = {**_DILUTION_RESPONSE, "content_code": "CHEMISTRY-INVENTED-NONEXISTENT",
+                  "subcontent_code": None, "selected_candidate_rank": None, "candidate_classifications": []}
+            with self.assertRaises(ValueError):
+                await svc.reclassify(
+                    vid, ScriptedProvider([bad]), actor="coord_a", actor_type="COORDINATOR",
+                    reason="tentativa que vai falhar")
+            restored_first = await s.get(PedagogicalClassification, first.id)
+            active = await svc.get_active_classification(vid)
+        # the failed reclassify attempt must leave the ORIGINAL classification
+        # ACTIVE again - never stuck SUPERSEDED with nothing replacing it.
+        self.assertEqual(restored_first.lifecycle, "ACTIVE")
+        self.assertEqual(active.id, first.id)
+
+    # -- coverage: approve_classification error paths (481, 483) ----------
+    async def test_approve_classification_raises_for_unknown_id(self):
+        async with self.factory() as s:
+            svc = AuthorialQuestionClassificationService(s)
+            with self.assertRaises(LookupError):
+                await svc.approve_classification(_uuid.uuid4(), actor="coord_a", actor_type="COORDINATOR")
+
+    async def test_approve_classification_rejects_a_superseded_row(self):
+        async with self.factory() as s:
+            vid = await self._make_question_version(_DILUTION_STATEMENT)
+            svc = AuthorialQuestionClassificationService(s)
+            first = await svc.manual_classify(
+                vid, discipline_code="CHEMISTRY", area_code="CHEMISTRY-PHYSICAL",
+                content_code="CHEMISTRY-SOLUTIONS", subcontent_code="CHEMISTRY-SOLUTIONS-CONCENTRATION",
+                difficulty="EASY", reason="inicial", actor="prof_a", actor_type="TEACHER",
+            )
+            await svc.manual_classify(
+                vid, discipline_code="CHEMISTRY", area_code="CHEMISTRY-PHYSICAL",
+                content_code="CHEMISTRY-SOLUTIONS", subcontent_code="CHEMISTRY-SOLUTIONS-DILUTION",
+                difficulty="MEDIUM", reason="correcao", actor="prof_a", actor_type="TEACHER",
+            )
+            with self.assertRaises(ValueError):
+                await svc.approve_classification(first.id, actor="coord_a", actor_type="COORDINATOR")
+
 
 class AIGuardTests(unittest.TestCase):
     _FORBIDDEN = {"openai", "AsyncOpenAI", "OpenAIProvider"}

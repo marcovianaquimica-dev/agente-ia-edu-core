@@ -404,13 +404,22 @@ class ClassificationProposalService:
         except Exception:
             await self.session.rollback()
             raise
-        if new.id == old.id:
+        # PHASE 30-wave9 bugfix: classify_initial_with_provider() above runs the
+        # ordinary propose_with_provider() pipeline for the new row, which commits
+        # internally (_persist_provider_output). Under prod's expire_on_commit=True
+        # default (db/session.py create_session_factory has no override) that commit
+        # expires EVERY object tracked by this session, including `old` - so reading
+        # `old.id` here would need a lazy reload outside of any awaited SQLAlchemy
+        # call, raising MissingGreenlet. `superseded_id` is already known to equal
+        # old.id (that is how `old` was looked up above), so compare/assign against
+        # the parameter directly instead of touching the now-expired instance.
+        if new.id == superseded_id:
             await self.session.rollback()
             raise ValueError(
                 "Superseding classification resolved to the same row being superseded; "
                 "use a classifier_version/prompt_version distinct from the original"
             )
-        new.supersedes_id = old.id
+        new.supersedes_id = superseded_id
         await self.session.commit()
         await self.session.refresh(new)
         await self.session.refresh(old)

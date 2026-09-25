@@ -62,10 +62,17 @@ class QuestionBankImporter:
         content_hash = hashlib.sha256(item.statement_text.encode("utf-8")).hexdigest()
         existing = await self.session.scalar(select(QuestionVersion).where(QuestionVersion.content_hash == content_hash))
         if existing:
+            # Captured before commit: `expire_on_commit=True` in production
+            # (see db/session.py) expires every attribute of `existing` on
+            # the commit below, and touching them afterwards for the return
+            # value would raise MissingGreenlet against real Postgres
+            # (invisible under the test suite's SQLite fixtures that set
+            # expire_on_commit=False).
+            existing_question_id, existing_version_id = existing.question_id, existing.id
             item.question_version_id = existing.id
             item.status = "imported"
             await self.session.commit()
-            return QuestionImportResult(False, existing.question_id, existing.id, 5, "IMPORTED", False, None, provenance)
+            return QuestionImportResult(False, existing_question_id, existing_version_id, 5, "IMPORTED", False, None, provenance)
 
         try:
             transaction = self.session.begin_nested() if self.session.in_transaction() else self.session.begin()
@@ -119,11 +126,19 @@ class QuestionBankImporter:
                 ))
                 item.question_version_id = version.id
                 item.status = "imported"
+                # Captured before the commit below, which expires every
+                # attribute of `question`/`version`/`document` under
+                # production's `expire_on_commit=True` (see db/session.py) -
+                # touching them afterwards (for the return value and the
+                # context-cache key) would raise MissingGreenlet against
+                # real Postgres (invisible under the test suite's SQLite
+                # fixtures that set expire_on_commit=False).
+                new_question_id, new_version_id, document_id = question.id, version.id, document.id
             await self.session.commit()
             # Memoized only now that the row (existing or newly created) is
             # confirmed durable - see the cache's docstring in __init__.
-            self._context_cache[document.id] = (booklet_id, key_revision_id)
-            return QuestionImportResult(True, question.id, version.id, 5, "VALIDATED", False, None, provenance)
+            self._context_cache[document_id] = (booklet_id, key_revision_id)
+            return QuestionImportResult(True, new_question_id, new_version_id, 5, "VALIDATED", False, None, provenance)
         except Exception:
             await self.session.rollback()
             raise

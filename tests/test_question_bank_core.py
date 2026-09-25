@@ -403,5 +403,228 @@ class QuestionBankCoreTests(unittest.IsolatedAsyncioTestCase):
                         self.assertNotIn(alias.name, banned_names, f"{rel} imports {alias.name}")
 
 
+class QuestionBankCoreBranchCoverageTests(unittest.IsolatedAsyncioTestCase):
+    """Direct-service coverage of `QuestionBankService`/`QuestionBankPage`
+    branches the HTTP-level advanced-search suite never reaches: those tests
+    hit a *different* router (`/api/v1/questions`, `questions_router`), not
+    the Question Bank router this module backs - see
+    `api/routes/question_bank.py`'s own `/api/v1/question-bank/questions`
+    endpoint, which is what actually wires `QuestionBankFilters.difficulty`/
+    `.subcontent_code`/`.area_code`/`.classification_source`/
+    `.classification_mode` into `QuestionBankService.list_questions`."""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.factory = async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
+        async with self.factory() as s:
+            self.fx = await _Fixture().build(s)
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def test_difficulty_filter_is_case_insensitive(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            exact = await svc.list_questions(QuestionBankFilters(difficulty="MEDIUM"))
+            lower = await svc.list_questions(QuestionBankFilters(difficulty="medium"))
+            none = await svc.list_questions(QuestionBankFilters(difficulty="HARD"))
+        self.assertEqual(exact.total, 1)
+        self.assertEqual(lower.total, 1)
+        self.assertEqual(exact.items[0].official_number, 130)
+        self.assertEqual(none.total, 0)
+
+    async def test_unknown_enem_area_matches_nothing_rather_than_raising(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            page = await svc.list_questions(QuestionBankFilters(enem_area="ZZ"))
+        self.assertEqual(page.total, 0)
+        self.assertIsNone(derive_enem_area(9999)[0])
+
+    async def test_subcontent_area_source_and_mode_filters(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            # subcontent_code: the fixture writes the same curriculum code
+            # into both `content` and `metadata_.primary_content_code`.
+            by_subcontent = await svc.list_questions(
+                QuestionBankFilters(subcontent_code="MATH-ALGEBRA-FUNCTIONS"), page_size=50)
+            self.assertEqual(by_subcontent.total, 3)
+            # area_code: resolved through the in-memory catalog tree to every
+            # CONTENT/SUBCONTENT descending from MATH-ALGEBRA - only
+            # MATH-ALGEBRA-FUNCTIONS today, same 3 rows.
+            by_area = await svc.list_questions(
+                QuestionBankFilters(area_code="MATH-ALGEBRA"), page_size=50)
+            self.assertEqual(by_area.total, 3)
+            self.assertEqual(
+                {i.question_version_id for i in by_area.items},
+                {i.question_version_id for i in by_subcontent.items},
+            )
+            # classification_source: the fixture always writes source="rule".
+            by_source = await svc.list_questions(QuestionBankFilters(classification_source="rule"), page_size=50)
+            self.assertEqual(by_source.total, 5)
+            by_missing_source = await svc.list_questions(QuestionBankFilters(classification_source="ai"))
+            self.assertEqual(by_missing_source.total, 0)
+            # classification_mode: FORCED_CLOSURE is set on 2025/129 and 2025/150.
+            by_mode = await svc.list_questions(QuestionBankFilters(classification_mode="FORCED_CLOSURE"), page_size=50)
+            self.assertEqual(by_mode.total, 2)
+            self.assertTrue(all(i.classification.classification_mode == "FORCED_CLOSURE" for i in by_mode.items))
+
+    async def test_get_by_official_number_booklet_filter_and_miss(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            hit = await svc.get_by_official_number(year=2025, official_number=97, booklet_code="D2_CD5")
+            self.assertIsNotNone(hit)
+            wrong_booklet = await svc.get_by_official_number(year=2025, official_number=97, booklet_code="NOPE")
+            self.assertIsNone(wrong_booklet)
+            no_such_number = await svc.get_by_official_number(year=2025, official_number=9999)
+            self.assertIsNone(no_such_number)
+
+    async def test_get_questions_by_version_ids_empty_list_and_unknown_id_skipped(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            self.assertEqual(await svc.get_questions_by_version_ids([]), [])
+            v97 = self.fx["made"][(2025, 97)][1].id
+            unknown = uuid.uuid4()
+            items = await svc.get_questions_by_version_ids([v97, unknown])
+        # the unknown id is silently skipped (see the method's own docstring -
+        # membership is validated by build_selection, not here), never raised
+        # and never padded with a placeholder.
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].question_version_id, v97)
+
+    async def test_build_selection_with_no_ids_returns_an_empty_selection(self):
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            selection = await svc.build_selection([], source="teacher-draft")
+        self.assertEqual(selection.entries, [])
+        self.assertEqual(selection.source, "teacher-draft")
+        self.assertEqual(selection.question_version_ids, [])
+
+    async def test_needs_review_without_forced_closure_reports_needs_review_state(self):
+        """The fixture's only NEEDS_REVIEW rows are also FORCED_CLOSURE
+        (129/150), which report `classification_state == "FORCED_CLOSURE"`
+        (checked first in `_to_item`) - a plain AI low-confidence result
+        that is NEEDS_REVIEW WITHOUT forced closure must still report
+        `"NEEDS_REVIEW"` on its own."""
+        async with self.factory() as s:
+            q = Question(validation_status="validated", origin_type="IMPORTED",
+                        status="PUBLISHED", visibility_scope="PUBLIC")
+            s.add(q)
+            await s.flush()
+            v = QuestionVersion(
+                question_id=q.id, version_kind="official_original",
+                canonical_text="Questao extra de baixa confianca.",
+                statement="Questao extra de baixa confianca.",
+                content_hash="h-extra-low-confidence", is_immutable=True,
+            )
+            s.add(v)
+            await s.flush()
+            bk = (await s.execute(select(ExamBooklet).limit(1))).scalars().first()
+            s.add(BookletQuestion(
+                exam_booklet_id=bk.id, question_version_id=v.id,
+                position=999, official_number=199, page_number=1,
+            ))
+            s.add(PedagogicalClassification(
+                question_version_id=v.id, discipline="CURRICULUM_PROPOSAL",
+                content="MATH-ALGEBRA-FUNCTIONS", subcontent="MATH-ALGEBRA-FUNCTIONS",
+                difficulty="UNKNOWN", reasoning_type="UNSPECIFIED", prerequisites=[],
+                keywords=[], competencies=[], skills=[], status="NEEDS_REVIEW", source="ai",
+                lifecycle="ACTIVE", model_version="fixture-v1", prompt_version="v1",
+                provider_name="fixture", classification_confidence=None,
+                metadata_={"taxonomy_version": "curriculum-v2",
+                          "primary_content_code": "MATH-ALGEBRA-FUNCTIONS",
+                          "review_reason": "LOW_CONFIDENCE"},
+            ))
+            await s.commit()
+            svc = QuestionBankService(s)
+            item = await svc.get_question(q.id)
+        self.assertEqual(item.classification_state, "NEEDS_REVIEW")
+        self.assertEqual(item.classification.review_reason, "LOW_CONFIDENCE")
+
+    async def test_numeric_confidence_is_surfaced_as_a_float(self):
+        async with self.factory() as s:
+            (q130, v130) = self.fx["made"][(2024, 130)]
+            classification = await s.scalar(
+                select(PedagogicalClassification).where(
+                    PedagogicalClassification.question_version_id == v130.id,
+                    PedagogicalClassification.lifecycle == "ACTIVE",
+                )
+            )
+            from decimal import Decimal
+            classification.classification_confidence = Decimal("0.87")
+            await s.commit()
+            svc = QuestionBankService(s)
+            item = await svc.get_question(q130.id)
+        self.assertEqual(item.classification.numeric_confidence, 0.87)
+
+    def test_to_float_returns_none_for_an_unconvertible_value(self):
+        from agente_ia_edu.services.question_bank import _to_float
+        self.assertIsNone(_to_float(None))
+        self.assertIsNone(_to_float("not-a-number"))  # defensive: never raises
+
+    async def test_duplicate_booklet_question_rows_for_the_same_version_are_deduplicated(self):
+        """A version linked from TWO BookletQuestion rows (a data anomaly -
+        every question should appear in exactly one booklet position) must
+        still surface exactly once in an unfiltered listing's page of items,
+        never doubled - the count query already de-dupes via
+        `count(distinct(...))`, but the page's row loop needs its own
+        dedup since the row-level query is not distinct."""
+        async with self.factory() as s:
+            (q97, v97) = self.fx["made"][(2025, 97)]
+            existing_bq = await s.scalar(
+                select(BookletQuestion).where(BookletQuestion.question_version_id == v97.id))
+            s.add(BookletQuestion(
+                exam_booklet_id=existing_bq.exam_booklet_id, question_version_id=v97.id,
+                position=9998, official_number=9998, page_number=1,
+            ))
+            await s.commit()
+            svc = QuestionBankService(s)
+            page = await svc.list_questions(page_size=50)
+        version_ids = [i.question_version_id for i in page.items]
+        self.assertEqual(version_ids.count(v97.id), 1)  # never doubled
+        self.assertEqual(len(version_ids), len(set(version_ids)))  # no duplicates at all
+        self.assertEqual(page.total, 8)  # unaffected - count() already used DISTINCT
+
+    async def test_resolve_curriculum_path_private_branches(self):
+        """Direct coverage of `_resolve_curriculum_path`'s two edge shapes:
+        an empty/falsy content_code (never crashes, returns the scaffold
+        with every level None), and a real catalog code whose own node type
+        is ABOVE the CONTENT/SUBCONTENT level (e.g. an AREA code passed in
+        directly) - the walk never finds a CONTENT node to fill
+        `content_code` from, so it falls back to the code it was given."""
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            await svc._load_catalog()
+            empty = svc._resolve_curriculum_path("")
+            self.assertEqual(empty, {
+                "discipline_code": None, "area_code": None,
+                "content_code": "", "subcontent_code": None,
+            })
+            area_level = svc._resolve_curriculum_path("MATH-ALGEBRA")
+            self.assertEqual(area_level["discipline_code"], "MATH")
+            self.assertEqual(area_level["area_code"], "MATH-ALGEBRA")
+            self.assertEqual(area_level["content_code"], "MATH-ALGEBRA")  # fallback, never None
+            self.assertIsNone(area_level["subcontent_code"])
+
+    async def test_codes_under_fallback_branches(self):
+        """Direct coverage of `_codes_under`'s two "can't resolve" fallbacks:
+        called before the catalog is loaded (empty cache) and called with a
+        code the catalog doesn't contain - both return `[ancestor_code]`
+        itself rather than crashing or silently returning nothing."""
+        async with self.factory() as s:
+            svc = QuestionBankService(s)
+            before_load = svc._codes_under("ANY-CODE")  # catalog_cache is still None
+            await svc._load_catalog()
+            unknown_code = svc._codes_under("DOES-NOT-EXIST-IN-CATALOG")
+        self.assertEqual(before_load, ["ANY-CODE"])
+        self.assertEqual(unknown_code, ["DOES-NOT-EXIST-IN-CATALOG"])
+
+    def test_total_pages_is_zero_for_a_non_positive_page_size(self):
+        from agente_ia_edu.services.question_bank import QuestionBankPage
+        page = QuestionBankPage(items=[], page=1, page_size=0, total=0)
+        self.assertEqual(page.total_pages, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

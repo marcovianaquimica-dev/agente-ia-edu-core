@@ -215,3 +215,207 @@ class QuestionBankImporterTests(unittest.IsolatedAsyncioTestCase):
         # and it should be a small, fixed number (one resolution's worth),
         # not proportional to either batch - not just "equal to each other".
         self.assertLessEqual(small, 7, f"expected roughly one resolution's worth of SELECTs, got {small}")
+
+
+class QuestionBankImporterProductionSessionTests(unittest.IsolatedAsyncioTestCase):
+    """Same behaviour as `QuestionBankImporterTests`, but against a session
+    factory that leaves `expire_on_commit` at SQLAlchemy's default (True) -
+    the same default production uses (see `db/session.py`, which passes no
+    override). `import_question` commits mid-method and then used to read
+    attributes (`question.id`/`version.id`/`document.id`/`existing.id`/
+    `existing.question_id`) straight off the just-committed ORM objects for
+    its return value and cache key - under `expire_on_commit=True` those
+    attributes are expired by the commit, and a bare synchronous attribute
+    access to trigger their reload raises MissingGreenlet against a real
+    async driver (invisible under `expire_on_commit=False`, which is why the
+    fixture above never caught it). Fixed by capturing every value needed
+    after the commit into local variables BEFORE the commit."""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+        async with self.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        self.factory = async_sessionmaker(self.engine, class_=AsyncSession)  # expire_on_commit defaults to True
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    @staticmethod
+    def _doc_kwargs(booklet: str, *, document_hash: str) -> dict:
+        return dict(
+            filename="enem2020.pdf", document_type="PDF", document_hash=document_hash,
+            storage_uri="var/inep-pilot/enem2020.pdf", file_size_bytes=1, status="processed",
+            metadata_={
+                "source_url": "https://download.inep.gov.br/enem.pdf",
+                "answer_key_source_url": "https://download.inep.gov.br/enem-key.pdf",
+                "exam_year": 2020, "exam_day": 2, "booklet": booklet, "booklet_color": "AMARELO",
+            },
+        )
+
+    async def test_newly_created_import_survives_expire_on_commit(self):
+        """RED before the fix: MissingGreenlet reading `question.id`/
+        `version.id`/`document.id` right after `import_question`'s own
+        internal commit, under the same expire_on_commit default production
+        uses."""
+        async with self.factory() as session:
+            document = IngestionDocument(**self._doc_kwargs("D2_CD5", document_hash="doc-hash-new"))
+            session.add(document)
+            await session.flush()
+            item = IngestionQuestion(
+                document_id=document.id, question_number=91, question_type="MULTIPLE_CHOICE",
+                statement_text="Questao oficial de producao", alternatives_text="A) A\nB) B\nC) C\nD) D\nE) E",
+                correct_answer="C", position=1, page_start=2, page_end=2, status="extracted", metadata_={},
+            )
+            session.add(item)
+            await session.flush()
+            item_id = item.id
+            await session.commit()
+
+            result = await QuestionBankImporter(session).import_question(item_id)
+
+        self.assertTrue(result.created)
+        self.assertIsNotNone(result.question_id)
+        self.assertIsNotNone(result.question_version_id)
+        self.assertEqual(result.validation_status, "VALIDATED")
+
+    async def test_duplicate_content_hash_reuses_existing_version_survives_expire_on_commit(self):
+        """RED before the fix: the `existing` branch's return value read
+        `existing.question_id`/`existing.id` after its own commit - same
+        MissingGreenlet shape as the newly-created path above, on the
+        already-imported / duplicate-statement path instead."""
+        async with self.factory() as session:
+            d1 = IngestionDocument(**self._doc_kwargs("D2_CD5", document_hash="doc-hash-dup-1"))
+            session.add(d1)
+            await session.flush()
+            q1 = IngestionQuestion(
+                document_id=d1.id, question_number=91, question_type="MULTIPLE_CHOICE",
+                statement_text="Mesmo enunciado duplicado entre cadernos",
+                alternatives_text="A) A\nB) B\nC) C\nD) D\nE) E", correct_answer="C",
+                position=1, page_start=2, page_end=2, status="extracted", metadata_={},
+            )
+            session.add(q1)
+            d2 = IngestionDocument(**self._doc_kwargs("D2_CD6", document_hash="doc-hash-dup-2"))
+            session.add(d2)
+            await session.flush()
+            q2 = IngestionQuestion(
+                document_id=d2.id, question_number=92, question_type="MULTIPLE_CHOICE",
+                statement_text="Mesmo enunciado duplicado entre cadernos",
+                alternatives_text="A) A\nB) B\nC) C\nD) D\nE) E", correct_answer="C",
+                position=1, page_start=2, page_end=2, status="extracted", metadata_={},
+            )
+            session.add(q2)
+            await session.flush()
+            q1_id, q2_id = q1.id, q2.id
+            await session.commit()
+
+            importer = QuestionBankImporter(session)
+            first = await importer.import_question(q1_id)
+            second = await importer.import_question(q2_id)
+
+        self.assertTrue(first.created)
+        self.assertFalse(second.created)
+        self.assertEqual(second.validation_status, "IMPORTED")
+        self.assertEqual(second.question_id, first.question_id)
+        self.assertEqual(second.question_version_id, first.question_version_id)
+
+
+class QuestionBankImporterBranchCoverageTests(unittest.IsolatedAsyncioTestCase):
+    """Direct coverage of the remaining validation/lookup branches that the
+    two fixtures above don't otherwise reach through a normal import."""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+        async with self.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        self.factory = async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def ingestion_question(self, session, **overrides):
+        document = IngestionDocument(filename="enem2020.pdf", document_type="PDF", document_hash="document-hash", storage_uri="var/inep-pilot/enem2020.pdf", file_size_bytes=1, status="processed", metadata_={"source_url": "https://download.inep.gov.br/enem.pdf", "answer_key_source_url": "https://download.inep.gov.br/enem-key.pdf", "exam_year": 2020, "exam_day": 2, "booklet": "D2_CD5", "booklet_color": "AMARELO"})
+        session.add(document)
+        await session.flush()
+        question = IngestionQuestion(document_id=document.id, question_number=91, question_type="MULTIPLE_CHOICE", statement_text="Questao oficial", alternatives_text="A) A\nB) B\nC) C\nD) D\nE) E", correct_answer="C", position=1, page_start=2, page_end=2, status="extracted", metadata_={})
+        for key, value in overrides.items():
+            setattr(question, key, value)
+        session.add(question)
+        await session.flush()
+        return document, question
+
+    async def test_unknown_ingestion_question_id_raises_value_error(self):
+        import uuid
+        async with self.factory() as session:
+            with self.assertRaises(ValueError):
+                await QuestionBankImporter(session).import_question(uuid.uuid4())
+
+    async def test_missing_document_provenance_is_review_required(self):
+        """`_validate`'s first guard: a document with no hash or no storage
+        URI (or no document at all) can never be imported - it is flagged
+        for review instead, never silently dropped. `document_hash` is a
+        NOT NULL column, so the empty string (still falsy for `_validate`'s
+        `not document.document_hash`) is what a real extraction failure
+        would actually persist - `None` is not a reachable DB state here."""
+        async with self.factory() as session:
+            document, item = await self.ingestion_question(session)
+            document.document_hash = ""
+            item_id = item.id
+            await session.commit()
+            result = await QuestionBankImporter(session).import_question(item_id)
+        self.assertTrue(result.review_required)
+        self.assertEqual(result.reason, "Missing source document provenance")
+
+    async def test_missing_question_number_is_review_required(self):
+        """`question_number` is a NOT NULL column, so `0` (still falsy for
+        `_validate`'s `not item.question_number`) is the reachable
+        real-world stand-in for "no question number was extracted"."""
+        async with self.factory() as session:
+            _, item = await self.ingestion_question(session, question_number=0)
+            item_id = item.id
+            await session.commit()
+            result = await QuestionBankImporter(session).import_question(item_id)
+        self.assertTrue(result.review_required)
+        self.assertEqual(result.reason, "Missing question number or statement")
+
+    async def test_alternative_with_letter_outside_a_to_e_is_review_required(self):
+        """The per-line regex only accepts A-E: a stray `F)` (or any other
+        malformed line) fails the match and is reported as incomplete,
+        rather than silently parsed into a wrong-shaped option set."""
+        async with self.factory() as session:
+            _, item = await self.ingestion_question(
+                session, alternatives_text="A) A\nB) B\nC) C\nD) D\nF) F")
+            await session.commit()
+            result = await QuestionBankImporter(session).import_question(item.id)
+        self.assertTrue(result.review_required)
+        self.assertEqual(result.reason, "Alternatives are incomplete")
+
+    async def test_correct_answer_not_resolving_to_an_option_raises(self):
+        """Defensive guard (line 114): if the persisted options ever fail to
+        contain the validated correct-answer key - a data race or a future
+        change to `_validate` that stops guaranteeing this - the import must
+        fail loudly (and roll back) instead of silently linking a wrong
+        answer key. Simulated here by making the option-resolution SELECT
+        return None, since `_validate`'s own guarantees make this
+        unreachable through a legitimate DB state today."""
+        from unittest.mock import patch
+        async with self.factory() as session:
+            _, item = await self.ingestion_question(session)
+            item_id = item.id
+            await session.commit()
+            importer = QuestionBankImporter(session)
+            real_scalar = session.scalar
+
+            async def fake_scalar(stmt, *a, **kw):
+                compiled = str(stmt)
+                if "question_options" in compiled.lower() and "option_key" in compiled.lower():
+                    return None
+                return await real_scalar(stmt, *a, **kw)
+
+            with patch.object(session, "scalar", side_effect=fake_scalar):
+                with self.assertRaises(ValueError):
+                    await importer.import_question(item_id)
+            # a rollback (unlike a commit) always expires every tracked
+            # object regardless of expire_on_commit - `item_id` (captured
+            # earlier) is used here rather than `item.id` for that reason.
+            restored = await session.get(IngestionQuestion, item_id)
+            self.assertIsNone(restored.question_version_id)  # rolled back, never partially linked
