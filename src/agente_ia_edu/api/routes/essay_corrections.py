@@ -15,12 +15,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
 from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, Person, PromptAssignment, Student
+from ...essay_engine_contract.v1 import Feedback, Scores
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
@@ -222,6 +223,21 @@ async def edit_essay_correction(
             raise HTTPException(
                 status_code=409, detail="Only an approved correction can be edited this way."
             )
+        if request.final_scores is not None:
+            try:
+                Scores.model_validate(request.final_scores)
+            except ValidationError as exc:
+                raise HTTPException(
+                    status_code=422, detail=f"final_scores is not a valid Scores payload: {exc}"
+                ) from exc
+        if request.final_feedback is not None:
+            try:
+                Feedback.model_validate(request.final_feedback)
+            except ValidationError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"final_feedback is not a valid Feedback payload: {exc}",
+                ) from exc
         if request.final_scores is not None:
             correction.final_scores = request.final_scores
         if request.final_feedback is not None:
