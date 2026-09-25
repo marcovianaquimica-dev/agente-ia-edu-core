@@ -177,6 +177,7 @@
         <div class="essay-mode-tabs">
           <button class="btn btn-secondary is-active" type="button" data-mode="TYPED">Digitar</button>
           <button class="btn btn-secondary" type="button" data-mode="PHOTO">Fotografar</button>
+          <button class="btn btn-secondary" type="button" data-mode="IMAGE">Enviar imagem</button>
           <button class="btn btn-secondary" type="button" data-mode="PDF">Enviar PDF</button>
         </div>
         <div id="essay-mode-body"></div>
@@ -245,10 +246,23 @@
   }
 
   async function renderUploadArea(target, prompt, mode, state) {
+    // mode here is the UI tab (TYPED never reaches this function; PHOTO/
+    // IMAGE/PDF do). PHOTO and IMAGE both mean "upload an image page" to the
+    // backend - the only difference is whether the file input forces the
+    // live camera (capture="environment") or opens the normal file/gallery
+    // picker. backendMode is what actually gets sent to the API: the backend
+    // only knows TYPED/PHOTO/PDF and would 422 on a literal 'IMAGE'.
+    const backendMode = mode === 'IMAGE' ? 'PHOTO' : mode;
+    const labelText = mode === 'PDF'
+      ? 'Arquivo PDF (até 25MB)'
+      : (mode === 'IMAGE' ? 'Imagens das páginas (até 25MB cada)' : 'Fotos das páginas (até 25MB cada)');
+    const inputAttrs = mode === 'PDF'
+      ? 'accept=".pdf"'
+      : (mode === 'IMAGE' ? 'accept="image/*" multiple' : 'accept="image/*" multiple capture="environment"');
     target.innerHTML = `
       <div class="form-group">
-        <label for="essay-file-input">${mode === 'PDF' ? 'Arquivo PDF (até 25MB)' : 'Fotos das páginas (até 25MB cada)'}</label>
-        <input id="essay-file-input" type="file" ${mode === 'PDF' ? 'accept=".pdf"' : 'accept="image/*" multiple capture="environment"'}>
+        <label for="essay-file-input">${labelText}</label>
+        <input id="essay-file-input" type="file" ${inputAttrs}>
       </div>
       <p id="essay-upload-msg" class="tm-msg" hidden></p>
       <div id="essay-pages-list"></div>
@@ -270,12 +284,15 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              prompt_assignment_id: prompt.prompt_assignment_id, mode,
+              prompt_assignment_id: prompt.prompt_assignment_id, mode: backendMode,
               ...(state.resubmitEssayId ? { resubmit_essay_id: state.resubmitEssayId } : {}),
             }),
           });
           state.submissionId = submission.id;
           state.anchorMode = submission.anchor_mode;
+          // state.mode keeps the UI tab value (IMAGE vs PHOTO), not
+          // backendMode, so switchMode() re-locks onto the tab the student
+          // actually used when re-rendering this same mode body.
           state.mode = mode;
         }
         if (mode === 'PDF') {
