@@ -643,6 +643,11 @@ body.sidebar-open {
   border: 1px solid var(--border-color);
 }
 
+.btn-success {
+  background: var(--success);
+  color: #fff;
+}
+
 /* Essay Placeholder Card */
 .essay-placeholder-card {
   text-align: center;
