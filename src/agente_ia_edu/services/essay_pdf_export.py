@@ -228,7 +228,7 @@ def _annotations_html(model: dict) -> str:
         color = _COMPETENCY_SOLID_COLORS.get(a.get("competency_code"), "#4f46e5")
         parts.append(
             f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid {color};">'
-            f'<b>{i}. {_esc(a.get("letter"))} — {_esc(a.get("competency_code"))}</b>'
+            f'<b>{i} — {_esc(a.get("competency_code"))}</b>'
             f'<p>{_esc(a.get("short_comment"))}</p>'
             f'<p style="color:#64748b;">{_esc(a.get("long_comment"))}</p>'
             f"{quote_html}</div>"
@@ -240,13 +240,18 @@ def _rewrites_html(model: dict) -> str:
     rewrites = model["rewrites"]
     if not rewrites:
         return ""
+    letter_to_number = {}
+    for i, a in enumerate(model["annotations"], start=1):
+        if isinstance(a, dict) and a.get("letter"):
+            letter_to_number[a["letter"]] = i
     parts = []
     for r in rewrites:
         if not isinstance(r, dict):
             continue
+        number = letter_to_number.get(r.get("letter"))
         header = (
-            f'<b>{_esc(r.get("letter"))} — {_esc(r.get("competency_code"))}</b>'
-            if r.get("letter") and r.get("competency_code") else ""
+            f'<b>{number} — {_esc(r.get("competency_code"))}</b>'
+            if number is not None and r.get("competency_code") else ""
         )
         color = _COMPETENCY_SOLID_COLORS.get(r.get("competency_code"), "#06b6d4")
         parts.append(

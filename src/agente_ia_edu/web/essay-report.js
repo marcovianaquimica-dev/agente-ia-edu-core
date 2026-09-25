@@ -91,7 +91,7 @@
           return `
             <div class="essay-annotation essay-mark-${esc(a.competency_code)}">
               <span class="essay-annotation-number essay-mark-${esc(a.competency_code)}">${i + 1}</span>
-              <strong>${esc(a.letter)} — ${esc(a.competency_code)}</strong>
+              <strong>${i + 1} — ${esc(a.competency_code)}</strong>
               <p>${esc(a.short_comment)}</p>
               <p class="empty-text">${esc(a.long_comment)}</p>
               ${quote ? `<blockquote>"${esc(quote)}"</blockquote>` : ''}
@@ -99,10 +99,13 @@
         }).join('')
       : '<p class="empty-text">Nenhuma anotação específica.</p>';
 
+    const letterToNumber = {};
+    annotations.forEach((a, i) => { letterToNumber[a.letter] = i + 1; });
     const rewritesHtml = rewrites.length
       ? rewrites.map((r) => {
-          const header = (r.letter && r.competency_code)
-            ? `<strong>${esc(r.letter)} — ${esc(r.competency_code)}</strong>`
+          const number = letterToNumber[r.letter];
+          const header = (number !== undefined && r.competency_code)
+            ? `<strong>${number} — ${esc(r.competency_code)}</strong>`
             : '';
           const markClass = r.competency_code ? ` essay-mark-${esc(r.competency_code)}` : '';
           return `

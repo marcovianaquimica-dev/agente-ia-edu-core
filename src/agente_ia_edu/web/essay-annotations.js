@@ -46,7 +46,7 @@
     const popover = document.createElement('div');
     popover.className = 'essay-popover';
     popover.innerHTML = `
-      <strong>${esc(annotation.letter)} — ${esc(annotation.competency_code)}</strong>
+      <strong>${esc(markerEl.dataset.markerNumber)} — ${esc(annotation.competency_code)}</strong>
       <p>${esc(annotation.short_comment)}</p>
       <p class="empty-text">${esc(annotation.long_comment)}</p>
       ${annotation.pedagogical_suggestion ? `<p class="essay-popover-suggestion">${esc(annotation.pedagogical_suggestion)}</p>` : ''}`;

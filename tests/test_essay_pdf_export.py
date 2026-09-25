@@ -3,6 +3,8 @@ import tempfile
 import unittest
 
 from agente_ia_edu.services.essay_pdf_export import (
+    _annotations_html,
+    _rewrites_html,
     build_render_model,
     filename_for_title,
     pdf_available,
@@ -135,6 +137,25 @@ class EssayPdfExportTests(unittest.TestCase):
             canonical_text="Um texto qualquer para o teste.",
         )
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+
+    def test_annotations_and_rewrites_html_show_number_not_letter(self):
+        """Product ask (2026-09): the header shown next to each annotation and
+        each suggested rewrite must show the same number as the numbered
+        marker circle (e.g. '1 — C1'), not the engine's internal letter
+        (e.g. 'A — C1'). The `letter` field itself is untouched in the data
+        - annotations[i]["letter"] is still 'A' below - only the rendered
+        HTML changes."""
+        model = build_render_model(_full_correction_view())
+        self.assertEqual(model["annotations"][0]["letter"], "A")
+        self.assertEqual(model["rewrites"][0]["letter"], "A")
+
+        annotations_html = _annotations_html(model)
+        self.assertIn("1 — C1", annotations_html)
+        self.assertNotIn("A — C1", annotations_html)
+
+        rewrites_html = _rewrites_html(model)
+        self.assertIn("1 — C1", rewrites_html)
+        self.assertNotIn("A — C1", rewrites_html)
 
     def test_render_pdf_image_region_draws_overlay_only_for_localized_annotation(self):
         """The main job of render_pdf's IMAGE_REGION-with-pages branch: a real
