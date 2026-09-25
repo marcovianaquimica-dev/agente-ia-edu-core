@@ -230,6 +230,167 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["final_scores"]["total"], 1000)
 
+    def test_edit_approved_updates_final_scores(self):
+        correction_id, _school_id = self._seed_pending_correction("30", status="APPROVED")
+        self._as("teacher_30")
+        new_scores = {
+            "per_competency": {
+                "C1": {"points": 200, "confidence": 1.0}, "C2": {"points": 200, "confidence": 1.0},
+                "C3": {"points": 200, "confidence": 1.0}, "C4": {"points": 200, "confidence": 1.0},
+                "C5": {"points": 200, "confidence": 1.0},
+            },
+            "total": 1000,
+        }
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_scores": new_scores},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["final_scores"]["total"], 1000)
+        self.assertEqual(body["status"], "APPROVED")
+        self.assertEqual(body["reviewed_by_external_identity"], "teacher_30")
+
+        list_resp = self.client.get("/api/v1/teacher/essay-corrections?status=APPROVED")
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        rows = [row for row in list_resp.json() if row["id"] == str(correction_id)]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["final_scores"]["total"], 1000)
+
+    def test_edit_pending_review_is_409(self):
+        correction_id, _school_id = self._seed_pending_correction("31")
+        self._as("teacher_31")
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": {"next_essay_strategy": "novo"}},
+        )
+        self.assertEqual(resp.status_code, 409)
+
+    def test_edit_does_not_change_status_or_published_at(self):
+        correction_id, _school_id = self._seed_pending_correction("32", status="APPROVED")
+
+        async def _get_published_at():
+            async with self.factory() as session:
+                correction = await session.get(EssayCorrection, correction_id)
+                return correction.status, correction.published_at, correction.reviewed_at
+
+        status_before, published_at_before, reviewed_at_before = self.loop.run_until_complete(
+            _get_published_at()
+        )
+
+        self._as("teacher_32")
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": {"next_essay_strategy": "atualizado"}},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        status_after, published_at_after, reviewed_at_after = self.loop.run_until_complete(
+            _get_published_at()
+        )
+        self.assertEqual(status_after, status_before)
+        self.assertEqual(published_at_after, published_at_before)
+        self.assertEqual(reviewed_at_after, reviewed_at_before)
+
+    def test_edit_from_another_school_is_403(self):
+        correction_id, _school_id = self._seed_pending_correction("33", status="APPROVED")
+        self._seed_pending_correction("34")
+        self._as("teacher_34")
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": {"next_essay_strategy": "novo"}},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_edit_with_malformed_final_scores_is_422_and_keeps_old_values(self):
+        correction_id, _school_id = self._seed_pending_correction("35", status="APPROVED")
+
+        async def _get_final_scores():
+            async with self.factory() as session:
+                correction = await session.get(EssayCorrection, correction_id)
+                return correction.final_scores
+
+        scores_before = self.loop.run_until_complete(_get_final_scores())
+
+        self._as("teacher_35")
+        # Missing C5 (only 4 of the 5 required competencies) - Scores'
+        # model_validator requires all of COMPETENCY_CODES, so this must be
+        # rejected by the same shape check /approve already applies.
+        malformed_scores = {
+            "per_competency": {
+                "C1": {"points": 200, "confidence": 1.0}, "C2": {"points": 200, "confidence": 1.0},
+                "C3": {"points": 200, "confidence": 1.0}, "C4": {"points": 200, "confidence": 1.0},
+            },
+            "total": 800,
+        }
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_scores": malformed_scores},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+        scores_after = self.loop.run_until_complete(_get_final_scores())
+        self.assertEqual(scores_after, scores_before)
+        self.assertNotEqual(scores_after, malformed_scores)
+
+    def test_edit_with_final_scores_bad_points_scale_is_422(self):
+        correction_id, _school_id = self._seed_pending_correction("36", status="APPROVED")
+        self._as("teacher_36")
+        # 50 is not one of the official level points (0/40/80/120/160/200).
+        bad_points_scores = {
+            "per_competency": {
+                "C1": {"points": 50, "confidence": 1.0}, "C2": {"points": 200, "confidence": 1.0},
+                "C3": {"points": 200, "confidence": 1.0}, "C4": {"points": 200, "confidence": 1.0},
+                "C5": {"points": 200, "confidence": 1.0},
+            },
+            "total": 850,
+        }
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_scores": bad_points_scores},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_edit_with_final_scores_inconsistent_total_is_422(self):
+        correction_id, _school_id = self._seed_pending_correction("37", status="APPROVED")
+        self._as("teacher_37")
+        # total (999) does not match the sum of the five competencies (1000).
+        inconsistent_total_scores = {
+            "per_competency": {
+                "C1": {"points": 200, "confidence": 1.0}, "C2": {"points": 200, "confidence": 1.0},
+                "C3": {"points": 200, "confidence": 1.0}, "C4": {"points": 200, "confidence": 1.0},
+                "C5": {"points": 200, "confidence": 1.0},
+            },
+            "total": 999,
+        }
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_scores": inconsistent_total_scores},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_edit_with_malformed_final_feedback_is_422_and_keeps_old_values(self):
+        correction_id, _school_id = self._seed_pending_correction("38", status="APPROVED")
+
+        async def _get_final_feedback():
+            async with self.factory() as session:
+                correction = await session.get(EssayCorrection, correction_id)
+                return correction.final_feedback
+
+        feedback_before = self.loop.run_until_complete(_get_final_feedback())
+
+        self._as("teacher_38")
+        # next_essay_strategy has min_length=1 and is required by Feedback.
+        malformed_feedback = {"strengths": [], "improvements": [], "next_essay_strategy": ""}
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": malformed_feedback},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+        feedback_after = self.loop.run_until_complete(_get_final_feedback())
+        self.assertEqual(feedback_after, feedback_before)
+
     def test_reject(self):
         correction_id, _school_id = self._seed_pending_correction("4")
         self._as("teacher_4")
