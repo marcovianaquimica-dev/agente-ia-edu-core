@@ -17,6 +17,9 @@
     if (typeof detail === 'string') {
       const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
       if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+      const formatMatch = detail.match(/^unsupported file format: '(.+)'$/);
+      if (formatMatch) return `Formato de arquivo não suportado (${formatMatch[1]}). Envie um PDF, JPG ou PNG.`;
+      if (detail === 'file too large (max 25MB)') return 'Arquivo muito grande. O tamanho máximo é 25MB.';
       return detail;
     }
     if (detail && detail.message) return detail.message;
@@ -219,6 +222,7 @@
       if (!files.length) return;
       const msg = target.querySelector('#essay-upload-msg');
       msg.hidden = true;
+      ev.target.disabled = true;
       try {
         if (!state.submissionId) {
           // Lazy creation: the EssaySubmission row (and its uploaded files)
@@ -237,6 +241,8 @@
           state.mode = mode;
         }
         if (mode === 'PDF') {
+          msg.hidden = false;
+          msg.textContent = 'Enviando PDF...';
           const form = new FormData();
           form.append('file', files[0]);
           await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/document`, {
@@ -245,7 +251,11 @@
         } else {
           const existing = await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/pages`);
           let nextPage = existing.length + 1;
+          let photoIndex = 0;
           for (const file of files) {
+            photoIndex += 1;
+            msg.hidden = false;
+            msg.textContent = `Enviando foto ${photoIndex} de ${files.length}...`;
             const form = new FormData();
             form.append('page_number', String(nextPage));
             form.append('file', file);
@@ -255,10 +265,13 @@
             nextPage += 1;
           }
         }
+        msg.hidden = true;
         await refreshPages(target, state.submissionId, state.anchorMode);
       } catch (e) {
         msg.hidden = false;
         msg.textContent = translateResubmitError(e);
+      } finally {
+        ev.target.disabled = false;
       }
     });
 
