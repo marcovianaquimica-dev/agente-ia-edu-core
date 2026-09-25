@@ -61,6 +61,7 @@
   function renderRichReport(correction, options) {
     const opts = options || {};
     const esc = opts.escFn;
+    const hasScores = correction.final_scores != null;
     const scores = correction.final_scores || {};
     const perCompetency = scores.per_competency || {};
     const feedback = correction.final_feedback || {};
@@ -81,16 +82,18 @@
       ? `<div class="essay-alerts">${alerts.map((a) => `<span class="badge badge-accent">${esc(a.code)}</span>`).join(' ')}</div>`
       : '';
 
-    const competencyBarsHtml = Object.keys(COMPETENCY_LABELS).map((code) => {
-      const points = (perCompetency[code] || {}).points || 0;
-      const pct = Math.round((points / 200) * 100);
-      return `
-        <div class="essay-competency-row">
-          <span>${code} — ${esc(COMPETENCY_LABELS[code])}</span>
-          <div class="essay-competency-bar"><div class="essay-competency-fill essay-mark-${code}" style="width:${pct}%"></div></div>
-          <span>${points}/200</span>
-        </div>`;
-    }).join('');
+    const competencyBarsHtml = hasScores
+      ? Object.keys(COMPETENCY_LABELS).map((code) => {
+          const points = (perCompetency[code] || {}).points || 0;
+          const pct = Math.round((points / 200) * 100);
+          return `
+            <div class="essay-competency-row">
+              <span>${code} — ${esc(COMPETENCY_LABELS[code])}</span>
+              <div class="essay-competency-bar"><div class="essay-competency-fill essay-mark-${code}" style="width:${pct}%"></div></div>
+              <span>${points}/200</span>
+            </div>`;
+        }).join('')
+      : '<p class="empty-text">Correção formativa: sem nota atribuída, apenas feedback pedagógico.</p>';
 
     const competencyTableHtml = renderCompetencyChecklist(rationales, feedback.strengths, esc);
 
@@ -174,7 +177,7 @@
     return `
       ${titleHtml}
       ${introHtml}
-      <div class="essay-total-score">Nota total: ${scores.total != null ? scores.total : '—'} / 1000</div>
+      ${hasScores ? `<div class="essay-total-score">Nota total: ${scores.total != null ? scores.total : '—'} / 1000</div>` : ''}
       ${alertsHtml}
       <h4>Notas por competência</h4>
       ${competencyBarsHtml}

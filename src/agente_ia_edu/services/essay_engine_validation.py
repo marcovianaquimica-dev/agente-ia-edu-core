@@ -247,7 +247,7 @@ def validate_engine_output(
                     f"annotation {annotation.letter!r} ends at {anchor.end} but the "
                     f"text has {len(text)} characters",
                 )
-            if text[anchor.start : anchor.end] != anchor.quote:
+            if not _quote_matches(text, anchor.start, anchor.end, anchor.quote):
                 reject(
                     "QUOTE_DOES_NOT_MATCH_TEXT",
                     f"annotation {annotation.letter!r} quotes {anchor.quote!r} but "
@@ -330,6 +330,20 @@ def validate_engine_output_from_payload(
         input_hash=input_hash,
     )
     return output
+
+
+def _quote_matches(text: str, start: int, end: int, quote: str) -> bool:
+    """Exact match preferred; tolerates the model padding start/end with an
+    adjacent whitespace/newline character around an otherwise-exact quote -
+    confirmed live (2026-09-25) as a recurring off-by-one index artifact at
+    paragraph boundaries (e.g. anchoring one character into the "\\n\\n"
+    that separates paragraphs), not a wrong-content mismatch. Only trims
+    when the model's own quote has no stray whitespace, so a genuinely
+    sloppy quote still gets rejected."""
+    raw = text[start:end]
+    if raw == quote:
+        return True
+    return quote == quote.strip() and raw.strip() == quote
 
 
 def _require_evidence(annotation, evidence: str, reject) -> None:

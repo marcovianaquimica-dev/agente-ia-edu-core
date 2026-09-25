@@ -145,6 +145,7 @@ def build_render_model(correction_view: dict) -> dict:
     )
 
     return {
+        "has_scores": correction_view.get("final_scores") is not None,
         "total": scores.get("total"),
         "points_by_competency": {
             code: _as_dict(per_competency_raw.get(code)).get("points", 0) for code in _COMPETENCY_CODES
@@ -394,12 +395,18 @@ def _document_before_html(model: dict, *, title: str | None) -> str:
         )
         if model["alerts"] else ""
     )
+    if model["has_scores"]:
+        scores_html = (
+            f'<p style="font-size:16px;font-weight:bold;">Nota total: {_esc(total_text)}</p>'
+            "<h4>Notas por competência</h4>" + _competency_bars_html(model)
+        )
+    else:
+        scores_html = "<p><i>Correção formativa: sem nota atribuída, apenas feedback pedagógico.</i></p>"
     return (
         f"{title_html}{intro_html}"
-        f'<p style="font-size:16px;font-weight:bold;">Nota total: {_esc(total_text)}</p>'
+        f"{scores_html}"
         f"{alerts_html}"
-        "<h4>Notas por competência</h4>" + _competency_bars_html(model)
-        + "<h4>O que você já faz bem e onde pode avançar</h4>" + _competency_table_html(model)
+        "<h4>O que você já faz bem e onde pode avançar</h4>" + _competency_table_html(model)
         + _strengths_fallback_html(model)
     )
 

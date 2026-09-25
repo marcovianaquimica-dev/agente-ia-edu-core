@@ -533,9 +533,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v2(self):
+    def test_production_prompt_version_is_v4(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v2")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v4")
 
 
 if __name__ == "__main__":

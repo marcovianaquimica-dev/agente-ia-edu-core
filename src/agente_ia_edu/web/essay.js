@@ -90,7 +90,6 @@
               <h3>${escEssay(p.title)}</h3>
               <p class="essay-prompt-statement">${escEssay(p.statement)}</p>
               ${dueText}
-              <span class="badge ${state.badge}">${state.label}</span>
               <button class="btn ${state.btnClass}" type="button" data-open-prompt="${escEssay(p.prompt_assignment_id)}">${state.label}</button>
             </article>`;
         }).join('')}</div>`

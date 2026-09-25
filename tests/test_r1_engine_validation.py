@@ -252,6 +252,41 @@ class TestEngineValidation(unittest.TestCase):
         }])
         self._assert_rejected(output, reason_code="QUOTE_DOES_NOT_MATCH_TEXT")
 
+    def test_tolerates_a_quote_offset_by_one_leading_whitespace_character(self):
+        """Confirmed live (2026-09-25): the model repeatedly anchored one
+        character into the "\\n\\n" separating paragraphs while quoting the
+        clean phrase - a real, working correction with 5+ annotations was
+        rejected outright over this single-character padding. The anchor
+        still points at real, correct content, so it must not reject."""
+        text = "Primeiro paragrafo.\n\nSegundo paragrafo com um trecho relevante."
+        quote = "Segundo"
+        end = text.index(quote) + len(quote)
+        start_with_stray_newline = text.index(quote) - 1
+        output = build_output(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": start_with_stray_newline,
+                "end": end, "quote": quote,
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        validate_engine_output(output, rubric=RUBRIC, text=text)
+
+    def test_still_rejects_a_genuinely_wrong_quote_despite_whitespace_tolerance(self):
+        text = "Primeiro paragrafo.\n\nSegundo paragrafo com um trecho relevante."
+        start = text.index("Segundo") - 1
+        end = start + 1 + len("Terceiro")
+        output = build_output(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": {"type": "TEXT_OFFSET", "start": start, "end": end, "quote": "Terceiro"},
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
     def test_rejects_an_offset_beyond_the_text(self):
         """Rejection 5."""
         output = build_output(annotations=[{

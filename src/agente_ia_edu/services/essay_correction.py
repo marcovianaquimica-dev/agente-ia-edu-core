@@ -60,7 +60,7 @@ from .institution_settings import InstitutionSettingsService
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v1"
-_PROMPT_VERSION = "essay_correction_v2"
+_PROMPT_VERSION = "essay_correction_v4"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 
@@ -399,7 +399,15 @@ class EssayCorrectionService:
                 "essay correction for submission %s: provider error: %s",
                 submission.id, exc,
             )
-            return {**failure_fields, "failure_reason": f"{type(exc).__name__}: {exc}"}
+            reason = f"{type(exc).__name__}: {exc}"
+            diagnostic = getattr(exc, "diagnostic_message", None)
+            if diagnostic:
+                reason = f"{reason} ({diagnostic})"
+            low_level_type = getattr(exc, "low_level_error_type", None)
+            if low_level_type:
+                low_level_message = getattr(exc, "low_level_diagnostic_message", None)
+                reason = f"{reason} [caused by {low_level_type}: {low_level_message}]"
+            return {**failure_fields, "failure_reason": reason}
         except json.JSONDecodeError as exc:
             logger.warning(
                 "essay correction for submission %s: model returned invalid JSON: %s",
@@ -494,6 +502,7 @@ class EssayCorrectionService:
         prompt_text = prompt_artifact.build(
             anchor_mode="IMAGE_REGION", essay_statement=essay_prompt.statement,
             rubric=rubric_payload, include_scores=include_scores, page_count=len(pages),
+            page_dimensions=[(page.width, page.height) for page in pages],
         )
         image_paths = tuple(Path(page.storage_uri) for page in pages)
         request = EssayImageCorrectionRequest(

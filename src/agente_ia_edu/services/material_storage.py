@@ -16,7 +16,8 @@ import hashlib
 import shutil
 from pathlib import Path
 
-_DEFAULT_ROOT = Path("var") / "material_storage"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_ROOT = _PROJECT_ROOT / "var" / "material_storage"
 
 
 def file_sha256(path: Path) -> str:
