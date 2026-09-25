@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,6 +13,7 @@ from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
     AcademicYear,
     Class,
+    EssayCorrection,
     EssayPrompt,
     EssaySubmission,
     GradeLevel,
@@ -174,6 +175,131 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
         self._as("teacher_5")
         resp = self.client.get("/api/v1/student/essay-prompts")
         self.assertEqual(resp.status_code, 403)
+
+    def _seed_many_open_assignments(self, code: str, count: int):
+        """Seeds one school/class/student and `count` OPEN prompt
+        assignments for that same class, so the 8-item cap can be tested
+        against a single student's list."""
+        async def _seed_async():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"SEP-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(SchoolModule(
+                    id=uuid.uuid4(), school_id=school.id, module_key="REDACAO_IA", enabled=True,
+                ))
+                session.add(UserSchoolLink(
+                    external_user_id=f"student_{code}", school_id=school.id, role="STUDENT",
+                    scope_type="SCHOOL", active=True,
+                ))
+                segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEG-{code}")
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="grade", external_id=f"GRADE-{code}",
+                )
+                year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id=f"YEAR-{code}")
+                session.add_all([grade, year])
+                await session.flush()
+                klass = Class(
+                    id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                    grade_level_id=grade.id, name="turma", external_id=f"TURMA-{code}",
+                )
+                session.add(klass)
+                person = Person(id=uuid.uuid4(), school_id=school.id, full_name=f"Aluno {code}")
+                session.add(person)
+                await session.flush()
+                session.add(User(
+                    id=uuid.uuid4(), school_id=school.id, person_id=person.id,
+                    external_identity_provider="test", external_user_id=f"student_{code}",
+                ))
+                student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id, student_code=f"ST-{code}")
+                session.add(student)
+                await session.flush()
+                session.add(StudentEnrollment(
+                    id=uuid.uuid4(), school_id=school.id, student_id=student.id, class_id=klass.id,
+                    status="ACTIVE",
+                ))
+                await session.flush()
+                base = datetime.now(timezone.utc)
+                for i in range(count):
+                    prompt = EssayPrompt(
+                        id=uuid.uuid4(), school_id=school.id, title=f"Tema {i}", statement="Disserte.",
+                        year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                    )
+                    session.add(prompt)
+                    await session.flush()
+                    # created_at set explicitly, strictly increasing with i,
+                    # so the "most recent 8" ordering the route relies on
+                    # (PromptAssignment.created_at.desc()) is deterministic
+                    # regardless of how fast this loop runs - relying on the
+                    # column's own now()-default would risk identical
+                    # timestamps (same microsecond) across a tight loop.
+                    session.add(PromptAssignment(
+                        id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                        class_id=klass.id, assigned_by_external_identity="teacher:t",
+                        status="OPEN", created_at=base + timedelta(seconds=i),
+                    ))
+                await session.commit()
+
+        self.loop.run_until_complete(_seed_async())
+
+    def test_caps_at_8_most_recent_assignments(self):
+        self._seed_many_open_assignments("cap", count=10)
+        self._as("student_cap")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(len(body), 8)
+        # Most recently created 8, so "Tema 9" (last created) must be
+        # present and "Tema 0" (first created) must have been dropped.
+        titles = {row["title"] for row in body}
+        self.assertIn("Tema 9", titles)
+        self.assertNotIn("Tema 0", titles)
+
+    def _add_correction(self, submission_id, status: str):
+        async def _add_async():
+            async with self.factory() as session:
+                submission = await session.get(EssaySubmission, submission_id)
+                now = datetime.now(timezone.utc)
+                is_terminal = status in ("APPROVED", "REJECTED")
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=submission.school_id,
+                    essay_submission_id=submission_id, correction_key="k" * 64,
+                    rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                    ai_output={"annotations": [], "rewrites": [], "intervention": {}, "alerts": []},
+                    final_scores={"total": 600}, final_feedback={}, status=status,
+                    reviewed_at=now if is_terminal else None,
+                    published_at=now if status == "APPROVED" else None,
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add_async())
+
+    def test_correction_status_is_null_when_no_correction_exists(self):
+        _assignment_id, submission_id = self._seed("6", with_submission=True)
+        self._as("student_6")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertIsNone(resp.json()[0]["my_submission"]["correction_status"])
+
+    def test_correction_status_reflects_approved_correction(self):
+        _assignment_id, submission_id = self._seed("7", with_submission=True)
+        self._add_correction(submission_id, status="APPROVED")
+        self._as("student_7")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()[0]["my_submission"]["correction_status"], "APPROVED")
+
+    def test_correction_status_reflects_pending_review_correction(self):
+        _assignment_id, submission_id = self._seed("8", with_submission=True)
+        self._add_correction(submission_id, status="PENDING_REVIEW")
+        self._as("student_8")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()[0]["my_submission"]["correction_status"], "PENDING_REVIEW")
 
 
 if __name__ == "__main__":

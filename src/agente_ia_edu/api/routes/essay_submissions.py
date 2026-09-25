@@ -648,6 +648,7 @@ class MySubmissionSummary(BaseModel):
     status: str
     anchor_mode: str
     mode: str
+    correction_status: Optional[str] = None
 
 
 class EssayPromptForStudentResponse(BaseModel):
@@ -681,6 +682,7 @@ async def list_essay_prompts_for_student(
                     PromptAssignment.status == "OPEN",
                 )
                 .order_by(PromptAssignment.created_at.desc())
+                .limit(8)
             )
         ).all()
 
@@ -695,11 +697,19 @@ async def list_essay_prompts_for_student(
                 )
                 .order_by(EssaySubmission.created_at.desc())
             )
+            correction_status = None
+            if submission is not None:
+                correction = await session.scalar(
+                    select(EssayCorrection).where(
+                        EssayCorrection.essay_submission_id == submission.id
+                    )
+                )
+                correction_status = correction.status if correction is not None else None
             my_submission = (
                 MySubmissionSummary(
                     id=submission.id, essay_id=submission.essay_id,
                     status=submission.status, anchor_mode=submission.anchor_mode,
-                    mode=submission.mode,
+                    mode=submission.mode, correction_status=correction_status,
                 )
                 if submission is not None
                 else None

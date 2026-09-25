@@ -63,12 +63,21 @@
   }
 
   function submissionState(mySubmission) {
-    if (!mySubmission) return { label: 'Enviar redação', badge: 'badge-accent' };
+    if (!mySubmission) return { label: 'Enviar redação', badge: 'badge-accent', btnClass: 'btn-primary' };
     if (mySubmission.status === 'PENDING_TRANSCRIPTION' || mySubmission.status === 'PENDING_CONFIRMATION') {
-      return { label: 'Continuar envio', badge: 'badge-accent' };
+      return { label: 'Continuar envio', badge: 'badge-accent', btnClass: 'btn-primary' };
     }
-    if (mySubmission.status === 'SUBMITTED') return { label: 'Em correção / ver devolutiva', badge: 'badge-primary' };
-    return { label: 'Ver detalhes', badge: 'badge-primary' };
+    if (mySubmission.status === 'SUBMITTED') {
+      if (mySubmission.correction_status === 'APPROVED') {
+        return { label: 'Ver devolutiva', badge: 'badge-success', btnClass: 'btn-success' };
+      }
+      if (mySubmission.correction_status === 'REJECTED') {
+        return { label: 'Ver detalhes', badge: 'badge-primary', btnClass: 'btn-primary' };
+      }
+      // Sem correção ainda, ou PENDING_REVIEW/NEEDS_REVIEW - ainda em correção.
+      return { label: 'Em correção', badge: 'badge-warning', btnClass: 'btn-warning' };
+    }
+    return { label: 'Ver detalhes', badge: 'badge-primary', btnClass: 'btn-primary' };
   }
 
   function renderList() {
@@ -79,10 +88,10 @@
           return `
             <article class="card essay-prompt-card">
               <h3>${escEssay(p.title)}</h3>
-              <p>${escEssay(p.statement)}</p>
+              <p class="essay-prompt-statement">${escEssay(p.statement)}</p>
               ${dueText}
               <span class="badge ${state.badge}">${state.label}</span>
-              <button class="btn btn-primary" type="button" data-open-prompt="${escEssay(p.prompt_assignment_id)}">${state.label}</button>
+              <button class="btn ${state.btnClass}" type="button" data-open-prompt="${escEssay(p.prompt_assignment_id)}">${state.label}</button>
             </article>`;
         }).join('')}</div>`
       : '<div class="card"><p class="empty-text">Nenhuma proposta de redação aberta para sua turma no momento.</p></div>';

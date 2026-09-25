@@ -388,6 +388,8 @@ body.sidebar-open {
 
 .badge-primary { background: var(--primary-light); color: var(--primary); }
 .badge-accent { background: var(--accent-light); color: var(--accent); }
+.badge-warning { background: var(--warning-light); color: var(--warning); }
+.badge-success { background: var(--success-light); color: var(--success); }
 
 /* Banner Card */
 .banner-card {
@@ -641,6 +643,16 @@ body.sidebar-open {
   background: var(--bg-app);
   color: var(--text-main);
   border: 1px solid var(--border-color);
+}
+
+.btn-warning {
+  background: var(--warning);
+  color: #fff;
+}
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
 }
 
 /* Essay Placeholder Card */
@@ -1570,8 +1582,16 @@ body.sidebar-open {
 }
 
 /* Módulo Redação */
-.essay-prompt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.essay-prompt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .essay-prompt-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .essay-prompt-grid { grid-template-columns: 1fr; } }
 .essay-prompt-card { display: flex; flex-direction: column; gap: 10px; }
+.essay-prompt-statement {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .essay-mode-tabs { display: flex; gap: 8px; margin: 12px 0; }
 .essay-mode-tabs .is-active { background: var(--primary); color: #fff; }
 .essay-form input, .essay-form textarea, .essay-form select {
