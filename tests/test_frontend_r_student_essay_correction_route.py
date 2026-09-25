@@ -440,5 +440,142 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 503)
 
 
+class StudentEssayEvolutionRouteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.loop = asyncio.new_event_loop()
+        cls.engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+        cls.factory = async_sessionmaker(cls.engine, class_=AsyncSession, expire_on_commit=False)
+
+        async def _prep():
+            async with cls.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+        cls.loop.run_until_complete(_prep())
+        cls.app = create_app()
+        cls.app.dependency_overrides[get_session_factory] = lambda: cls.factory
+        cls.client = TestClient(cls.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.dependency_overrides.clear()
+        cls.loop.run_until_complete(cls.engine.dispose())
+        cls.loop.close()
+
+    def _as(self, user: str):
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
+
+    def _seed_student_with_corrections(self, code: str, totals: list):
+        """Seeds one student with one submission+APPROVED correction per
+        entry in ``totals`` (None entries are seeded FORMATIVO - no
+        final_scores)."""
+        async def _seed_async():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"SEE-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(SchoolModule(
+                    id=uuid.uuid4(), school_id=school.id, module_key="REDACAO_IA", enabled=True,
+                ))
+                session.add(UserSchoolLink(
+                    external_user_id=f"student_{code}", school_id=school.id, role="STUDENT",
+                    scope_type="SCHOOL", active=True,
+                ))
+                segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEG-{code}")
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="grade", external_id=f"GRADE-{code}",
+                )
+                year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id=f"YEAR-{code}")
+                session.add_all([grade, year])
+                await session.flush()
+                klass = Class(
+                    id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                    grade_level_id=grade.id, name="turma", external_id=f"TURMA-{code}",
+                )
+                session.add(klass)
+                person = Person(id=uuid.uuid4(), school_id=school.id, full_name=f"Aluno {code}")
+                session.add(person)
+                await session.flush()
+                session.add(User(
+                    id=uuid.uuid4(), school_id=school.id, person_id=person.id,
+                    external_identity_provider="test", external_user_id=f"student_{code}",
+                ))
+                student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id, student_code=f"ST-{code}")
+                session.add(student)
+                await session.flush()
+                session.add(StudentEnrollment(
+                    id=uuid.uuid4(), school_id=school.id, student_id=student.id, class_id=klass.id,
+                    status="ACTIVE",
+                ))
+                prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                    year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                )
+                session.add(prompt)
+                await session.flush()
+                assignment = PromptAssignment(
+                    id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                    class_id=klass.id, assigned_by_external_identity="teacher:t",
+                )
+                session.add(assignment)
+                await session.flush()
+                for i, total in enumerate(totals):
+                    now = datetime.now(timezone.utc)
+                    submission = EssaySubmission(
+                        id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=school.id,
+                        prompt_assignment_id=assignment.id, student_id=student.id,
+                        mode="TYPED", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
+                        canonical_text=f"Redacao {i}.", normalized_text_hash="a" * 64,
+                        submitted_at=now,
+                    )
+                    session.add(submission)
+                    await session.flush()
+                    final_scores = None if total is None else {
+                        "total": total,
+                        "per_competency": {
+                            c: {"points": total // 5, "confidence": 1.0} for c in ("C1", "C2", "C3", "C4", "C5")
+                        },
+                    }
+                    session.add(EssayCorrection(
+                        id=uuid.uuid4(), school_id=school.id, essay_submission_id=submission.id,
+                        correction_key="k" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
+                        prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                        ai_output={"annotations": [], "rewrites": [], "intervention": {}, "alerts": []},
+                        final_scores=final_scores, final_feedback={},
+                        status="APPROVED", reviewed_at=now, published_at=now,
+                    ))
+                await session.commit()
+
+        self.loop.run_until_complete(_seed_async())
+
+    def test_no_approved_corrections_returns_empty_entries(self):
+        self._seed_student_with_corrections("1", [])
+        self._as("student_1")
+        resp = self.client.get("/api/v1/student/essay-evolution")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["entries"], [])
+        self.assertIsNone(body["total_delta"])
+
+    def test_returns_own_entries_newest_first_with_delta(self):
+        self._seed_student_with_corrections("2", [620, 800])
+        self._as("student_2")
+        resp = self.client.get("/api/v1/student/essay-evolution")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(len(body["entries"]), 2)
+        self.assertEqual(body["entries"][0]["total"], 800)
+        self.assertEqual(body["total_delta"], 180)
+
+    def test_requires_student_role(self):
+        self._seed_student_with_corrections("3", [620])
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("nobody")
+        resp = self.client.get("/api/v1/student/essay-evolution")
+        self.assertEqual(resp.status_code, 403, resp.text)
+
+
 if __name__ == "__main__":
     unittest.main()

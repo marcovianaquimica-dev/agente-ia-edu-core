@@ -69,22 +69,22 @@
   }
 
   function renderList() {
-    if (!prompts.length) {
-      container.innerHTML = '<div class="card"><p class="empty-text">Nenhuma proposta de redação aberta para sua turma no momento.</p></div>';
-      return;
-    }
-    container.innerHTML = `<div class="essay-prompt-grid">${prompts.map((p) => {
-      const state = submissionState(p.my_submission);
-      const dueText = p.due_at ? `<p class="empty-text">Prazo: ${new Date(p.due_at).toLocaleDateString('pt-BR')}</p>` : '';
-      return `
-        <article class="card essay-prompt-card">
-          <h3>${escEssay(p.title)}</h3>
-          <p>${escEssay(p.statement)}</p>
-          ${dueText}
-          <span class="badge ${state.badge}">${state.label}</span>
-          <button class="btn btn-primary" type="button" data-open-prompt="${escEssay(p.prompt_assignment_id)}">${state.label}</button>
-        </article>`;
-    }).join('')}</div>`;
+    const promptsHtml = prompts.length
+      ? `<div class="essay-prompt-grid">${prompts.map((p) => {
+          const state = submissionState(p.my_submission);
+          const dueText = p.due_at ? `<p class="empty-text">Prazo: ${new Date(p.due_at).toLocaleDateString('pt-BR')}</p>` : '';
+          return `
+            <article class="card essay-prompt-card">
+              <h3>${escEssay(p.title)}</h3>
+              <p>${escEssay(p.statement)}</p>
+              ${dueText}
+              <span class="badge ${state.badge}">${state.label}</span>
+              <button class="btn btn-primary" type="button" data-open-prompt="${escEssay(p.prompt_assignment_id)}">${state.label}</button>
+            </article>`;
+        }).join('')}</div>`
+      : '<div class="card"><p class="empty-text">Nenhuma proposta de redação aberta para sua turma no momento.</p></div>';
+
+    container.innerHTML = `${promptsHtml}<div id="essay-evolution-section" class="essay-evolution-root"><p class="empty-text">Carregando evolução...</p></div>`;
 
     container.querySelectorAll('[data-open-prompt]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -92,6 +92,44 @@
         openPrompt(prompt);
       });
     });
+
+    loadEvolutionSection();
+  }
+
+  async function loadEvolutionSection() {
+    const section = container.querySelector('#essay-evolution-section');
+    if (!section) return;
+    let data;
+    try {
+      data = await essayRequest('/api/v1/student/essay-evolution');
+    } catch (e) {
+      section.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+      return;
+    }
+    if (!data.entries.length) {
+      section.innerHTML = '<p class="empty-text">Vamos ver sua evolução assim que sua primeira redação for corrigida.</p>';
+      return;
+    }
+    let checklistData = { rationales: [], feedbackStrengths: [] };
+    try {
+      const mostRecent = await essayRequest(
+        `/api/v1/student/essay-submissions/${data.entries[0].essay_submission_id}/correction`,
+      );
+      checklistData = {
+        rationales: mostRecent.rationales || [],
+        feedbackStrengths: (mostRecent.final_feedback || {}).strengths || [],
+      };
+    } catch (e) {
+      // Checklist degrades to its own empty state below - the timeline and
+      // charts above it (already rendered from `data`) don't depend on this
+      // second fetch succeeding.
+    }
+    try {
+      section.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
+      window.EssayEvolution.wireEvolutionSection(section, data);
+    } catch (e) {
+      section.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+    }
   }
 
   function openPrompt(prompt) {

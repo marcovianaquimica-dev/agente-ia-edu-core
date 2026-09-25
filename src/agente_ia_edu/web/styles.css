@@ -1667,3 +1667,37 @@ body.sidebar-open {
 .essay-closing-message { font-style: italic; margin: 14px 0; }
 .essay-transparency-notice { font-size: 12px; color: var(--text-muted); margin-top: 16px; }
 .essay-report-preview { border: 1px solid var(--border, #e2e6ee); border-radius: 6px; padding: 12px; margin-top: 8px; background: #fafbfc; }
+
+.essay-evolution-root { margin-top: 24px; }
+.essay-evolution-summary {
+  background: var(--success-light); border: 1px solid var(--success); border-radius: 6px;
+  padding: 10px 12px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--success);
+}
+.essay-evolution-timeline { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.essay-evolution-card { padding: 10px 12px; }
+.essay-evolution-card-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.essay-evolution-card-total { color: var(--text-muted); }
+.essay-evolution-mini-bars { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.essay-evolution-mini-label { font-size: 10px; color: var(--text-muted); text-align: center; margin-bottom: 2px; }
+.essay-evolution-mini-track { background: #eef1f5; border-radius: 3px; height: 6px; overflow: hidden; }
+.essay-evolution-mini-fill { height: 100%; }
+.essay-evolution-mini-fill.essay-mark-C1 { background: var(--primary); }
+.essay-evolution-mini-fill.essay-mark-C2 { background: var(--accent); }
+.essay-evolution-mini-fill.essay-mark-C3 { background: var(--danger); }
+.essay-evolution-mini-fill.essay-mark-C4 { background: var(--warning); }
+.essay-evolution-mini-fill.essay-mark-C5 { background: var(--success); }
+.essay-evolution-section-title { margin-top: 24px; }
+.essay-evolution-charts { display: flex; flex-direction: column; gap: 12px; }
+.essay-evolution-chart-card {
+  border: 1px solid var(--border, #e2e6ee); border-radius: 8px; padding: 16px;
+  background: #fff; max-width: 560px;
+}
+.essay-evolution-chart-title {
+  font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--text-muted);
+  display: flex; align-items: center;
+}
+.essay-evolution-chart-badge { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.essay-evolution-axis-label { font-size: 10px; fill: #94a3b8; }
+.essay-evolution-pt-label { font-size: 10px; fill: #64748b; }
+.essay-evolution-pt-value { font-size: 11px; fill: #1e293b; font-weight: 700; }
+.essay-evolution-student-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; }

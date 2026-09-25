@@ -53,6 +53,7 @@
       <div class="essay-review-tabs">
         <button class="btn ${activeTab === 'prompts' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="prompts">Propostas</button>
         <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
+        <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
       </div>`;
   }
 
@@ -61,6 +62,7 @@
       btn.addEventListener('click', () => {
         if (btn.dataset.tab === 'prompts') renderPromptsList();
         if (btn.dataset.tab === 'queue') renderReviewQueue();
+        if (btn.dataset.tab === 'evolution') renderEvolutionTab();
       });
     });
   }
@@ -290,6 +292,78 @@
     body.querySelectorAll('[data-open-correction]').forEach((btn) => {
       btn.addEventListener('click', () => renderReviewPanel(btn.dataset.openCorrection, currentStatus));
     });
+  }
+
+  async function renderEvolutionTab() {
+    container.innerHTML = `
+      ${renderTabs('evolution')}
+      <div class="tm-form-row" style="margin: 12px 0;">
+        <div class="form-group">
+          <label for="er-evolution-search">Buscar aluno</label>
+          <input id="er-evolution-search" class="text-input" placeholder="Nome do aluno">
+        </div>
+      </div>
+      <div id="er-evolution-students"></div>
+      <div id="er-evolution-body"></div>`;
+    wireTabs();
+
+    const searchInput = container.querySelector('#er-evolution-search');
+    const studentsList = container.querySelector('#er-evolution-students');
+    const body = container.querySelector('#er-evolution-body');
+
+    async function loadStudents(q) {
+      let students = [];
+      try {
+        students = await reviewRequest(`/api/v1/teacher/essay-evolution/students${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+      } catch (e) {
+        studentsList.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+        return;
+      }
+      studentsList.innerHTML = students.length
+        ? `<ul class="essay-evolution-student-list">${students.map((s) => `
+            <li><button class="btn btn-secondary" type="button" data-select-student="${tmEsc(s.student_id)}">${tmEsc(s.student_name)}</button></li>`).join('')}</ul>`
+        : '<p class="empty-text">Nenhum aluno com redação corrigida ainda.</p>';
+      studentsList.querySelectorAll('[data-select-student]').forEach((btn) => {
+        btn.addEventListener('click', () => loadEvolutionForStudent(btn.dataset.selectStudent));
+      });
+    }
+
+    async function loadEvolutionForStudent(studentId) {
+      body.innerHTML = '<p class="empty-text">Carregando evolução...</p>';
+      let data;
+      try {
+        data = await reviewRequest(`/api/v1/teacher/essay-evolution?student_id=${encodeURIComponent(studentId)}`);
+      } catch (e) {
+        body.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+        return;
+      }
+      if (!data.entries.length) {
+        body.innerHTML = '<p class="empty-text">Este aluno ainda não tem redação aprovada.</p>';
+        return;
+      }
+      let checklistData = { rationales: [], feedbackStrengths: [] };
+      try {
+        const approved = await reviewRequest('/api/v1/teacher/essay-corrections?status=APPROVED');
+        const match = approved.find((c) => c.essay_submission_id === data.entries[0].essay_submission_id);
+        if (match) {
+          checklistData = {
+            rationales: (match.ai_output || {}).rationales || [],
+            feedbackStrengths: (match.final_feedback || {}).strengths || [],
+          };
+        }
+      } catch (e) {
+        // Checklist degrades to its own empty state below.
+      }
+      try {
+        body.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
+        window.EssayEvolution.wireEvolutionSection(body, data);
+      } catch (e) {
+        body.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      }
+    }
+
+    searchInput.addEventListener('input', () => loadStudents(searchInput.value.trim()));
+    await loadStudents('');
   }
 
   function renderReviewPanel(correctionId, returnStatus) {

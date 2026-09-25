@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -24,6 +24,7 @@ from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySub
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
+from ...services.essay_evolution import EssayEvolutionResponse, build_evolution
 from ...services.essay_pdf_export import build_render_model, filename_for_title, pdf_available, render_pdf
 
 essay_corrections_router = APIRouter(
@@ -392,3 +393,53 @@ async def get_essay_correction_page_image(
         if page is None:
             raise HTTPException(status_code=404, detail="Page not found")
         return FileResponse(page.storage_uri)
+
+
+class EssayEvolutionStudentItem(BaseModel):
+    student_id: uuid.UUID
+    student_name: str
+
+
+essay_evolution_teacher_router = APIRouter(
+    prefix="/api/v1/teacher/essay-evolution", tags=["essay-evolution"]
+)
+
+
+@essay_evolution_teacher_router.get("", response_model=EssayEvolutionResponse)
+async def get_teacher_essay_evolution(
+    student_id: uuid.UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayEvolutionResponse:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        data = await build_evolution(session, school_id=school_id, student_id=student_id)
+        return EssayEvolutionResponse(**data)
+
+
+@essay_evolution_teacher_router.get("/students", response_model=list[EssayEvolutionStudentItem])
+async def list_essay_evolution_students(
+    q: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[EssayEvolutionStudentItem]:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        stmt = (
+            select(Student.id, Person.full_name)
+            .join(Person, Person.id == Student.person_id)
+            .join(EssaySubmission, EssaySubmission.student_id == Student.id)
+            .join(EssayCorrection, EssayCorrection.essay_submission_id == EssaySubmission.id)
+            .where(Student.school_id == school_id, EssayCorrection.status == "APPROVED")
+            .distinct()
+            .order_by(Person.full_name)
+            .limit(limit)
+        )
+        if q:
+            stmt = stmt.where(Person.full_name.ilike(f"%{q}%"))
+        rows = (await session.execute(stmt)).all()
+        return [
+            EssayEvolutionStudentItem(student_id=row_student_id, student_name=row_student_name)
+            for row_student_id, row_student_name in rows
+        ]
