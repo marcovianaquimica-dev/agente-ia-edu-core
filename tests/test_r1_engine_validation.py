@@ -299,6 +299,51 @@ class TestEngineValidation(unittest.TestCase):
             )
         self.assertEqual(caught.exception.reason_code, "REGION_OUT_OF_PAGE")
 
+    def test_accepts_a_global_annotation_without_anchor_in_text_offset_mode(self):
+        """The exact regression this fix targets: a GLOBAL annotation with no
+        anchor must survive layer 3 (anchoring) in TEXT_OFFSET mode without
+        raising AttributeError - the loop must skip it, not dereference
+        ``annotation.anchor.end``/``.start``/``.quote`` on a None."""
+        output = build_output(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "GLOBAL",
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
+
+    def test_accepts_a_global_annotation_without_anchor_in_image_region_mode(self):
+        """Same regression, IMAGE_REGION mode: the loop must skip a
+        GLOBAL/anchor=None annotation rather than dereferencing
+        ``annotation.anchor.page``/``.x``/``.y``/etc on a None."""
+        output = build_output(
+            identification={
+                "essay_id": str(uuid.uuid4()), "essay_version_id": str(uuid.uuid4()),
+                "rubric_version": "ENEM_2025", "model_version": "fake-model-1",
+                "prompt_version": "v1", "engine_version": "r1.0.0",
+                "contract_version": CONTRACT_VERSION, "anchor_mode": "IMAGE_REGION",
+            },
+            annotations=[{
+                "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+                "evidence_kind": "GLOBAL",
+                "short_comment": "curto", "long_comment": "longo",
+            }],
+        )
+        validate_engine_output(
+            output, rubric=RUBRIC, text=None, page_boxes={1: (600.0, 800.0)}
+        )
+
+    def test_from_payload_accepts_a_global_annotation_without_anchor(self):
+        """End-to-end through the single entry point spec §7 promises: a
+        payload with a GLOBAL, anchor-omitted annotation must validate clean
+        through all three layers, not just layer 1."""
+        raw_payload = build_payload(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "GLOBAL",
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        output = validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
+        self.assertIsNone(output.annotations[0].anchor)
+
     def test_the_rejection_carries_the_raw_output_and_input_hash(self):
         raw = {"whatever": "the model returned"}
         output = build_output(annotations=[{

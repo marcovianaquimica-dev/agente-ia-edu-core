@@ -234,6 +234,10 @@ def validate_engine_output(
             )
         for annotation in output.annotations:
             anchor = annotation.anchor
+            if anchor is None:
+                # GLOBAL sem âncora - Camada 1 já garante que só GLOBAL chega
+                # aqui sem anchor; nada de posição/texto pra verificar.
+                continue
             if anchor.end > len(text):
                 reject(
                     "OFFSET_OUT_OF_BOUNDS",
@@ -255,6 +259,10 @@ def validate_engine_output(
             )
         for annotation in output.annotations:
             anchor = annotation.anchor
+            if anchor is None:
+                # GLOBAL sem âncora - Camada 1 já garante que só GLOBAL chega
+                # aqui sem anchor; nada de posição/texto pra verificar.
+                continue
             box = page_boxes.get(anchor.page)
             if box is None:
                 reject(
