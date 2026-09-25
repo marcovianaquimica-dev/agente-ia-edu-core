@@ -354,8 +354,12 @@
       } catch (e) {
         // Checklist degrades to its own empty state below.
       }
-      body.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
-      window.EssayEvolution.wireEvolutionSection(body, data);
+      try {
+        body.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
+        window.EssayEvolution.wireEvolutionSection(body, data);
+      } catch (e) {
+        body.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      }
     }
 
     searchInput.addEventListener('input', () => loadStudents(searchInput.value.trim()));

@@ -57,7 +57,7 @@ async def build_evolution(
                 EssaySubmission.student_id == student_id,
                 EssayCorrection.status == "APPROVED",
             )
-            .order_by(EssayCorrection.published_at.desc())
+            .order_by(EssayCorrection.published_at.desc(), EssayCorrection.created_at.desc())
         )
     ).all()
 

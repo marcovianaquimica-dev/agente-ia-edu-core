@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -420,7 +420,7 @@ async def get_teacher_essay_evolution(
 @essay_evolution_teacher_router.get("/students", response_model=list[EssayEvolutionStudentItem])
 async def list_essay_evolution_students(
     q: Optional[str] = None,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> list[EssayEvolutionStudentItem]:
@@ -434,7 +434,7 @@ async def list_essay_evolution_students(
             .where(Student.school_id == school_id, EssayCorrection.status == "APPROVED")
             .distinct()
             .order_by(Person.full_name)
-            .limit(min(limit, 200))
+            .limit(limit)
         )
         if q:
             stmt = stmt.where(Person.full_name.ilike(f"%{q}%"))

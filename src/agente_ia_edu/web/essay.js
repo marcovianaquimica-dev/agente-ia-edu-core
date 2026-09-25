@@ -124,8 +124,12 @@
       // charts above it (already rendered from `data`) don't depend on this
       // second fetch succeeding.
     }
-    section.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
-    window.EssayEvolution.wireEvolutionSection(section, data);
+    try {
+      section.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
+      window.EssayEvolution.wireEvolutionSection(section, data);
+    } catch (e) {
+      section.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+    }
   }
 
   function openPrompt(prompt) {
