@@ -356,9 +356,27 @@
       }
       try {
         body.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
-        window.EssayEvolution.wireEvolutionSection(body, data);
+        window.EssayEvolution.wireEvolutionSection(body, data, { onViewDevolutiva: viewSubmissionDevolutivaForTeacher });
       } catch (e) {
         body.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      }
+    }
+
+    async function viewSubmissionDevolutivaForTeacher(entry) {
+      try {
+        const approved = await reviewRequest('/api/v1/teacher/essay-corrections?status=APPROVED');
+        const match = approved.find((c) => c.essay_submission_id === entry.essay_submission_id);
+        if (!match) {
+          alert('Não foi possível abrir a devolutiva.');
+          return;
+        }
+        // renderReviewPanel busca a correção em currentCorrections (variável
+        // de módulo) por id - precisa estar populada com a lista que contém
+        // a correção que queremos abrir antes de chamar.
+        currentCorrections = approved;
+        renderReviewPanel(match.id, 'APPROVED');
+      } catch (e) {
+        alert('Não foi possível abrir a devolutiva.');
       }
     }
 

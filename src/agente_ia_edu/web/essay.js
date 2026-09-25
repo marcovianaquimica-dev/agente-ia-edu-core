@@ -138,9 +138,31 @@
     }
     try {
       section.innerHTML = window.EssayEvolution.renderEvolutionSection(data, checklistData);
-      window.EssayEvolution.wireEvolutionSection(section, data);
+      window.EssayEvolution.wireEvolutionSection(section, data, { onViewDevolutiva: viewSubmissionDevolutiva });
     } catch (e) {
       section.innerHTML = `<p class="empty-text">${escEssay(e.message)}</p>`;
+    }
+  }
+
+  async function viewSubmissionDevolutiva(entry) {
+    try {
+      const correction = await essayRequest(`/api/v1/student/essay-submissions/${entry.essay_submission_id}/correction`);
+      // As entradas de evolução só incluem correções aprovadas, mas confere
+      // por segurança - se por algum motivo não estiver aprovada, não tenta
+      // renderizar como se fosse (renderApprovedDevolutiva assume dados de
+      // uma correção aprovada completa).
+      if (correction.status !== 'APPROVED') return;
+      // anchor_mode não vem na resposta de /correction - infere pelo mesmo
+      // sinal que o resto do código já usa: canonical_text só existe pra
+      // TEXT_OFFSET (digitado), é null pra IMAGE_REGION (foto/imagem/PDF).
+      const anchorMode = correction.canonical_text ? 'TEXT_OFFSET' : 'IMAGE_REGION';
+      const fakePrompt = {
+        title: entry.prompt_title,
+        my_submission: { id: entry.essay_submission_id, anchor_mode: anchorMode },
+      };
+      renderApprovedDevolutiva(fakePrompt, correction);
+    } catch (e) {
+      alert('Não foi possível abrir a devolutiva.');
     }
   }
 

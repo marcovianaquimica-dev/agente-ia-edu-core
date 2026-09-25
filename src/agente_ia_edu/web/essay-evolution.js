@@ -46,9 +46,10 @@
       const barsHtml = COMPETENCY_CODES.map((code) => {
         const points = entry.per_competency ? entry.per_competency[code] : null;
         const pct = points != null ? Math.round((points / 200) * 100) : 0;
+        const labelText = points != null ? `${code} = ${points}` : code;
         return `
           <div>
-            <div class="essay-evolution-mini-label">${code}</div>
+            <div class="essay-evolution-mini-label">${esc(labelText)}</div>
             <div class="essay-evolution-mini-track"><div class="essay-evolution-mini-fill essay-mark-${code}" style="width:${pct}%"></div></div>
           </div>`;
       }).join('');
@@ -60,6 +61,7 @@
             <span class="essay-evolution-card-total">${totalHtml}</span>
           </div>
           <div class="essay-evolution-mini-bars">${barsHtml}</div>
+          <button class="btn btn-success" type="button" data-view-submission="${esc(entry.essay_submission_id)}">Ver devolutiva</button>
         </div>`;
     }).join('');
     return `<div class="essay-evolution-timeline">${cardsHtml}</div>`;
@@ -213,11 +215,20 @@
       ${checklistHtml}`;
   }
 
-  function wireEvolutionSection(rootEl, data) {
+  function wireEvolutionSection(rootEl, data, options) {
+    const opts = options || {};
     const entries = data.entries || [];
     const seriesByChart = COMPETENCY_CODES.map((code) => buildSeries(entries, code));
     seriesByChart.push(buildSeries(entries, 'total'));
     wireChartPopovers(rootEl, seriesByChart);
+    if (opts.onViewDevolutiva) {
+      rootEl.querySelectorAll('[data-view-submission]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const entry = data.entries.find((e) => e.essay_submission_id === btn.dataset.viewSubmission);
+          if (entry) opts.onViewDevolutiva(entry);
+        });
+      });
+    }
   }
 
   return { renderEvolutionSection, wireEvolutionSection };
