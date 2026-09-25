@@ -38,6 +38,11 @@ class ApproveCorrectionRequest(BaseModel):
     final_feedback: Optional[dict] = None
 
 
+class EditCorrectionRequest(BaseModel):
+    final_scores: Optional[dict] = None
+    final_feedback: Optional[dict] = None
+
+
 class BulkApproveRequest(BaseModel):
     essay_correction_ids: list[UUID]
 
@@ -186,6 +191,45 @@ async def approve_essay_correction(
         # accessing its attributes afterwards triggers a synchronous
         # lazy-load that raises MissingGreenlet in an async context. Test
         # fixtures using expire_on_commit=False mask this.
+        response = _correction_to_response(correction)
+        await session.commit()
+        return response
+
+
+@essay_corrections_router.post(
+    "/{essay_correction_id}/edit", response_model=EssayCorrectionResponse
+)
+async def edit_essay_correction(
+    essay_correction_id: UUID,
+    request: EditCorrectionRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayCorrectionResponse:
+    """Lets a teacher revise the score/feedback of a correction that was
+    already approved (published) - unlike /approve, which only works while
+    the correction is still PENDING_REVIEW. status, published_at, and
+    reviewed_at are deliberately left untouched: they keep representing
+    when the correction was originally approved/published, so an edit here
+    doesn't reorder the essay in the student's evolution timeline.
+    reviewed_by_external_identity IS updated, same field /approve already
+    uses, to reflect who last touched the correction."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        correction = await _correction_for_own_school_or_403(
+            session, essay_correction_id=essay_correction_id, school_id=school_id
+        )
+        if correction.status != "APPROVED":
+            raise HTTPException(
+                status_code=409, detail="Only an approved correction can be edited this way."
+            )
+        if request.final_scores is not None:
+            correction.final_scores = request.final_scores
+        if request.final_feedback is not None:
+            correction.final_feedback = request.final_feedback
+        correction.reviewed_by_external_identity = identity.external_user_id
+        # See approve_essay_correction above: build the response before
+        # commit() expires `correction`, to avoid a MissingGreenlet error
+        # in production (expire_on_commit=True).
         response = _correction_to_response(correction)
         await session.commit()
         return response

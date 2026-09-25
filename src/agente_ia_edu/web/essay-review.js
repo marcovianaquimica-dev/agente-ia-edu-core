@@ -318,6 +318,11 @@
     const isPending = correction.status === 'PENDING_REVIEW';
     const isTerminal = correction.status === 'APPROVED' || correction.status === 'REJECTED';
     const showsContent = isPending || isTerminal;
+    // An APPROVED correction is terminal (no status change happens here)
+    // but the teacher can still revise its published score/feedback at any
+    // time via /edit - so the score/feedback inputs stay editable for it,
+    // unlike REJECTED which has no published content to revise.
+    const isEditableNow = isPending || correction.status === 'APPROVED';
 
     // Captured once, at render time, so the approve handler below can tell
     // an actual edit apart from the field simply still showing what it was
@@ -346,16 +351,16 @@
       <div class="tm-form-row">
         ${['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => `
           <div class="form-group">
-            <label ${isPending ? `for="er-score-${code}"` : ''}>${code}</label>
-            ${isPending
+            <label ${isEditableNow ? `for="er-score-${code}"` : ''}>${code}</label>
+            ${isEditableNow
               ? `<input id="er-score-${code}" class="text-input" type="number" min="0" max="200" step="40" value="${Number((perCompetency[code] || {}).points) || 0}">`
               : `<p class="empty-text">${tmEsc((perCompetency[code] || {}).points ?? '—')}</p>`}
           </div>`).join('')}
       </div>
       <h4>Feedback</h4>
       <div class="form-group">
-        <label ${isPending ? 'for="er-feedback-strategy"' : ''}>Próxima redação</label>
-        ${isPending
+        <label ${isEditableNow ? 'for="er-feedback-strategy"' : ''}>Próxima redação</label>
+        ${isEditableNow
           ? `<textarea id="er-feedback-strategy" class="textarea-input" rows="3">${tmEsc(feedback.next_essay_strategy || '')}</textarea>`
           : `<p class="empty-text">${tmEsc(feedback.next_essay_strategy || '—')}</p>`}
       </div>
@@ -378,8 +383,11 @@
         <p class="empty-text">Rejeitar descarta esta correção permanentemente e oferece ao aluno a opção de reenviar a redação.</p>`
       : correction.status === 'NEEDS_REVIEW' ? `
         <button class="btn btn-primary" type="button" id="er-retry-btn">Tentar novamente</button>`
+      : correction.status === 'APPROVED' ? `
+        <p class="empty-text">Decisão: Aprovada</p>
+        <button class="btn btn-secondary" type="button" id="er-edit-btn">Salvar alterações</button>`
       : isTerminal ? `
-        <p class="empty-text">Decisão: ${correction.status === 'APPROVED' ? 'Aprovada' : 'Rejeitada'}</p>`
+        <p class="empty-text">Decisão: Rejeitada</p>`
       : '';
 
     container.innerHTML = `
@@ -471,6 +479,55 @@
           msg.hidden = false;
           msg.textContent = e.message;
           approveBtn.disabled = false;
+        }
+      });
+    }
+
+    const editBtn = container.querySelector('#er-edit-btn');
+    if (editBtn) {
+      editBtn.addEventListener('click', async () => {
+        editBtn.disabled = true;
+        const currentScores = ['C1', 'C2', 'C3', 'C4', 'C5'].map((code) => Number(container.querySelector(`#er-score-${code}`).value) || 0);
+        const currentFeedbackText = container.querySelector('#er-feedback-strategy').value.trim();
+        // Same dirty-check as er-approve-btn above: only send what actually
+        // changed. Unlike approve (which always POSTs, even with an empty
+        // body, to move the correction into APPROVED), an edit with nothing
+        // changed has no reason to hit the network at all - just re-enable
+        // the button and stop.
+        const scoresEdited = currentScores.some((value, i) => value !== originalScores[i]);
+        const feedbackEdited = currentFeedbackText !== originalFeedbackText;
+        if (!scoresEdited && !feedbackEdited) {
+          editBtn.disabled = false;
+          return;
+        }
+        const body = {};
+        if (scoresEdited) {
+          const editedPerCompetency = Object.fromEntries(['C1', 'C2', 'C3', 'C4', 'C5'].map((code, i) => [
+            code,
+            {
+              points: currentScores[i],
+              confidence: (perCompetency[code] || {}).confidence ?? 1.0,
+            },
+          ]));
+          body.final_scores = {
+            per_competency: editedPerCompetency,
+            total: currentScores.reduce((sum, value) => sum + value, 0),
+          };
+        }
+        if (feedbackEdited) {
+          body.final_feedback = { ...feedback, next_essay_strategy: currentFeedbackText };
+        }
+        try {
+          await reviewRequest(`/api/v1/teacher/essay-corrections/${correctionId}/edit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          renderReviewQueue(returnStatus);
+        } catch (e) {
+          msg.hidden = false;
+          msg.textContent = e.message;
+          editBtn.disabled = false;
         }
       });
     }

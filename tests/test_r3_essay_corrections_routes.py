@@ -230,6 +230,78 @@ class EssayCorrectionsRoutesTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["final_scores"]["total"], 1000)
 
+    def test_edit_approved_updates_final_scores(self):
+        correction_id, _school_id = self._seed_pending_correction("30", status="APPROVED")
+        self._as("teacher_30")
+        new_scores = {
+            "per_competency": {
+                "C1": {"points": 200, "confidence": 1.0}, "C2": {"points": 200, "confidence": 1.0},
+                "C3": {"points": 200, "confidence": 1.0}, "C4": {"points": 200, "confidence": 1.0},
+                "C5": {"points": 200, "confidence": 1.0},
+            },
+            "total": 1000,
+        }
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_scores": new_scores},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["final_scores"]["total"], 1000)
+        self.assertEqual(body["status"], "APPROVED")
+        self.assertEqual(body["reviewed_by_external_identity"], "teacher_30")
+
+        list_resp = self.client.get("/api/v1/teacher/essay-corrections?status=APPROVED")
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        rows = [row for row in list_resp.json() if row["id"] == str(correction_id)]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["final_scores"]["total"], 1000)
+
+    def test_edit_pending_review_is_409(self):
+        correction_id, _school_id = self._seed_pending_correction("31")
+        self._as("teacher_31")
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": {"next_essay_strategy": "novo"}},
+        )
+        self.assertEqual(resp.status_code, 409)
+
+    def test_edit_does_not_change_status_or_published_at(self):
+        correction_id, _school_id = self._seed_pending_correction("32", status="APPROVED")
+
+        async def _get_published_at():
+            async with self.factory() as session:
+                correction = await session.get(EssayCorrection, correction_id)
+                return correction.status, correction.published_at, correction.reviewed_at
+
+        status_before, published_at_before, reviewed_at_before = self.loop.run_until_complete(
+            _get_published_at()
+        )
+
+        self._as("teacher_32")
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": {"next_essay_strategy": "atualizado"}},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        status_after, published_at_after, reviewed_at_after = self.loop.run_until_complete(
+            _get_published_at()
+        )
+        self.assertEqual(status_after, status_before)
+        self.assertEqual(published_at_after, published_at_before)
+        self.assertEqual(reviewed_at_after, reviewed_at_before)
+
+    def test_edit_from_another_school_is_403(self):
+        correction_id, _school_id = self._seed_pending_correction("33", status="APPROVED")
+        self._seed_pending_correction("34")
+        self._as("teacher_34")
+        resp = self.client.post(
+            f"/api/v1/teacher/essay-corrections/{correction_id}/edit",
+            json={"final_feedback": {"next_essay_strategy": "novo"}},
+        )
+        self.assertEqual(resp.status_code, 403)
+
     def test_reject(self):
         correction_id, _school_id = self._seed_pending_correction("4")
         self._as("teacher_4")
