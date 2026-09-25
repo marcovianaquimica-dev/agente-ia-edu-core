@@ -217,8 +217,11 @@ class TestEngineValidation(unittest.TestCase):
         self.assertEqual(caught.exception.reason_code, "UNKNOWN_COMPETENCY")
         self.assertIn("C1", str(caught.exception))
 
-    def test_rejects_an_unknown_signal_key(self):
-        """Rejection 7."""
+    def test_tolerates_an_unknown_signal_key_on_an_annotation(self):
+        """signal_keys are auxiliary tags nothing downstream reads, and the
+        engine prompt never enumerates the rubric's real registered keys -
+        the model has no way to know which ones are valid, so a made-up tag
+        must not sink an otherwise-sound annotation's real content."""
         output = build_output(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "LOCALIZED",
@@ -226,7 +229,18 @@ class TestEngineValidation(unittest.TestCase):
             "short_comment": "curto", "long_comment": "longo",
             "signal_keys": ["sinal_inventado"],
         }])
-        self._assert_rejected(output, reason_code="UNKNOWN_SIGNAL_KEY")
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
+
+    def test_tolerates_an_unknown_signal_key_on_a_rationale(self):
+        output = build_output(rationales=[
+            {
+                "competency_code": c, "summary": "resumo",
+                "strengths": "pontos fortes", "growth_area": "onde avançar",
+                "signal_keys": ["sinal_inventado"] if c == "C1" else [],
+            }
+            for c in ("C1", "C2", "C3", "C4", "C5")
+        ])
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
 
     def test_rejects_a_quote_that_does_not_match_the_text(self):
         """Rejection 4: the anti-hallucination guard."""
@@ -298,6 +312,51 @@ class TestEngineValidation(unittest.TestCase):
                 output, rubric=RUBRIC, text=None, page_boxes={1: (600.0, 800.0)}
             )
         self.assertEqual(caught.exception.reason_code, "REGION_OUT_OF_PAGE")
+
+    def test_accepts_a_global_annotation_without_anchor_in_text_offset_mode(self):
+        """The exact regression this fix targets: a GLOBAL annotation with no
+        anchor must survive layer 3 (anchoring) in TEXT_OFFSET mode without
+        raising AttributeError - the loop must skip it, not dereference
+        ``annotation.anchor.end``/``.start``/``.quote`` on a None."""
+        output = build_output(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "GLOBAL",
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        validate_engine_output(output, rubric=RUBRIC, text=TEXT)
+
+    def test_accepts_a_global_annotation_without_anchor_in_image_region_mode(self):
+        """Same regression, IMAGE_REGION mode: the loop must skip a
+        GLOBAL/anchor=None annotation rather than dereferencing
+        ``annotation.anchor.page``/``.x``/``.y``/etc on a None."""
+        output = build_output(
+            identification={
+                "essay_id": str(uuid.uuid4()), "essay_version_id": str(uuid.uuid4()),
+                "rubric_version": "ENEM_2025", "model_version": "fake-model-1",
+                "prompt_version": "v1", "engine_version": "r1.0.0",
+                "contract_version": CONTRACT_VERSION, "anchor_mode": "IMAGE_REGION",
+            },
+            annotations=[{
+                "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+                "evidence_kind": "GLOBAL",
+                "short_comment": "curto", "long_comment": "longo",
+            }],
+        )
+        validate_engine_output(
+            output, rubric=RUBRIC, text=None, page_boxes={1: (600.0, 800.0)}
+        )
+
+    def test_from_payload_accepts_a_global_annotation_without_anchor(self):
+        """End-to-end through the single entry point spec §7 promises: a
+        payload with a GLOBAL, anchor-omitted annotation must validate clean
+        through all three layers, not just layer 1."""
+        raw_payload = build_payload(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "GLOBAL",
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        output = validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
+        self.assertIsNone(output.annotations[0].anchor)
 
     def test_the_rejection_carries_the_raw_output_and_input_hash(self):
         raw = {"whatever": "the model returned"}

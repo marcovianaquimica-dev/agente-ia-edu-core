@@ -179,15 +179,21 @@ def validate_engine_output(
                     f"{rubric.rubric_version}",
                 )
 
+    # signal_keys are auxiliary tags - nothing outside this validator reads
+    # them (not the frontend, not the PDF export, not the evolution
+    # dashboard), and the prompt sent to the engine never enumerates the
+    # rubric's actual registered signal keys, so the model has no way to
+    # know which ones are valid. Rejecting the whole correction over a
+    # made-up tag on an otherwise-sound rationale/annotation throws away
+    # real pedagogical content for a mismatch in decoration. Unknown keys
+    # are simply not cross-checked here - not worth failing the correction.
+
     for rationale in output.rationales:
         if rationale.competency_code not in rubric.levels:
             reject(
                 "UNKNOWN_COMPETENCY",
                 f"rubric has no competency {rationale.competency_code!r}",
             )
-        for key in rationale.signal_keys:
-            if key not in rubric.signal_keys:
-                reject("UNKNOWN_SIGNAL_KEY", f"unknown or inactive signal {key!r}")
 
     for annotation in output.annotations:
         if annotation.competency_code not in rubric.levels:
@@ -195,9 +201,6 @@ def validate_engine_output(
                 "UNKNOWN_COMPETENCY",
                 f"rubric has no competency {annotation.competency_code!r}",
             )
-        for key in annotation.signal_keys:
-            if key not in rubric.signal_keys:
-                reject("UNKNOWN_SIGNAL_KEY", f"unknown or inactive signal {key!r}")
 
     valid_letters = {annotation.letter for annotation in output.annotations}
     annotation_competency_by_letter = {
@@ -234,6 +237,10 @@ def validate_engine_output(
             )
         for annotation in output.annotations:
             anchor = annotation.anchor
+            if anchor is None:
+                # GLOBAL sem âncora - Camada 1 já garante que só GLOBAL chega
+                # aqui sem anchor; nada de posição/texto pra verificar.
+                continue
             if anchor.end > len(text):
                 reject(
                     "OFFSET_OUT_OF_BOUNDS",
@@ -255,6 +262,10 @@ def validate_engine_output(
             )
         for annotation in output.annotations:
             anchor = annotation.anchor
+            if anchor is None:
+                # GLOBAL sem âncora - Camada 1 já garante que só GLOBAL chega
+                # aqui sem anchor; nada de posição/texto pra verificar.
+                continue
             box = page_boxes.get(anchor.page)
             if box is None:
                 reject(

@@ -132,11 +132,19 @@ class Annotation(BaseModel):
     competency_code: CompetencyCode
     kind: Literal["ACERTO", "ATENCAO", "MELHORIA"]
     evidence_kind: Literal["LOCALIZED", "GLOBAL"]
-    anchor: Anchor
+    anchor: Anchor | None = None
     short_comment: str = Field(min_length=1)
     long_comment: str = Field(min_length=1)
     pedagogical_suggestion: str | None = None
     signal_keys: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _anchor_required_when_localized(self) -> "Annotation":
+        if self.evidence_kind == "LOCALIZED" and self.anchor is None:
+            raise ValueError(
+                f"annotation {self.letter!r} has evidence_kind=LOCALIZED but no anchor"
+            )
+        return self
 
 
 class Rewrite(BaseModel):
@@ -224,7 +232,7 @@ class EssayEngineOutput(BaseModel):
     def _anchors_agree_with_declared_mode(self) -> "EssayEngineOutput":
         declared = self.identification.anchor_mode
         for annotation in self.annotations:
-            if annotation.anchor.type != declared:
+            if annotation.anchor is not None and annotation.anchor.type != declared:
                 raise ValueError(
                     f"annotation {annotation.letter!r} anchors on "
                     f"{annotation.anchor.type} but the output declares {declared}"

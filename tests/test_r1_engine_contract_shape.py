@@ -199,3 +199,53 @@ class TestEngineContractShape(unittest.TestCase):
         del payload["rationales"][0]["strengths"]
         with self.assertRaises(ValidationError):
             EssayEngineOutput.model_validate(payload)
+
+    def test_accepts_a_global_annotation_with_anchor_explicitly_none(self):
+        """A GLOBAL critique is a judgement of the competency as a whole, not
+        a pointer to a passage; the engine is explicitly instructed not to
+        invent an anchor for it (essay_prompts/v2.py), so anchor=None must
+        validate."""
+        payload = minimal_payload()
+        payload["annotations"][0] = {
+            "letter": "A",
+            "competency_code": "C1",
+            "kind": "MELHORIA",
+            "evidence_kind": "GLOBAL",
+            "anchor": None,
+            "short_comment": "curto",
+            "long_comment": "longo",
+        }
+        output = EssayEngineOutput.model_validate(payload)
+        self.assertIsNone(output.annotations[0].anchor)
+
+    def test_accepts_a_global_annotation_with_anchor_field_omitted(self):
+        """Same case as above, but the engine simply omits the ``anchor``
+        field entirely rather than sending an explicit null."""
+        payload = minimal_payload()
+        payload["annotations"][0] = {
+            "letter": "A",
+            "competency_code": "C1",
+            "kind": "MELHORIA",
+            "evidence_kind": "GLOBAL",
+            "short_comment": "curto",
+            "long_comment": "longo",
+        }
+        output = EssayEngineOutput.model_validate(payload)
+        self.assertIsNone(output.annotations[0].anchor)
+
+    def test_rejects_a_localized_annotation_with_no_anchor(self):
+        """The other half of the ruling: LOCALIZED without an anchor is
+        still nonsensical (a "specific" critique with no pointer to where in
+        the text) and must keep being rejected."""
+        payload = minimal_payload()
+        payload["annotations"][0] = {
+            "letter": "A",
+            "competency_code": "C1",
+            "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": None,
+            "short_comment": "curto",
+            "long_comment": "longo",
+        }
+        with self.assertRaises(ValidationError):
+            EssayEngineOutput.model_validate(payload)
