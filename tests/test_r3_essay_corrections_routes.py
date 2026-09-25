@@ -504,6 +504,61 @@ class EssayEvolutionTeacherRoutesTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json(), [])
 
+    def test_list_students_excludes_students_with_only_pending_review_correction(self):
+        school_id = self._seed_school_with_teacher("6")
+        # A student whose only correction is PENDING_REVIEW (not yet
+        # approved) must not show up in the selector either (dashboard
+        # spec §2: "lists students ... with >= 1 approved correction").
+        async def _seed_pending():
+            async with self.factory() as session:
+                person = Person(id=uuid.uuid4(), school_id=school_id, full_name="Pendente Review")
+                session.add(person)
+                await session.flush()
+                student = Student(id=uuid.uuid4(), school_id=school_id, person_id=person.id, student_code="ST-6p")
+                session.add(student)
+                prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school_id, title="Tema", statement="Disserte.",
+                    year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                )
+                session.add(prompt)
+                await session.flush()
+                assignment = PromptAssignment(
+                    id=uuid.uuid4(), school_id=school_id, essay_prompt_id=prompt.id,
+                    class_id=uuid.uuid4(), assigned_by_external_identity="teacher:t",
+                )
+                session.add(assignment)
+                await session.flush()
+                now = datetime.now(timezone.utc)
+                submission = EssaySubmission(
+                    id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=school_id,
+                    prompt_assignment_id=assignment.id, student_id=student.id,
+                    mode="TYPED", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
+                    canonical_text="Redacao.", normalized_text_hash="c" * 64,
+                    submitted_at=now,
+                )
+                session.add(submission)
+                await session.flush()
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=school_id, essay_submission_id=submission.id,
+                    correction_key="q" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                    ai_output={"annotations": [], "rewrites": [], "intervention": {}, "alerts": []},
+                    final_scores={
+                        "total": 700,
+                        "per_competency": {
+                            c: {"points": 140, "confidence": 1.0} for c in ("C1", "C2", "C3", "C4", "C5")
+                        },
+                    },
+                    final_feedback={}, status="PENDING_REVIEW",
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_seed_pending())
+        self._as("teacher_6")
+        resp = self.client.get("/api/v1/teacher/essay-evolution/students")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

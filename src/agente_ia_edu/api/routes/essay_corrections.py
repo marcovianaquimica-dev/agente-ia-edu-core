@@ -420,6 +420,7 @@ async def get_teacher_essay_evolution(
 @essay_evolution_teacher_router.get("/students", response_model=list[EssayEvolutionStudentItem])
 async def list_essay_evolution_students(
     q: Optional[str] = None,
+    limit: int = 50,
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> list[EssayEvolutionStudentItem]:
@@ -433,6 +434,7 @@ async def list_essay_evolution_students(
             .where(Student.school_id == school_id, EssayCorrection.status == "APPROVED")
             .distinct()
             .order_by(Person.full_name)
+            .limit(min(limit, 200))
         )
         if q:
             stmt = stmt.where(Person.full_name.ilike(f"%{q}%"))

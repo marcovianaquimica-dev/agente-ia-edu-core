@@ -184,6 +184,47 @@ class EssayEvolutionServiceTests(unittest.TestCase):
         result = self.loop.run_until_complete(self._call(school_id, student_id))
         self.assertEqual(result["total_delta"], 180)
 
+    def test_pending_review_correction_excluded_from_entries(self):
+        school_id, student_id, assignment_id = self._seed_school_and_student("8")
+        base = datetime.now(timezone.utc)
+        self._add_submission_with_correction(
+            school_id=school_id, student_id=student_id, assignment_id=assignment_id,
+            published_at=base, total=620,
+        )
+
+        async def _add_pending():
+            async with self.factory() as session:
+                submission = EssaySubmission(
+                    id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=school_id,
+                    prompt_assignment_id=assignment_id, student_id=student_id,
+                    mode="TYPED", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
+                    canonical_text="Redacao.", normalized_text_hash="b" * 64,
+                    submitted_at=base + timedelta(days=1),
+                )
+                session.add(submission)
+                await session.flush()
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=school_id, essay_submission_id=submission.id,
+                    correction_key="p" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                    ai_output={"annotations": [], "rewrites": [], "intervention": {}, "alerts": []},
+                    final_scores={
+                        "total": 900,
+                        "per_competency": {
+                            code: {"points": 180, "confidence": 1.0}
+                            for code in ("C1", "C2", "C3", "C4", "C5")
+                        },
+                    },
+                    final_feedback={}, status="PENDING_REVIEW",
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add_pending())
+
+        result = self.loop.run_until_complete(self._call(school_id, student_id))
+        self.assertEqual(len(result["entries"]), 1)
+        self.assertEqual(result["entries"][0]["total"], 620)
+
     def test_other_students_corrections_are_excluded(self):
         school_id, student_id, assignment_id = self._seed_school_and_student("6")
         _other_school_id, other_student_id, other_assignment_id = self._seed_school_and_student("7")
