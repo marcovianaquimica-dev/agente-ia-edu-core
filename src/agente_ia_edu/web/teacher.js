@@ -1575,7 +1575,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderReviewPanel(q) {
     rv.question = q;
-    rv.options = (q.options || []).map((o) => ({ label: o.label, text: o.text }));
+    rv.options = (q.options || []).map((o) => ({ label: o.label, text: o.text, is_correct: !!o.is_correct }));
     rv.currentPage = q.source_page_start || 1;
     document.getElementById('rv-panel').hidden = false;
     document.getElementById('rv-question-number').textContent = q.question_number;
@@ -1608,6 +1608,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderOptions() {
     document.getElementById('rv-options').innerHTML = rv.options.map((o, i) => `
       <div class="rv-option-row" data-idx="${i}">
+        <label class="rv-option-correct-label" title="Marcar como alternativa correta">
+          <input type="radio" name="rv-option-correct" class="rv-option-correct" data-field="is_correct" ${o.is_correct ? 'checked' : ''}>
+          <span class="empty-text">correta</span>
+        </label>
         <input type="text" class="text-input rv-option-label" data-field="label" value="${tmEsc(o.label)}" maxlength="2">
         <input type="text" class="text-input rv-option-text" data-field="text" value="${tmEsc(o.text)}">
         <button class="btn btn-link" type="button" data-rv-remove-option="${i}">Remover</button>
@@ -1619,6 +1623,7 @@ document.addEventListener('DOMContentLoaded', () => {
     rv.options = Array.from(rows).map((row) => ({
       label: row.querySelector('[data-field="label"]').value.trim(),
       text: row.querySelector('[data-field="text"]').value.trim(),
+      is_correct: row.querySelector('[data-field="is_correct"]').checked,
     }));
     return rv.options;
   }
@@ -1727,7 +1732,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addOptionBtn = document.getElementById('rv-add-option');
     if (addOptionBtn) addOptionBtn.addEventListener('click', () => {
       readOptionsFromDom();
-      rv.options.push({ label: '', text: '' });
+      rv.options.push({ label: '', text: '', is_correct: false });
       renderOptions();
     });
     const optionsWrap = document.getElementById('rv-options');
