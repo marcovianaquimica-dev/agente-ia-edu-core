@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import ExtractedQuestion, IngestionDocument, Question, QuestionVersion
+from agente_ia_edu.db.models import ExtractedQuestion, IngestionDocument, Question, QuestionOption, QuestionVersion
 from agente_ia_edu.db.models.admin import School, UserSchoolLink
 from agente_ia_edu.services.question_extraction_service import (
     QuestionExtractionError,
@@ -283,6 +283,106 @@ class Phase29ReviewTests(unittest.TestCase):
         self.assertEqual([o.label for o in after_remove], ["A", "B", "C", "D"])
         self.assertTrue(any(e["event"] == "OPTIONS_EDIT" for e in history))
 
+    # -- bugfix (migration 051): the answer key ----------------------------
+    def test_edit_option_persists_is_correct(self):
+        path = self.tmp / "correct_flag.pdf"
+        _make_pdf(path, 1, tag=" correctflag")
+        doc_id = self._seed_document(path, "correctflag")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                updated = await svc.update_question(
+                    q.id, reviewed_by="prof_a",
+                    options=[
+                        {"label": "A", "text": "a", "is_correct": False},
+                        {"label": "B", "text": "b", "is_correct": True},
+                        {"label": "C", "text": "c", "is_correct": False},
+                        {"label": "D", "text": "d", "is_correct": False},
+                    ],
+                )
+                return sorted(updated.options, key=lambda o: o.position)
+        options = self._run(go())
+        self.assertEqual([o.is_correct for o in options], [False, True, False, False])
+
+    def test_approve_blocked_without_a_marked_correct_option(self):
+        path = self.tmp / "no_answer.pdf"
+        _make_pdf(path, 1, tag=" noanswer")
+        doc_id = self._seed_document(path, "noanswer")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                await svc.update_question(
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                )
+                with self.assertRaises(QuestionExtractionError) as ctx:
+                    await svc.approve_question(q.id, reviewed_by="prof_a")
+                return ctx.exception.code
+        code = self._run(go())
+        self.assertEqual(code, "APPROVAL_VALIDATION_FAILED")
+
+    def test_approve_blocked_with_more_than_one_correct_option(self):
+        path = self.tmp / "two_answers.pdf"
+        _make_pdf(path, 1, tag=" twoanswers")
+        doc_id = self._seed_document(path, "twoanswers")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                await svc.update_question(
+                    q.id, reviewed_by="prof_a",
+                    options=[
+                        {"label": "A", "text": "a", "is_correct": True},
+                        {"label": "B", "text": "b", "is_correct": True},
+                        {"label": "C", "text": "c", "is_correct": False},
+                        {"label": "D", "text": "d", "is_correct": False},
+                    ],
+                )
+                with self.assertRaises(QuestionExtractionError) as ctx:
+                    await svc.approve_question(q.id, reviewed_by="prof_a")
+                return ctx.exception.code
+        code = self._run(go())
+        self.assertEqual(code, "APPROVAL_VALIDATION_FAILED")
+
+    def test_publish_copies_is_correct_to_official_is_valid_option(self):
+        path = self.tmp / "answer_key.pdf"
+        _make_pdf(path, 1, tag=" answerkey")
+        doc_id = self._seed_document(path, "answerkey")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                pub = QuestionPublicationService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                await svc.update_question(
+                    q.id, reviewed_by="prof_a",
+                    options=[
+                        {"label": "A", "text": "a", "is_correct": False},
+                        {"label": "B", "text": "b", "is_correct": False},
+                        {"label": "C", "text": "c", "is_correct": True},
+                        {"label": "D", "text": "d", "is_correct": False},
+                    ],
+                )
+                await svc.approve_question(q.id, reviewed_by="prof_a")
+                result = await pub.publish_run(run.id, published_by="prof_a", school_id=_SCHOOL_A)
+                version_id = _uuid.UUID(result["published"][0]["official_version_id"])
+                official_options = (await s.execute(
+                    select(QuestionOption).where(QuestionOption.question_version_id == version_id)
+                    .order_by(QuestionOption.position)
+                )).scalars().all()
+                return official_options
+        options = self._run(go())
+        self.assertEqual([(o.option_key, o.is_valid_option) for o in options],
+                         [("A", False), ("B", False), ("C", True), ("D", False)])
+
     def test_discursive_question_keeps_empty_options_never_forced_to_a_e(self):
         path = self.tmp / "discursive.pdf"
         _make_low_confidence_pdf(path, 1, tag=" disc")
@@ -529,13 +629,21 @@ class Phase29ReviewTests(unittest.TestCase):
 
                 run1, _ = await svc.run_extraction(doc_id1, path1, started_by="prof_a", school_id=_SCHOOL_A)
                 q1 = (await svc.list_questions(run1.id))[0]
-                await svc.update_question(q1.id, reviewed_text=(q1.reconstructed_text or q1.normalized_text), reviewed_by="prof_a")
+                await svc.update_question(
+                    q1.id, reviewed_text=(q1.reconstructed_text or q1.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 await svc.approve_question(q1.id, reviewed_by="prof_a")
                 result1 = await pub.publish_run(run1.id, published_by="prof_a", school_id=_SCHOOL_A)
 
                 run2, _ = await svc.run_extraction(doc_id2, path2, started_by="prof_a", school_id=_SCHOOL_A)
                 q2 = (await svc.list_questions(run2.id))[0]
-                await svc.update_question(q2.id, reviewed_text=(q2.reconstructed_text or q2.normalized_text), reviewed_by="prof_a")
+                await svc.update_question(
+                    q2.id, reviewed_text=(q2.reconstructed_text or q2.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 await svc.approve_question(q2.id, reviewed_by="prof_a")
                 result2 = await pub.publish_run(run2.id, published_by="prof_a", school_id=_SCHOOL_A)
 
@@ -583,7 +691,10 @@ class Phase29ReviewTests(unittest.TestCase):
                 run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
                 q = (await svc.list_questions(run.id))[0]
                 await svc.update_question(
-                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 await svc.approve_question(q.id, reviewed_by="prof_a")
                 # simulate the (separate, in-progress) resolution review flow
                 # directly, as instructed: populate reviewed_text + APPROVED.
@@ -613,7 +724,10 @@ class Phase29ReviewTests(unittest.TestCase):
                 run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
                 q = (await svc.list_questions(run.id))[0]
                 await svc.update_question(
-                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 await svc.approve_question(q.id, reviewed_by="prof_a")
                 # no resolution captured at all (the current-corpus norm:
                 # resolution_status stays 'NONE', matching real ENEM PDFs)
@@ -637,7 +751,10 @@ class Phase29ReviewTests(unittest.TestCase):
                 run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
                 q = (await svc.list_questions(run.id))[0]
                 await svc.update_question(
-                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 await svc.approve_question(q.id, reviewed_by="prof_a")
                 stored = await s.get(ExtractedQuestion, q.id)
                 stored.resolution_raw_text = "rascunho ainda não revisado"

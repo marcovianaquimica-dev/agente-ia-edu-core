@@ -351,7 +351,10 @@ class QuestionExtractionHTTPCoverageTests(unittest.TestCase):
         self._as("qe_prof_a")
         self.client.patch(
             f"/api/v1/catalog/question-extraction/questions/{question_ids[0]}",
-            json={"reviewed_text": "pronto para aprovacao"},
+            json={"reviewed_text": "pronto para aprovacao", "options": [
+                {"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                {"label": "C", "text": "c"}, {"label": "D", "text": "d"},
+            ]},
         )
         r = self.client.post(
             f"/api/v1/catalog/question-extraction/questions/{question_ids[0]}/approve")
@@ -514,7 +517,10 @@ class QuestionExtractionHTTPCoverageTests(unittest.TestCase):
         self._as("qe_prof_a")
         self.client.patch(
             f"/api/v1/catalog/question-extraction/questions/{question_ids[0]}",
-            json={"reviewed_text": "pronta para publicacao"},
+            json={"reviewed_text": "pronta para publicacao", "options": [
+                {"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                {"label": "C", "text": "c"}, {"label": "D", "text": "d"},
+            ]},
         )
         self.client.post(
             f"/api/v1/catalog/question-extraction/questions/{question_ids[0]}/approve")

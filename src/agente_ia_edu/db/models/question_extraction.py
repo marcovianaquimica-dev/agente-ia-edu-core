@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -226,6 +227,13 @@ class ExtractedQuestionOption(Base):
     label: Mapped[str] = mapped_column(String(1), nullable=False)  # A..E
     text: Mapped[str] = mapped_column(Text, nullable=False)
     position: Mapped[int] = mapped_column(nullable=False)
+    # migration 051 - which option is the answer key. Never set by the
+    # extraction engine itself (no source of truth for it exists at
+    # extraction time); only a human review edit (update_question) sets
+    # this. _approval_blockers requires exactly one True per multiple_choice
+    # question before approval, and publish_run copies it verbatim to the
+    # official QuestionOption.is_valid_option.
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     question: Mapped[ExtractedQuestion] = relationship(back_populates="options")
 

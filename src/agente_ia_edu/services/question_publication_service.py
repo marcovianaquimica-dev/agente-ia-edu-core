@@ -191,6 +191,7 @@ class QuestionPublicationService:
                         self._session.add(QuestionOption(
                             question_version_id=version.id, option_key=opt.label,
                             position=opt.position, text=opt.text,
+                            is_valid_option=opt.is_correct,
                         ))
                     await self._session.flush()
                 # Registers the just-created version's hash so a LATER
