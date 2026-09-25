@@ -225,3 +225,110 @@ class QuestionPublicationService:
             "published_count": len(published), "duplicate_count": len(duplicates),
             "error_count": len(errors),
         }
+
+    async def supersede_duplicate(
+        self, extracted_question_id: UUID, *, published_by: str, school_id: UUID | None,
+    ) -> dict:
+        """Explicit, human-decided correction for a question `publish_run`
+        routed to DUPLICATE_REVIEW: archives the OLD official Question and
+        publishes a fresh one from THIS (presumably improved) extraction.
+
+        Never called automatically from `publish_run` - matching text
+        content is not itself evidence the old published row is inferior,
+        so replacing it is a judgment call the caller makes explicitly, one
+        question at a time. Real motivating case: `boundary.py`'s
+        parenthesized-option fix (migration 051) means a re-extraction can
+        have byte-identical statement text to an old publish (so it always
+        collides on content_hash and stays DUPLICATE_REVIEW forever) while
+        now also carrying real, correctly-labeled multiple-choice options
+        the old published row never had.
+        """
+        question = await self._session.get(ExtractedQuestion, extracted_question_id)
+        if question is None:
+            raise QuestionExtractionNotFound("extracted question not found")
+        if question.review_status != "DUPLICATE_REVIEW":
+            raise QuestionExtractionError(
+                "SUPERSEDE_BLOCKED",
+                f"cannot supersede from status {question.review_status!r} - only a question "
+                "publish_run itself routed to DUPLICATE_REVIEW can be superseded")
+
+        canonical_text = _canonical_text(question)
+        content_hash = _content_hash(canonical_text)
+        old_version = await self._session.scalar(
+            select(QuestionVersion).where(QuestionVersion.content_hash == content_hash)
+        )
+        if old_version is None:
+            raise QuestionExtractionError(
+                "SUPERSEDE_BLOCKED",
+                "no existing official QuestionVersion matches this question's content hash - "
+                "it was not actually a duplicate of anything")
+        old_question = await self._session.get(Question, old_version.question_id)
+        old_question_id = old_question.id
+
+        run = await self._session.get(QuestionExtractionRun, question.run_id)
+        doc = await self._session.get(IngestionDocument, run.ingestion_document_id)
+        options = list((await self._session.execute(
+            select(ExtractedQuestionOption).where(ExtractedQuestionOption.question_id == question.id)
+            .order_by(ExtractedQuestionOption.position)
+        )).scalars().all())
+        provenance = {
+            "source_document_id": str(run.ingestion_document_id),
+            "source_material_id": str(run.ingestion_document_id),
+            "source_run_id": str(run.id),
+            "source_extraction_question_id": str(question.id),
+            "source_page": question.source_page_start,
+            "source_question_number": question.question_number,
+            "source_document_hash": doc.document_hash if doc else None,
+            "source_filename": doc.filename if doc else None,
+            "supersedes_question_id": str(old_question_id),
+        }
+
+        transaction = self._session.begin_nested() if self._session.in_transaction() else self._session.begin()
+        async with transaction:
+            old_question.status = "ARCHIVED"
+            new_question = Question(
+                question_type=(
+                    "MULTIPLE_CHOICE" if question.question_type == "multiple_choice" else "OPEN_ENDED"
+                ),
+                school_id=school_id, origin_type="AUTHORIAL", status="PUBLISHED",
+                visibility_scope="SCHOOL", created_by_external_identity=published_by,
+                validation_status="validated", metadata_={"provenance": provenance},
+            )
+            self._session.add(new_question)
+            await self._session.flush()
+            old_question.metadata_ = {
+                **(old_question.metadata_ or {}), "superseded_by_question_id": str(new_question.id),
+            }
+            new_version = QuestionVersion(
+                question_id=new_question.id, version_kind="official_original",
+                canonical_text=canonical_text, statement=canonical_text,
+                content_hash=content_hash, created_by_type="TEACHER",
+                created_by_id=published_by, metadata_={"provenance": provenance},
+                resolution_text=_resolution_text(question),
+            )
+            self._session.add(new_version)
+            await self._session.flush()
+            for opt in options:
+                self._session.add(QuestionOption(
+                    question_version_id=new_version.id, option_key=opt.label,
+                    position=opt.position, text=opt.text, is_valid_option=opt.is_correct,
+                ))
+            await self._session.flush()
+            record_review_event(
+                question, event="STATUS_CHANGE", actor=published_by, to_status="PUBLISHED",
+                detail={
+                    "supersede": True, "superseded_question_id": str(old_question_id),
+                    "new_question_id": str(new_question.id),
+                },
+            )
+            question.review_status = "PUBLISHED"
+            # Captured before commit expires every object tracked in this
+            # session (expire_on_commit=True in production) - see the
+            # analogous comment on publish_run above.
+            new_question_id, new_version_id = new_question.id, new_version.id
+        await self._session.commit()
+        return {
+            "old_question_id": str(old_question_id),
+            "new_question_id": str(new_question_id),
+            "new_version_id": str(new_version_id),
+        }

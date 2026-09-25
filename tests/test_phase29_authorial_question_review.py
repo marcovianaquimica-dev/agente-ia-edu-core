@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import hashlib
 import unittest
 import uuid as _uuid
 from pathlib import Path
@@ -849,6 +850,98 @@ class Phase29ReviewTests(unittest.TestCase):
         self.assertEqual(first_open.reviewed_text, second_open.reviewed_text)
         self.assertEqual(first_open.review_status, second_open.review_status)
         self.assertEqual(len(first_open.status_history), len(second_open.status_history))
+
+    # -- supersede_duplicate: correcting an already-published, structurally
+    # broken official question (real scenario: FUVEST 2024 was published 10
+    # engine versions ago with 0 options on 108/112 questions, before
+    # migration 051's boundary.py "(A)" parenthesized-option fix; the fixed
+    # re-extraction's statement text is byte-identical, so publish_run's
+    # own content-hash dedup correctly routes it to DUPLICATE_REVIEW - this
+    # method is the explicit, human-decided "yes, replace it" step) --------
+    def test_supersede_duplicate_archives_old_and_publishes_corrected_version(self):
+        path = self.tmp / "supersede.pdf"
+        _make_pdf(path, 1, tag=" supersede")
+        doc_id = self._seed_document(path, "supersede")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                pub = QuestionPublicationService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                canonical_text = q.reconstructed_text or q.normalized_text
+
+                # Pre-seed an OLD, broken official Question with the exact
+                # same canonical text but ZERO options - simulating a
+                # publish from before the boundary.py fix existed.
+                old_question = Question(
+                    question_type="MULTIPLE_CHOICE", origin_type="AUTHORIAL", status="PUBLISHED",
+                    visibility_scope="SCHOOL", validation_status="validated",
+                )
+                s.add(old_question)
+                await s.flush()
+                old_version = QuestionVersion(
+                    question_id=old_question.id, version_kind="official_original",
+                    canonical_text=canonical_text, statement=canonical_text,
+                    content_hash=hashlib.sha256(canonical_text.encode("utf-8")).hexdigest(),
+                )
+                s.add(old_version)
+                await s.flush()
+                old_question_id = old_question.id
+                await s.commit()
+
+                await svc.update_question(
+                    q.id, reviewed_by="prof_a",
+                    options=[
+                        {"label": "A", "text": "a", "is_correct": False},
+                        {"label": "B", "text": "b", "is_correct": True},
+                        {"label": "C", "text": "c", "is_correct": False},
+                        {"label": "D", "text": "d", "is_correct": False},
+                    ],
+                )
+                await svc.approve_question(q.id, reviewed_by="prof_a")
+                result = await pub.publish_run(run.id, published_by="prof_a", school_id=_SCHOOL_A)
+                self.assertEqual(result["published_count"], 0)
+                self.assertEqual(result["duplicate_count"], 1)
+
+                supersede_result = await pub.supersede_duplicate(
+                    q.id, published_by="prof_a", school_id=_SCHOOL_A)
+
+                old_after = await s.get(Question, old_question_id)
+                new_question_id = _uuid.UUID(supersede_result["new_question_id"])
+                new_version_id = _uuid.UUID(supersede_result["new_version_id"])
+                new_question = await s.get(Question, new_question_id)
+                new_options = (await s.execute(
+                    select(QuestionOption).where(QuestionOption.question_version_id == new_version_id)
+                    .order_by(QuestionOption.position)
+                )).scalars().all()
+                refreshed_extracted = await svc.get_question(q.id)
+                return old_after, new_question, new_options, refreshed_extracted.review_status
+
+        old_after, new_question, new_options, extracted_status = self._run(go())
+        self.assertEqual(old_after.status, "ARCHIVED")
+        self.assertEqual(new_question.status, "PUBLISHED")
+        self.assertEqual(new_question.origin_type, "AUTHORIAL")
+        self.assertEqual([(o.option_key, o.is_valid_option) for o in new_options],
+                         [("A", False), ("B", True), ("C", False), ("D", False)])
+        self.assertEqual(extracted_status, "PUBLISHED")
+
+    def test_supersede_duplicate_rejects_non_duplicate_review_status(self):
+        path = self.tmp / "supersede_block.pdf"
+        _make_pdf(path, 1, tag=" supersedeblock")
+        doc_id = self._seed_document(path, "supersedeblock")
+
+        async def go():
+            async with self.factory() as s:
+                svc = QuestionExtractionService(s)
+                pub = QuestionPublicationService(s)
+                run, _ = await svc.run_extraction(doc_id, path, started_by="prof_a", school_id=_SCHOOL_A)
+                q = (await svc.list_questions(run.id))[0]
+                with self.assertRaises(QuestionExtractionError) as ctx:
+                    await pub.supersede_duplicate(q.id, published_by="prof_a", school_id=_SCHOOL_A)
+                return ctx.exception.code
+        code = self._run(go())
+        self.assertEqual(code, "SUPERSEDE_BLOCKED")
 
 
 class AIGuardTests(unittest.TestCase):
