@@ -401,7 +401,7 @@
       const editableHtml = p.reviewed_text
         ? escEssay(p.reviewed_text)
         : tokens.map((t) => {
-            const lowConfidence = typeof t.confidence === 'number' && t.confidence < 0.8;
+            const lowConfidence = typeof t.confidence === 'number' && t.confidence < 0.6;
             const cls = lowConfidence ? ' class="essay-token-low-confidence"' : '';
             return `<span${cls}>${escEssay(t.text)}</span>`;
           }).join('');
