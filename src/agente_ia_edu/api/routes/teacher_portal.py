@@ -4,13 +4,12 @@ API routes for Teacher and Coordination Portal (Phase 12B.2).
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ..dependencies import get_current_identity, get_session_factory
 from ..schemas.teacher_portal import (
     ClassroomDetailResponse,
     ClassroomSummaryItem,
-    ReportExportResponse,
     StudentDetailForTeacherResponse,
     StudentSearchItem,
     TeacherDashboardResponse,
@@ -19,6 +18,7 @@ from ...identity import ExternalIdentityContext
 from ...services.knowledge import KnowledgeService
 from ...services.recommendation import RecommendationEngine
 from ...services.report_export import ReportExportService
+from ...services.report_render import pdf_available, render_pdf, render_xlsx
 from ...services.teaching_context import (
     ScopeAuthorizationError,
     TeachingContextService,
@@ -225,7 +225,6 @@ async def search_students(
 
 @teacher_portal_router.get(
     "/classrooms/{classroom_id}/export",
-    response_model=ReportExportResponse,
     summary="Export classroom pedagogical report (PDF/XLSX)",
 )
 async def export_classroom_report(
@@ -235,7 +234,7 @@ async def export_classroom_report(
     format: str = Query("pdf", description="pdf or xlsx"),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
-) -> ReportExportResponse:
+) -> Response:
     teacher_id = identity.external_user_id
 
     async with session_factory() as session:
@@ -258,8 +257,20 @@ async def export_classroom_report(
                 academic_year=academic_year,
             )
             payload = ReportExportService.export_classroom_report(detail, export_format=format)
-            return ReportExportResponse(**payload)
         except ScopeAuthorizationError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+    if payload["export_format"] == "pdf":
+        if not pdf_available():
+            raise HTTPException(status_code=503, detail="PDF export requires the 'pymupdf' package")
+        content = render_pdf(payload)
+    else:
+        content = render_xlsx(payload)
+
+    return Response(
+        content=content,
+        media_type=payload["content_type"],
+        headers={"Content-Disposition": f'attachment; filename="{payload["filename"]}"'},
+    )

@@ -149,20 +149,42 @@ class TeacherPortalHTTP(unittest.TestCase):
         self.assertEqual(response.json(), [])
 
     def test_export_classroom_report_pdf_returns_200(self):
+        # The route used to lie: response_model=ReportExportResponse forced a
+        # JSON body while content_type claimed "application/pdf" - no real
+        # file ever reached the browser. This asserts on ACTUAL PDF bytes.
         response = self.client.get(
             f"/api/v1/teacher/classrooms/TURMA_3A/export?school_id={self.school_a}&format=pdf"
         )
         self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["export_format"], "pdf")
-        self.assertEqual(body["content_type"], "application/pdf")
+        self.assertEqual(response.headers["content-type"], "application/pdf")
+        self.assertIn("attachment", response.headers["content-disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF-"))
+        self.assertGreater(len(response.content), 500)
+
+        import pymupdf
+        doc = pymupdf.open(stream=response.content, filetype="pdf")
+        try:
+            full_text = "".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+        self.assertIn("TURMA_3A", full_text)
 
     def test_export_classroom_report_xlsx_returns_200(self):
         response = self.client.get(
             f"/api/v1/teacher/classrooms/TURMA_3A/export?school_id={self.school_a}&format=xlsx"
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["export_format"], "xlsx")
+        self.assertEqual(
+            response.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("attachment", response.headers["content-disposition"])
+        self.assertTrue(response.content.startswith(b"PK"))
+
+        import io
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(response.content))
+        self.assertGreaterEqual(len(wb.sheetnames), 1)
 
     def test_export_classroom_report_invalid_format_returns_400(self):
         response = self.client.get(

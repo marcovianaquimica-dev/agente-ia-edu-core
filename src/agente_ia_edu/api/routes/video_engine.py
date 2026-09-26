@@ -118,6 +118,33 @@ async def request_another_video(
 
 
 @video_router.get(
+    "/recommendation",
+    summary="Get the best video recommendation for a student on a content node",
+    description="Wraps VideoRecommendationEngine.recommend_video_for_student for direct UI consumption (e.g. the student portal Videos tab).",
+)
+async def get_video_recommendation(
+    content_node_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    student_id = identity.external_user_id
+    institution_id = identity.institution_id
+
+    async with session_factory() as session:
+        knowledge_service = KnowledgeService(session)
+        engine = VideoRecommendationEngine(session, knowledge_service)
+        result = await engine.recommend_video_for_student(
+            student_id=student_id,
+            content_node_id=content_node_id,
+            institution_id=institution_id,
+        )
+        # Drop internal SQLAlchemy object from JSON response payload
+        if result.get("video_object"):
+            del result["video_object"]
+        return result
+
+
+@video_router.get(
     "/{video_id}/progress",
     response_model=VideoProgressResponse,
     summary="Get student progress and feedback on a video",

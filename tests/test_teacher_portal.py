@@ -377,6 +377,143 @@ class TestTeacherPortal(unittest.IsolatedAsyncioTestCase):
             turma_3a = next(c for c in classrooms if c["classroom_id"] == "TURMA_3A")
             self.assertIsNone(turma_3a["class_id"])
 
+    async def test_16d_school_scoped_teacher_with_no_classroom_link_sees_real_classrooms_not_placeholder(self):
+        """Reproduces the exact production bug (Escola ABC / professor_abc):
+        a teacher with a SCHOOL-scoped link (access to the whole school) but
+        NO CLASSROOM-scoped link at all must see the school's REAL classrooms
+        (from the Class/academic hierarchy table) - never the hardcoded
+        ["TURMA_3A"] demo placeholder, especially when the school's real
+        classrooms have entirely different names than the placeholder."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school = await admin_service.create_school(
+                performed_by_external_id="admin:master", code="SCH_REAL", name="Escola ABC",
+            )
+
+            unit = SchoolUnit(id=uuid.uuid4(), school_id=school.id, name="unit", external_id="UNIT-REAL")
+            segment = Segment(id=uuid.uuid4(), school_id=school.id, name="segment", external_id="SEG-REAL")
+            session.add_all([unit, segment])
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                name="grade", external_id="GRADE-REAL",
+            )
+            year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-REAL")
+            session.add_all([grade, year])
+            await session.flush()
+            turma_a = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma A", external_id="1EM_A",
+            )
+            turma_b = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma B", external_id="1EM_B",
+            )
+            session.add_all([turma_a, turma_b])
+            await session.commit()
+
+            # Teacher with SCHOOL-scoped access (whole school), no CLASSROOM link.
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="professor_abc",
+                role=AdminRole.TEACHER,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            classrooms = await portal_svc.get_teacher_authorized_classrooms(
+                "professor_abc", school.id,
+            )
+
+            self.assertNotIn("TURMA_3A", classrooms)
+            self.assertNotIn("TURMA_3B", classrooms)
+            self.assertEqual(set(classrooms), {"1EM_A", "1EM_B"})
+
+    async def test_16e_school_scoped_teacher_in_a_genuinely_empty_school_sees_no_classrooms(self):
+        """The other half of the same fix: when a school truly has no
+        TeachingLesson history, no CLASSROOM-scoped links, and no real Class
+        rows at all, a SCHOOL-scoped teacher must see an empty list - not the
+        invented ["TURMA_3A"] placeholder. An empty result is the honest
+        answer; a fabricated classroom name is not."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school = await admin_service.create_school(
+                performed_by_external_id="admin:master", code="SCH_EMPTY", name="Escola Vazia",
+            )
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="professor_vazio",
+                role=AdminRole.TEACHER,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            classrooms = await portal_svc.get_teacher_authorized_classrooms(
+                "professor_vazio", school.id,
+            )
+
+            self.assertEqual(classrooms, [])
+
+    async def test_16f_director_with_no_classroom_link_sees_real_classrooms_not_placeholder(self):
+        """Same bug, other branch: a DIRECTOR/COORDINATOR with a SCHOOL-scoped
+        link and no TeachingLesson/CLASSROOM-link history yet must see the
+        school's real Class rows, never the ["TURMA_3A"] placeholder."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school = await admin_service.create_school(
+                performed_by_external_id="admin:master", code="SCH_DIR", name="Escola Diretor",
+            )
+
+            segment = Segment(id=uuid.uuid4(), school_id=school.id, name="segment", external_id="SEG-DIR")
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                name="grade", external_id="GRADE-DIR",
+            )
+            year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-DIR")
+            session.add_all([grade, year])
+            await session.flush()
+            turma = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma Real", external_id="TURMA-REAL-DIR",
+            )
+            session.add(turma)
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="diretor_abc",
+                role=AdminRole.DIRECTOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            portal_svc = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+
+            classrooms = await portal_svc.get_teacher_authorized_classrooms(
+                "diretor_abc", school.id,
+            )
+
+            self.assertNotIn("TURMA_3A", classrooms)
+            self.assertEqual(set(classrooms), {"TURMA-REAL-DIR"})
+
     async def test_17_student_detail_authorized_and_unauthorized(self):
         """17. Visão individual do aluno pelo professor (autorizado x não autorizado)."""
         async with self.session_factory() as session:
