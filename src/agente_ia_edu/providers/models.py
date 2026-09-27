@@ -73,3 +73,32 @@ class EssayImageCorrectionRequest:
     mime_type: str
     prompt: str
     model: str | None = None
+
+
+@dataclass(frozen=True)
+class DocumentPageTranscriptionRequest:
+    """One page image of an arbitrary authorial document (e.g. a textbook
+    chapter with no extractable PDF text layer), plus the FULL, caller-
+    assembled prompt describing the target markdown convention.
+
+    Deliberately distinct from EssayPageTranscriptionRequest: essay
+    transcription has one fixed, universal system prompt ("copy literally,
+    never correct spelling") baked into the provider, because every essay
+    page is transcribed the same way. Document-page transcription instead
+    targets whatever structural convention the caller's downstream parser
+    expects (headings, numbered exercises, lettered alternatives - see
+    ``authorial_material_parser.py``) - that convention is a caller concern,
+    so the prompt travels with the request instead of living in the adapter.
+    """
+
+    image_path: Path
+    mime_type: str
+    prompt: str
+    model: str | None = None
+
+
+@dataclass(frozen=True)
+class DocumentPageTranscriptionResult:
+    text: str
+    provider: str
+    model: str

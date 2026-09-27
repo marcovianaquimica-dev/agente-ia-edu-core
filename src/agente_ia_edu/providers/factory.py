@@ -16,7 +16,12 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 
-from .contracts import EssayImageCorrectionProvider, EssayTranscriptionProvider, TextGenerationProvider
+from .contracts import (
+    DocumentPageTranscriptionProvider,
+    EssayImageCorrectionProvider,
+    EssayTranscriptionProvider,
+    TextGenerationProvider,
+)
 from .errors import ProviderConfigurationError
 from .router import ProviderRouter
 
@@ -149,5 +154,52 @@ def build_essay_image_corrector(name: str | None = None) -> EssayImageCorrection
         raise ProviderConfigurationError(
             f"Unsupported AI_PROVIDER {selected!r} for essay image correction; "
             f"supported: {sorted(_IMAGE_CORRECTOR_BUILDERS)}"
+        )
+    return builder()
+
+
+def _build_anthropic_document_transcriber() -> DocumentPageTranscriptionProvider:
+    # Imported lazily - same story as the openai builders above: the vendor
+    # SDK is only pulled in when this backend is actually selected.
+    from .adapters.anthropic import AnthropicProvider
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    vision_model = os.getenv("ANTHROPIC_VISION_MODEL")
+    if not api_key:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=anthropic but ANTHROPIC_API_KEY is not configured"
+        )
+    if not vision_model:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=anthropic but ANTHROPIC_VISION_MODEL is not configured"
+        )
+    return AnthropicProvider(api_key=api_key, vision_model=vision_model)
+
+
+# name -> builder returning a single DocumentPageTranscriptionProvider. Used
+# to OCR authorial source material with no extractable PDF text layer (e.g.
+# a pure-image textbook e-book) into markdown for the EXISTING, unmodified
+# authorial_material_ingestion.py pipeline - see
+# scripts/ocr_pilot_usberco_cap10.py. Only "anthropic" exists today; the
+# DEFAULT_PROVIDER ("openai") has no entry here yet, so an explicit
+# name="anthropic" (or AI_PROVIDER=anthropic) is required.
+_DOCUMENT_TRANSCRIBER_BUILDERS: dict[str, Callable[[], DocumentPageTranscriptionProvider]] = {
+    "anthropic": _build_anthropic_document_transcriber,
+}
+
+
+def build_document_page_transcriber(name: str | None = None) -> DocumentPageTranscriptionProvider:
+    """Build the configured authorial-document-page transcription provider.
+
+    ``name`` overrides ``AI_PROVIDER`` (tests / explicit callers). Raises
+    :class:`ProviderConfigurationError` - never leaking secret values - when
+    the selected backend's required configuration is missing or unsupported.
+    """
+    selected = (name or os.getenv("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+    builder = _DOCUMENT_TRANSCRIBER_BUILDERS.get(selected)
+    if builder is None:
+        raise ProviderConfigurationError(
+            f"Unsupported AI_PROVIDER {selected!r} for document page transcription; "
+            f"supported: {sorted(_DOCUMENT_TRANSCRIBER_BUILDERS)}"
         )
     return builder()
