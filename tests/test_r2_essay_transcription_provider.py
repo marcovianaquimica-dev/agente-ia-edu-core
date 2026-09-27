@@ -77,6 +77,37 @@ class OpenAIProviderTranscriptionTests(unittest.TestCase):
         self.assertAlmostEqual(result.tokens[1].confidence, 0.5, places=4)
         image_path.unlink(missing_ok=True)
 
+    def test_system_prompt_excludes_official_answer_sheet_boilerplate(self):
+        """Confirmed live (2026-09-27): an ENEM answer sheet photo includes
+        the theme restatement, identification fields and the grading table
+        alongside the actual essay - transcribing all of it fed the
+        corrector "PARTE_DESCONECTADA_DO_TEMA" noise and inflated how much
+        of the page counted as low-confidence. The vision model must be told
+        to transcribe only the essay body."""
+        image_path = Path("/tmp/r2_boilerplate_test_page.png")
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        captured = {}
+
+        async def _create(**kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content="texto", refusal=None), logprobs=None,
+                )]
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayPageTranscriptionRequest(image_path=image_path, mime_type="image/png")
+        asyncio.run(provider.transcribe_page(request))
+
+        system_message = captured["messages"][0]["content"]
+        self.assertEqual(captured["messages"][0]["role"], "system")
+        for phrase in ("TEMA:", "Aspectos Macroestruturais", "assinatura do participante"):
+            self.assertIn(phrase, system_message)
+        image_path.unlink(missing_ok=True)
+
 
     def test_raises_when_the_model_populates_the_refusal_field(self):
         image_path = Path("/tmp/r2_refusal_field_test_page.png")

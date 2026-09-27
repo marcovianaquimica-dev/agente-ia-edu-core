@@ -122,7 +122,22 @@ class OpenAIProvider:
                             "uma palavra plausivel para preencher um trecho que voce nao "
                             "conseguiu ler. Transcreva a pagina inteira, do inicio ao fim; "
                             "nunca pare no meio e nunca escreva um pedido de desculpas ou "
-                            "explicacao sobre nao conseguir continuar."
+                            "explicacao sobre nao conseguir continuar. Transcreva APENAS o "
+                            "corpo do texto dissertativo-argumentativo escrito pelo "
+                            "participante (o texto corrido nas linhas pautadas/numeradas). "
+                            "NAO transcreva elementos padronizados de uma folha de "
+                            "redacao oficial que nao fazem parte do texto do aluno: o "
+                            "enunciado ou reafirmacao impressa do tema (ex.: linha "
+                            "\"TEMA:\"), campos de identificacao (nome completo, "
+                            "turma, turno, data, local de prova, assinatura do "
+                            "participante), tabelas ou grades de correcao (ex.: "
+                            "\"Aspectos Macroestruturais\", \"Comp. I\" a \"Comp. V\", "
+                            "\"CORRETOR(A)\", \"NOTA\"), instrucoes de preenchimento "
+                            "impressas na margem, ou qualquer outro elemento grafico do "
+                            "formulario que nao seja prosa escrita pelo participante. "
+                            "Ignore esses elementos completamente, mesmo que estejam "
+                            "bem legiveis - nao os inclua na transcricao nem os "
+                            "mencione."
                         ),
                     },
                     {

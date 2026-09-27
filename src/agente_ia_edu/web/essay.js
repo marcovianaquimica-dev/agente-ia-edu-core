@@ -330,7 +330,7 @@
         }
         if (mode === 'PDF') {
           msg.hidden = false;
-          msg.textContent = 'Enviando PDF...';
+          msg.innerHTML = '<span class="inline-spinner"></span>Enviando PDF...';
           const form = new FormData();
           form.append('file', files[0]);
           await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/document`, {
@@ -343,7 +343,7 @@
           for (const file of files) {
             photoIndex += 1;
             msg.hidden = false;
-            msg.textContent = `Enviando foto ${photoIndex} de ${files.length}...`;
+            msg.innerHTML = `<span class="inline-spinner"></span>Enviando foto ${photoIndex} de ${files.length}...`;
             const form = new FormData();
             form.append('page_number', String(nextPage));
             form.append('file', file);

@@ -357,12 +357,12 @@ class EssaySubmissionService:
                 page_path = dest_dir / f"page_{index + 1}.png"
                 pix.save(str(page_path))
                 # A digitally-typed PDF has an exact embedded text layer;
-                # get_text() returns "" (never raises) for a purely scanned
-                # page with no such layer, so this is a safe, cheap probe -
-                # upload_page decides whether the result is substantial
-                # enough to trust over running vision OCR on the rasterized
-                # image above.
-                extracted_text = page.get_text().strip() or None
+                # _extract_pdf_paragraphs returns "" (never raises) for a
+                # purely scanned page with no such layer, so this is a safe,
+                # cheap probe - upload_page decides whether the result is
+                # substantial enough to trust over running vision OCR on the
+                # rasterized image above.
+                extracted_text = _extract_pdf_paragraphs(page) or None
                 results.append((page_path, extracted_text))
             return results
         finally:
@@ -477,6 +477,38 @@ class EssaySubmissionService:
 def _guess_mime(path: Path) -> str:
     guessed, _ = mimetypes.guess_type(str(path))
     return guessed or "application/octet-stream"
+
+
+def _extract_pdf_paragraphs(page) -> str:
+    """Extracts a PDF page's embedded text as natural prose, paragraph
+    breaks preserved, mid-paragraph line wraps joined into spaces.
+
+    Confirmed live (2026-09-27): PyMuPDF's plain ``page.get_text()`` ends
+    EVERY visual line with a single "\\n" - both a genuine paragraph break
+    and a line the PDF just happened to wrap mid-sentence get the exact
+    same single "\\n", with no way to tell them apart from the text alone.
+    Feeding that straight into canonical_text meant the AI corrector - which
+    naturally quotes a wrapped sentence as continuous prose, the way any
+    reader would say it aloud - had its quote rejected as
+    QUOTE_DOES_NOT_MATCH_TEXT (validated live: a real correction of a
+    real, cleanly-typed essay failed on this exact mismatch, e.g. the
+    canonical text read "...cuidado\\nrealizado..." where the model quoted
+    "...cuidado realizado..." with a plain space). ``page.get_text("blocks")``
+    groups by the PDF's own paragraph structure instead of by visual line,
+    so paragraph boundaries survive as separate blocks while the wraps
+    inside one paragraph get joined here.
+    """
+    blocks = page.get_text("blocks")
+    paragraphs = []
+    for block in blocks:
+        text = block[4]
+        # A block's own "\n"s are mid-paragraph line wraps, not paragraph
+        # breaks (blocks ARE the paragraph boundaries) - join them with a
+        # space, the way the sentence actually reads.
+        joined = " ".join(text.split())
+        if joined:
+            paragraphs.append(joined)
+    return "\n\n".join(paragraphs)
 
 
 __all__ = ["EssayResubmissionBlockedError", "EssaySubmissionService"]
