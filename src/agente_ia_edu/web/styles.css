@@ -1652,6 +1652,7 @@ body.sidebar-open {
 .essay-annotation.essay-mark-C4 { border-left-color: var(--warning); }
 .essay-annotation.essay-mark-C5 { border-left-color: var(--success); }
 .essay-annotation blockquote { margin: 6px 0 0; font-style: italic; color: var(--text-muted); }
+.essay-annotation-competency-hint { display: block; font-size: 0.75em; color: var(--text-muted); margin: 1px 0 4px; }
 .essay-intervention-checklist { list-style: none; padding: 0; }
 .essay-intervention-checklist li { padding: 4px 0; }
 .essay-warning { color: var(--danger, #d64545); font-weight: 700; }

@@ -40,7 +40,7 @@ from ..db.models import (
     EssaySubmissionPage,
     PromptAssignment,
 )
-from ..essay_engine_contract.v3 import CONTRACT_VERSION, EssayEngineOutput, Feedback, Scores
+from ..essay_engine_contract.v4 import CONTRACT_VERSION, EssayEngineOutput, Feedback, Scores
 from ..essay_prompts import get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
@@ -60,7 +60,7 @@ from .institution_settings import InstitutionSettingsService
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v1"
-_PROMPT_VERSION = "essay_correction_v11"
+_PROMPT_VERSION = "essay_correction_v12"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 
@@ -76,9 +76,13 @@ def _guess_mime(path: Path) -> str:
 #: Alert codes whose official consequence (cartilha p. 9-10 and p. 28) is a
 #: whole-essay zero, not a per-competency deduction - see essay_engine_contract
 #: v3's docstring for why FUGA_AO_TEMA/TIPO_TEXTUAL needed splitting from their
-#: softer counterparts before this could be applied safely.
+#: softer counterparts before this could be applied safely, and v4's for the
+#: five codes added below (ANULACAO_PROPOSITAL through TEXTO_ILEGIVEL) plus
+#: why `texto_em_branco` has no code at all - it cannot reach the engine.
 _ANULA_REDACAO_ALERT_CODES = frozenset({
     "FUGA_AO_TEMA", "TIPO_TEXTUAL_PREDOMINANTE", "TEXTO_INSUFICIENTE",
+    "ANULACAO_PROPOSITAL", "PARTE_DESCONECTADA_DO_TEMA",
+    "IDENTIFICACAO_INDEVIDA", "LINGUA_ESTRANGEIRA", "TEXTO_ILEGIVEL",
 })
 
 

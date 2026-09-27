@@ -17,6 +17,18 @@
     C4: 'Coesão textual', C5: 'Proposta de intervenção',
   };
 
+  // Official wording (Matriz de Referência do ENEM) - shown small and
+  // discreetly under each annotation's competency label, so a student who
+  // doesn't have the five competencies memorized still knows what "C3"
+  // actually means without leaving the annotation.
+  const COMPETENCY_DESCRIPTIONS = {
+    C1: 'Domínio da norma culta da língua escrita.',
+    C2: 'Compreensão do tema e aplicação de áreas do conhecimento na estrutura dissertativo-argumentativa.',
+    C3: 'Seleção e organização de argumentos em defesa de um ponto de vista.',
+    C4: 'Conhecimento dos mecanismos linguísticos de coesão.',
+    C5: 'Elaboração de proposta de intervenção respeitando os direitos humanos.',
+  };
+
   // Always shown, whether or not mechanical_review has any dynamic
   // occurrences - a static reference for what C1's mechanical review covers.
   const MECHANICAL_REFERENCE = [
@@ -104,6 +116,7 @@
             <div class="essay-annotation essay-mark-${esc(a.competency_code)}">
               <span class="essay-annotation-number essay-mark-${esc(a.competency_code)}">${i + 1}</span>
               <strong>${i + 1} — ${esc(a.competency_code)}</strong>
+              ${COMPETENCY_DESCRIPTIONS[a.competency_code] ? `<span class="essay-annotation-competency-hint">${esc(COMPETENCY_DESCRIPTIONS[a.competency_code])}</span>` : ''}
               <p>${esc(a.short_comment)}</p>
               <p class="empty-text">${esc(a.long_comment)}</p>
               ${quote ? `<blockquote>"${esc(quote)}"</blockquote>` : ''}

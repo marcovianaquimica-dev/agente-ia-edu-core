@@ -6,7 +6,7 @@ on the function and essay_engine_contract v3's module docstring for why."""
 import unittest
 import uuid
 
-from agente_ia_edu.essay_engine_contract.v3 import CONTRACT_VERSION, EssayEngineOutput
+from agente_ia_edu.essay_engine_contract.v4 import CONTRACT_VERSION, EssayEngineOutput
 from agente_ia_edu.services.essay_correction import _apply_deterministic_scoring_rules
 
 
@@ -170,6 +170,58 @@ class DeterministicScoringRulesTests(unittest.TestCase):
         output = EssayEngineOutput.model_validate(payload)
         result = _apply_deterministic_scoring_rules(output)
         self.assertEqual(result["per_competency"]["C3"]["confidence"], 0.42)
+
+    def test_anulacao_proposital_zeroes_the_whole_essay(self):
+        """Cartilha p. 9: impropérios, desenhos e outras formas propositais
+        de anulação is ANULA_REDACAO."""
+        output = _output(alerts=["ANULACAO_PROPOSITAL"],
+                          points={c: 200 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 0)
+
+    def test_parte_desconectada_do_tema_zeroes_the_whole_essay(self):
+        """Cartilha p. 9-10: reflexões sobre a prova, bilhetes à banca,
+        mensagens políticas/religiosas ou frases sem relação com o tema."""
+        output = _output(alerts=["PARTE_DESCONECTADA_DO_TEMA"],
+                          points={c: 160 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 0)
+
+    def test_identificacao_indevida_zeroes_the_whole_essay(self):
+        """Cartilha p. 9: nome, assinatura ou rubrica fora do espaço
+        destinado, em qualquer parte da folha de redação."""
+        output = _output(alerts=["IDENTIFICACAO_INDEVIDA"],
+                          points={c: 200 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 0)
+
+    def test_lingua_estrangeira_zeroes_the_whole_essay(self):
+        """Cartilha p. 10: texto predominante ou integralmente em língua
+        estrangeira."""
+        output = _output(alerts=["LINGUA_ESTRANGEIRA"],
+                          points={c: 200 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 0)
+
+    def test_texto_ilegivel_zeroes_the_whole_essay(self):
+        """Cartilha p. 10: texto que impossibilita a leitura por
+        avaliadores independentes - distinct from OCR_DUVIDOSO, which has
+        no scoring effect at all (see test below)."""
+        output = _output(alerts=["TEXTO_ILEGIVEL"],
+                          points={c: 200 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 0)
+
+    def test_ocr_duvidoso_and_possivel_duplicidade_never_zero(self):
+        """Both are informational-only flags for a human reviewer - neither
+        is an official INEP scoring rule, so neither has any automatic
+        scoring consequence."""
+        for code in ("OCR_DUVIDOSO", "POSSIVEL_DUPLICIDADE"):
+            with self.subTest(code=code):
+                output = _output(alerts=[code],
+                                  points={c: 160 for c in ("C1", "C2", "C3", "C4", "C5")})
+                result = _apply_deterministic_scoring_rules(output)
+                self.assertEqual(result["total"], 800)
 
 
 if __name__ == "__main__":

@@ -298,6 +298,23 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.final_scores["per_competency"]["C2"]["points"], 80)
             self.assertEqual(correction.final_scores["total"], 160 + 80 + 40 + 160 + 40)
 
+    async def test_texto_ilegivel_alert_zeroes_final_scores_end_to_end(self):
+        """One representative end-to-end check for the v4/v12 ANULA_REDACAO
+        additions - the pure-function tests in
+        test_r3_deterministic_scoring_rules.py already cover all five new
+        codes individually."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "24", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                alerts=[{"code": "TEXTO_ILEGIVEL", "detail": "Nao foi possivel ler o texto."}],
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.ai_output["scores"]["total"], 800)
+            self.assertEqual(correction.final_scores["total"], 0)
+
     async def test_text_offset_avaliativo_with_validation_enabled_holds_for_review(self):
         async with self.session_factory() as session:
             submission = await self._submission(
@@ -604,9 +621,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v11(self):
+    def test_production_prompt_version_is_v12(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v11")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v12")
 
 
 if __name__ == "__main__":
