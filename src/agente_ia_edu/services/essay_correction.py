@@ -40,7 +40,7 @@ from ..db.models import (
     EssaySubmissionPage,
     PromptAssignment,
 )
-from ..essay_engine_contract.v2 import CONTRACT_VERSION, Feedback, Scores
+from ..essay_engine_contract.v3 import CONTRACT_VERSION, EssayEngineOutput, Feedback, Scores
 from ..essay_prompts import get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
@@ -60,7 +60,7 @@ from .institution_settings import InstitutionSettingsService
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v1"
-_PROMPT_VERSION = "essay_correction_v9"
+_PROMPT_VERSION = "essay_correction_v11"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 
@@ -73,6 +73,68 @@ def _guess_mime(path: Path) -> str:
     return guessed or "application/octet-stream"
 
 
+#: Alert codes whose official consequence (cartilha p. 9-10 and p. 28) is a
+#: whole-essay zero, not a per-competency deduction - see essay_engine_contract
+#: v3's docstring for why FUGA_AO_TEMA/TIPO_TEXTUAL needed splitting from their
+#: softer counterparts before this could be applied safely.
+_ANULA_REDACAO_ALERT_CODES = frozenset({
+    "FUGA_AO_TEMA", "TIPO_TEXTUAL_PREDOMINANTE", "TEXTO_INSUFICIENTE",
+})
+
+
+def _apply_deterministic_scoring_rules(output: EssayEngineOutput) -> dict | None:
+    """Enforces the ENEM 2025 rubric's own normative scoring_rules
+    (rubrics/enem_2025.yaml) on top of the model's raw scores, deterministically -
+    these are checkable, official consequences of specific signals the model
+    already reports (alerts, intervention.respeita_direitos_humanos), not
+    pedagogical judgment calls the model should be trusted to apply consistently
+    entry by entry. ai_output keeps the model's own scores exactly as it
+    reported them; only this function's result - final_scores, what actually
+    gets published - can differ from that, the same split approve() already
+    relies on for a teacher's manual score edit.
+
+    Returns None when output.scores is None (FORMATIVO produces no grade to
+    adjust).
+    """
+    if output.scores is None:
+        return None
+
+    alert_codes = {alert.code for alert in output.alerts}
+    points = {code: score.points for code, score in output.scores.per_competency.items()}
+    confidences = {code: score.confidence for code, score in output.scores.per_competency.items()}
+
+    if alert_codes & _ANULA_REDACAO_ALERT_CODES:
+        # Cartilha p. 9-10 (fuga total ao tema / nao atendimento ao tipo
+        # dissertativo-argumentativo / texto insuficiente) and p. 28
+        # (predominancia de outro tipo textual): a whole-essay zero, not a
+        # per-competency deduction.
+        points = {code: 0 for code in points}
+    else:
+        if "TANGENCIAMENTO_AO_TEMA" in alert_codes:
+            # Cartilha p. 27, quadro ATENCAO!: tangenciamento affects C2
+            # through C2's own descriptor (already surfaced to the model, since
+            # the descriptor text itself mentions tangenciamento) but ALSO
+            # caps C3 and C5 at 40 points - a cross-competency ceiling neither
+            # competency's own descriptor can express on its own, so it can't
+            # be left to the model to apply just by scoring C3/C5 normally.
+            points["C3"] = min(points["C3"], 40)
+            points["C5"] = min(points["C5"], 40)
+        if not output.intervention.respeita_direitos_humanos:
+            # Cartilha p. 39, quadro ATENCAO!: zeroes Competencia V alone,
+            # never the whole essay - keep this in the `else` branch so it's
+            # a no-op (already zero) when an ANULA_REDACAO alert fired above.
+            points["C5"] = 0
+
+    total = sum(points.values())
+    return {
+        "per_competency": {
+            code: {"points": points[code], "confidence": confidences[code]}
+            for code in points
+        },
+        "total": total,
+    }
+
+
 def _rubric_payload(rubric_file: RubricFile) -> dict:
     return {
         "rubric_version": rubric_file.rubric_version,
@@ -83,6 +145,17 @@ def _rubric_payload(rubric_file: RubricFile) -> dict:
                 "levels": [
                     {"points": level.points, "descriptor": level.descriptor}
                     for level in competency.levels
+                ],
+                # Confirmed by rubric audit (2026-09-27): rubrics/enem_2025.yaml
+                # transcribes a full controlled vocabulary of specific,
+                # cartilha-sourced concepts per competency (e.g. C1's
+                # "estrutura_sintatica", C3's "autoria") for exactly the
+                # signal_keys field below - previously seeded into the DB but
+                # never included in this payload, so the model had no way to
+                # know these keys existed and free-invented its own instead.
+                "signals": [
+                    {"key": signal.key, "label": signal.label, "description": signal.description}
+                    for signal in competency.signals
                 ],
             }
             for competency in rubric_file.competencies
@@ -460,7 +533,7 @@ class EssayCorrectionService:
             "model_version": model_version, "prompt_version": prompt_artifact.version,
             "engine_version": _ENGINE_VERSION,
             "ai_output": output.model_dump(mode="json"),
-            "final_scores": output.scores.model_dump(mode="json") if output.scores else None,
+            "final_scores": _apply_deterministic_scoring_rules(output),
             "final_feedback": output.feedback.model_dump(mode="json"),
             "failure_reason": None,
         }

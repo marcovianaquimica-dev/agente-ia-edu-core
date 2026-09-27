@@ -61,6 +61,8 @@ class _StubImageProvider:
 def _happy_payload(
     *, anchor_mode: str, text: str = "", page: int = 1, box=(800.0, 600.0),
     quote_override: str | None = None, include_scores: bool = True,
+    alerts: list | None = None, respeita_direitos_humanos: bool = True,
+    per_competency_points: dict | None = None,
 ) -> str:
     import json
 
@@ -72,16 +74,13 @@ def _happy_payload(
             "type": "IMAGE_REGION", "page": page, "line": 2, "total_lines": 30,
             "read_text": "trecho lido na imagem",
         }
+    points = per_competency_points or {c: 160 for c in ("C1", "C2", "C3", "C4", "C5")}
     scores = (
         {
             "per_competency": {
-                "C1": {"points": 160, "confidence": 0.9},
-                "C2": {"points": 160, "confidence": 0.9},
-                "C3": {"points": 160, "confidence": 0.9},
-                "C4": {"points": 160, "confidence": 0.9},
-                "C5": {"points": 160, "confidence": 0.9},
+                code: {"points": p, "confidence": 0.9} for code, p in points.items()
             },
-            "total": 800,
+            "total": sum(points.values()),
         }
         if include_scores
         else None
@@ -114,9 +113,10 @@ def _happy_payload(
             "intervention": {
                 "agente": "Estado", "acao": "criar programa",
                 "meio_modo": "por meio de campanhas", "finalidade": "reduzir o problema",
-                "detalhamento": "com fiscalizacao", "respeita_direitos_humanos": True,
+                "detalhamento": "com fiscalizacao",
+                "respeita_direitos_humanos": respeita_direitos_humanos,
             },
-            "alerts": [],
+            "alerts": alerts or [],
             "intro_message": "Ola! Vamos ver como foi sua redacao.",
             "closing_message": "Continue praticando, voce esta no caminho certo.",
         }
@@ -225,6 +225,78 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.model_version, "gpt-test")
             self.assertIsNotNone(correction.correction_key)
             self.assertIn("SCORING_MODE: FORMATIVO", provider.last_request.prompt)
+
+    async def test_real_rubric_signals_reach_the_assembled_prompt(self):
+        """End-to-end: rubrics/enem_2025.yaml's controlled signal vocabulary
+        (seeded by EssayRubricSeeder in asyncSetUp) flows through
+        _rubric_payload into the actual prompt sent to the provider - not
+        just the essay_prompts-level unit test with a hand-built rubric
+        dict."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "23", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            await service.correct(submission.id)
+
+            prompt = provider.last_request.prompt
+            self.assertIn("estrutura_sintatica", prompt)
+            self.assertIn("Estrutura sintática", prompt)
+
+    async def test_fuga_ao_tema_alert_zeroes_final_scores_but_not_ai_output(self):
+        """End-to-end: essay_engine_contract v3's alert codes flow through
+        real validation into _apply_deterministic_scoring_rules. ai_output
+        keeps the model's own (unrealistically high) scores exactly as
+        reported; final_scores - what's actually published - is zeroed by
+        the ENEM 2025 rubric's own ANULA_REDACAO rule for total fuga ao
+        tema, deterministically, not because the model did the arithmetic."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "20", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.ai_output["scores"]["total"], 800)
+            self.assertEqual(correction.final_scores["total"], 0)
+            for code in ("C1", "C2", "C3", "C4", "C5"):
+                self.assertEqual(correction.final_scores["per_competency"][code]["points"], 0)
+
+    async def test_human_rights_violation_zeroes_only_c5_in_final_scores(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "21", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                respeita_direitos_humanos=False,
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.ai_output["scores"]["total"], 800)
+            self.assertEqual(correction.final_scores["per_competency"]["C5"]["points"], 0)
+            self.assertEqual(correction.final_scores["per_competency"]["C1"]["points"], 160)
+            self.assertEqual(correction.final_scores["total"], 640)
+
+    async def test_tangenciamento_alert_caps_c3_and_c5_in_final_scores(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "22", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                alerts=[{"code": "TANGENCIAMENTO_AO_TEMA", "detail": "So aborda o assunto amplo."}],
+                per_competency_points={"C1": 160, "C2": 80, "C3": 200, "C4": 160, "C5": 200},
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.ai_output["scores"]["per_competency"]["C3"]["points"], 200)
+            self.assertEqual(correction.final_scores["per_competency"]["C3"]["points"], 40)
+            self.assertEqual(correction.final_scores["per_competency"]["C5"]["points"], 40)
+            self.assertEqual(correction.final_scores["per_competency"]["C2"]["points"], 80)
+            self.assertEqual(correction.final_scores["total"], 160 + 80 + 40 + 160 + 40)
 
     async def test_text_offset_avaliativo_with_validation_enabled_holds_for_review(self):
         async with self.session_factory() as session:
@@ -532,9 +604,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v9(self):
+    def test_production_prompt_version_is_v11(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v9")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v11")
 
 
 if __name__ == "__main__":
