@@ -8,9 +8,9 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import EssayRubric, EssayRubricSignal
 from agente_ia_edu.essay_engine_contract.v1 import CONTRACT_VERSION, EssayEngineOutput
-from agente_ia_edu.essay_engine_contract.v3 import (
-    CONTRACT_VERSION as CONTRACT_VERSION_V3,
-    EssayEngineOutput as EssayEngineOutputV3,
+from agente_ia_edu.essay_engine_contract.v4 import (
+    CONTRACT_VERSION as CONTRACT_VERSION_V4,
+    EssayEngineOutput as EssayEngineOutputV4,
 )
 from agente_ia_edu.rubrics.loader import load_rubric_file
 from agente_ia_edu.services.essay_rubric_seed import EssayRubricSeeder
@@ -54,7 +54,7 @@ def build_payload(**overrides) -> dict:
     """Shared by build_output() (validates against v1's EssayEngineOutput -
     contract_version must be v1's) and the validate_engine_output_from_payload
     tests below (validates against v2 internally - those override
-    identification with CONTRACT_VERSION_V3 at the call site)."""
+    identification with CONTRACT_VERSION_V4 at the call site)."""
     payload = {
         "identification": {
             "essay_id": str(uuid.uuid4()),
@@ -108,11 +108,11 @@ def build_output(**overrides) -> EssayEngineOutput:
     return EssayEngineOutput.model_validate(build_payload(**overrides))
 
 
-def build_payload_v3(**overrides) -> dict:
+def build_payload_v4(**overrides) -> dict:
     """Like build_payload(), but for validate_engine_output_from_payload
-    calls, which parse against essay_engine_contract.v3 internally."""
+    calls, which parse against essay_engine_contract.v4 internally."""
     payload = build_payload(**overrides)
-    payload["identification"] = {**payload["identification"], "contract_version": CONTRACT_VERSION_V3}
+    payload["identification"] = {**payload["identification"], "contract_version": CONTRACT_VERSION_V4}
     return payload
 
 
@@ -395,7 +395,7 @@ class TestEngineValidation(unittest.TestCase):
         text = LIVE_TRANSCRIPTION
         quote = "4. sas principais"
         drifted_start = text.index("3. a invisibilida")
-        payload = build_payload_v3(annotations=[{
+        payload = build_payload_v4(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "LOCALIZED",
             "anchor": {
@@ -593,7 +593,7 @@ class TestEngineValidation(unittest.TestCase):
         """End-to-end through the single entry point spec §7 promises: a
         payload with a GLOBAL, anchor-omitted annotation must validate clean
         through all three layers, not just layer 1."""
-        raw_payload = build_payload_v3(annotations=[{
+        raw_payload = build_payload_v4(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "GLOBAL",
             "short_comment": "curto", "long_comment": "longo",
@@ -759,7 +759,7 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
                 "model_version": "fake-model-1",
                 "prompt_version": "v1",
                 "engine_version": "r1.0.0",
-                "contract_version": CONTRACT_VERSION_V3,
+                "contract_version": CONTRACT_VERSION_V4,
                 "anchor_mode": "TEXT_OFFSET",
             }
         )
@@ -770,9 +770,9 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
         self.assertEqual(caught.exception.reason_code, "RUBRIC_VERSION_MISMATCH")
 
     def test_a_valid_payload_returns_the_parsed_output(self):
-        raw_payload = build_payload_v3()
+        raw_payload = build_payload_v4()
 
         output = validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
 
-        self.assertIsInstance(output, EssayEngineOutputV3)
+        self.assertIsInstance(output, EssayEngineOutputV4)
         self.assertEqual(output.identification.rubric_version, "ENEM_2025")
