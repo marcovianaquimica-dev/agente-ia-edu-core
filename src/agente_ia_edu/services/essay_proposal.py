@@ -34,6 +34,7 @@ class EssayProposalService:
         statement: str,
         year: int,
         created_by_external_identity: str,
+        is_free_theme: bool = False,
     ) -> EssayPrompt:
         prompt = EssayPrompt(
             id=uuid.uuid4(),
@@ -43,6 +44,7 @@ class EssayProposalService:
             year=year,
             status="DRAFT",
             created_by_external_identity=created_by_external_identity,
+            is_free_theme=is_free_theme,
         )
         self.session.add(prompt)
         await self.session.flush()

@@ -27,7 +27,10 @@ from agente_ia_edu.db.models import (
 )
 from agente_ia_edu.identity import ExternalIdentityContext
 from agente_ia_edu.providers.models import EssayOcrToken, EssayPageTranscriptionResult
-from agente_ia_edu.services.essay_submission import EssaySubmissionService
+from agente_ia_edu.services.essay_submission import (
+    EssaySubmissionService,
+    _extract_pdf_paragraphs,
+)
 from agente_ia_edu.services.material_storage import MaterialStorage
 
 
@@ -109,6 +112,66 @@ class _FlakyThenSucceedsTranscriber:
         if self.calls <= self._fail_times:
             raise ProviderInvalidResponseError("OpenAI refused to transcribe the image: sorry")
         return EssayPageTranscriptionResult(tokens=self._tokens, provider="flaky", model="v1")
+
+
+class _FakePdfPage:
+    """Duck-types the one PyMuPDF Page method _extract_pdf_paragraphs calls,
+    so its block-joining logic is tested without ever building a real PDF."""
+
+    def __init__(self, blocks: list[str]):
+        self._blocks = blocks
+
+    def get_text(self, mode):
+        assert mode == "blocks"
+        # Real PyMuPDF blocks are 7-tuples (x0, y0, x1, y1, text, block_no,
+        # block_type) - only index 4 (the text) is read.
+        return [(0, 0, 0, 0, text, i, 0) for i, text in enumerate(self._blocks)]
+
+
+class ExtractPdfParagraphsTests(unittest.TestCase):
+    def test_joins_mid_paragraph_line_wraps_with_a_space(self):
+        """Confirmed live (2026-09-27): PyMuPDF's plain get_text() ends every
+        visual line with a single "\\n", including a line PyMuPDF only wrapped
+        mid-sentence - indistinguishable from a real paragraph break by the
+        text alone. A real correction of a real, cleanly-typed PDF essay
+        failed on exactly this: canonical_text read "...cuidado\\nrealizado..."
+        where the model's (correct) quote read "...cuidado realizado..." with
+        a plain space, since that's how the sentence actually reads."""
+        page = _FakePdfPage([
+            "Portanto, torna-se primordial mitigar a marginalidade do trabalho de cuidado \nrealizado pelo gênero feminino.",
+        ])
+        text = _extract_pdf_paragraphs(page)
+        self.assertEqual(
+            text,
+            "Portanto, torna-se primordial mitigar a marginalidade do trabalho de "
+            "cuidado realizado pelo gênero feminino.",
+        )
+
+    def test_preserves_real_paragraph_breaks_between_blocks(self):
+        """get_text("blocks") groups by the PDF's own paragraph structure,
+        so separate blocks are separate paragraphs - unlike a mid-block
+        "\\n", which is just a line wrap (see test above)."""
+        page = _FakePdfPage([
+            "Primeiro paragrafo, \ncom uma linha quebrada.",
+            "Segundo paragrafo, \ntambem com quebra.",
+        ])
+        text = _extract_pdf_paragraphs(page)
+        self.assertEqual(
+            text,
+            "Primeiro paragrafo, com uma linha quebrada.\n\n"
+            "Segundo paragrafo, tambem com quebra.",
+        )
+
+    def test_skips_empty_or_whitespace_only_blocks(self):
+        """PyMuPDF's block list often ends with a trailing near-empty block
+        (page margin artifacts) - it must not become a stray blank paragraph."""
+        page = _FakePdfPage(["Único parágrafo real.", "   \n", ""])
+        text = _extract_pdf_paragraphs(page)
+        self.assertEqual(text, "Único parágrafo real.")
+
+    def test_empty_document_returns_empty_string(self):
+        page = _FakePdfPage([])
+        self.assertEqual(_extract_pdf_paragraphs(page), "")
 
 
 class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):

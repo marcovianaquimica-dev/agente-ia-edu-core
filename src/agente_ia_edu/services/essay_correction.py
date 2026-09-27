@@ -139,6 +139,29 @@ def _apply_deterministic_scoring_rules(output: EssayEngineOutput) -> dict | None
     }
 
 
+def _effective_essay_statement(submission: EssaySubmission, essay_prompt: EssayPrompt) -> str:
+    """"Tema livre" (EssayPrompt.is_free_theme): the student typed their own
+    theme at submission time (EssaySubmission.student_declared_theme), so
+    ESSAY_STATEMENT must be built from THAT, not the prompt's own generic
+    statement - otherwise FUGA_AO_TEMA would be judged against a theme the
+    student never actually had. Every other submission is unaffected:
+    student_declared_theme is None, so this returns the prompt's statement
+    exactly as before."""
+    if not submission.student_declared_theme:
+        return essay_prompt.statement
+    return (
+        "Redacao de tema livre: o(a) participante escolheu escrever sobre o "
+        f"seguinte tema, declarado por ele(a) mesmo(a) antes de escrever: "
+        f"\"{submission.student_declared_theme}\". Redija um texto "
+        "dissertativo-argumentativo em modalidade escrita formal da lingua "
+        "portuguesa sobre EXATAMENTE esse tema declarado, apresentando "
+        "proposta de intervencao que respeite os direitos humanos. Avalie "
+        "fuga ao tema, tangenciamento e compreensao do tema comparando o "
+        "texto produzido contra este tema declarado pelo proprio "
+        "participante - nao contra nenhum outro tema."
+    )
+
+
 def _rubric_payload(rubric_file: RubricFile) -> dict:
     return {
         "rubric_version": rubric_file.rubric_version,
@@ -548,7 +571,8 @@ class EssayCorrectionService:
     ) -> tuple[dict, str, str, None, str]:
         text = submission.canonical_text
         prompt_text = prompt_artifact.build(
-            anchor_mode="TEXT_OFFSET", essay_statement=essay_prompt.statement,
+            anchor_mode="TEXT_OFFSET",
+            essay_statement=_effective_essay_statement(submission, essay_prompt),
             rubric=rubric_payload, include_scores=include_scores, text=text,
         )
         result = await self._get_text_provider().generate(
@@ -577,7 +601,8 @@ class EssayCorrectionService:
                 )
 
         prompt_text = prompt_artifact.build(
-            anchor_mode="IMAGE_REGION", essay_statement=essay_prompt.statement,
+            anchor_mode="IMAGE_REGION",
+            essay_statement=_effective_essay_statement(submission, essay_prompt),
             rubric=rubric_payload, include_scores=include_scores, page_count=len(pages),
         )
         image_paths = tuple(Path(page.storage_uri) for page in pages)

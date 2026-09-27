@@ -162,11 +162,11 @@
 
     const interventionHtml = `
       <ul class="essay-intervention-checklist">
-        <li>${intervention.agente ? '✓' : '○'} Agente: ${esc(intervention.agente || '—')}</li>
-        <li>${intervention.acao ? '✓' : '○'} Ação: ${esc(intervention.acao || '—')}</li>
-        <li>${intervention.meio_modo ? '✓' : '○'} Meio/modo: ${esc(intervention.meio_modo || '—')}</li>
-        <li>${intervention.finalidade ? '✓' : '○'} Finalidade: ${esc(intervention.finalidade || '—')}</li>
-        <li>${intervention.detalhamento ? '✓' : '○'} Detalhamento: ${esc(intervention.detalhamento || '—')}</li>
+        <li>${intervention.agente ? '✓' : '○'} <strong>Agente</strong> ${esc(intervention.agente || '—')}</li>
+        <li>${intervention.acao ? '✓' : '○'} <strong>Ação</strong> ${esc(intervention.acao || '—')}</li>
+        <li>${intervention.meio_modo ? '✓' : '○'} <strong>Meio/modo</strong> ${esc(intervention.meio_modo || '—')}</li>
+        <li>${intervention.finalidade ? '✓' : '○'} <strong>Finalidade</strong> ${esc(intervention.finalidade || '—')}</li>
+        <li>${intervention.detalhamento ? '✓' : '○'} <strong>Detalhamento</strong> ${esc(intervention.detalhamento || '—')}</li>
       </ul>
       <p class="${intervention.respeita_direitos_humanos ? '' : 'essay-warning'}">
         ${intervention.respeita_direitos_humanos ? '✓ Respeita os direitos humanos' : '⚠ Atenção: verificar respeito aos direitos humanos'}

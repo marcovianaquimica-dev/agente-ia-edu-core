@@ -89,7 +89,7 @@
           const state = submissionState(p.my_submission);
           const dueText = p.due_at ? `<p class="empty-text">Prazo: ${new Date(p.due_at).toLocaleDateString('pt-BR')}</p>` : '';
           return `
-            <article class="card essay-prompt-card">
+            <article class="card essay-prompt-card${p.is_free_theme ? ' essay-prompt-card--free-theme' : ''}">
               <h3>${escEssay(p.title)}</h3>
               <p class="essay-prompt-statement">${escEssay(p.statement)}</p>
               ${dueText}
@@ -200,13 +200,28 @@
     const state = {
       submissionId: null, anchorMode: null, mode: null,
       resubmitEssayId: resubmitEssayId || null, resubmitText: resubmitText || null,
+      // "Tema livre" (prompt.is_free_theme): the student must type their own
+      // theme before either submission path (renderTypedForm's atomic POST,
+      // or renderUploadArea's lazy-create-on-first-file) is allowed to fire,
+      // since the backend rejects a free-theme submission with no
+      // student_declared_theme (422 - see EssaySubmissionService).
+      studentDeclaredTheme: null,
     };
+
+    const declaredThemeHtml = prompt.is_free_theme ? `
+        <div class="essay-declared-theme-group">
+          <label for="essay-declared-theme">Qual tema você escolheu?</label>
+          <input id="essay-declared-theme" type="text" required
+            placeholder="Digite o tema da sua redação">
+          <p class="essay-declared-theme-hint">Escreva o tema antes de enviar - usamos ele para verificar se sua redação não fugiu do assunto.</p>
+        </div>` : '';
 
     container.innerHTML = `
       <div class="card essay-form">
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
         <h3>${escEssay(prompt.title)}</h3>
         <p>${escEssay(prompt.statement)}</p>
+        ${declaredThemeHtml}
         <div class="essay-mode-tabs">
           <button class="btn btn-secondary is-active" type="button" data-mode="TYPED">Digitar</button>
           <button class="btn btn-secondary" type="button" data-mode="PHOTO">Fotografar</button>
@@ -215,6 +230,12 @@
         </div>
         <div id="essay-mode-body"></div>
       </div>`;
+
+    if (prompt.is_free_theme) {
+      container.querySelector('#essay-declared-theme').addEventListener('input', (ev) => {
+        state.studentDeclaredTheme = ev.target.value;
+      });
+    }
 
     function switchMode(requestedMode) {
       // Once a real submission exists, its mode is locked (the backend
@@ -258,6 +279,11 @@
       const msg = body.querySelector('#essay-typed-msg');
       const submitBtn = ev.target.querySelector('button[type="submit"]');
       if (!text) return;
+      if (prompt.is_free_theme && !(state.studentDeclaredTheme || '').trim()) {
+        msg.hidden = false;
+        msg.textContent = 'Digite o tema da sua redação antes de enviar.';
+        return;
+      }
       submitBtn.disabled = true;
       msg.hidden = true;
       try {
@@ -267,6 +293,7 @@
           body: JSON.stringify({
             prompt_assignment_id: prompt.prompt_assignment_id, mode: 'TYPED', text,
             ...(state.resubmitEssayId ? { resubmit_essay_id: state.resubmitEssayId } : {}),
+            ...(prompt.is_free_theme ? { student_declared_theme: state.studentDeclaredTheme.trim() } : {}),
           }),
         });
         await loadPrompts();
@@ -307,6 +334,12 @@
       if (!files.length) return;
       const msg = target.querySelector('#essay-upload-msg');
       msg.hidden = true;
+      if (prompt.is_free_theme && !state.submissionId && !(state.studentDeclaredTheme || '').trim()) {
+        msg.hidden = false;
+        msg.textContent = 'Digite o tema da sua redação antes de enviar.';
+        ev.target.value = '';
+        return;
+      }
       ev.target.disabled = true;
       try {
         if (!state.submissionId) {
@@ -319,6 +352,7 @@
             body: JSON.stringify({
               prompt_assignment_id: prompt.prompt_assignment_id, mode: backendMode,
               ...(state.resubmitEssayId ? { resubmit_essay_id: state.resubmitEssayId } : {}),
+              ...(prompt.is_free_theme ? { student_declared_theme: state.studentDeclaredTheme.trim() } : {}),
             }),
           });
           state.submissionId = submission.id;
@@ -330,7 +364,7 @@
         }
         if (mode === 'PDF') {
           msg.hidden = false;
-          msg.textContent = 'Enviando PDF...';
+          msg.innerHTML = '<span class="inline-spinner"></span>Enviando PDF...';
           const form = new FormData();
           form.append('file', files[0]);
           await essayRequest(`/api/v1/student/essay-submissions/${state.submissionId}/document`, {
@@ -343,7 +377,7 @@
           for (const file of files) {
             photoIndex += 1;
             msg.hidden = false;
-            msg.textContent = `Enviando foto ${photoIndex} de ${files.length}...`;
+            msg.innerHTML = `<span class="inline-spinner"></span>Enviando foto ${photoIndex} de ${files.length}...`;
             const form = new FormData();
             form.append('page_number', String(nextPage));
             form.append('file', file);
