@@ -66,6 +66,13 @@ from agente_ia_edu.services.question_list_store import (
 
 STATUS_COMPLETED = "COMPLETED"
 
+# same honest fallback used by list_generator.py's ResolutionView when a
+# question has no captured/reviewed resolution - never invented text.
+NO_RESOLUTION_TEXT = (
+    "Não há resolução oficial passo a passo armazenada para esta questão. "
+    "A geração de resolução por IA é uma fase futura e não é usada aqui."
+)
+
 
 class CorrectionError(ValueError):
     """422 - malformed request."""
@@ -345,6 +352,9 @@ class ActivityCorrectionStore:
             select(ActivityResultItem).where(ActivityResultItem.result_id == result.id)
             .order_by(ActivityResultItem.position)
         )).scalars().all()
+        resolution_by_qv = await self._resolution_texts(
+            [r.question_version_id for r in rows]
+        )
         qc = result.question_count or 0
         pct = round((result.correct_count / qc) * 100, 1) if qc else 0.0
         return {
@@ -378,12 +388,27 @@ class ActivityCorrectionStore:
                     "is_correct": r.is_correct,
                     "selected_option_key": r.selected_option_key,
                     "correct_option_key": r.correct_option_key,   # released ONLY here, post-correction
-                    "resolution": "em breve",
+                    "resolution": resolution_by_qv.get(r.question_version_id, NO_RESOLUTION_TEXT),
                 }
                 for r in rows
             ],
             "answer_key_visible": True,
         }
+
+    async def _resolution_texts(self, version_ids: list[UUID]) -> dict[UUID, str]:
+        """One batched query: real QuestionVersion.resolution_text per
+        question_version_id - same anti-N+1 pattern as
+        list_generator.py's ``_authoritative_answer_keys`` /
+        ``_official_resolutions``. NULL/empty for most of the corpus; the
+        caller falls back to NO_RESOLUTION_TEXT rather than inventing one."""
+        ids = list(version_ids)
+        if not ids:
+            return {}
+        rows = (await self._session.execute(
+            select(QuestionVersion.id, QuestionVersion.resolution_text)
+            .where(QuestionVersion.id.in_(ids), QuestionVersion.resolution_text.is_not(None))
+        )).all()
+        return {vid: text for vid, text in rows if text and text.strip()}
 
 
 __all__ = [

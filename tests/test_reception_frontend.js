@@ -123,3 +123,42 @@ test('candidate CRUD and diagnostic-release calls match the reception.py routes 
   assert.match(js, /released\.candidate/);
   assert.match(js, /released\.activation_token/);
 });
+
+test('the PDF export button is wired to GET /candidates/{id}/export and triggers a real blob download, not disabled', () => {
+  // Regression test: resultMarkup() used to render
+  // `<button ... disabled title="Contrato de exportação ainda não
+  // disponível">PDF</button>` - no fetch call existed anywhere in this file
+  // for an /export path. WhatsApp/E-mail are intentionally left disabled
+  // (they require an external integration that was never authorized) and
+  // must stay untouched.
+  assert.doesNotMatch(
+    js,
+    /id="export-pdf"[^>]*disabled/,
+    'the PDF button must no longer be disabled'
+  );
+  assert.match(js, /<button class="button quiet" id="export-pdf" type="button">PDF<\/button>/);
+  assert.match(
+    js,
+    /<button class="button quiet" disabled title="Integração ainda não disponível">WhatsApp<\/button>/,
+    'WhatsApp export must remain disabled - not authorized for this change'
+  );
+  assert.match(
+    js,
+    /<button class="button quiet" disabled title="Integração ainda não disponível">E-mail<\/button>/,
+    'E-mail export must remain disabled - not authorized for this change'
+  );
+
+  // exportCandidatePdf() must call the real export route with the
+  // authenticated staff headers, download the response as a blob, and
+  // trigger a real anchor-click download (same pattern as teacher.js's
+  // report export) rather than leaving the button a no-op.
+  assert.match(js, /fetch\(`\/api\/v1\/reception\/candidates\/\$\{candidateId\}\/export`, \{ headers: headers\(\) \}\)/);
+  assert.match(js, /response\.blob\(\)/);
+  assert.match(js, /URL\.createObjectURL\(blob\)/);
+  assert.match(js, /link\.click\(\)/);
+  assert.match(js, /URL\.revokeObjectURL\(url\)/);
+
+  // The button must actually be bound to that function when a candidate's
+  // diagnostic result is rendered.
+  assert.match(js, /getElementById\('export-pdf'\)\?\.addEventListener\('click', \(\) => exportCandidatePdf\(candidate\.id\)\)/);
+});

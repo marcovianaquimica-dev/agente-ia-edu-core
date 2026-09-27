@@ -165,6 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('diagnostic-result').hidden = false;
       document.getElementById('diagnostic-result').scrollIntoView({ behavior: 'smooth' });
     });
+    document.getElementById('export-pdf')?.addEventListener('click', () => exportCandidatePdf(candidate.id));
     bindActivationForm();
   }
 
@@ -203,7 +204,30 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="detail-grid"><div><h3>Pontos de domínio</h3><ul class="result-list">${strengths.length ? strengths.map(item => `<li><strong>${escapeHtml(item.content_name)}</strong>${escapeHtml(item.estimated_mastery)}% de domínio estimado</li>`).join('') : '<li>Nenhum ponto de domínio consolidado foi retornado.</li>'}</ul></div>
       <div><h3>Lacunas e pré-requisitos</h3><ul class="result-list">${gaps.length ? gaps.map(item => `<li><strong>${escapeHtml(item.content_name)}</strong>${escapeHtml(item.estimated_mastery)}% estimado${item.possible_prerequisite_gap ? `<br>Possível pré-requisito: ${escapeHtml(item.possible_prerequisite_gap.content_name)}` : ''}</li>`).join('') : '<li>Nenhuma lacuna foi retornada.</li>'}</ul></div></div>
       <h3 class="result-section">Recomendações da trilha</h3><p>${result.recommendations?.length ? escapeHtml(result.recommendations.join(', ')) : 'Ainda não disponíveis neste contrato de diagnóstico.'}</p>
-      <div class="future-actions"><button class="button quiet" disabled title="Contrato de exportação ainda não disponível">PDF</button><button class="button quiet" disabled title="Integração ainda não disponível">WhatsApp</button><button class="button quiet" disabled title="Integração ainda não disponível">E-mail</button></div></section>`;
+      <div class="future-actions"><button class="button quiet" id="export-pdf" type="button">PDF</button><button class="button quiet" disabled title="Integração ainda não disponível">WhatsApp</button><button class="button quiet" disabled title="Integração ainda não disponível">E-mail</button></div></section>`;
+  }
+
+  async function exportCandidatePdf(candidateId) {
+    try {
+      const response = await fetch(`/api/v1/reception/candidates/${candidateId}/export`, { headers: headers() });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(translateDetail(error.detail) || 'Não foi possível gerar o PDF.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const filename = match ? match[1] : 'ficha-candidato.pdf';
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showNotice('PDF da ficha do candidato gerado e baixado com sucesso.');
+    } catch (error) { showNotice(error.message, 'error'); }
   }
 
   document.getElementById('open-session').onclick = () => { sessionPanel.hidden = !sessionPanel.hidden; };

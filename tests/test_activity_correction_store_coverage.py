@@ -311,6 +311,40 @@ class ActivityCorrectionStoreDBTests(unittest.TestCase):
         self.assertEqual(fetched["result"]["unanswered_count"], 0)
         self.assertTrue(fetched["answer_key_visible"])
 
+    # -- resolution text (PHASE 30 bug: was hardcoded "em breve") -------
+
+    def test_result_item_uses_real_resolution_text_when_present(self):
+        """A QuestionVersion with a real resolution_text recorded must show
+        that exact text in the result item, never the old fixed
+        "em breve" placeholder."""
+        async def run():
+            async with self.session_factory() as session:
+                ids = await self._seed(session, n_items=2)
+                qv1, opt_a1, _opt_b1 = ids["items"][0]
+                qv2, opt_a2, _opt_b2 = ids["items"][1]
+                qv1_obj = await session.get(QuestionVersion, qv1)
+                qv1_obj.resolution_text = "Resolução real: aplique a fórmula X."
+                await self._complete_attempt(
+                    session, ids["assignment_id"],
+                    answers=[(qv1, opt_a1, "A"), (qv2, opt_a2, "A")],
+                )
+                await session.commit()
+
+                store = ActivityCorrectionStore(session)
+                corrected = await store.correct(ids["assignment_id"], requester=_requester())
+                return corrected, str(qv1), str(qv2)
+
+        corrected, qv1_str, qv2_str = asyncio.run(run())
+        items_by_qv = {it["question_version_id"]: it for it in corrected["items"]}
+        self.assertEqual(
+            items_by_qv[qv1_str]["resolution"], "Resolução real: aplique a fórmula X."
+        )
+        self.assertNotEqual(items_by_qv[qv1_str]["resolution"], "em breve")
+        # the other question has no resolution_text recorded - honest
+        # fallback, never an invented resolution and never "em breve"
+        self.assertNotEqual(items_by_qv[qv2_str]["resolution"], "em breve")
+        self.assertIn("Não há resolução", items_by_qv[qv2_str]["resolution"])
+
     # -- correct(): state errors ---------------------------------------
 
     def test_correct_without_attempt_raises_not_started(self):

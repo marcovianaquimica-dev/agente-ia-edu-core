@@ -241,7 +241,13 @@ class ActivityResultItemView(BaseModel):
     is_correct: bool
     selected_option_key: str | None = None
     correct_option_key: str | None = None  # released only after correction
-    resolution: str = "em breve"
+    # real QuestionVersion.resolution_text when recorded; otherwise the same
+    # honest fallback list_generator.py's ResolutionView uses - never an
+    # invented resolution, and never the old fixed "em breve" placeholder.
+    resolution: str = (
+        "Não há resolução oficial passo a passo armazenada para esta questão. "
+        "A geração de resolução por IA é uma fase futura e não é usada aqui."
+    )
 
 
 class ActivityResultActivity(BaseModel):

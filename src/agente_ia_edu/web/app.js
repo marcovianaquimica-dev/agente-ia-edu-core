@@ -1404,7 +1404,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>Sua resposta: <strong>${escActivity(it.selected_option_key || '—')}</strong></span>
           <span>Resposta correta: <strong>${escActivity(it.correct_option_key || '—')}</strong></span>
         </div>
-        <p class="activity-result-question-res">Resolução da questão: em breve.</p>
+        <p class="activity-result-question-res">Resolução da questão: ${escActivity(it.resolution)}</p>
       </article>`;
     }).join('');
     document.getElementById('result-toggle-questions').textContent = 'Ver questões';

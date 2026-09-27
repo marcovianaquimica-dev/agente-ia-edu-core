@@ -61,6 +61,28 @@ _LABELS: dict[str, str] = {
     "current_level": "Nível",
     "questions_answered": "Questões Respondidas",
     "questions_correct": "Questões Corretas",
+    # Reception Portal candidate ("ficha do candidato") fields.
+    "full_name": "Nome Completo",
+    "preferred_name": "Nome Preferido",
+    "birth_date": "Data de Nascimento",
+    "guardian_name": "Responsável",
+    "phone": "Telefone",
+    "email": "E-mail",
+    "academic_year": "Ano Letivo",
+    "unit_id": "Unidade",
+    "segment_id": "Segmento",
+    "grade_level": "Série",
+    "created_at": "Cadastrado Em",
+    "released_at": "Diagnóstico Liberado Em",
+    "diagnostic_started_at": "Diagnóstico Iniciado Em",
+    "diagnostic_completed_at": "Diagnóstico Concluído Em",
+    "overall_confidence_percent": "Confiança Geral do Diagnóstico (%)",
+    "evidence_count": "Evidências Coletadas",
+    "total_questions_asked": "Questões do Diagnóstico",
+    "total_correct": "Respostas Corretas no Diagnóstico",
+    "estimated_mastery": "Domínio Estimado (%)",
+    "recommended_difficulty": "Dificuldade Recomendada",
+    "prerequisite": "Possível Pré-requisito",
 }
 
 _SECTION_TITLES: dict[str, str] = {
@@ -73,6 +95,8 @@ _SECTION_TITLES: dict[str, str] = {
     "content_masteries": "Domínio por Conteúdo",
     "priority_contents": "Conteúdos Prioritários",
     "current_recommendations": "Recomendações Atuais",
+    "mastery_map": "Domínio Diagnosticado por Conteúdo",
+    "probable_gaps": "Lacunas Identificadas no Diagnóstico",
 }
 
 # Order in which list-shaped payload keys become sections, when present.
@@ -85,6 +109,8 @@ _LIST_SECTION_ORDER = [
     "content_masteries",
     "priority_contents",
     "current_recommendations",
+    "mastery_map",
+    "probable_gaps",
 ]
 
 
