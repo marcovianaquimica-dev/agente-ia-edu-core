@@ -645,6 +645,18 @@ body.sidebar-open {
   border: 1px solid var(--border-color);
 }
 
+.btn-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
 .btn-warning {
   background: var(--warning);
   color: #fff;

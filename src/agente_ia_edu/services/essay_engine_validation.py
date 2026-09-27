@@ -39,7 +39,7 @@ from agente_ia_edu.db.models import (
     EssayRubricLevel,
     EssayRubricSignal,
 )
-from agente_ia_edu.essay_engine_contract.v2 import EssayEngineOutput
+from agente_ia_edu.essay_engine_contract.v3 import EssayEngineOutput
 
 logger = logging.getLogger(__name__)
 
@@ -184,12 +184,14 @@ def validate_engine_output(
 
     # signal_keys are auxiliary tags - nothing outside this validator reads
     # them (not the frontend, not the PDF export, not the evolution
-    # dashboard), and the prompt sent to the engine never enumerates the
-    # rubric's actual registered signal keys, so the model has no way to
-    # know which ones are valid. Rejecting the whole correction over a
-    # made-up tag on an otherwise-sound rationale/annotation throws away
-    # real pedagogical content for a mismatch in decoration. Unknown keys
-    # are simply not cross-checked here - not worth failing the correction.
+    # dashboard). essay_prompts v11 (SIGNAL_RULES) now tells the model
+    # exactly which keys are valid per competency (from
+    # essay_correction._rubric_payload's `signals`), but that's a quality
+    # improvement, not a guarantee - the model can still drift. Rejecting the
+    # whole correction over a made-up tag on an otherwise-sound
+    # rationale/annotation would throw away real pedagogical content for a
+    # mismatch in decoration, so unknown keys are still not cross-checked
+    # here - not worth failing the correction.
 
     for rationale in output.rationales:
         if rationale.competency_code not in rubric.levels:

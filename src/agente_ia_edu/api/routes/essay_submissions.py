@@ -9,6 +9,7 @@ Fase 3C rule reused verbatim).
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 import uuid
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -39,6 +40,8 @@ from ...services.student_enrollment_resolution import resolve_active_enrollment
 essay_submissions_router = APIRouter(
     prefix="/api/v1/student/essay-submissions", tags=["essay-submissions"]
 )
+
+logger = logging.getLogger(__name__)
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _ALLOWED_PAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
@@ -440,11 +443,33 @@ async def review_essay_submission_page(
         return response
 
 
+async def _run_correction_in_background(
+    essay_submission_id: UUID, session_factory
+) -> None:
+    """Runs after the /confirm response has already gone out (see below) -
+    its own session, independent of the request's (which is closed by then).
+    EssayCorrectionService.correct() never raises for an AI-side failure
+    (a bad response, a validation rejection) - that lands in a NEEDS_REVIEW
+    row instead, same as it always has. This still guards against a genuine
+    infrastructure failure (the DB itself unreachable, a bug) so one never
+    crashes silently with the student staring at "Em correção" forever
+    without even a log line to diagnose it by."""
+    try:
+        async with session_factory() as session:
+            await EssayCorrectionService(session).correct(essay_submission_id)
+            await session.commit()
+    except Exception:
+        logger.exception(
+            "background correction failed for essay_submission_id=%s", essay_submission_id
+        )
+
+
 @essay_submissions_router.post(
     "/{essay_submission_id}/confirm", response_model=EssaySubmissionResponse
 )
 async def confirm_essay_submission(
     essay_submission_id: UUID,
+    background_tasks: BackgroundTasks,
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> EssaySubmissionResponse:
@@ -464,7 +489,17 @@ async def confirm_essay_submission(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        await EssayCorrectionService(session).correct(confirmed.id)
+        # The AI correction call (grading + validation) is the slow part of
+        # this request - confirmed live (2026-09-26), the student's browser
+        # sat with no feedback for as long as that call took. The submission
+        # itself is already durably SUBMITTED at this point; the correction
+        # runs after this response goes out instead of blocking it. The
+        # student's essay list already renders "Em correção" for a SUBMITTED
+        # essay with no correction yet (same UI a NEEDS_REVIEW retry uses),
+        # so no frontend change is needed for this state.
+        background_tasks.add_task(
+            _run_correction_in_background, confirmed.id, session_factory
+        )
 
         # See create_essay_submission above: build the response before
         # commit() expires `confirmed`, to avoid a MissingGreenlet error

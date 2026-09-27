@@ -75,6 +75,24 @@ class _RefusingTranscriber:
         raise ProviderInvalidResponseError("OpenAI refused to transcribe the image: sorry")
 
 
+class _ScriptedSequenceTranscriber:
+    """Test double: returns a different, pre-scripted token list on each
+    successive call - models a vision provider whose transcription QUALITY
+    varies call to call for the exact same image, not just whether it
+    refuses (see _MIN_AVERAGE_CONFIDENCE's docstring in essay_submission.py:
+    confirmed live 2026-09-26, the same photo scored ~0.99 average
+    confidence on one call and 0.427 on another)."""
+
+    def __init__(self, token_sequences):
+        self._token_sequences = list(token_sequences)
+        self.calls = 0
+
+    async def transcribe_page(self, request):
+        tokens = self._token_sequences[min(self.calls, len(self._token_sequences) - 1)]
+        self.calls += 1
+        return EssayPageTranscriptionResult(tokens=tokens, provider="scripted", model="v1")
+
+
 class _FlakyThenSucceedsTranscriber:
     """Test double: refuses on the first N-1 calls, then succeeds - the
     same pattern confirmed live (2026-09-25): a retried upload of the exact
@@ -174,6 +192,73 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             refreshed = await session.get(type(submission), submission.id)
             self.assertEqual(refreshed.anchor_mode, "TEXT_OFFSET")
             self.assertEqual(refreshed.status, "PENDING_CONFIRMATION")
+
+    async def test_upload_page_retries_a_low_confidence_transcription_and_keeps_the_best(self):
+        """Confirmed live (2026-09-26): the exact same photo scored ~0.99
+        average confidence on one transcription call and 0.427 on another -
+        a well-formed, non-refusing response can still be mostly
+        confabulated. A low-average-confidence result must be retried like a
+        refusal, and the best-scoring attempt kept even if a later attempt
+        scores worse."""
+        async with self.session_factory() as session:
+            low_confidence_attempt = (
+                EssayOcrToken(text="lorem", confidence=0.2, start=0, end=5),
+                EssayOcrToken(text="ipsum", confidence=0.3, start=6, end=11),
+            )
+            high_confidence_attempt = (
+                EssayOcrToken(text="Ola", confidence=0.95, start=0, end=3),
+                EssayOcrToken(text="mundo", confidence=0.9, start=4, end=9),
+            )
+            transcriber = _ScriptedSequenceTranscriber(
+                [low_confidence_attempt, high_confidence_attempt]
+            )
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root),
+                transcriber=transcriber,
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            source = self.tmp_dir / "page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            self.assertEqual(transcriber.calls, 2)
+            self.assertEqual([t["text"] for t in page.ocr_tokens], ["Ola", "mundo"])
+
+    async def test_upload_page_keeps_the_best_attempt_when_all_score_low(self):
+        """The product decision is to always transcribe regardless of
+        quality, so exhausting every retry on low confidence must still
+        produce a result (never an error) - specifically the best-scoring
+        attempt, not whichever ran last."""
+        async with self.session_factory() as session:
+            worst = (EssayOcrToken(text="pior", confidence=0.1, start=0, end=4),)
+            best = (EssayOcrToken(text="melhor", confidence=0.5, start=0, end=6),)
+            middling = (EssayOcrToken(text="meio", confidence=0.3, start=0, end=4),)
+            transcriber = _ScriptedSequenceTranscriber([worst, best, middling])
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root),
+                transcriber=transcriber,
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            source = self.tmp_dir / "page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            self.assertEqual(transcriber.calls, 3)
+            self.assertEqual(page.ocr_tokens[0]["text"], "melhor")
 
     async def test_upload_page_propagates_a_transcription_refusal(self):
         """Explicit product decision (2026-09-25): always transcribe,
@@ -346,6 +431,49 @@ class PdfUploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(transcriber.calls, 2)
             for page in pages:
                 self.assertEqual(len(page.ocr_tokens), 1)
+
+    def _make_typed_pdf(self, text: str) -> Path:
+        import pymupdf as fitz
+
+        path = self.tmp_dir / "typed.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), text, fontsize=11)
+        doc.save(str(path))
+        doc.close()
+        return path
+
+    async def test_upload_document_skips_ocr_for_a_digitally_typed_pdf(self):
+        """Confirmed live (2026-09-25): a typed PDF (real text layer, not a
+        scan) ran through vision OCR anyway and got spurious low-confidence
+        flags on perfectly typed words. When the PDF's own text layer is
+        substantial, use it directly at full confidence instead of calling
+        the transcriber at all."""
+        async with self.session_factory() as session:
+            transcriber = _ScriptedTranscriber(
+                (EssayOcrToken(text="nao deveria ser chamado", confidence=0.5, start=0, end=10),)
+            )
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root), transcriber=transcriber
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PDF", transcription_enabled=True,
+            )
+
+            long_text = "Este e um texto digitado com bastante conteudo para passar do limite minimo."
+            pdf_path = self._make_typed_pdf(long_text)
+            pages = await svc.upload_document(
+                essay_submission_id=submission.id, source_path=pdf_path,
+            )
+
+            self.assertEqual(transcriber.calls, 0)
+            self.assertEqual(len(pages), 1)
+            self.assertEqual(len(pages[0].ocr_tokens), 1)
+            token = pages[0].ocr_tokens[0]
+            self.assertEqual(token["confidence"], 1.0)
+            self.assertIn("texto digitado", token["text"])
 
 
 class PageFormatValidationRouteTests(unittest.TestCase):
