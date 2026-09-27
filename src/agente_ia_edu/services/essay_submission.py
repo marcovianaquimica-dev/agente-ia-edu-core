@@ -158,12 +158,19 @@ class EssaySubmissionService:
 
     _UPLOADABLE_STATUSES = ("PENDING_TRANSCRIPTION", "PENDING_CONFIRMATION")
 
+    # Below this, a PDF page's extracted text layer is treated as too sparse
+    # to trust on its own (e.g. a mostly-blank page, or a scanned PDF whose
+    # "text layer" is just a stray OCR artifact from the scanner) and the
+    # page still goes through vision transcription instead.
+    _MIN_EXTRACTED_TEXT_CHARS = 30
+
     async def upload_page(
         self,
         *,
         essay_submission_id: uuid.UUID,
         page_number: int,
         source_path: Path,
+        extracted_text: str | None = None,
     ) -> EssaySubmissionPage:
         submission = await self.session.get(EssaySubmission, essay_submission_id)
         if submission is None:
@@ -208,15 +215,29 @@ class EssaySubmissionService:
         await self.session.flush()
 
         if transcription_enabled:
-            # Explicit product decision (2026-09-25): always transcribe,
-            # regardless of image quality - never silently fall back to
-            # IMAGE_REGION (that mode's own anchor precision is worse, and
-            # switching modes mid-flow surprised the student). A refusal or
-            # any other transcription failure must surface as a clear error
-            # (ProviderError propagates to the route's 502 handler below) so
-            # the student retries with a better photo - it must not
-            # silently downgrade to a less precise correction.
-            await self._ocr_page(page, dest)
+            if extracted_text is not None and len(extracted_text.strip()) >= self._MIN_EXTRACTED_TEXT_CHARS:
+                # A digitally-typed PDF already has an exact text layer -
+                # confirmed live (2026-09-25), running it through vision OCR
+                # anyway produced spurious low-confidence flags on perfectly
+                # typed words (there is nothing uncertain to read) and cost a
+                # needless round trip to the vision model. Use the extracted
+                # text directly, at full confidence, the same shape
+                # _tokens_from_logprobs falls back to when a provider has no
+                # per-token signal of its own.
+                page.ocr_tokens = [{
+                    "text": extracted_text, "confidence": 1.0,
+                    "start": 0, "end": len(extracted_text),
+                }]
+            else:
+                # Explicit product decision (2026-09-25): always transcribe,
+                # regardless of image quality - never silently fall back to
+                # IMAGE_REGION (that mode's own anchor precision is worse, and
+                # switching modes mid-flow surprised the student). A refusal or
+                # any other transcription failure must surface as a clear error
+                # (ProviderError propagates to the route's 502 handler below) so
+                # the student retries with a better photo - it must not
+                # silently downgrade to a less precise correction.
+                await self._ocr_page(page, dest)
             submission.status = "PENDING_CONFIRMATION"
             await self.session.flush()
         return page
@@ -229,13 +250,15 @@ class EssaySubmissionService:
     ) -> list[EssaySubmissionPage]:
         """PDF mode: split ``source_path`` into one page-image per PDF page
         (off the event loop - rasterization is CPU-bound) and upload each
-        through the same path :meth:`upload_page` uses."""
-        page_image_paths = await asyncio.to_thread(self._split_pdf_pages, source_path)
+        through the same path :meth:`upload_page` uses. Also extracts each
+        page's embedded text layer, when it has one, so upload_page can skip
+        vision OCR entirely for a digitally-typed PDF."""
+        split_pages = await asyncio.to_thread(self._split_pdf_pages, source_path)
         pages = []
-        for index, image_path in enumerate(page_image_paths, start=1):
+        for index, (image_path, extracted_text) in enumerate(split_pages, start=1):
             page = await self.upload_page(
                 essay_submission_id=essay_submission_id, page_number=index,
-                source_path=image_path,
+                source_path=image_path, extracted_text=extracted_text,
             )
             pages.append(page)
         return pages
@@ -246,8 +269,22 @@ class EssaySubmissionService:
     # spares the student from re-clicking upload themselves.
     _OCR_ATTEMPTS = 3
 
+    # Confirmed live (2026-09-26): the SAME photo that transcribed at ~99%
+    # average confidence in one call came back at 0.427 average confidence
+    # (159 of 243 tokens below 60%) in another, unrelated call - a vision
+    # model can return a well-formed, non-refusing response that is mostly
+    # confabulated rather than actually read. A refusal check never catches
+    # this: the call succeeds, the JSON is fine, the words are just wrong.
+    # Average confidence is the only signal already available that flags it,
+    # so a page-average below this floor is treated like a failed attempt
+    # and retried, instead of being accepted and handed to the student as a
+    # near-unreadable wall of red text.
+    _MIN_AVERAGE_CONFIDENCE = 0.6
+
     async def _ocr_page(self, page: EssaySubmissionPage, image_path: Path) -> None:
         last_error: ProviderError | None = None
+        best_tokens: tuple | None = None
+        best_average_confidence = -1.0
         for attempt in range(1, self._OCR_ATTEMPTS + 1):
             try:
                 result = await self._get_transcriber().transcribe_page(
@@ -255,17 +292,40 @@ class EssaySubmissionService:
                         image_path=image_path, mime_type=_guess_mime(image_path)
                     )
                 )
-                page.ocr_tokens = [
-                    {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
-                    for t in result.tokens
-                ]
-                return
+                tokens = result.tokens
+                average_confidence = (
+                    sum(t.confidence for t in tokens) / len(tokens) if tokens else 0.0
+                )
+                if average_confidence > best_average_confidence:
+                    best_tokens = tokens
+                    best_average_confidence = average_confidence
+                if average_confidence >= self._MIN_AVERAGE_CONFIDENCE:
+                    page.ocr_tokens = [
+                        {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
+                        for t in tokens
+                    ]
+                    return
+                logger.warning(
+                    "transcription attempt %d/%d for page %s scored low average "
+                    "confidence %.3f, retrying",
+                    attempt, self._OCR_ATTEMPTS, page.id, average_confidence,
+                )
             except ProviderError as exc:
                 last_error = exc
                 logger.warning(
                     "transcription attempt %d/%d failed for page %s: %s",
                     attempt, self._OCR_ATTEMPTS, page.id, exc,
                 )
+        # Every attempt scored below the floor (or errored): the explicit
+        # product decision is to always transcribe regardless of quality, so
+        # a low-confidence result still beats no result at all - use
+        # whichever attempt scored best rather than whichever ran last.
+        if best_tokens is not None:
+            page.ocr_tokens = [
+                {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
+                for t in best_tokens
+            ]
+            return
         raise last_error
 
     def _get_transcriber(self) -> EssayTranscriptionProvider:
@@ -276,7 +336,7 @@ class EssaySubmissionService:
     _MAX_PDF_PAGES = 20
 
     @classmethod
-    def _split_pdf_pages(cls, pdf_path: Path) -> list[Path]:
+    def _split_pdf_pages(cls, pdf_path: Path) -> list[tuple[Path, str | None]]:
         try:
             import pymupdf as _mu
         except ImportError:
@@ -290,13 +350,21 @@ class EssaySubmissionService:
                 raise ValueError(
                     f"PDF has {len(doc)} pages, more than the {cls._MAX_PDF_PAGES}-page limit"
                 )
-            paths = []
+            results: list[tuple[Path, str | None]] = []
             for index in range(len(doc)):
-                pix = doc[index].get_pixmap(dpi=200)
+                page = doc[index]
+                pix = page.get_pixmap(dpi=200)
                 page_path = dest_dir / f"page_{index + 1}.png"
                 pix.save(str(page_path))
-                paths.append(page_path)
-            return paths
+                # A digitally-typed PDF has an exact embedded text layer;
+                # get_text() returns "" (never raises) for a purely scanned
+                # page with no such layer, so this is a safe, cheap probe -
+                # upload_page decides whether the result is substantial
+                # enough to trust over running vision OCR on the rasterized
+                # image above.
+                extracted_text = page.get_text().strip() or None
+                results.append((page_path, extracted_text))
+            return results
         finally:
             doc.close()
 

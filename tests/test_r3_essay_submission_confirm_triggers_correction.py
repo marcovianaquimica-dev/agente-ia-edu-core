@@ -222,6 +222,63 @@ class ConfirmTriggersCorrectionTests(unittest.TestCase):
         self.assertIsNotNone(correction)
         self.assertEqual(correction.status, "APPROVED")
 
+    def test_confirm_succeeds_even_if_the_background_correction_raises(self):
+        """Confirmed live (2026-09-26): confirming an essay used to block on
+        the AI correction call, so the student's browser sat with no
+        feedback for however long that took. The correction now runs as a
+        FastAPI background task, scheduled after the submission itself is
+        already committed SUBMITTED - so a genuine infrastructure failure in
+        that background call (not the AI-side failures _run_ai already
+        absorbs into NEEDS_REVIEW; those never raise) must be logged, not
+        crash the request the student is waiting on."""
+        assignment_id = self._seed_assignment("3")
+        self._as("student_3")
+
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "PHOTO"},
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+        submission_id = create_resp.json()["id"]
+
+        source = self.tmp_dir / "r3_confirm_trigger_page_bg_failure.png"
+        import pymupdf
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 100), False)
+        pix.clear_with(255)
+        pix.save(str(source))
+        with open(source, "rb") as f:
+            page_resp = self.client.post(
+                f"/api/v1/student/essay-submissions/{submission_id}/pages",
+                data={"page_number": "1"}, files={"file": ("page1.png", f, "image/png")},
+            )
+        self.assertEqual(page_resp.status_code, 201, page_resp.text)
+
+        async def _raising_correct(self, essay_submission_id):
+            raise RuntimeError("simulated infrastructure failure")
+
+        with patch(
+            "agente_ia_edu.services.essay_correction.EssayCorrectionService.correct",
+            new=_raising_correct,
+        ):
+            confirm_resp = self.client.post(
+                f"/api/v1/student/essay-submissions/{submission_id}/confirm"
+            )
+        # The submission itself is confirmed regardless of what happens to
+        # the background correction call.
+        self.assertEqual(confirm_resp.status_code, 200, confirm_resp.text)
+        self.assertEqual(confirm_resp.json()["status"], "SUBMITTED")
+
+        async def _fetch():
+            async with self.factory() as session:
+                return await session.scalar(
+                    select(EssaySubmission).where(
+                        EssaySubmission.id == uuid.UUID(submission_id)
+                    )
+                )
+
+        submission = self.loop.run_until_complete(_fetch())
+        self.assertEqual(submission.status, "SUBMITTED")
+
 
 if __name__ == "__main__":
     unittest.main()

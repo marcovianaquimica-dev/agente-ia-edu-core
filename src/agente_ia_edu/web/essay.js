@@ -435,10 +435,12 @@
     });
 
     confirmBtn.disabled = pages.length === 0;
+    const confirmBtnIdleHtml = confirmBtn.innerHTML;
     confirmBtn.onclick = async () => {
       const confirmMsg = target.querySelector('#essay-confirm-msg');
       confirmMsg.hidden = true;
       confirmBtn.disabled = true;
+      confirmBtn.innerHTML = '<span class="btn-spinner"></span>Enviando...';
       try {
         // Single-step confirm (TEXT_OFFSET only): save whatever the student
         // is currently looking at as reviewed_text for every page, THEN
@@ -460,6 +462,7 @@
         confirmMsg.hidden = false;
         confirmMsg.textContent = e.message;
         confirmBtn.disabled = false;
+        confirmBtn.innerHTML = confirmBtnIdleHtml;
       }
     };
   }
