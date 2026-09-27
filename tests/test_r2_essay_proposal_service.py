@@ -144,6 +144,26 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
                     assigned_by_external_identity="teacher:p4",
                 )
 
+    async def test_create_prompt_defaults_to_not_free_theme(self):
+        async with self.session_factory() as session:
+            school, _ = await self._school_and_class(session, "5")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p5",
+            )
+            self.assertFalse(prompt.is_free_theme)
+
+    async def test_create_prompt_can_be_marked_free_theme(self):
+        async with self.session_factory() as session:
+            school, _ = await self._school_and_class(session, "6")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school.id, title="Tema livre", statement="Escolha seu tema.",
+                year=2026, created_by_external_identity="teacher:p6", is_free_theme=True,
+            )
+            self.assertTrue(prompt.is_free_theme)
+
 
 if __name__ == "__main__":
     unittest.main()

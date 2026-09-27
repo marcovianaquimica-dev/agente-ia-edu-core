@@ -62,6 +62,12 @@ class EssayPrompt(Base):
     statement: Mapped[str] = mapped_column(Text, nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+    # "Tema livre": the student writes their own theme instead of answering
+    # this prompt's fixed `statement` - pinned first in the student's list
+    # (a different card color, see web/essay.js) and its submissions require
+    # EssaySubmission.student_declared_theme, which then stands in for
+    # `statement` when grading (see essay_correction._effective_essay_statement).
+    is_free_theme: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by_external_identity: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
@@ -206,6 +212,12 @@ class EssaySubmission(Base):
     )
     canonical_text: Mapped[str | None] = mapped_column(Text)
     normalized_text_hash: Mapped[str | None] = mapped_column(String(64))
+    # Set only for a "tema livre" prompt's submission (EssayPrompt.is_free_theme):
+    # the theme the student themselves chose to write about, typed at
+    # submission time. When set, essay_correction._effective_essay_statement
+    # uses this instead of the prompt's own (generic) statement, so FUGA_AO_TEMA
+    # is judged against what the student declared, not a fixed topic.
+    student_declared_theme: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow

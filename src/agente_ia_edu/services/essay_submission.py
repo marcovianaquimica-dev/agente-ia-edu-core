@@ -23,7 +23,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import EssaySubmission, EssaySubmissionPage
+from ..db.models import EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment
 from ..providers.contracts import EssayTranscriptionProvider
 from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_transcriber
@@ -58,6 +58,29 @@ class EssaySubmissionService:
         # transcription disabled never require OPENAI_API_KEY to be set.
         self._transcriber = transcriber
 
+    async def _resolve_student_declared_theme(
+        self, *, prompt_assignment_id: uuid.UUID, student_declared_theme: str | None,
+    ) -> str | None:
+        """"Tema livre" (EssayPrompt.is_free_theme) requires the student to
+        type their own theme; any other assignment ignores whatever was
+        sent here, since its theme is the prompt's own fixed statement.
+
+        prompt_assignment_id existing at all is the route layer's job
+        (_assignment_for_own_class_or_403 runs before this service is ever
+        called) - a missing assignment/prompt here is simply treated as
+        "not tema livre" rather than re-raised as a separate error."""
+        assignment = await self.session.get(PromptAssignment, prompt_assignment_id)
+        if assignment is None:
+            return None
+        prompt = await self.session.get(EssayPrompt, assignment.essay_prompt_id)
+        if prompt is not None and prompt.is_free_theme:
+            if not student_declared_theme or not student_declared_theme.strip():
+                raise ValueError(
+                    "This is a tema livre assignment - student_declared_theme is required"
+                )
+            return student_declared_theme.strip()
+        return None
+
     async def start_typed_submission(
         self,
         *,
@@ -67,7 +90,12 @@ class EssaySubmissionService:
         text: str,
         essay_id: uuid.UUID | None = None,
         correction_mode: str | None = None,
+        student_declared_theme: str | None = None,
     ) -> EssaySubmission:
+        student_declared_theme = await self._resolve_student_declared_theme(
+            prompt_assignment_id=prompt_assignment_id,
+            student_declared_theme=student_declared_theme,
+        )
         previous = None
         if essay_id is not None:
             # TYPED submits atomically (the new row is SUBMITTED in this
@@ -91,6 +119,7 @@ class EssaySubmissionService:
             canonical_text=normalize_essay_text(text),
             normalized_text_hash=essay_text_hash(text),
             submitted_at=_utcnow(),
+            student_declared_theme=student_declared_theme,
         )
         self.session.add(submission)
         if previous is not None:
@@ -131,9 +160,14 @@ class EssaySubmissionService:
         transcription_enabled: bool,
         essay_id: uuid.UUID | None = None,
         correction_mode: str | None = None,
+        student_declared_theme: str | None = None,
     ) -> EssaySubmission:
         if mode not in ("PHOTO", "PDF"):
             raise ValueError(f"start_photo_submission requires mode PHOTO or PDF, got {mode!r}")
+        student_declared_theme = await self._resolve_student_declared_theme(
+            prompt_assignment_id=prompt_assignment_id,
+            student_declared_theme=student_declared_theme,
+        )
         if essay_id is not None:
             # Validate eligibility only - do NOT supersede the previous
             # version yet. That happens in confirm_submission, once this new
@@ -151,6 +185,7 @@ class EssaySubmissionService:
             mode=mode,
             anchor_mode="TEXT_OFFSET" if transcription_enabled else "IMAGE_REGION",
             status="PENDING_TRANSCRIPTION",
+            student_declared_theme=student_declared_theme,
         )
         self.session.add(submission)
         await self.session.flush()

@@ -55,6 +55,11 @@ class EssaySubmissionCreateRequest(BaseModel):
     resubmit_essay_id: Optional[UUID] = Field(
         None, description="set to create a new version of an existing essay_id (reenvio)"
     )
+    student_declared_theme: Optional[str] = Field(
+        None,
+        description="required when the assignment's prompt is_free_theme (tema livre) - "
+        "the theme the student themselves chose to write about",
+    )
 
 
 class EssaySubmissionResponse(BaseModel):
@@ -222,6 +227,7 @@ async def create_essay_submission(
                     school_id=school_id, prompt_assignment_id=assignment.id,
                     student_id=enrollment.student_id, text=request.text,
                     essay_id=request.resubmit_essay_id, correction_mode=settings.correction_mode,
+                    student_declared_theme=request.student_declared_theme,
                 )
             elif request.mode in ("PHOTO", "PDF"):
                 submission = await service.start_photo_submission(
@@ -229,6 +235,7 @@ async def create_essay_submission(
                     student_id=enrollment.student_id, mode=request.mode,
                     transcription_enabled=settings.transcription_enabled,
                     essay_id=request.resubmit_essay_id, correction_mode=settings.correction_mode,
+                    student_declared_theme=request.student_declared_theme,
                 )
             else:
                 raise HTTPException(status_code=422, detail=f"Unknown mode: {request.mode!r}")
@@ -709,6 +716,7 @@ class EssayPromptForStudentResponse(BaseModel):
     statement: str
     due_at: Optional[datetime] = None
     status: str
+    is_free_theme: bool = False
     my_submission: Optional[MySubmissionSummary] = None
 
 
@@ -733,7 +741,10 @@ async def list_essay_prompts_for_student(
                     PromptAssignment.class_id == enrollment.class_id,
                     PromptAssignment.status == "OPEN",
                 )
-                .order_by(PromptAssignment.created_at.desc())
+                # "Tema livre" (EssayPrompt.is_free_theme) is pinned first,
+                # regardless of when it was assigned - a different card color
+                # on the student's list (see web/essay.js).
+                .order_by(EssayPrompt.is_free_theme.desc(), PromptAssignment.created_at.desc())
                 .limit(8)
             )
         ).all()
@@ -773,6 +784,7 @@ async def list_essay_prompts_for_student(
                     statement=prompt.statement,
                     due_at=assignment.due_at,
                     status=assignment.status,
+                    is_free_theme=prompt.is_free_theme,
                     my_submission=my_submission,
                 )
             )

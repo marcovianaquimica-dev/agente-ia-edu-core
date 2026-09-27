@@ -97,7 +97,10 @@ class EssaySubmissionsRoutesTests(unittest.TestCase):
     def _as(self, user: str):
         self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
 
-    def _seed_enrolled_student(self, code: str, *, transcription_enabled: bool, module_enabled: bool = True):
+    def _seed_enrolled_student(
+        self, code: str, *, transcription_enabled: bool, module_enabled: bool = True,
+        is_free_theme: bool = False,
+    ):
         async def _seed():
             async with self.factory() as session:
                 school = School(id=uuid.uuid4(), code=f"SUB-{code}", name=f"school-{code}")
@@ -144,6 +147,7 @@ class EssaySubmissionsRoutesTests(unittest.TestCase):
                 prompt = EssayPrompt(
                     id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
                     year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                    is_free_theme=is_free_theme,
                 )
                 session.add(prompt)
                 await session.flush()
@@ -277,6 +281,127 @@ class EssaySubmissionsRoutesTests(unittest.TestCase):
             f"/api/v1/student/essay-submissions/{submission_id}/confirm"
         )
         self.assertEqual(confirm_resp.status_code, 200, confirm_resp.text)
+
+    def test_typed_submission_with_free_theme_requires_declared_theme(self):
+        assignment_id = self._seed_enrolled_student("5", transcription_enabled=True, is_free_theme=True)
+        self._as("student_5")
+
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "TYPED", "text": "Minha redacao."},
+        )
+        self.assertEqual(create_resp.status_code, 422, create_resp.text)
+
+    def test_typed_submission_with_free_theme_stores_declared_theme(self):
+        assignment_id = self._seed_enrolled_student("6", transcription_enabled=True, is_free_theme=True)
+        self._as("student_6")
+
+        create_resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={
+                "prompt_assignment_id": str(assignment_id), "mode": "TYPED", "text": "Minha redacao.",
+                "student_declared_theme": "O futuro do trabalho remoto",
+            },
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+
+    def test_list_essay_prompts_pins_free_theme_first_and_exposes_flag(self):
+        code = "7"
+
+        async def _seed():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"SUB-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(SchoolModule(
+                    id=uuid.uuid4(), school_id=school.id, module_key="REDACAO_IA", enabled=True,
+                ))
+                session.add(UserSchoolLink(
+                    external_user_id=f"student_{code}", school_id=school.id, role="STUDENT",
+                    scope_type="SCHOOL", active=True,
+                ))
+                segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEG-{code}")
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="grade", external_id=f"GRADE-{code}",
+                )
+                year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id=f"YEAR-{code}")
+                session.add_all([grade, year])
+                await session.flush()
+                klass = Class(
+                    id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                    grade_level_id=grade.id, name="turma", external_id=f"TURMA-{code}",
+                )
+                session.add(klass)
+                person = Person(id=uuid.uuid4(), school_id=school.id, full_name=f"Aluno {code}")
+                session.add(person)
+                await session.flush()
+                session.add(User(
+                    id=uuid.uuid4(), school_id=school.id, person_id=person.id,
+                    external_identity_provider="test", external_user_id=f"student_{code}",
+                ))
+                student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id, student_code=f"ST-{code}")
+                session.add(student)
+                await session.flush()
+                session.add(StudentEnrollment(
+                    id=uuid.uuid4(), school_id=school.id, student_id=student.id, class_id=klass.id,
+                    status="ACTIVE",
+                ))
+
+                # Free-theme prompt/assignment created FIRST (older created_at)
+                # so the test actually proves is_free_theme wins the sort
+                # over recency, not merely that it happens to be newest.
+                free_prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school.id, title="Tema livre", statement="Escolha seu tema.",
+                    year=2026, status="ACTIVE", created_by_external_identity="teacher:t", is_free_theme=True,
+                )
+                session.add(free_prompt)
+                await session.flush()
+                from datetime import datetime, timedelta, timezone
+                older = datetime.now(timezone.utc) - timedelta(days=1)
+                newer = datetime.now(timezone.utc)
+
+                free_assignment = PromptAssignment(
+                    id=uuid.uuid4(), school_id=school.id, essay_prompt_id=free_prompt.id,
+                    class_id=klass.id, assigned_by_external_identity="teacher:t",
+                    created_at=older,
+                )
+                session.add(free_assignment)
+                await session.commit()
+
+                normal_prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school.id, title="Tema fixo", statement="Disserte.",
+                    year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                )
+                session.add(normal_prompt)
+                await session.flush()
+                normal_assignment = PromptAssignment(
+                    id=uuid.uuid4(), school_id=school.id, essay_prompt_id=normal_prompt.id,
+                    class_id=klass.id, assigned_by_external_identity="teacher:t",
+                    created_at=newer,
+                )
+                session.add(normal_assignment)
+                await session.commit()
+
+                from agente_ia_edu.services.institution_settings import InstitutionSettingsService
+                await InstitutionSettingsService(session).configure(
+                    school.id, performed_by_external_id="admin:x", transcription_enabled=True,
+                )
+                await session.commit()
+
+        self.loop.run_until_complete(_seed())
+        self._as(f"student_{code}")
+
+        list_resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        body = list_resp.json()
+        self.assertEqual(len(body), 2)
+        self.assertEqual(body[0]["title"], "Tema livre")
+        self.assertTrue(body[0]["is_free_theme"])
+        self.assertEqual(body[1]["title"], "Tema fixo")
+        self.assertFalse(body[1]["is_free_theme"])
 
 
 if __name__ == "__main__":

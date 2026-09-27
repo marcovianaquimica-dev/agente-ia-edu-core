@@ -1611,6 +1611,13 @@ body.sidebar-open {
 @media (max-width: 640px) { .essay-prompt-grid { grid-template-columns: 1fr; } }
 .essay-prompt-card { display: flex; flex-direction: column; gap: 10px; }
 .essay-prompt-card .btn { margin-top: auto; }
+.essay-prompt-card--free-theme {
+  background: var(--accent-light); border: 2px solid var(--accent);
+}
+.essay-prompt-card--free-theme h3 { color: var(--accent); }
+.essay-declared-theme-group { margin-bottom: 12px; }
+.essay-declared-theme-group label { font-weight: 600; }
+.essay-declared-theme-hint { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
 .essay-prompt-statement {
   display: -webkit-box;
   -webkit-line-clamp: 3;
