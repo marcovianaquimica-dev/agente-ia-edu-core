@@ -238,6 +238,50 @@ class OpenAIProviderTranscriptionTests(unittest.TestCase):
         self.assertEqual(tokens[0].start, 0)
         self.assertEqual(tokens[0].end, len("hello world"))
 
+    def test_captures_token_usage_from_the_sdk_response(self):
+        image_path = Path("/tmp/r2_usage_test_page.png")
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content="ola mundo", refusal=None), logprobs=None,
+                )],
+                usage=SimpleNamespace(prompt_tokens=500, completion_tokens=12, total_tokens=512),
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayPageTranscriptionRequest(image_path=image_path, mime_type="image/png")
+        result = asyncio.run(provider.transcribe_page(request))
+
+        self.assertEqual(result.input_tokens, 500)
+        self.assertEqual(result.output_tokens, 12)
+        image_path.unlink(missing_ok=True)
+
+    def test_leaves_tokens_none_when_usage_is_none(self):
+        # `.usage` can legitimately come back None - must not crash, and
+        # must never invent a 0 in its place.
+        image_path = Path("/tmp/r2_no_usage_test_page.png")
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content="ola mundo", refusal=None), logprobs=None,
+                )],
+                usage=None,
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayPageTranscriptionRequest(image_path=image_path, mime_type="image/png")
+        result = asyncio.run(provider.transcribe_page(request))
+
+        self.assertIsNone(result.input_tokens)
+        self.assertIsNone(result.output_tokens)
+        image_path.unlink(missing_ok=True)
+
     def test_tokens_from_logprobs_skips_piece_not_found_in_content(self):
         # If a logprob entry's token text can't be located in the transcribed
         # content (idx == -1), that entry should be skipped rather than

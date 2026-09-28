@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -92,6 +93,13 @@ class EssayCorrection(Base):
     final_feedback: Mapped[dict[str, Any] | None] = mapped_column(JSONBCompatible)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING_REVIEW")
     failure_reason: Mapped[str | None] = mapped_column(Text)
+    # Real LLM token usage for the AI call that produced this row's ai_output
+    # (or the last attempt, on a failure before any model responded - see
+    # _run_ai in services/essay_correction.py). Nullable: unknown before any
+    # provider call, and never fabricated when a provider doesn't report
+    # usage (see TextGenerationResult's docstring in providers/models.py).
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
     reviewed_by_external_identity: Mapped[str | None] = mapped_column(String(255))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

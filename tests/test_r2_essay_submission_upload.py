@@ -39,13 +39,18 @@ class _ScriptedTranscriber:
     which image it's given - real image content is irrelevant to what these
     tests check (the service's own page/status bookkeeping)."""
 
-    def __init__(self, tokens):
+    def __init__(self, tokens, *, input_tokens=None, output_tokens=None):
         self._tokens = tokens
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
         self.calls = 0
 
     async def transcribe_page(self, request):
         self.calls += 1
-        return EssayPageTranscriptionResult(tokens=self._tokens, provider="scripted", model="v1")
+        return EssayPageTranscriptionResult(
+            tokens=self._tokens, provider="scripted", model="v1",
+            input_tokens=self._input_tokens, output_tokens=self._output_tokens,
+        )
 
 
 def _make_png(path: Path) -> None:
@@ -86,14 +91,26 @@ class _ScriptedSequenceTranscriber:
     confirmed live 2026-09-26, the same photo scored ~0.99 average
     confidence on one call and 0.427 on another)."""
 
-    def __init__(self, token_sequences):
+    def __init__(self, token_sequences, *, usage_sequence=None):
         self._token_sequences = list(token_sequences)
+        # Optional list of (input_tokens, output_tokens) pairs, one per call,
+        # so a test can verify the SUM across every attempt is stored, not
+        # just the winning attempt's own usage.
+        self._usage_sequence = list(usage_sequence) if usage_sequence is not None else None
         self.calls = 0
 
     async def transcribe_page(self, request):
-        tokens = self._token_sequences[min(self.calls, len(self._token_sequences) - 1)]
+        index = min(self.calls, len(self._token_sequences) - 1)
+        tokens = self._token_sequences[index]
+        input_tokens = output_tokens = None
+        if self._usage_sequence is not None:
+            usage_index = min(self.calls, len(self._usage_sequence) - 1)
+            input_tokens, output_tokens = self._usage_sequence[usage_index]
         self.calls += 1
-        return EssayPageTranscriptionResult(tokens=tokens, provider="scripted", model="v1")
+        return EssayPageTranscriptionResult(
+            tokens=tokens, provider="scripted", model="v1",
+            input_tokens=input_tokens, output_tokens=output_tokens,
+        )
 
 
 class _FlakyThenSucceedsTranscriber:
@@ -225,6 +242,87 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
 
             refreshed = await session.get(type(submission), submission.id)
             self.assertEqual(refreshed.status, "PENDING_CONFIRMATION")
+
+    async def test_upload_page_stores_token_usage_from_the_transcriber(self):
+        async with self.session_factory() as session:
+            tokens = (EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),)
+            transcriber = _ScriptedTranscriber(tokens, input_tokens=1500, output_tokens=80)
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root), transcriber=transcriber
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            source = self.tmp_dir / "usage_page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            self.assertEqual(page.input_tokens, 1500)
+            self.assertEqual(page.output_tokens, 80)
+
+    async def test_upload_page_sums_token_usage_across_retries(self):
+        """A page that scores low confidence and gets retried really did
+        cost the sum of every attempt's tokens, not just the winning one's -
+        see _ocr_page's docstring in essay_submission.py."""
+        async with self.session_factory() as session:
+            low_confidence_attempt = (
+                EssayOcrToken(text="lorem", confidence=0.2, start=0, end=5),
+            )
+            high_confidence_attempt = (
+                EssayOcrToken(text="Ola", confidence=0.95, start=0, end=3),
+            )
+            transcriber = _ScriptedSequenceTranscriber(
+                [low_confidence_attempt, high_confidence_attempt],
+                usage_sequence=[(1000, 50), (1200, 60)],
+            )
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root),
+                transcriber=transcriber,
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            source = self.tmp_dir / "usage_retry_page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            self.assertEqual(transcriber.calls, 2)
+            self.assertEqual(page.input_tokens, 1000 + 1200)
+            self.assertEqual(page.output_tokens, 50 + 60)
+
+    async def test_upload_page_without_usage_data_leaves_tokens_none(self):
+        # The default _ScriptedTranscriber (no usage kwargs) mirrors a
+        # provider that never reports usage - must stay None, never 0.
+        async with self.session_factory() as session:
+            tokens = (EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),)
+            transcriber = _ScriptedTranscriber(tokens)
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root), transcriber=transcriber
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+            source = self.tmp_dir / "no_usage_page1.png"
+            _make_png(source)
+            page = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source,
+            )
+
+            self.assertIsNone(page.input_tokens)
+            self.assertIsNone(page.output_tokens)
 
     async def test_upload_page_retries_a_refusal_and_succeeds(self):
         """Confirmed live (2026-09-25): the exact same photo, retried with
@@ -386,6 +484,40 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(page_first.id, page_second.id)
             self.assertEqual(transcriber.calls, 2)
+
+    async def test_reuploading_the_same_page_number_resets_token_usage(self):
+        async with self.session_factory() as session:
+            transcriber = _ScriptedTranscriber(
+                (EssayOcrToken(text="v1", confidence=0.9, start=0, end=2),),
+                input_tokens=100, output_tokens=10,
+            )
+            svc = EssaySubmissionService(
+                session, storage=MaterialStorage(root=self.storage_root), transcriber=transcriber
+            )
+            school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+            submission = await svc.start_photo_submission(
+                school_id=school_id, prompt_assignment_id=assignment_id,
+                student_id=student_id, mode="PHOTO", transcription_enabled=True,
+            )
+
+            source1 = self.tmp_dir / "reupload_usage1.png"
+            _make_png(source1)
+            first = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source1,
+            )
+            self.assertEqual(first.input_tokens, 100)
+
+            transcriber._input_tokens = 200
+            transcriber._output_tokens = 20
+            source2 = self.tmp_dir / "reupload_usage2.png"
+            _make_png(source2)
+            second = await svc.upload_page(
+                essay_submission_id=submission.id, page_number=1, source_path=source2,
+            )
+
+            self.assertEqual(second.id, first.id)
+            self.assertEqual(second.input_tokens, 200)
+            self.assertEqual(second.output_tokens, 20)
 
     async def test_upload_page_without_transcription_never_calls_the_transcriber(self):
         async with self.session_factory() as session:

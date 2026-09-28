@@ -236,6 +236,8 @@ class EssaySubmissionService:
             existing.height = height
             existing.ocr_tokens = None
             existing.reviewed_text = None
+            existing.input_tokens = None
+            existing.output_tokens = None
             page = existing
         else:
             page = EssaySubmissionPage(
@@ -320,6 +322,13 @@ class EssaySubmissionService:
         last_error: ProviderError | None = None
         best_tokens: tuple | None = None
         best_average_confidence = -1.0
+        # Summed across every actual OpenAI call this page triggers - a
+        # retried or low-confidence-reattempted page really did cost the sum
+        # of all those attempts, not just whichever one is finally kept.
+        # None until at least one attempt reports real usage, so a provider
+        # that never reports usage never masquerades as a real zero-cost page.
+        total_input_tokens: int | None = None
+        total_output_tokens: int | None = None
         for attempt in range(1, self._OCR_ATTEMPTS + 1):
             try:
                 result = await self._get_transcriber().transcribe_page(
@@ -327,6 +336,10 @@ class EssaySubmissionService:
                         image_path=image_path, mime_type=_guess_mime(image_path)
                     )
                 )
+                if result.input_tokens is not None:
+                    total_input_tokens = (total_input_tokens or 0) + result.input_tokens
+                if result.output_tokens is not None:
+                    total_output_tokens = (total_output_tokens or 0) + result.output_tokens
                 tokens = result.tokens
                 average_confidence = (
                     sum(t.confidence for t in tokens) / len(tokens) if tokens else 0.0
@@ -339,6 +352,8 @@ class EssaySubmissionService:
                         {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
                         for t in tokens
                     ]
+                    page.input_tokens = total_input_tokens
+                    page.output_tokens = total_output_tokens
                     return
                 logger.warning(
                     "transcription attempt %d/%d for page %s scored low average "
@@ -354,12 +369,15 @@ class EssaySubmissionService:
         # Every attempt scored below the floor (or errored): the explicit
         # product decision is to always transcribe regardless of quality, so
         # a low-confidence result still beats no result at all - use
-        # whichever attempt scored best rather than whichever ran last.
+        # whichever attempt scored best rather than whichever ran last. The
+        # token totals still reflect EVERY attempt made, not just the kept one.
         if best_tokens is not None:
             page.ocr_tokens = [
                 {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
                 for t in best_tokens
             ]
+            page.input_tokens = total_input_tokens
+            page.output_tokens = total_output_tokens
             return
         raise last_error
 
