@@ -90,6 +90,10 @@ async def _to_diagnostic_question_response(session, selection) -> DiagnosticQues
     if not version:
         return None
 
+    # is_valid_option marks the CORRECT answer (set by
+    # QuestionPublicationService.publish_run as is_valid_option=opt.is_correct),
+    # not "safe to show the student" - every real option must be shown here,
+    # right or wrong, or the diagnostic silently reveals the answer.
     options = [
         PracticeQuestionOption(
             id=opt.id,
@@ -98,7 +102,6 @@ async def _to_diagnostic_question_response(session, selection) -> DiagnosticQues
             position=opt.position,
         )
         for opt in sorted(version.options, key=lambda o: o.position)
-        if opt.is_valid_option
     ]
 
     return DiagnosticQuestionResponse(

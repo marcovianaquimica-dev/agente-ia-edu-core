@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agente_ia_edu.db.models.admin import UserSchoolLink
 from agente_ia_edu.db.models.catalog import CatalogNode, CatalogNodePrerequisite
+from agente_ia_edu.db.models.learning_path import StudentContentMastery
 from agente_ia_edu.services.activity_assignment_store import (
     ActivityAssignmentStore,
     AssignmentAuthError,
@@ -304,6 +305,58 @@ class AdaptiveLearningPathService:
         self._prereq_graph_cache = (graph, names, positions, dependents)
         return self._prereq_graph_cache
 
+    # ---- diagnostic (sondagem inicial) fallback ------------------
+
+    async def _fill_diagnostic_fallback(self, cstate: dict[str, dict],
+                                        student_external_id: str) -> dict[str, dict]:
+        """Fallback-only: fills in ``cstate`` with real evidence from
+        ``StudentContentMastery`` (written by the initial-diagnostic flow,
+        ``services/initial_diagnostic.py``) for a ``content_code`` that has
+        NO evidence yet in the domain map (``ActivityResult``-derived,
+        PHASE 18/20). Never overwrites a ``content_code`` already present in
+        ``cstate`` - activity evidence always wins over diagnostic/sondagem
+        evidence when both exist for the same content (see design doc:
+        docs/superpowers/specs/2026-09-28-sondagem-alimenta-trilha-design.md,
+        section 2.3 - fallback, never numeric merge). Every value inserted
+        comes from a real ``StudentContentMastery`` row; nothing is invented.
+        Requires ``_prereq_graph()`` (or ``self._bank._load_catalog()``) to
+        already have been called on this instance so the catalog is cached."""
+        catalog = self._bank._catalog_cache or {}
+        id_to_code = {node.id: code for code, node in catalog.items()}
+        rows = (await self._session.execute(
+            select(StudentContentMastery).where(
+                StudentContentMastery.external_identity_id == student_external_id
+            )
+        )).scalars().all()
+        for row in rows:
+            code = id_to_code.get(row.content_node_id)
+            if not code or code in cstate:
+                continue
+            answered = row.questions_answered
+            correct = row.questions_correct
+            node = catalog.get(code)
+            cstate[code] = {
+                "content_code": code,
+                "content_name": (node.name if node else None) or code,
+                "questions_answered": answered,
+                "questions_correct": correct,
+                "accuracy": round(correct / answered, 4) if answered else None,
+                "evidence_state": (STATE_OBSERVED if answered >= self.policy.min_sample_size
+                                   else STATE_INSUFFICIENT),
+                "definitive_evidence_count": 0,
+                "provisional_evidence_count": 0,
+                "forced_closure_evidence_count": 0,
+                "visual_dependency_evidence_count": 0,
+                "last_activity_at": _iso(row.last_activity_at),
+                "discipline_code": None,
+                "discipline_name": None,
+                "mastery_score": float(row.mastery_score),
+                "current_level": row.current_level,
+                "confidence": float(row.confidence),
+                "evidence_source": "DIAGNOSTIC",
+            }
+        return cstate
+
     @staticmethod
     def _detect_cycle(graph: dict[str, list[str]]) -> None:
         WHITE, GRAY, BLACK = 0, 1, 2
@@ -390,6 +443,7 @@ class AdaptiveLearningPathService:
                 }
 
         graph, names, positions, dependents = await self._prereq_graph()
+        cstate = await self._fill_diagnostic_fallback(cstate, student_external_id)
         try:
             self._detect_cycle(graph)
         except PrerequisiteGraphInvalid as exc:

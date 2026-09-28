@@ -26,7 +26,7 @@ from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
     AnswerKeyEntry, AnswerKeyRevision, BookletQuestion, CatalogNode, Exam,
     ExamApplication, ExamBooklet, Institution, PedagogicalClassification,
-    Question, QuestionOption, QuestionVersion, SourceDocument,
+    Question, QuestionOption, QuestionVersion, SourceDocument, StudentContentMastery,
 )
 from agente_ia_edu.db.models.admin import UserSchoolLink
 from agente_ia_edu.db.models.assessments import (
@@ -479,11 +479,15 @@ class Phase21Tests(unittest.TestCase):
             finally:
                 event.remove(self.engine.sync_engine, "before_cursor_execute", _c)
         q = self.loop.run_until_complete(run())
-        self.assertLessEqual(q, 20, f"query count too high: {q}")  # +1: Domain Map origin resolution (PHASE 22)
+        self.assertLessEqual(q, 21, f"query count too high: {q}")  # +1: Domain Map origin resolution (PHASE 22)
         # +2 (18->20): resolve_for_content()'s two batched, constant-cost
         # queries (material-level + section-level lookup) added in PHASE 25
         # for the tenant-aware material_available signal - still one query
         # set regardless of candidate-content-code count, not per-row.
+        # +1 (20->21): _fill_diagnostic_fallback()'s single, flat
+        # `SELECT ... FROM student_content_mastery WHERE external_identity_id = ...`
+        # query (sondagem-alimenta-trilha, 2026-09) - one query per build_path()
+        # call, never per candidate content_code, so it stays O(1) here too.
 
     # -- N+1 audit: manager_view must not re-query the (student-independent)
     # prerequisite graph once per student in the assignment.
@@ -598,6 +602,77 @@ class Phase21Tests(unittest.TestCase):
             self.client.get("/api/v1/student/study-path/content/C_A")
         self.assertEqual(before, self.loop.run_until_complete(counts()))
         self.assertEqual(dcm_before, self.loop.run_until_complete(_dcm()))
+
+    # -- PHASE 21 s34 (sondagem alimenta trilha): _fill_diagnostic_fallback --
+    def test_fill_diagnostic_fallback_adds_content_absent_from_activity_evidence(self):
+        async def scenario():
+            async with self.factory() as session:
+                node_id = (await session.execute(
+                    select(CatalogNode.id).where(CatalogNode.code == "C_A"))).scalar_one()
+                session.add(StudentContentMastery(
+                    external_identity_id="s_fallback_add", content_node_id=node_id,
+                    mastery_score=30.0, current_level="EASY",
+                    questions_answered=10, questions_correct=3, confidence=0.1,
+                ))
+                await session.commit()
+                svc = AdaptiveLearningPathService(session)
+                await svc._prereq_graph()
+                result = await svc._fill_diagnostic_fallback({}, "s_fallback_add")
+                self.assertIn("C_A", result)
+                self.assertEqual(result["C_A"]["questions_answered"], 10)
+                self.assertEqual(result["C_A"]["questions_correct"], 3)
+                self.assertEqual(result["C_A"]["evidence_source"], "DIAGNOSTIC")
+        self.loop.run_until_complete(scenario())
+
+    def test_fill_diagnostic_fallback_never_overwrites_existing_activity_evidence(self):
+        async def scenario():
+            async with self.factory() as session:
+                node_id = (await session.execute(
+                    select(CatalogNode.id).where(CatalogNode.code == "C_B"))).scalar_one()
+                session.add(StudentContentMastery(
+                    external_identity_id="s_fallback_keep", content_node_id=node_id,
+                    mastery_score=99.0, current_level="HARD",
+                    questions_answered=50, questions_correct=49, confidence=0.9,
+                ))
+                await session.commit()
+                svc = AdaptiveLearningPathService(session)
+                await svc._prereq_graph()
+                existing_entry = {
+                    "content_code": "C_B", "questions_answered": 5, "questions_correct": 1,
+                    "accuracy": 0.2, "evidence_state": "OBSERVED",
+                }
+                cstate = {"C_B": dict(existing_entry)}
+                result = await svc._fill_diagnostic_fallback(cstate, "s_fallback_keep")
+                # byte-for-byte identical: no field touched, no evidence_source added
+                self.assertEqual(result["C_B"], existing_entry)
+        self.loop.run_until_complete(scenario())
+
+    # -- reproduces the real bug seen live: a student who completed the
+    # initial diagnostic (StudentContentMastery real rows) but has ZERO
+    # ActivityResult must stop getting NO_EVIDENCE/steps=[] from study-path.
+    def test_diagnostic_evidence_fills_study_path_when_no_activity(self):
+        self._link("s_diag_only", "t-diag-only")
+
+        async def _seed_mastery():
+            async with self.factory() as s:
+                node_id = (await s.execute(
+                    select(CatalogNode.id).where(CatalogNode.code == "C_A"))).scalar_one()
+                s.add(StudentContentMastery(
+                    external_identity_id="s_diag_only", content_node_id=node_id,
+                    mastery_score=30.0, current_level="EASY",
+                    questions_answered=10, questions_correct=3, confidence=0.1,
+                ))
+                await s.commit()
+        self.loop.run_until_complete(_seed_mastery())
+
+        self._student("s_diag_only")
+        j = self._path().json()
+        self.assertNotEqual(j["state"], "NO_EVIDENCE")
+        self.assertGreater(len(j["steps"]) + len(j["mastered"]), 0)
+        c_a = self._step(j, "C_A") or self._mastered(j, "C_A")
+        self.assertIsNotNone(c_a)
+        self.assertEqual(c_a["questions_answered"], 10)
+        self.assertEqual(c_a["questions_correct"], 3)
 
 
 if __name__ == "__main__":
