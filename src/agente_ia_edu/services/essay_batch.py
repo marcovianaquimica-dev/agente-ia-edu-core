@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..providers.contracts import EssayTranscriptionProvider
-from ..db.models import EssayBatchPage, EssayBatchUpload, PromptAssignment
+from ..db.models import EssayBatchPage, EssayBatchUpload, PromptAssignment, Person, Student, StudentEnrollment
 from ..providers.errors import ProviderError
 from ..db.models import EssaySubmissionPage
 from .essay_answer_sheet import HEADER_REGION_FRACTION
@@ -422,6 +422,77 @@ class EssayBatchService:
             "essay_prompt_id": batch.essay_prompt_id, "class_id": batch.class_id,
             "status": batch.status, "total_pages": batch.total_pages,
         }
+
+    async def class_roster(
+        self, *, school_id: uuid.UUID, class_id: uuid.UUID
+    ) -> list[tuple[uuid.UUID, str, str | None]]:
+        """(student_id, full_name, document_number) de cada aluno com matricula
+        ACTIVE nesta turma. Mesmo JOIN que essay_teacher_dashboard.py:198-203 ja
+        usa pra montar a lista de alunos de uma turma, acrescido do
+        document_number (o CPF que o professor ve como pista na tela de
+        resolucao manual)."""
+        rows = (await self.session.execute(
+            select(StudentEnrollment.student_id, Person.full_name, Person.document_number)
+            .join(Student, Student.id == StudentEnrollment.student_id)
+            .join(Person, Person.id == Student.person_id)
+            .where(
+                StudentEnrollment.school_id == school_id,
+                StudentEnrollment.class_id == class_id,
+                StudentEnrollment.status == "ACTIVE",
+            )
+            .order_by(Person.full_name)
+        )).all()
+        return [(student_id, full_name, document_number) for student_id, full_name, document_number in rows]
+
+    async def _process_page(
+        self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]]
+    ) -> None:
+        """Le uma pagina e grava o que foi lido. Best-effort: qualquer falha
+        (OCR esgotou as tentativas, imagem corrompida) deixa a pagina em
+        NEEDS_REVIEW com os campos de leitura vazios, mesmo padrao por item que
+        essay_proposal.create_assignments_bulk ja usa."""
+        try:
+            name, cpf, body_text = await self.read_page_regions(Path(page.storage_uri))
+        except (ProviderError, ValueError) as exc:
+            logger.warning(
+                "pagina %s do lote %s nao pode ser lida, vai para revisao manual: %s",
+                page.page_number, page.batch_id, exc,
+            )
+            page.status = "NEEDS_REVIEW"
+            return
+        page.ocr_name_raw = name
+        page.ocr_cpf_raw = cpf
+        page.ocr_body_text = body_text
+        page.matched_student_id = match_student(
+            name, [(student_id, full_name) for student_id, full_name, _document in roster]
+        )
+
+    async def process_batch(self, batch_id: uuid.UUID) -> None:
+        """Processa TODAS as paginas do lote, em sequencia (nunca em paralelo -
+        um lote de 60 paginas dispararia 120+ chamadas simultaneas ao provedor
+        de OCR), commitando depois de cada uma, pra que uma leitura de status
+        feita no meio do caminho sempre reflita o progresso real (spec s5).
+
+        Ao fim marca o lote DONE. Nunca levanta por falha de uma pagina - ver
+        _process_page.
+        """
+        batch = await self.session.get(EssayBatchUpload, batch_id)
+        if batch is None:
+            raise ValueError(f"EssayBatchUpload not found: {batch_id}")
+        roster = await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+        pages = (await self.session.execute(
+            select(EssayBatchPage)
+            .where(EssayBatchPage.batch_id == batch_id)
+            .order_by(EssayBatchPage.page_number)
+        )).scalars().all()
+
+        for page in pages:
+            await self._process_page(page, roster)
+            await self.session.commit()
+
+        batch = await self.session.get(EssayBatchUpload, batch_id)
+        batch.status = "DONE"
+        await self.session.commit()
 
 
 __all__ = [
