@@ -227,6 +227,95 @@ class EssayPromptsRoutesTests(unittest.TestCase):
         self.assertEqual(body["assigned"][0]["class_id"], str(class_ids[0]))
         self.assertIn(foreign_class_id, body["failures"])
 
+    def test_delete_moves_prompt_to_trash_and_hides_it_from_the_normal_list(self):
+        school_id, class_id = self._seed_school_teacher_and_class("7")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema para excluir", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        delete_resp = self.client.delete(f"/api/v1/catalog/essay-prompts/{prompt_id}")
+        self.assertEqual(delete_resp.status_code, 204, delete_resp.text)
+
+        list_resp = self.client.get("/api/v1/catalog/essay-prompts")
+        self.assertNotIn(prompt_id, [p["id"] for p in list_resp.json()])
+
+        detail_resp = self.client.get(f"/api/v1/catalog/essay-prompts/{prompt_id}")
+        self.assertEqual(detail_resp.status_code, 403)
+
+    def test_trash_lists_deleted_prompt_with_days_remaining(self):
+        school_id, class_id = self._seed_school_teacher_and_class("8")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema na lixeira", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+        self.client.delete(f"/api/v1/catalog/essay-prompts/{prompt_id}")
+
+        trash_resp = self.client.get("/api/v1/catalog/essay-prompts/trash")
+        self.assertEqual(trash_resp.status_code, 200, trash_resp.text)
+        entries = {e["id"]: e for e in trash_resp.json()}
+        self.assertIn(prompt_id, entries)
+        self.assertEqual(entries[prompt_id]["days_remaining"], 30)
+        self.assertIsNotNone(entries[prompt_id]["deleted_at"])
+
+    def test_restore_brings_prompt_back_to_the_normal_list(self):
+        school_id, class_id = self._seed_school_teacher_and_class("9")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema para restaurar", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+        self.client.delete(f"/api/v1/catalog/essay-prompts/{prompt_id}")
+
+        restore_resp = self.client.post(f"/api/v1/catalog/essay-prompts/{prompt_id}/restore")
+        self.assertEqual(restore_resp.status_code, 200, restore_resp.text)
+
+        list_resp = self.client.get("/api/v1/catalog/essay-prompts")
+        self.assertIn(prompt_id, [p["id"] for p in list_resp.json()])
+
+        trash_resp = self.client.get("/api/v1/catalog/essay-prompts/trash")
+        self.assertNotIn(prompt_id, [e["id"] for e in trash_resp.json()])
+
+    def test_restore_a_prompt_that_is_not_deleted_is_rejected(self):
+        school_id, class_id = self._seed_school_teacher_and_class("10")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema ativo", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        restore_resp = self.client.post(f"/api/v1/catalog/essay-prompts/{prompt_id}/restore")
+        self.assertEqual(restore_resp.status_code, 422)
+
+    def test_delete_rejects_a_prompt_from_another_school(self):
+        school_id, class_id = self._seed_school_teacher_and_class("11")
+        self._as("prof_r2")
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        # A caller with no school link at all never reaches "is this prompt
+        # yours" - _authorize's own "active school context required" check
+        # already 403s first, which is the outcome this test cares about.
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_stranger")
+        try:
+            delete_resp = self.client.delete(f"/api/v1/catalog/essay-prompts/{prompt_id}")
+            self.assertEqual(delete_resp.status_code, 403)
+        finally:
+            self._as("prof_r2")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 import unittest
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -289,6 +290,116 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual({a["class_id"] for a in assigned}, {class0_id, class1_id})
             self.assertEqual(len(assigned), 2)
             self.assertIn(class0_id, failures)
+
+    async def test_soft_delete_sets_deleted_at_and_restore_clears_it(self):
+        async with self.session_factory() as session:
+            school, _ = await self._school_and_class(session, "12")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p12",
+            )
+            deleted = await svc.soft_delete_prompt(school_id=school.id, essay_prompt_id=prompt.id)
+            self.assertIsNotNone(deleted.deleted_at)
+
+            restored = await svc.restore_prompt(school_id=school.id, essay_prompt_id=prompt.id)
+            self.assertIsNone(restored.deleted_at)
+
+    async def test_soft_delete_rejects_foreign_school_and_already_deleted(self):
+        async with self.session_factory() as session:
+            school_a, _ = await self._school_and_class(session, "13a")
+            school_b, _ = await self._school_and_class(session, "13b")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school_a.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p13",
+            )
+            with self.assertRaises(ValueError):
+                await svc.soft_delete_prompt(school_id=school_b.id, essay_prompt_id=prompt.id)
+
+            await svc.soft_delete_prompt(school_id=school_a.id, essay_prompt_id=prompt.id)
+            with self.assertRaises(ValueError):
+                await svc.soft_delete_prompt(school_id=school_a.id, essay_prompt_id=prompt.id)
+
+    async def test_restore_rejects_prompt_not_in_trash(self):
+        async with self.session_factory() as session:
+            school, _ = await self._school_and_class(session, "14")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p14",
+            )
+            with self.assertRaises(ValueError):
+                await svc.restore_prompt(school_id=school.id, essay_prompt_id=prompt.id)
+
+    async def test_restore_rejects_prompt_past_retention_window(self):
+        async with self.session_factory() as session:
+            school, _ = await self._school_and_class(session, "15")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p15",
+            )
+            await svc.soft_delete_prompt(school_id=school.id, essay_prompt_id=prompt.id)
+            # Back-date deleted_at past the retention window directly - the
+            # 30-day clock is measured from deleted_at, not from a separate
+            # counter, so this is the real way to simulate "aged out".
+            prompt.deleted_at = datetime.now(timezone.utc) - timedelta(
+                days=EssayProposalService.TRASH_RETENTION_DAYS + 1
+            )
+            await session.flush()
+            with self.assertRaises(ValueError):
+                await svc.restore_prompt(school_id=school.id, essay_prompt_id=prompt.id)
+
+    async def test_list_trash_only_returns_prompts_within_retention_window(self):
+        async with self.session_factory() as session:
+            school, _ = await self._school_and_class(session, "16")
+            svc = EssayProposalService(session)
+            fresh = await svc.create_prompt(
+                school_id=school.id, title="Recente", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p16",
+            )
+            aged_out = await svc.create_prompt(
+                school_id=school.id, title="Antigo", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p16",
+            )
+            active = await svc.create_prompt(
+                school_id=school.id, title="Ativo", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p16",
+            )
+            await svc.soft_delete_prompt(school_id=school.id, essay_prompt_id=fresh.id)
+            await svc.soft_delete_prompt(school_id=school.id, essay_prompt_id=aged_out.id)
+            aged_out.deleted_at = datetime.now(timezone.utc) - timedelta(
+                days=EssayProposalService.TRASH_RETENTION_DAYS + 1
+            )
+            await session.flush()
+
+            trash = await svc.list_trash(school_id=school.id)
+            trash_ids = {p.id for p in trash}
+            self.assertIn(fresh.id, trash_ids)
+            self.assertNotIn(aged_out.id, trash_ids)
+            self.assertNotIn(active.id, trash_ids)
+
+    async def test_deleted_prompt_rejects_new_material_and_assignment(self):
+        async with self.session_factory() as session:
+            school, klass = await self._school_and_class(session, "17")
+            svc = EssayProposalService(session)
+            prompt = await svc.create_prompt(
+                school_id=school.id, title="Tema", statement="Disserte.", year=2026,
+                created_by_external_identity="teacher:p17",
+            )
+            await svc.soft_delete_prompt(school_id=school.id, essay_prompt_id=prompt.id)
+
+            with self.assertRaises(ValueError):
+                await svc.add_material(
+                    school_id=school.id, essay_prompt_id=prompt.id,
+                    material_type="TEXT", content="Tarde demais.", position=0,
+                )
+            with self.assertRaises(ValueError):
+                await svc.create_assignment(
+                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    assigned_by_external_identity="teacher:p17",
+                )
 
 
 if __name__ == "__main__":

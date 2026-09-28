@@ -9,8 +9,9 @@ requires its class to actually belong to the prompt's own school.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +23,23 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_aware_utc(value: datetime) -> datetime:
+    """SQLite (test-only; production is Postgres with DateTime(timezone=True))
+    hands back naive datetimes on a fresh read, since it has no real
+    timezone-aware storage - normalize before ever subtracting from
+    _utcnow(), or that raises TypeError on SQLite while working fine on
+    Postgres."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
 class EssayProposalService:
+    # How long a soft-deleted proposal stays in the "Lixeira" and restorable
+    # before it silently drops out of the trash listing - see
+    # db/models/essay_proposal.py's EssayPrompt.deleted_at docstring. Nothing
+    # is ever hard-deleted by this service: past this window the row is just
+    # no longer offered back, exactly what "guardado por 30 dias" asked for.
+    TRASH_RETENTION_DAYS = 30
+
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
@@ -60,9 +77,7 @@ class EssayProposalService:
         content: str | None = None,
         storage_uri: str | None = None,
     ) -> PromptMaterial:
-        prompt = await self.session.get(EssayPrompt, essay_prompt_id)
-        if prompt is None or prompt.school_id != school_id:
-            raise ValueError(f"EssayPrompt not found in school {school_id}: {essay_prompt_id}")
+        prompt = await self._active_prompt_or_raise(school_id=school_id, essay_prompt_id=essay_prompt_id)
         if prompt.status != "DRAFT":
             raise ValueError(
                 f"EssayPrompt {essay_prompt_id} is {prompt.status}, not DRAFT - "
@@ -103,9 +118,7 @@ class EssayProposalService:
         due_at: datetime | None = None,
         validation_enabled: bool = True,
     ) -> PromptAssignment:
-        prompt = await self.session.get(EssayPrompt, essay_prompt_id)
-        if prompt is None or prompt.school_id != school_id:
-            raise ValueError(f"EssayPrompt not found in school {school_id}: {essay_prompt_id}")
+        prompt = await self._active_prompt_or_raise(school_id=school_id, essay_prompt_id=essay_prompt_id)
 
         klass = await self.session.get(Class, class_id)
         if klass is None or klass.school_id != school_id:
@@ -187,5 +200,62 @@ class EssayProposalService:
                 failures[class_id] = str(exc)
         return assigned, failures
 
+    async def soft_delete_prompt(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID,
+    ) -> EssayPrompt:
+        """Moves a proposal to the "Lixeira" - sets deleted_at only, nothing
+        else changes, so every material/assignment/submission/correction
+        under it stays exactly as it was if the teacher restores it."""
+        prompt = await self._active_prompt_or_raise(school_id=school_id, essay_prompt_id=essay_prompt_id)
+        prompt.deleted_at = _utcnow()
+        await self.session.flush()
+        return prompt
 
-__all__ = ["EssayProposalService"]
+    async def restore_prompt(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID,
+    ) -> EssayPrompt:
+        prompt = await self.session.get(EssayPrompt, essay_prompt_id)
+        if prompt is None or prompt.school_id != school_id:
+            raise ValueError(f"EssayPrompt not found in school {school_id}: {essay_prompt_id}")
+        if prompt.deleted_at is None:
+            raise ValueError(f"EssayPrompt {essay_prompt_id} is not in the trash")
+        if _utcnow() - _as_aware_utc(prompt.deleted_at) > timedelta(days=self.TRASH_RETENTION_DAYS):
+            raise ValueError(
+                f"EssayPrompt {essay_prompt_id} was deleted more than "
+                f"{self.TRASH_RETENTION_DAYS} days ago and can no longer be restored"
+            )
+        prompt.deleted_at = None
+        await self.session.flush()
+        return prompt
+
+    async def list_trash(self, *, school_id: uuid.UUID) -> list[EssayPrompt]:
+        """Only proposals still inside the retention window - one that aged
+        out simply stops appearing here (never hard-deleted, see
+        TRASH_RETENTION_DAYS's docstring), so the teacher can't "restore"
+        something the UI no longer offers."""
+        cutoff = _utcnow() - timedelta(days=self.TRASH_RETENTION_DAYS)
+        result = await self.session.execute(
+            select(EssayPrompt)
+            .where(
+                EssayPrompt.school_id == school_id,
+                EssayPrompt.deleted_at.is_not(None),
+                EssayPrompt.deleted_at >= cutoff,
+            )
+            .order_by(EssayPrompt.deleted_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def _active_prompt_or_raise(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID,
+    ) -> EssayPrompt:
+        prompt = await self.session.get(EssayPrompt, essay_prompt_id)
+        if prompt is None or prompt.school_id != school_id or prompt.deleted_at is not None:
+            raise ValueError(f"EssayPrompt not found in school {school_id}: {essay_prompt_id}")
+        return prompt
+
+
+__all__ = ["EssayProposalService", "as_aware_utc"]
+
+# Public alias - the route layer needs the same normalization to compute
+# days_remaining from a freshly-read deleted_at.
+as_aware_utc = _as_aware_utc
