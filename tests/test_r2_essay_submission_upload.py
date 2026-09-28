@@ -662,6 +662,31 @@ class LowConfidenceReconciliationTests(unittest.IsolatedAsyncioTestCase):
         # it even though it's part of the same second-read response.
         self.assertEqual(by_text["Ola"], 0.99)
 
+    async def test_reconciliation_calls_usage_is_added_to_the_page_total(self):
+        """The reconciliation call is a REAL extra OpenAI call, not a free
+        second opinion - its own usage must be summed into the page's
+        input_tokens/output_tokens alongside the first (accepted) call's
+        usage, the same way a low-average-confidence retry's usage already
+        is (see _ocr_page's total_input_tokens/total_output_tokens)."""
+        first_attempt = (
+            EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.4, start=4, end=9),
+        )
+        second_attempt = (
+            EssayOcrToken(text="Ola", confidence=0.6, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.55, start=4, end=9),
+        )
+        transcriber = _ScriptedSequenceTranscriber(
+            [first_attempt, second_attempt],
+            usage_sequence=[(1000, 50), (300, 20)],
+        )
+        async with self.session_factory() as session:
+            page = await self._upload_one_page(session, transcriber)
+
+        self.assertEqual(transcriber.calls, 2)
+        self.assertEqual(page.input_tokens, 1000 + 300)
+        self.assertEqual(page.output_tokens, 50 + 20)
+
     async def test_disagreeing_second_read_leaves_the_word_untouched(self):
         first_attempt = (
             EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
