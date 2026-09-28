@@ -264,6 +264,14 @@ body.sidebar-open {
   margin-bottom: 24px;
 }
 
+/* PHASE 25 follow-up — student Materiais tab (real TheoryMaterial catalog) */
+.resource-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.material-card { margin-bottom: 0; display: flex; flex-direction: column; gap: 6px; }
+.material-card .card-header { margin-bottom: 4px; gap: 10px; }
+.material-card .card-header h4 { font-size: 16px; font-weight: 700; }
+.material-card-meta { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 10px; color: var(--text-muted); font-size: 13px; }
+.material-card .materials-open-btn { margin-top: auto; align-self: flex-start; }
+
 /* Student diagnostic vertical slice */
 .diagnostic-shell {
   min-height: min(680px, calc(100vh - 140px));
@@ -1681,9 +1689,6 @@ body.sidebar-open {
 .essay-annotation.essay-mark-C5 { border-left-color: var(--success); }
 .essay-annotation blockquote { margin: 6px 0 0; font-style: italic; color: var(--text-muted); }
 .essay-annotation-competency-hint { display: block; font-size: 0.75em; color: var(--text-muted); margin: 1px 0 4px; }
-.essay-intervention-checklist { list-style: none; padding: 0; }
-.essay-intervention-checklist li { padding: 4px 0; }
-.essay-warning { color: var(--danger, #d64545); font-weight: 700; }
 
 .essay-mark { padding: 2px 7px 2px 3px; border-radius: 3px; cursor: pointer; }
 .essay-mark sup { font-weight: 700; margin-left: 1px; }
@@ -1764,12 +1769,9 @@ body.sidebar-open {
 .essay-rewrite-block.essay-mark-C3 { border-left-color: var(--danger); }
 .essay-rewrite-block.essay-mark-C4 { border-left-color: var(--warning); }
 .essay-rewrite-block.essay-mark-C5 { border-left-color: var(--success); }
-.essay-mechanical-reference { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
-.essay-mechanical-reference th, .essay-mechanical-reference td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border, #e2e6ee); }
 .essay-mechanical-occurrence { border-left: 3px solid var(--warning); padding: 8px 12px; margin: 10px 0; background: #fffdf7; }
 .essay-action-plan { padding-left: 20px; }
 .essay-closing-message { font-style: italic; margin: 14px 0; }
-.essay-transparency-notice { font-size: 12px; color: var(--text-muted); margin-top: 16px; }
 .essay-report-preview { border: 1px solid var(--border, #e2e6ee); border-radius: 6px; padding: 12px; margin-top: 8px; background: #fafbfc; }
 
 .essay-evolution-root { margin-top: 24px; }

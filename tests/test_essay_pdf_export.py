@@ -4,6 +4,8 @@ import unittest
 
 from agente_ia_edu.services.essay_pdf_export import (
     _annotations_html,
+    _competency_table_html,
+    _mechanical_occurrences_html,
     _rewrites_html,
     build_render_model,
     filename_for_title,
@@ -300,6 +302,54 @@ class EssayPdfExportTests(unittest.TestCase):
                 result_doc.close()
         finally:
             os.unlink(png_path)
+
+
+    def test_static_mechanical_reference_and_intervention_checklist_are_gone(self):
+        """Product ask (2026-09-28): the static "O que observamos" glossary
+        table, the C5 intervention checklist (which often rendered as an
+        empty "Agente —", "Ação —", ... wall when the AI left those fields
+        blank), and the closing AI-disclaimer paragraph were all removed
+        from the devolutiva - essay-report.js and this module must both stay
+        in sync, per this module's own docstring rule."""
+        model = build_render_model(_full_correction_view())
+        pdf_bytes = render_pdf(
+            model, title="Sem blocos removidos", anchor_mode="TEXT_OFFSET",
+            canonical_text="Um texto qualquer para o teste.",
+        )
+        import pymupdf
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            text = "".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+        self.assertNotIn("O que observamos", text)
+        # "Proposta de intervenção" alone still legitimately appears as the
+        # C5 competency label (kept) - only the dedicated checklist heading
+        # and its own content are gone.
+        self.assertNotIn("Competência 5", text)
+        self.assertNotIn("Respeita os direitos humanos", text)
+        self.assertNotIn("estimativa pedagógica", text)
+
+    def test_annotations_rewrites_mechanics_and_table_never_use_fill_decorations(self):
+        """Confirmed live 2026-09-28: PyMuPDF's Story engine (1.28.2) echoes
+        `background`/`border-left` fills from these exact sections as empty,
+        meaningless colored bars far later in the document - reported by a
+        real user as "colored markings that don't make sense" at the very
+        end of an otherwise-blank final page. Verified directly: stripping
+        every `background:`/`border-left:` from this module's HTML made the
+        stray fills disappear entirely from the rendered PDF (0 drawings on
+        every trailing page, in a document that previously had 15). Colored
+        TEXT (font `color:`) does not trigger it and stays in use for
+        competency identification instead. This test guards the root cause
+        at the HTML-string level - cheap and deterministic - rather than
+        re-driving the full multi-page PyMuPDF repro on every test run."""
+        model = build_render_model(_full_correction_view())
+        for html in (
+            _annotations_html(model), _rewrites_html(model),
+            _mechanical_occurrences_html(model), _competency_table_html(model),
+        ):
+            self.assertNotIn("background:", html)
+            self.assertNotIn("border-left:", html)
 
 
 if __name__ == "__main__":

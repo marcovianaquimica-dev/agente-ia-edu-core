@@ -29,22 +29,6 @@
     C5: 'Elaboração de proposta de intervenção respeitando os direitos humanos.',
   };
 
-  // Always shown, whether or not mechanical_review has any dynamic
-  // occurrences - a static reference for what C1's mechanical review covers.
-  const MECHANICAL_REFERENCE = [
-    { label: 'Ortografia', description: 'Grafia correta das palavras conforme a norma padrão.' },
-    { label: 'Acentuação', description: 'Uso correto dos acentos gráficos.' },
-    { label: 'Crase', description: 'Uso da crase (à) apenas quando há fusão da preposição "a" com o artigo "a(s)".' },
-    { label: 'Porquês', description: 'Emprego correto de "por que", "por quê", "porque" e "porquê".' },
-    { label: 'Concordância', description: 'Concordância verbal e nominal (sujeito–verbo, substantivo–adjetivo).' },
-    { label: 'Regência', description: 'Uso correto das preposições exigidas por verbos e nomes.' },
-    { label: 'Pontuação', description: 'Uso adequado de vírgulas, pontos e demais sinais de pontuação.' },
-  ];
-
-  const TRANSPARENCY_NOTICE = 'A nota apresentada é uma estimativa pedagógica gerada por '
-    + 'inteligência artificial e revisada por um professor: ela apoia o processo de '
-    + 'aprendizagem, mas não substitui a avaliação oficial do ENEM ou de qualquer banca examinadora.';
-
   function renderCompetencyChecklist(rationales, feedbackStrengths, esc) {
     const rationaleByCode = {};
     (rationales || []).forEach((r) => { rationaleByCode[r.competency_code] = r; });
@@ -81,7 +65,6 @@
     const annotations = correction.annotations || [];
     const rewrites = correction.rewrites || [];
     const alerts = correction.alerts || [];
-    const intervention = correction.intervention || {};
     const mechanicalReview = correction.mechanical_review || [];
 
     const titleHtml = opts.promptTitle ? `<h3>${esc(opts.promptTitle)}</h3>` : '';
@@ -145,11 +128,6 @@
         }).join('')
       : '';
 
-    const mechanicalReferenceHtml = `
-      <table class="essay-mechanical-reference">
-        <thead><tr><th>Categoria</th><th>O que observamos</th></tr></thead>
-        <tbody>${MECHANICAL_REFERENCE.map((m) => `<tr><th scope="row">${esc(m.label)}</th><td>${esc(m.description)}</td></tr>`).join('')}</tbody>
-      </table>`;
     const mechanicalOccurrencesHtml = mechanicalReview.length
       ? mechanicalReview.map((m) => `
           <div class="essay-mechanical-occurrence">
@@ -159,18 +137,6 @@
             <p class="empty-text">${esc(m.rule_explanation)}</p>
           </div>`).join('')
       : '<p class="empty-text">Nenhuma ocorrência mecânica confirmada nesta redação.</p>';
-
-    const interventionHtml = `
-      <ul class="essay-intervention-checklist">
-        <li>${intervention.agente ? '✓' : '○'} <strong>Agente</strong> ${esc(intervention.agente || '—')}</li>
-        <li>${intervention.acao ? '✓' : '○'} <strong>Ação</strong> ${esc(intervention.acao || '—')}</li>
-        <li>${intervention.meio_modo ? '✓' : '○'} <strong>Meio/modo</strong> ${esc(intervention.meio_modo || '—')}</li>
-        <li>${intervention.finalidade ? '✓' : '○'} <strong>Finalidade</strong> ${esc(intervention.finalidade || '—')}</li>
-        <li>${intervention.detalhamento ? '✓' : '○'} <strong>Detalhamento</strong> ${esc(intervention.detalhamento || '—')}</li>
-      </ul>
-      <p class="${intervention.respeita_direitos_humanos ? '' : 'essay-warning'}">
-        ${intervention.respeita_direitos_humanos ? '✓ Respeita os direitos humanos' : '⚠ Atenção: verificar respeito aos direitos humanos'}
-      </p>`;
 
     const actionPlanItems = feedback.improvements || [];
     const actionPlanHtml = actionPlanItems.length
@@ -184,8 +150,6 @@
     const closingHtml = correction.closing_message
       ? `<p class="essay-closing-message">${esc(correction.closing_message)}</p>`
       : '';
-
-    const transparencyHtml = `<p class="essay-transparency-notice">${esc(TRANSPARENCY_NOTICE)}</p>`;
 
     return `
       ${titleHtml}
@@ -202,15 +166,11 @@
       ${annotationsHtml}
       ${rewritesHtml ? `<h4>Reescritas sugeridas</h4>${rewritesHtml}` : ''}
       <h4>Revisão de domínio da norma padrão (C1)</h4>
-      ${mechanicalReferenceHtml}
       ${mechanicalOccurrencesHtml}
-      <h4>Competência 5 — Proposta de intervenção</h4>
-      ${interventionHtml}
       <h4>Plano de ação</h4>
       ${actionPlanHtml}
       ${nextEssayHtml}
-      ${closingHtml}
-      ${transparencyHtml}`;
+      ${closingHtml}`;
   }
 
   return { renderRichReport, renderCompetencyChecklist };

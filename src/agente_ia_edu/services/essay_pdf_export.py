@@ -44,20 +44,6 @@ _COMPETENCY_COLORS: dict[str, str] = {
 _COMPETENCY_SOLID_COLORS: dict[str, str] = {
     "C1": "#4f46e5", "C2": "#06b6d4", "C3": "#ef4444", "C4": "#f59e0b", "C5": "#10b981",
 }
-_MECHANICAL_REFERENCE: tuple[dict[str, str], ...] = (
-    {"label": "Ortografia", "description": "Grafia correta das palavras conforme a norma padrão."},
-    {"label": "Acentuação", "description": "Uso correto dos acentos gráficos."},
-    {"label": "Crase", "description": 'Uso da crase (à) apenas quando há fusão da preposição "a" com o artigo "a(s)".'},
-    {"label": "Porquês", "description": 'Emprego correto de "por que", "por quê", "porque" e "porquê".'},
-    {"label": "Concordância", "description": "Concordância verbal e nominal (sujeito–verbo, substantivo–adjetivo)."},
-    {"label": "Regência", "description": "Uso correto das preposições exigidas por verbos e nomes."},
-    {"label": "Pontuação", "description": "Uso adequado de vírgulas, pontos e demais sinais de pontuação."},
-)
-_TRANSPARENCY_NOTICE = (
-    "A nota apresentada é uma estimativa pedagógica gerada por inteligência artificial e "
-    "revisada por um professor: ela apoia o processo de aprendizagem, mas não substitui a "
-    "avaliação oficial do ENEM ou de qualquer banca examinadora."
-)
 _BASE_CSS = (
     "body { font-family: helvetica, sans-serif; font-size: 11px; color: #111827; }"
     "h3 { font-size: 16px; margin: 0 0 8px 0; }"
@@ -192,7 +178,6 @@ def _competency_table_html(model: dict) -> str:
     rows_html = []
     for row in model["competency_rows"]:
         code = row["code"]
-        bg = _COMPETENCY_COLORS[code]
         fg = _COMPETENCY_SOLID_COLORS[code]
         header = f'{_esc(code)} — {_esc(row["label"])}'
         if row["has_split"]:
@@ -200,7 +185,7 @@ def _competency_table_html(model: dict) -> str:
         else:
             cells = f'<td colspan="2">{_esc(row["summary"])}</td>'
         rows_html.append(
-            f'<tr style="background:{bg};"><th style="color:{fg};">{header}</th>{cells}</tr>'
+            f'<tr><th style="color:{fg};">{header}</th>{cells}</tr>'
         )
     return (
         "<table><thead><tr><th>Competência</th><th>Você já faz bem</th>"
@@ -228,8 +213,8 @@ def _annotations_html(model: dict) -> str:
         quote_html = f"<blockquote>&ldquo;{_esc(quote)}&rdquo;</blockquote>" if quote else ""
         color = _COMPETENCY_SOLID_COLORS.get(a.get("competency_code"), "#4f46e5")
         parts.append(
-            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid {color};">'
-            f'<b>{i} — {_esc(a.get("competency_code"))}</b>'
+            f'<div style="margin:6px 0;padding:4px 0;">'
+            f'<b style="color:{color};">{i} — {_esc(a.get("competency_code"))}</b>'
             f'<p>{_esc(a.get("short_comment"))}</p>'
             f'<p style="color:#64748b;">{_esc(a.get("long_comment"))}</p>'
             f"{quote_html}</div>"
@@ -250,13 +235,13 @@ def _rewrites_html(model: dict) -> str:
         if not isinstance(r, dict):
             continue
         number = letter_to_number.get(r.get("letter"))
+        color = _COMPETENCY_SOLID_COLORS.get(r.get("competency_code"), "#06b6d4")
         header = (
-            f'<b>{number} — {_esc(r.get("competency_code"))}</b>'
+            f'<b style="color:{color};">{number} — {_esc(r.get("competency_code"))}</b>'
             if number is not None and r.get("competency_code") else ""
         )
-        color = _COMPETENCY_SOLID_COLORS.get(r.get("competency_code"), "#06b6d4")
         parts.append(
-            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid {color};">'
+            f'<div style="margin:6px 0;padding:4px 0;">'
             f"{header}"
             f'<p style="color:#64748b;">Trecho original:</p>'
             f'<blockquote>&ldquo;{_esc(r.get("original"))}&rdquo;</blockquote>'
@@ -268,14 +253,6 @@ def _rewrites_html(model: dict) -> str:
     return f'<h4>Reescritas sugeridas</h4>{"".join(parts)}'
 
 
-def _mechanical_reference_html() -> str:
-    rows = "".join(
-        f'<tr><th>{_esc(m["label"])}</th><td>{_esc(m["description"])}</td></tr>'
-        for m in _MECHANICAL_REFERENCE
-    )
-    return f"<table><thead><tr><th>Categoria</th><th>O que observamos</th></tr></thead><tbody>{rows}</tbody></table>"
-
-
 def _mechanical_occurrences_html(model: dict) -> str:
     occurrences = model["mechanical_occurrences"]
     if not occurrences:
@@ -285,34 +262,14 @@ def _mechanical_occurrences_html(model: dict) -> str:
         if not isinstance(m, dict):
             continue
         parts.append(
-            f'<div style="margin:6px 0;padding:4px 8px;border-left:3px solid #f59e0b;">'
-            f'<b>{_esc(m.get("category"))}</b>'
+            f'<div style="margin:6px 0;padding:4px 0;">'
+            f'<b style="color:#f59e0b;">{_esc(m.get("category"))}</b>'
             f'<blockquote>&ldquo;{_esc(m.get("excerpt"))}&rdquo;</blockquote>'
             f'<p>Forma sugerida: {_esc(m.get("suggested_form"))}</p>'
             f'<p style="color:#64748b;">{_esc(m.get("rule_explanation"))}</p>'
             f"</div>"
         )
     return "".join(parts)
-
-
-def _intervention_html(model: dict) -> str:
-    intervention = model["intervention"]
-
-    def _row(label: str, key: str) -> str:
-        value = intervention.get(key)
-        mark = "✓" if value else "○"
-        return f'<p>{mark} {label}: {_esc(value or "—")}</p>'
-
-    rows = (
-        _row("Agente", "agente") + _row("Ação", "acao") + _row("Meio/modo", "meio_modo")
-        + _row("Finalidade", "finalidade") + _row("Detalhamento", "detalhamento")
-    )
-    respects = intervention.get("respeita_direitos_humanos")
-    notice = (
-        '<p style="color:#10b981;">✓ Respeita os direitos humanos</p>' if respects
-        else '<p style="color:#ef4444;">⚠ Atenção: verificar respeito aos direitos humanos</p>'
-    )
-    return rows + notice
 
 
 def _action_plan_html(model: dict) -> str:
@@ -424,11 +381,9 @@ def _document_after_html(model: dict) -> str:
         "<h4>Anotações</h4>" + _annotations_html(model)
         + _rewrites_html(model)
         + "<h4>Revisão de domínio da norma padrão (C1)</h4>"
-        + _mechanical_reference_html() + _mechanical_occurrences_html(model)
-        + "<h4>Competência 5 — Proposta de intervenção</h4>" + _intervention_html(model)
+        + _mechanical_occurrences_html(model)
         + "<h4>Plano de ação</h4>" + _action_plan_html(model)
         + next_essay_html + closing_html
-        + f'<p style="font-size:9px;color:#64748b;margin-top:16px;">{_esc(_TRANSPARENCY_NOTICE)}</p>'
     )
 
 
