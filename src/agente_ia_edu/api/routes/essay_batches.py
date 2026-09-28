@@ -23,10 +23,11 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayBatchPage, EssayBatchUpload
+from ...db.models import EssayBatchPage, EssayBatchUpload, School
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_batch import ALLOWED_BATCH_SUFFIXES, EssayBatchService
+from ...services.material_storage import MaterialStorage
 
 logger = logging.getLogger(__name__)
 
@@ -275,3 +276,71 @@ async def get_essay_batch_page_image(
         if page is None or page.batch_id != batch_id:
             raise HTTPException(status_code=404, detail="Pagina nao encontrada neste lote.")
         return FileResponse(page.storage_uri)
+
+
+teacher_school_router = APIRouter(prefix="/api/v1/teacher/school", tags=["teacher-school"])
+
+_ALLOWED_LOGO_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+
+class SchoolLogoResponse(BaseModel):
+    has_logo: bool
+
+
+@teacher_school_router.get("/logo", response_model=SchoolLogoResponse)
+async def get_school_logo_state(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> SchoolLogoResponse:
+    """So diz SE existe uma logo - o arquivo em si nunca e devolvido por esta
+    rota; quem precisa dele e a geracao da folha, do lado do servidor."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        school = await session.get(School, school_id)
+        return SchoolLogoResponse(
+            has_logo=bool(school is not None and school.logo_storage_uri)
+        )
+
+
+@teacher_school_router.post("/logo", response_model=SchoolLogoResponse)
+async def upload_school_logo(
+    file: UploadFile = File(...),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> SchoolLogoResponse:
+    """Mesma forma de upload_prompt_material: streaming em pedacos de 1MB pra um
+    temporario com teto de tamanho, e so entao MaterialStorage.store()."""
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _ALLOWED_LOGO_SUFFIXES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A logo precisa ser uma imagem PNG ou JPG - recebido {suffix!r}",
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        school = await session.get(School, school_id)
+        if school is None:
+            raise HTTPException(status_code=403, detail="Escola nao encontrada.")
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="r4_school_logo_"))
+        try:
+            tmp_path = tmp_dir / (Path(file.filename or "logo.png").name)
+            size = 0
+            with open(tmp_path, "wb") as out:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > _MAX_UPLOAD_BYTES:
+                        out.close()
+                        raise HTTPException(
+                            status_code=413, detail="Arquivo de logo passa de 25MB."
+                        )
+                    out.write(chunk)
+            managed_path, _digest = MaterialStorage().store(tmp_path)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        school.logo_storage_uri = str(managed_path)
+        # Resposta montada antes do commit (expire_on_commit=True em producao).
+        response = SchoolLogoResponse(has_logo=True)
+        await session.commit()
+        return response

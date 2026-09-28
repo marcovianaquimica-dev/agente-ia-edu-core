@@ -21,9 +21,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial
+from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial, School
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
+from ...services.essay_answer_sheet import answer_sheet_available, render_answer_sheet_pdf
 from ...services.essay_dashboard_export import build_essay_dashboard_xlsx, xlsx_media_type
 from ...services.essay_proposal import EssayProposalService, as_aware_utc
 from ...services.essay_teacher_dashboard import EssayDashboardResponse, build_essay_prompt_dashboard
@@ -408,6 +409,46 @@ async def export_essay_prompt_dashboard_xlsx(
 class EssayPromptDetailResponse(EssayPromptResponse):
     materials: list[PromptMaterialResponse]
     assignments: list[PromptAssignmentResponse]
+
+
+@essay_prompts_router.get("/{essay_prompt_id}/answer-sheet.pdf")
+async def get_essay_prompt_answer_sheet(
+    essay_prompt_id: UUID,
+    copies: int = Query(1, ge=1, le=60),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    """A folha de resposta em branco desta proposta, pronta pra imprimir - uma
+    folha por pagina do PDF gerado.
+
+    O teto de 60 copias e o mesmo teto de paginas de um lote: mais folhas do que
+    cabem num envio nao teriam pra onde ir.
+
+    Logo nao cadastrada nunca bloqueia a geracao (spec s7) - a folha sai sem
+    logo, exatamente como sairia se o arquivo tivesse sumido do disco.
+    """
+    if not answer_sheet_available():
+        raise HTTPException(
+            status_code=503, detail="PDF export requires the 'pymupdf' package"
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        prompt = await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        school = await session.get(School, school_id)
+        logo_path = school.logo_storage_uri if school is not None else None
+        data = render_answer_sheet_pdf(
+            prompt_title=prompt.title, logo_path=logo_path, copies=copies
+        )
+        safe_title = "".join(
+            c if c.isalnum() or c in " -_" else "_" for c in prompt.title
+        ).strip() or "redacao"
+        filename = f"folha-de-redacao-{safe_title[:60]}.pdf"
+        return Response(
+            content=data, media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 @essay_prompts_router.get("", response_model=list[EssayPromptResponse])
