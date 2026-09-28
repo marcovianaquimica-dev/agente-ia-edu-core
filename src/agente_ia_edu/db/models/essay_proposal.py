@@ -87,13 +87,13 @@ class PromptMaterial(Base):
     __tablename__ = "prompt_materials"
     __table_args__ = (
         UniqueConstraint("essay_prompt_id", "position", name="uq_prompt_materials_position"),
-        CheckConstraint("material_type IN ('TEXT', 'IMAGE')", name="ck_prompt_materials_type"),
+        CheckConstraint("material_type IN ('TEXT', 'IMAGE', 'FILE')", name="ck_prompt_materials_type"),
         CheckConstraint(
             "(material_type = 'TEXT') = (content IS NOT NULL)",
             name="ck_prompt_materials_text_has_content",
         ),
         CheckConstraint(
-            "(material_type = 'IMAGE') = (storage_uri IS NOT NULL)",
+            "(material_type IN ('IMAGE', 'FILE')) = (storage_uri IS NOT NULL)",
             name="ck_prompt_materials_image_has_storage_uri",
         ),
         Index("ix_prompt_materials_essay_prompt_id", "essay_prompt_id"),

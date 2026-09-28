@@ -98,6 +98,47 @@ class EssayPromptsRoutesTests(unittest.TestCase):
         self.assertEqual(assignment_resp.status_code, 201, assignment_resp.text)
         self.assertEqual(assignment_resp.json()["status"], "OPEN")
 
+    def test_upload_prompt_material_stores_any_file_type(self):
+        school_id, class_id = self._seed_school_teacher_and_class("5")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema com anexo", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        upload_resp = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/materials/upload",
+            data={"position": "0"},
+            files={"file": ("reportagem.docx", b"conteudo qualquer de exemplo", "application/octet-stream")},
+        )
+        self.assertEqual(upload_resp.status_code, 201, upload_resp.text)
+        body = upload_resp.json()
+        self.assertEqual(body["material_type"], "FILE")
+        self.assertIsNone(body["content"])
+        self.assertTrue(body["storage_uri"])
+        self.assertTrue(body["storage_uri"].endswith("reportagem.docx"))
+
+    def test_upload_prompt_material_rejects_oversized_file(self):
+        school_id, class_id = self._seed_school_teacher_and_class("6")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        import io
+        oversized = io.BytesIO(b"x" * (25 * 1024 * 1024 + 1))
+        upload_resp = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/materials/upload",
+            data={"position": "0"},
+            files={"file": ("grande.pdf", oversized, "application/pdf")},
+        )
+        self.assertEqual(upload_resp.status_code, 413, upload_resp.text)
+
     def test_student_cannot_create_prompt(self):
         self._seed_school_teacher_and_class("2")
         self._as("student_r2")
@@ -107,6 +148,84 @@ class EssayPromptsRoutesTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
         self._as("prof_r2")
+
+    def _seed_school_teacher_and_classes(self, code: str, count: int):
+        async def _seed():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"EPRB-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id="prof_r2", school_id=school.id, role="TEACHER",
+                    scope_type="SCHOOL", active=True,
+                ))
+                segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEGB-{code}")
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="grade", external_id=f"GRADEB-{code}",
+                )
+                year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id=f"YEARB-{code}")
+                session.add_all([grade, year])
+                await session.flush()
+                class_ids = []
+                for i in range(count):
+                    klass = Class(
+                        id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                        grade_level_id=grade.id, name=f"turma-{i}", external_id=f"TURMAB-{code}-{i}",
+                    )
+                    session.add(klass)
+                    await session.flush()
+                    class_ids.append(klass.id)
+                await session.commit()
+                return school.id, class_ids
+
+        return self.loop.run_until_complete(_seed())
+
+    def test_bulk_assignment_assigns_every_class_in_one_call(self):
+        school_id, class_ids = self._seed_school_teacher_and_classes("3", 3)
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema multi-turma", "statement": "Disserte.", "year": 2026},
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.text)
+        prompt_id = create_resp.json()["id"]
+
+        bulk_resp = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/bulk",
+            json={"class_ids": [str(c) for c in class_ids]},
+        )
+        self.assertEqual(bulk_resp.status_code, 200, bulk_resp.text)
+        body = bulk_resp.json()
+        self.assertEqual(len(body["assigned"]), 3)
+        self.assertEqual(body["failures"], {})
+        self.assertEqual(
+            {a["class_id"] for a in body["assigned"]}, {str(c) for c in class_ids},
+        )
+
+    def test_bulk_assignment_reports_per_class_failures(self):
+        school_id, class_ids = self._seed_school_teacher_and_classes("4", 2)
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        foreign_class_id = str(uuid.uuid4())
+        bulk_resp = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/bulk",
+            json={"class_ids": [str(class_ids[0]), foreign_class_id]},
+        )
+        self.assertEqual(bulk_resp.status_code, 200, bulk_resp.text)
+        body = bulk_resp.json()
+        self.assertEqual(len(body["assigned"]), 1)
+        self.assertEqual(body["assigned"][0]["class_id"], str(class_ids[0]))
+        self.assertIn(foreign_class_id, body["failures"])
 
 
 if __name__ == "__main__":
