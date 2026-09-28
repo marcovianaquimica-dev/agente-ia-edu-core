@@ -725,6 +725,67 @@ class EssayBatchService:
         # professor nao deve ficar vendo "processando" so por causa dela.
         await self.run_corrections(submission_ids)
 
+    async def get_batch_status(self, batch_id: uuid.UUID) -> dict:
+        """Estado agregado do lote pra tela de acompanhamento do professor.
+
+        Devolve dicts puros (nunca objetos ORM) pelo motivo de sempre: a rota
+        monta a resposta e commita, e expire_on_commit=True transformaria
+        qualquer acesso posterior a um atributo em MissingGreenlet.
+
+        ``available_students`` e a lista pro seletor da tela de resolucao
+        manual: alunos ATIVOS da turma do lote que ainda NAO tem nenhuma pagina
+        deste lote vinculada a uma submissao (spec s2).
+        """
+        batch = await self.session.get(EssayBatchUpload, batch_id)
+        if batch is None:
+            raise ValueError(f"EssayBatchUpload not found: {batch_id}")
+
+        pages = (await self.session.execute(
+            select(EssayBatchPage)
+            .where(EssayBatchPage.batch_id == batch_id)
+            .order_by(EssayBatchPage.page_number)
+        )).scalars().all()
+
+        needs_review = [page for page in pages if page.status == "NEEDS_REVIEW"]
+        taken_student_ids = {
+            page.matched_student_id for page in pages
+            if page.essay_submission_id is not None and page.matched_student_id is not None
+        }
+        roster = await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+
+        return {
+            "id": batch.id,
+            "school_id": batch.school_id,
+            "essay_prompt_id": batch.essay_prompt_id,
+            "class_id": batch.class_id,
+            "status": batch.status,
+            "total_pages": batch.total_pages,
+            "matched_count": len(pages) - len(needs_review),
+            "needs_review_count": len(needs_review),
+            "needs_review_pages": [
+                {
+                    "id": page.id,
+                    "page_number": page.page_number,
+                    "ocr_name_raw": page.ocr_name_raw,
+                    "ocr_cpf_raw": page.ocr_cpf_raw,
+                    # O seletor de aluno fica desabilitado quando nao ha texto:
+                    # resolver essa pagina so criaria uma redacao vazia, que
+                    # resolve_page recusa de qualquer forma.
+                    "has_text": bool((page.ocr_body_text or "").strip()),
+                }
+                for page in needs_review
+            ],
+            "available_students": [
+                {
+                    "student_id": student_id,
+                    "full_name": full_name,
+                    "document_number": document_number,
+                }
+                for student_id, full_name, document_number in roster
+                if student_id not in taken_student_ids
+            ],
+        }
+
 
 __all__ = [
     "ALLOWED_BATCH_SUFFIXES",
