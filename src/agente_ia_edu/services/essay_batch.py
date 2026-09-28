@@ -19,6 +19,7 @@ import tempfile
 import unicodedata
 import uuid
 from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +27,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..providers.contracts import EssayTranscriptionProvider
-from ..db.models import EssayBatchPage, EssayBatchUpload, PromptAssignment, Person, Student, StudentEnrollment
+from ..db.models import (
+    EssayBatchPage, EssayBatchUpload, PromptAssignment, Person, Student, StudentEnrollment,
+    EssaySubmission,
+)
 from ..providers.errors import ProviderError
 from ..db.models import EssaySubmissionPage
 from .essay_answer_sheet import HEADER_REGION_FRACTION
 from .essay_submission import EssaySubmissionService
+from .essay_correction import EssayCorrectionService
+from .essay_correction_key import essay_text_hash, normalize_essay_text
 from .material_storage import MaterialStorage
 
 logger = logging.getLogger(__name__)
@@ -210,6 +216,39 @@ def text_from_ocr_tokens(tokens: list[dict] | None) -> str:
             if position < length:
                 buffer[position] = character
     return "".join(buffer).strip()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def consecutive_runs(pages: Sequence[EssayBatchPage]) -> list[list[EssayBatchPage]]:
+    """Corridas MAXIMAIS de paginas com numero consecutivo e o MESMO
+    matched_student_id (spec s4.4 reconciliada com s7).
+
+    Uma pagina sem aluno casado quebra a corrida e nunca entra em nenhuma:
+    resolver essa pagina e trabalho do professor. Uma segunda corrida do mesmo
+    aluno, separada por paginas de outra pessoa, e um grupo PROPRIO - e o que
+    torna possivel um aluno entregar duas redacoes no mesmo lote.
+
+    ``pages`` precisa vir ordenada por page_number.
+    """
+    runs: list[list[EssayBatchPage]] = []
+    current: list[EssayBatchPage] = []
+    for page in pages:
+        if page.matched_student_id is None:
+            current = []
+            continue
+        if (
+            current
+            and current[-1].matched_student_id == page.matched_student_id
+            and page.page_number == current[-1].page_number + 1
+        ):
+            current.append(page)
+            continue
+        current = [page]
+        runs.append(current)
+    return runs
 
 
 class EssayBatchService:
@@ -444,6 +483,146 @@ class EssayBatchService:
         )).all()
         return [(student_id, full_name, document_number) for student_id, full_name, document_number in rows]
 
+    async def _assignment_for_student(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID, student_id: uuid.UUID
+    ) -> PromptAssignment:
+        """A atribuicao desta proposta a turma ATIVA do aluno.
+
+        Nao e simplesmente a turma do lote: a spec s7 decide que a turma da
+        submissao final vem do ALUNO, nao do class_id escolhido no upload -
+        entao um aluno resolvido manualmente que esteja em outra turma recebe a
+        atribuicao da turma DELE. Pro caminho automatico isso cai naturalmente
+        na atribuicao do proprio lote, ja que o match so olha alunos daquela
+        turma.
+        """
+        assignment = await self.session.scalar(
+            select(PromptAssignment)
+            .join(
+                StudentEnrollment,
+                StudentEnrollment.class_id == PromptAssignment.class_id,
+            )
+            .where(
+                PromptAssignment.school_id == school_id,
+                PromptAssignment.essay_prompt_id == essay_prompt_id,
+                StudentEnrollment.student_id == student_id,
+                StudentEnrollment.status == "ACTIVE",
+            )
+            .order_by(PromptAssignment.created_at)
+        )
+        if assignment is None:
+            raise ValueError(
+                "Esta proposta nao esta atribuida a nenhuma turma ativa deste aluno."
+            )
+        return assignment
+
+    async def _materialize_run(
+        self, batch: EssayBatchUpload, run: list[EssayBatchPage]
+    ) -> uuid.UUID | None:
+        """Transforma UMA corrida em (ou atualiza) uma EssaySubmission e devolve
+        o id dela quando ela precisa ser corrigida; None quando a corrida nao
+        produz redacao nenhuma.
+
+        A submissao nasce SUBMITTED com canonical_text ja preenchido e
+        anchor_mode TEXT_OFFSET - o mesmo formato atomico de
+        EssaySubmissionService.start_typed_submission, e NAO o de
+        start_photo_submission (que depende de EssaySubmissionPage e de um
+        reviewed_text humano que este fluxo deliberadamente nao tem).
+        """
+        text = "\n\n".join(
+            (page.ocr_body_text or "").strip()
+            for page in run
+            if (page.ocr_body_text or "").strip()
+        )
+        if not text:
+            # Spec s4.5: nome batido mas nenhum texto reconhecido nunca vira uma
+            # redacao vazia - vai pro professor resolver olhando a imagem.
+            for page in run:
+                page.status = "NEEDS_REVIEW"
+                page.essay_submission_id = None
+            return None
+
+        student_id = run[0].matched_student_id
+        try:
+            assignment = await self._assignment_for_student(
+                school_id=batch.school_id,
+                essay_prompt_id=batch.essay_prompt_id,
+                student_id=student_id,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "corrida do aluno %s no lote %s sem atribuicao valida: %s",
+                student_id, batch.id, exc,
+            )
+            for page in run:
+                page.status = "NEEDS_REVIEW"
+                page.essay_submission_id = None
+            return None
+
+        existing_id = next(
+            (page.essay_submission_id for page in run if page.essay_submission_id is not None),
+            None,
+        )
+        if existing_id is not None:
+            submission = await self.session.get(EssaySubmission, existing_id)
+            submission.canonical_text = normalize_essay_text(text)
+            submission.normalized_text_hash = essay_text_hash(text)
+        else:
+            submission = EssaySubmission(
+                id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=batch.school_id,
+                prompt_assignment_id=assignment.id, student_id=student_id,
+                mode="PHOTO", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
+                canonical_text=normalize_essay_text(text),
+                normalized_text_hash=essay_text_hash(text),
+                submitted_at=_utcnow(),
+            )
+            self.session.add(submission)
+            await self.session.flush()
+
+        for page in run:
+            if page.status != "RESOLVED_MANUAL":
+                page.status = "MATCHED_AUTO"
+            page.essay_submission_id = submission.id
+        await self.session.flush()
+        return submission.id
+
+    async def materialize_batch(self, batch_id: uuid.UUID) -> list[uuid.UUID]:
+        """Percorre TODAS as corridas do lote e devolve os ids das submissoes
+        que precisam de correcao. Commita uma vez ao final - as paginas ja
+        estavam commitadas individualmente pelo process_batch."""
+        batch = await self.session.get(EssayBatchUpload, batch_id)
+        if batch is None:
+            raise ValueError(f"EssayBatchUpload not found: {batch_id}")
+        pages = (await self.session.execute(
+            select(EssayBatchPage)
+            .where(EssayBatchPage.batch_id == batch_id)
+            .order_by(EssayBatchPage.page_number)
+        )).scalars().all()
+
+        submission_ids: list[uuid.UUID] = []
+        for run in consecutive_runs(pages):
+            submission_id = await self._materialize_run(batch, run)
+            if submission_id is not None:
+                submission_ids.append(submission_id)
+        await self.session.commit()
+        return submission_ids
+
+    async def run_corrections(self, submission_ids: Sequence[uuid.UUID]) -> None:
+        """Dispara a correcao de cada submissao, uma por vez, cada uma com o seu
+        proprio commit. Best-effort: uma correcao que estoure (provedor fora do
+        ar, bug) nunca pode desfazer a submissao, que ja esta duravelmente
+        SUBMITTED - o professor a ve como "Em correcao" e o retry manual que ja
+        existe na fila de revisao resolve."""
+        factory = self._correction_factory or EssayCorrectionService
+        for submission_id in submission_ids:
+            try:
+                await factory(self.session).correct(submission_id)
+                await self.session.commit()
+            except Exception:
+                await self.session.rollback()
+                logger.exception(
+                    "correcao do lote falhou para essay_submission_id=%s", submission_id
+                )
+
     async def _process_page(
         self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]]
     ) -> None:
@@ -490,13 +669,23 @@ class EssayBatchService:
             await self._process_page(page, roster)
             await self.session.commit()
 
+        # Agrupa as corridas e cria as submissoes SO depois que todas as
+        # paginas foram lidas: uma corrida so e conhecida quando se sabe quem
+        # esta na pagina seguinte.
+        submission_ids = await self.materialize_batch(batch_id)
+
         batch = await self.session.get(EssayBatchUpload, batch_id)
         batch.status = "DONE"
         await self.session.commit()
 
+        # Correcao por ultimo, com o lote ja DONE: e a parte lenta, e o
+        # professor nao deve ficar vendo "processando" so por causa dela.
+        await self.run_corrections(submission_ids)
+
 
 __all__ = [
     "ALLOWED_BATCH_SUFFIXES",
+    "consecutive_runs",
     "EssayBatchService",
     "MAX_BATCH_PAGES",
     "match_student",
