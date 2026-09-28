@@ -326,6 +326,26 @@ class TestStudentDashboardCoverage(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(steps[2]["status"], "pending")  # question present
 
     # ------------------------------------------------------------------
+    # 2b. get_learning_path() "no recommendation" branch must be an honest
+    # empty state: content_node_id must NOT be a fabricated random UUID
+    # (bug found in audit - a str(uuid.uuid4()) with no DB correspondence
+    # was returned alongside content_name="Sem conteúdo no momento").
+    # ------------------------------------------------------------------
+
+    async def test_learning_path_no_recommendation_does_not_fabricate_content_node_id(self):
+        async with self.session_factory() as session:
+            _, _, _, dash_s = self._make_services(session)
+
+            path_1 = await dash_s.get_learning_path(student_id="student:lp_empty")
+            path_2 = await dash_s.get_learning_path(student_id="student:lp_empty")
+
+            # Honest "no content" must be None, never a fabricated id - and
+            # certainly never a *different* fabricated id on every call.
+            self.assertIsNone(path_1["content_node_id"])
+            self.assertIsNone(path_2["content_node_id"])
+            self.assertEqual(path_1["content_name"], "Sem conteúdo no momento")
+
+    # ------------------------------------------------------------------
     # 3. _get_period_start_date() semester branch
     # ------------------------------------------------------------------
 

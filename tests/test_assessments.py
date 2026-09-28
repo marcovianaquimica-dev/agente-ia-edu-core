@@ -191,6 +191,63 @@ class AssessmentDomainTests(unittest.TestCase):
 
         self.assertEqual(service.calculate_score(attempt), 0)
 
+    def test_max_score_reflects_total_possible_points_not_only_correct_answers(self) -> None:
+        """calculate_max_score must sum every item's possible points, not just
+        the points of items the student got right - otherwise max_score always
+        equals score, making every attempt look like a 100% regardless of how
+        many answers were wrong."""
+        q1 = uuid4()
+        q2 = uuid4()
+        self.factory.add_item(self.version, question_version_id=q1, position=1, points=3)
+        self.factory.add_item(self.version, question_version_id=q2, position=2, points=7)
+        publication = self.factory.publish(
+            self.version,
+            publication_type="immediate",
+            released_immediately=True,
+            time_limit_seconds=600,
+            attempts_allowed=1,
+        )
+
+        service = AssessmentService()
+        attempt = service.start_attempt(
+            publication=publication,
+            external_identity_id="ext-student-42",
+            attempt_number=1,
+            started_at=datetime.now(timezone.utc),
+        )
+
+        correct_option = uuid4()
+        wrong_option = uuid4()
+        # Item 1 (worth 3 points): answered INCORRECTLY -> points_awarded = 0
+        service.register_answer(
+            attempt=attempt,
+            assessment_item=self.version.items[0],
+            selected_option_id=wrong_option,
+            response_text=None,
+            first_answered_at=datetime.now(timezone.utc),
+            submitted_at=datetime.now(timezone.utc),
+            response_time_ms=150,
+            is_final=True,
+            question_correct_option_id=correct_option,
+            question_points=3,
+        )
+        # Item 2 (worth 7 points): answered CORRECTLY -> points_awarded = 7
+        service.register_answer(
+            attempt=attempt,
+            assessment_item=self.version.items[1],
+            selected_option_id=correct_option,
+            response_text=None,
+            first_answered_at=datetime.now(timezone.utc),
+            submitted_at=datetime.now(timezone.utc),
+            response_time_ms=120,
+            is_final=True,
+            question_correct_option_id=correct_option,
+            question_points=7,
+        )
+
+        self.assertEqual(service.calculate_score(attempt), 7)
+        self.assertEqual(service.calculate_max_score(attempt), 10)
+
     def test_invalid_state_rejected_for_published_version_mutation(self) -> None:
         self.version.publish()
         with self.assertRaises(ValueError):

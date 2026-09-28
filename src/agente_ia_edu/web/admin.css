@@ -81,3 +81,8 @@
 .admin-disciplines-label { font-weight: 600; font-size: 13px; margin: 0 0 4px; }
 .admin-disciplines-list { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; }
 .admin-discipline-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+
+.admin-audit-details { max-width: 340px; word-break: break-word; font-size: 12px; color: var(--text-muted, #64748b); }
+.admin-audit-pagination { align-items: center; margin-top: 12px; }
+.admin-audit-pagination .admin-msg { margin: 0 4px; font-size: 13px; color: var(--text-muted, #64748b); }
+.admin-audit-pagination button:disabled { opacity: 0.5; cursor: not-allowed; }

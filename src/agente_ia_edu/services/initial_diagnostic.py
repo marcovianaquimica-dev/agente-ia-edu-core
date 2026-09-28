@@ -319,11 +319,17 @@ class InitialDiagnosticService:
         if is_correct:
             diagnostic.total_correct += 1
 
-        # Calculate confidence adaptively based on number of questions answered
         questions_asked = diagnostic.total_questions_asked
         questions_answered = diagnostic.total_questions_asked
-        confidence = min(1.0, round(questions_answered / float(self.stopping_policy.max_questions), 4))
-        diagnostic.overall_confidence = confidence
+
+        # overall_confidence must reflect the REAL, evidence-based confidence
+        # that the stopping decision itself relies on - never a proxy like
+        # questions_answered/max_questions, which has no relationship to the
+        # quality/consistency of the answers. `estimate.confidence` above
+        # (from self.proficiency_estimator.estimate(...)) is exactly the
+        # metric `coverage.status` used by CONTENT_SUFFICIENCY_REACHED is
+        # derived from, so it is used as-is for the discipline-scoped case.
+        diagnostic.overall_confidence = estimate.confidence
 
         mode = metadata.get("entry_profile", {}).get("diagnostic_mode", "DISCIPLINE").upper()
         started_at = diagnostic.started_at
@@ -337,6 +343,14 @@ class InitialDiagnosticService:
         global_stop = await self._global_sufficiency(diagnostic) if global_mode else False
         if global_mode:
             metadata["global_coverage"] = (diagnostic.metadata_ or {}).get("global_coverage")
+            # In GLOBAL/ENEM mode the actual stopping metric is
+            # GlobalDiagnosticSummary.overall_confidence (see
+            # GlobalDiagnosticCoveragePolicy.should_stop_global_diagnostic),
+            # not the single-topic estimate above - use that same real,
+            # already-computed aggregate instead.
+            global_confidence = (metadata.get("global_coverage") or {}).get("overall_confidence")
+            if global_confidence is not None:
+                diagnostic.overall_confidence = global_confidence
         decision = self.decision_policy.decide(
             mode=mode,
             elapsed_seconds=elapsed_seconds,

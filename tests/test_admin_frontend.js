@@ -71,6 +71,26 @@ test('school, module, and user-link calls match the admin.py routes and payload 
   assert.match(js, /scope_external_id: \$\('link-scope-id'\)\.value\.trim\(\) \|\| null/);
 });
 
+test('audit log section calls GET /api/v1/admin/audit with the school_id/action/limit/offset query params the route supports', () => {
+  // Regression coverage for the Auditoria section wired up to the
+  // pre-existing GET /api/v1/admin/audit endpoint (admin.py list_audit_logs,
+  // backed by PlatformAdminService.list_audit_logs). Only school_id, action,
+  // limit, and offset are real query params on that route - assert the
+  // frontend uses exactly those names and reads the AdminAuditLogResponse
+  // fields (performed_by_external_id, action, school_id, metadata,
+  // created_at) rather than inventing its own shape.
+  assert.match(js, /fetch\(`\$\{API\}\/audit\?\$\{params\.toString\(\)\}`, \{ headers: authHeaders\(\) \}\)/);
+  assert.match(js, /params\.set\('school_id', state\.auditSchoolFilter\)/);
+  assert.match(js, /params\.set\('action', state\.auditActionFilter\)/);
+  assert.match(js, /params\.set\('limit', state\.auditLimit\)/);
+  assert.match(js, /params\.set\('offset', state\.auditOffset\)/);
+  assert.match(js, /l\.performed_by_external_id/);
+  assert.match(js, /l\.metadata/);
+  assert.match(js, /l\.created_at/);
+  assert.match(js, /l\.school_id/);
+  assert.match(js, /l\.action/);
+});
+
 test('pedagogical universe calls use the admin.py-registered paths and PedagogicalUniverse*Request field names', () => {
   assert.match(js, /fetch\(`\$\{API\}\/pedagogical-universes`, \{\s*method: 'POST'/);
   assert.match(js, /fetch\(`\$\{API\}\/pedagogical-universes\/\$\{universe\.id\}\/bindings`, \{/);

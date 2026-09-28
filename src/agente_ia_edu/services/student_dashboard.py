@@ -329,7 +329,11 @@ class StudentDashboardService:
         if not recs:
             return {
                 "student_id": student_id,
-                "content_node_id": str(uuid.uuid4()),
+                # Honest "no content" state: there is no real recommendation,
+                # so there is no real content_node_id either. A fabricated
+                # random UUID here would look like a genuine content id to
+                # any consumer, even though it matches nothing in the DB.
+                "content_node_id": None,
                 "content_name": "Sem conteúdo no momento",
                 "current_mastery_score": 0.0,
                 "recommended_difficulty": "EASY",

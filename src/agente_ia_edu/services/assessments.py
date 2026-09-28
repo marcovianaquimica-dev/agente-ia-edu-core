@@ -184,6 +184,7 @@ class AssessmentAnswer:
     correction_status: str = "pending"
     is_correct: bool | None = None
     points_awarded: int = 0
+    max_points: int = 0
     corrected_at: datetime | None = None
 
 
@@ -1273,6 +1274,10 @@ class AssessmentService:
             correction_status="correct" if is_correct else "incorrect" if selected_option_id is not None else "pending",
             is_correct=is_correct,
             points_awarded=points_awarded,
+            # max_points is the item's possible score regardless of whether
+            # this answer was correct - needed so calculate_max_score can sum
+            # the total POSSIBLE score, not just the points actually earned.
+            max_points=int(question_points or 0),
             corrected_at=datetime.now(timezone.utc),
         )
         attempt.answers.append(answer)
@@ -1287,7 +1292,7 @@ class AssessmentService:
         return float(sum(int(answer.points_awarded) for answer in attempt.answers))
 
     def calculate_max_score(self, attempt: AssessmentAttempt) -> float:
-        return float(sum(int(answer.points_awarded) for answer in attempt.answers if answer.is_correct))
+        return float(sum(int(answer.max_points) for answer in attempt.answers))
 
     @staticmethod
     def _compute_expires_at(

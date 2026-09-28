@@ -94,7 +94,9 @@ class StudentEvolutionResponse(BaseModel):
 
 class StudentLearningPathResponse(BaseModel):
     student_id: str
-    content_node_id: UUID
+    # Optional: honest "no content" state (no pending recommendation) has no
+    # real content_node_id - see StudentDashboardService.get_learning_path.
+    content_node_id: Optional[UUID] = None
     content_name: str
     current_mastery_score: float
     recommended_difficulty: str
