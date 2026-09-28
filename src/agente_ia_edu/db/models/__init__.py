@@ -134,6 +134,7 @@ from .essay_proposal import (
     EssaySubmissionPage,
 )
 from .essay_correction import EssayCorrection
+from .essay_batch import EssayBatchPage, EssayBatchUpload
 
 __all__ = [
     "StudySession",
@@ -228,6 +229,8 @@ __all__ = [
     "EssaySubmission",
     "EssaySubmissionPage",
     "EssayCorrection",
+    "EssayBatchUpload",
+    "EssayBatchPage",
     "Person",
     "User",
     "AcademicYear",

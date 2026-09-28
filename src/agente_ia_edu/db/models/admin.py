@@ -57,6 +57,12 @@ class School(Base):
     external_identifier: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="ACTIVE")
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
+    # Logo da escola, caminho em MaterialStorage (o mesmo storage local
+    # content-addressed que os materiais de apoio de proposta ja usam).
+    # Existe para estampar a folha de resposta de redacao gerada pelo sistema
+    # (services/essay_answer_sheet.py); NULL = a folha sai sem logo, nunca
+    # falha por causa disso (spec 2026-09-28 s7).
+    logo_storage_uri: Mapped[str | None] = mapped_column(String(500))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
