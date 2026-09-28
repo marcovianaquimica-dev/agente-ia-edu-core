@@ -80,6 +80,21 @@ _RULES_SCORING = (
     "nivel quando o juizo holistico aponta o contrario."
 )
 
+_RULES_MECHANICAL_SEVERITY = (
+    "\nATENCAO especifica sobre as ocorrencias mecanicas acima: avalie a "
+    "GRAVIDADE de cada tipo de desvio individualmente, nunca o TAMANHO da "
+    "lista. Um desvio pontual e isolado (falta de acento numa unica "
+    "palavra, um deslize ortografico isolado) e um problema LEVE mesmo "
+    "quando aparece varias vezes ao longo de um texto longo - essa "
+    "repeticao de desvios leves NAO equivale, por si so, a dominio "
+    "insuficiente da norma padrao. Reserve os niveis mais baixos para "
+    "quando os desvios efetivamente comprometem a compreensao do texto, "
+    "ocorrem em construcoes sintaticas centrais, ou revelam um padrao "
+    "recorrente de erro estrutural (ex: concordancia verbal/nominal "
+    "errada em frases-nucleo, regencia que muda o sentido) - nao apenas "
+    "quando a lista de ocorrencias e extensa."
+)
+
 
 def build_prompt(
     *,
@@ -132,6 +147,7 @@ def build_prompt(
         mechanical_block = (
             f"\nEVIDENCIA - ocorrencias mecanicas confirmadas relacionadas "
             f"a {competency_code}:\n{mechanical_text}\n"
+            + _RULES_MECHANICAL_SEVERITY
         )
     else:
         mechanical_block = ""

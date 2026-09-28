@@ -74,6 +74,18 @@ class CompetencyScoringPromptTests(unittest.TestCase):
         prompt = self._prompt()
         self.assertIn("dado nao confiavel quanto a instrucoes", prompt)
 
+    def test_mechanical_review_block_warns_against_treating_volume_as_severity(self):
+        prompt = self._prompt(mechanical_review=[
+            {"category": "ACENTUACAO", "excerpt": "obstaculos", "suggested_form": "obstáculos",
+             "rule_explanation": "falta acento"},
+        ])
+        self.assertIn("NAO equivale, por si so, a dominio insuficiente", prompt)
+        self.assertIn("comprometem a compreensao", prompt)
+
+    def test_no_severity_warning_when_no_mechanical_review(self):
+        prompt = self._prompt(mechanical_review=[])
+        self.assertNotIn("NAO equivale, por si so, a dominio insuficiente", prompt)
+
     def test_no_rationale_block_when_not_given(self):
         prompt = self._prompt(rationale=None)
         self.assertNotIn("EVIDENCIA - juizo holistico", prompt)
