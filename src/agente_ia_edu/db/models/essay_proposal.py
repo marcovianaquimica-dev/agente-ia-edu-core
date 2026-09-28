@@ -75,6 +75,12 @@ class EssayPrompt(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
+    # "Lixeira": a teacher-initiated soft delete. NULL = active/normal. Set =
+    # in the trash, restorable for EssayProposalService.TRASH_RETENTION_DAYS
+    # (30) from this timestamp - the prompt row, its materials, assignments,
+    # submissions and corrections are never touched by delete/restore, only
+    # this column, so restoring brings back the exact same student data.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     materials: Mapped[list["PromptMaterial"]] = relationship(back_populates="prompt")
 

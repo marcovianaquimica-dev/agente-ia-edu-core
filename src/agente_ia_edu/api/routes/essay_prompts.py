@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
@@ -25,7 +25,7 @@ from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_dashboard_export import build_essay_dashboard_xlsx, xlsx_media_type
-from ...services.essay_proposal import EssayProposalService
+from ...services.essay_proposal import EssayProposalService, as_aware_utc
 from ...services.essay_teacher_dashboard import EssayDashboardResponse, build_essay_prompt_dashboard
 from ...services.material_storage import MaterialStorage
 
@@ -40,6 +40,17 @@ class EssayPromptCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     statement: str = Field(..., min_length=1)
     year: int
+
+
+class EssayPromptTrashResponse(BaseModel):
+    id: UUID
+    school_id: UUID
+    title: str
+    statement: str
+    year: int
+    status: str
+    deleted_at: datetime
+    days_remaining: int
 
 
 class EssayPromptResponse(BaseModel):
@@ -115,13 +126,19 @@ async def _authorize(
 
 async def _prompt_for_own_school_or_403(
     session: AsyncSession, *, essay_prompt_id: uuid.UUID, school_id: uuid.UUID,
+    include_deleted: bool = False,
 ) -> EssayPrompt:
     """Same "403, never 404, for not yours" rule essay_submissions.py's
     helpers use - a prompt from another school is 403, not the 422 a bare
-    service-level ValueError would produce."""
+    service-level ValueError would produce. A prompt in the Lixeira behaves
+    the same way by default (403) for every normal route (detail, materials,
+    assignments, dashboard) - only the restore route needs it, via
+    include_deleted=True."""
     prompt = await session.get(EssayPrompt, essay_prompt_id)
     if prompt is None or prompt.school_id != school_id:
         raise HTTPException(status_code=403, detail="This proposal is not yours.")
+    if prompt.deleted_at is not None and not include_deleted:
+        raise HTTPException(status_code=403, detail="This proposal is in the trash.")
     return prompt
 
 
@@ -402,7 +419,7 @@ async def list_essay_prompts(
         school_id = await _authorize(identity, session)
         result = await session.execute(
             select(EssayPrompt)
-            .where(EssayPrompt.school_id == school_id)
+            .where(EssayPrompt.school_id == school_id, EssayPrompt.deleted_at.is_(None))
             .order_by(EssayPrompt.created_at.desc())
         )
         return [
@@ -412,6 +429,69 @@ async def list_essay_prompts(
             )
             for p in result.scalars().all()
         ]
+
+
+@essay_prompts_router.get("/trash", response_model=list[EssayPromptTrashResponse])
+async def list_essay_prompts_trash(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[EssayPromptTrashResponse]:
+    # Registered before GET "/{essay_prompt_id}" on purpose - FastAPI matches
+    # routes in registration order, and "trash" would otherwise be swallowed
+    # as an (invalid) essay_prompt_id by that catch-all path param.
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        service = EssayProposalService(session)
+        prompts = await service.list_trash(school_id=school_id)
+        now = datetime.now(timezone.utc)
+        return [
+            EssayPromptTrashResponse(
+                id=p.id, school_id=p.school_id, title=p.title, statement=p.statement,
+                year=p.year, status=p.status, deleted_at=p.deleted_at,
+                days_remaining=max(
+                    0,
+                    EssayProposalService.TRASH_RETENTION_DAYS - (now - as_aware_utc(p.deleted_at)).days,
+                ),
+            )
+            for p in prompts
+        ]
+
+
+@essay_prompts_router.delete("/{essay_prompt_id}", status_code=204)
+async def delete_essay_prompt(
+    essay_prompt_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> None:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        service = EssayProposalService(session)
+        try:
+            await service.soft_delete_prompt(school_id=school_id, essay_prompt_id=essay_prompt_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await session.commit()
+
+
+@essay_prompts_router.post("/{essay_prompt_id}/restore", response_model=EssayPromptResponse)
+async def restore_essay_prompt(
+    essay_prompt_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayPromptResponse:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        service = EssayProposalService(session)
+        try:
+            prompt = await service.restore_prompt(school_id=school_id, essay_prompt_id=essay_prompt_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        response = EssayPromptResponse(
+            id=prompt.id, school_id=prompt.school_id, title=prompt.title,
+            statement=prompt.statement, year=prompt.year, status=prompt.status,
+        )
+        await session.commit()
+        return response
 
 
 @essay_prompts_router.get("/{essay_prompt_id}", response_model=EssayPromptDetailResponse)

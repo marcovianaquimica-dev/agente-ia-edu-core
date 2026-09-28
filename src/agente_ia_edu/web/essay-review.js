@@ -69,6 +69,7 @@
         <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
         <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
         <button class="btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="dashboard">Dashboard</button>
+        <button class="btn ${activeTab === 'trash' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="trash">🗑️ Lixeira</button>
       </div>`;
   }
 
@@ -79,6 +80,7 @@
         if (btn.dataset.tab === 'queue') renderReviewQueue();
         if (btn.dataset.tab === 'evolution') renderEvolutionTab();
         if (btn.dataset.tab === 'dashboard') renderDashboardTab();
+        if (btn.dataset.tab === 'trash') renderTrashTab();
       });
     });
   }
@@ -106,7 +108,10 @@
             ${prompts.map((p) => `
               <tr>
                 <td>${tmEsc(p.title)}</td><td>${p.year}</td><td>${tmEsc(p.status)}</td>
-                <td><button class="btn btn-secondary" type="button" data-open-prompt="${tmEsc(p.id)}">Abrir</button></td>
+                <td>
+                  <button class="btn btn-secondary" type="button" data-open-prompt="${tmEsc(p.id)}">Abrir</button>
+                  <button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>
+                </td>
               </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhuma proposta criada ainda.</td></tr>'}
           </tbody>
         </table>
@@ -115,6 +120,64 @@
     container.querySelector('#er-new-prompt-btn').addEventListener('click', renderNewPromptForm);
     container.querySelectorAll('[data-open-prompt]').forEach((btn) => {
       btn.addEventListener('click', () => renderPromptDetail(btn.dataset.openPrompt));
+    });
+    container.querySelectorAll('[data-delete-prompt]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const prompt = prompts.find((p) => p.id === btn.dataset.deletePrompt);
+        const title = prompt ? prompt.title : 'esta proposta';
+        if (!confirm(`Mover "${title}" para a lixeira? Ela ficará disponível para restaurar por 30 dias.`)) return;
+        btn.disabled = true;
+        try {
+          await reviewRequest(`/api/v1/catalog/essay-prompts/${btn.dataset.deletePrompt}`, { method: 'DELETE' });
+          renderPromptsList();
+        } catch (e) {
+          alert(e.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  async function renderTrashTab() {
+    container.innerHTML = `${renderTabs('trash')}<p class="empty-text">Carregando lixeira...</p>`;
+    wireTabs();
+    let trashed;
+    try {
+      trashed = await reviewRequest('/api/v1/catalog/essay-prompts/trash');
+    } catch (e) {
+      container.innerHTML = `${renderTabs('trash')}<p class="empty-text">${tmEsc(e.message)}</p>`;
+      wireTabs();
+      return;
+    }
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <p class="empty-text" style="margin:12px 0;">Propostas excluídas ficam aqui por 30 dias - o tema, os materiais, as turmas atribuídas e as redações/correções dos alunos são preservados e voltam exatamente como estavam ao restaurar.</p>
+      <div class="tm-table-wrap" style="overflow-x:auto;">
+        <table class="tm-table">
+          <thead><tr><th>Título</th><th>Ano</th><th>Dias restantes</th><th></th></tr></thead>
+          <tbody id="er-trash-body">
+            ${trashed.map((p) => `
+              <tr>
+                <td>${tmEsc(p.title)}</td><td>${p.year}</td>
+                <td>${p.days_remaining}</td>
+                <td><button class="btn btn-primary" type="button" data-restore-prompt="${tmEsc(p.id)}">Restaurar</button></td>
+              </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Lixeira vazia.</td></tr>'}
+          </tbody>
+        </table>
+      </div>`);
+
+    container.querySelectorAll('[data-restore-prompt]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await reviewRequest(`/api/v1/catalog/essay-prompts/${btn.dataset.restorePrompt}/restore`, { method: 'POST' });
+          renderTrashTab();
+        } catch (e) {
+          alert(e.message);
+          btn.disabled = false;
+        }
+      });
     });
   }
 
