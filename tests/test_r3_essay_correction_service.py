@@ -143,6 +143,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
     async def _submission(
         self, session, code, *, anchor_mode="TEXT_OFFSET", validation_enabled=True,
         correction_mode=None, validation_threshold_points=None, with_pages=False,
+        student_declared_theme=None,
     ) -> EssaySubmission:
         school = School(id=uuid.uuid4(), code=f"CORR-{code}", name=f"school-{code}")
         session.add(school)
@@ -195,6 +196,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             canonical_text=text if anchor_mode == "TEXT_OFFSET" else None,
             normalized_text_hash="a" * 64 if anchor_mode == "TEXT_OFFSET" else None,
             submitted_at=datetime.now(timezone.utc),
+            student_declared_theme=student_declared_theme,
         )
         session.add(submission)
         await session.flush()
@@ -328,6 +330,43 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.published_at)
             self.assertIsNone(correction.reviewed_at)
             self.assertIn("SCORING_MODE: AVALIATIVO", provider.last_request.prompt)
+
+    async def test_tema_livre_always_auto_publishes_even_in_avaliativo(self):
+        """"Tema livre" (EssaySubmission.student_declared_theme) has no
+        official gabarito for a teacher to validate the grade against, so it
+        always auto-publishes - the same AVALIATIVO+validation_enabled=True
+        settings that hold a normal submission for review (see the test
+        immediately above) must NOT hold this one."""
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "25", correction_mode="AVALIATIVO", validation_enabled=True,
+                student_declared_theme="Um tema escolhido pelo aluno",
+            )
+            provider = _StubTextProvider(text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIsNotNone(correction.published_at)
+            self.assertIsNotNone(correction.reviewed_at)
+            self.assertIsNone(correction.reviewed_by_external_identity)
+
+    async def test_tema_livre_with_null_scores_still_needs_review(self):
+        """The tema-livre auto-publish bypass sits AFTER the malformed-
+        response safety net - a null total is still a data-integrity
+        problem regardless of theme, and must still stop at PENDING_REVIEW."""
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "26", correction_mode="AVALIATIVO", validation_enabled=False,
+                student_declared_theme="Um tema escolhido pelo aluno",
+            )
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text, include_scores=False,
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "PENDING_REVIEW")
 
     async def test_text_offset_avaliativo_with_validation_disabled_auto_publishes(self):
         async with self.session_factory() as session:

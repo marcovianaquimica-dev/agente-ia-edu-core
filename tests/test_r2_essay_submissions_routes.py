@@ -14,7 +14,9 @@ from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
     AcademicYear,
     Class,
+    EssayCorrection,
     EssayPrompt,
+    EssaySubmission,
     GradeLevel,
     Person,
     PromptAssignment,
@@ -402,6 +404,47 @@ class EssaySubmissionsRoutesTests(unittest.TestCase):
         self.assertTrue(body[0]["is_free_theme"])
         self.assertEqual(body[1]["title"], "Tema fixo")
         self.assertFalse(body[1]["is_free_theme"])
+
+    def test_approved_free_theme_submission_reopens_the_slot_for_a_new_essay(self):
+        assignment_id = self._seed_enrolled_student("8", transcription_enabled=True, is_free_theme=True)
+
+        async def _approve_a_submission():
+            async with self.factory() as session:
+                import datetime as dt
+                from sqlalchemy import select as sa_select
+
+                assignment = await session.get(PromptAssignment, assignment_id)
+                student = (await session.execute(
+                    sa_select(Student).where(Student.school_id == assignment.school_id)
+                )).scalars().first()
+                now = dt.datetime.now(dt.timezone.utc)
+                submission = EssaySubmission(
+                    id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=assignment.school_id,
+                    prompt_assignment_id=assignment_id, student_id=student.id,
+                    mode="TYPED", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
+                    canonical_text="Redacao anterior.", normalized_text_hash="a" * 64,
+                    submitted_at=now, student_declared_theme="Um tema ja corrigido",
+                )
+                session.add(submission)
+                await session.flush()
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=assignment.school_id, essay_submission_id=submission.id,
+                    correction_key="k" * 64, rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                    ai_output={"annotations": [], "rewrites": [], "intervention": {}, "alerts": []},
+                    final_scores={"total": 800}, final_feedback={},
+                    status="APPROVED", reviewed_at=now, published_at=now,
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_approve_a_submission())
+        self._as("student_8")
+
+        list_resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        body = list_resp.json()
+        free_theme_entry = next(p for p in body if p["prompt_assignment_id"] == str(assignment_id))
+        self.assertIsNone(free_theme_entry["my_submission"])
 
 
 if __name__ == "__main__":
