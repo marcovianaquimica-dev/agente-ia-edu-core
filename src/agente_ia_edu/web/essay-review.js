@@ -90,6 +90,7 @@
     return `
       <div class="essay-review-tabs">
         <button class="btn ${activeTab === 'prompts' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="prompts">Propostas</button>
+        <button class="btn ${activeTab === 'batch' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="batch">Enviar em lote</button>
         <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
         <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
         <button class="btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="dashboard">Dashboard</button>
@@ -100,7 +101,9 @@
   function wireTabs() {
     container.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        stopBatchPolling();
         if (btn.dataset.tab === 'prompts') renderPromptsList();
+        if (btn.dataset.tab === 'batch') renderBatchTab();
         if (btn.dataset.tab === 'queue') renderReviewQueue();
         if (btn.dataset.tab === 'evolution') renderEvolutionTab();
         if (btn.dataset.tab === 'dashboard') renderDashboardTab();
@@ -205,6 +208,197 @@
     });
   }
 
+  // Intervalo de consulta do progresso do lote. 2s: o processamento gasta
+  // alguns segundos por pagina (OCR de cabecalho + corpo, com retentativa),
+  // entao consultar mais rapido so geraria requisicao a toa.
+  const BATCH_POLL_MS = 2000;
+  let batchPollTimer = null;
+
+  function stopBatchPolling() {
+    if (batchPollTimer) {
+      clearTimeout(batchPollTimer);
+      batchPollTimer = null;
+    }
+  }
+
+  async function renderBatchTab() {
+    stopBatchPolling();
+    container.innerHTML = `${renderTabs('batch')}<p class="empty-text">Carregando...</p>`;
+    wireTabs();
+
+    let promptOptions = [];
+    let classrooms = [];
+    try {
+      promptOptions = await reviewRequest('/api/v1/catalog/essay-prompts');
+    } catch (e) {
+      promptOptions = [];
+    }
+    try {
+      classrooms = await reviewRequest(
+        `/api/v1/teacher/classrooms?school_id=${encodeURIComponent(schoolId)}&academic_year=2026`,
+      );
+    } catch (e) {
+      classrooms = [];
+    }
+    // Mesmo filtro da tela de atribuicao: so turmas que ja resolvem para uma
+    // Class real podem receber um lote (o lote guarda class_id como FK).
+    const assignableClassrooms = classrooms.filter((c) => c.class_id);
+
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="card tm-form">
+        <h3>Enviar redações em lote</h3>
+        <p class="empty-text">Suba as fotos ou o PDF escaneado das folhas de uma turma inteira. O sistema identifica cada aluno pelo nome escrito no cabeçalho da folha, junta as páginas seguidas de um mesmo aluno em uma redação só e manda direto para correção. As folhas que ele não conseguir identificar ficam numa lista aqui embaixo para você escolher o aluno. Máximo de 60 páginas por envio.</p>
+        <form id="er-batch-form">
+          <div class="form-group">
+            <label for="er-batch-prompt">Proposta</label>
+            <select id="er-batch-prompt" class="text-input" required>
+              ${promptOptions.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="er-batch-class">Turma</label>
+            <select id="er-batch-class" class="text-input" required>
+              ${assignableClassrooms.map((c) => `<option value="${tmEsc(c.class_id)}">${tmEsc(c.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="er-batch-files">Arquivos (fotos JPG/PNG e/ou PDF)</label>
+            <input id="er-batch-files" class="text-input" type="file" accept=".png,.jpg,.jpeg,.pdf" multiple required>
+          </div>
+          <button class="btn btn-primary" type="submit">Enviar lote</button>
+          <p id="er-batch-msg" class="tm-msg" hidden></p>
+        </form>
+      </div>
+      <div id="er-batch-progress"></div>`);
+
+    container.querySelector('#er-batch-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const msg = container.querySelector('#er-batch-msg');
+      const submitBtn = ev.target.querySelector('button[type="submit"]');
+      const files = container.querySelector('#er-batch-files').files;
+      msg.hidden = true;
+      if (!files.length) return;
+      const formData = new FormData();
+      formData.append('essay_prompt_id', container.querySelector('#er-batch-prompt').value);
+      formData.append('class_id', container.querySelector('#er-batch-class').value);
+      Array.from(files).forEach((file) => formData.append('files', file));
+      submitBtn.disabled = true;
+      try {
+        const batch = await reviewRequest('/api/v1/teacher/essay-batches', {
+          method: 'POST', body: formData,
+        });
+        pollBatch(batch.id);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  async function pollBatch(batchId) {
+    stopBatchPolling();
+    let data;
+    try {
+      data = await reviewRequest(`/api/v1/teacher/essay-batches/${batchId}`);
+    } catch (e) {
+      const target = container.querySelector('#er-batch-progress');
+      if (target) target.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      return;
+    }
+    renderBatchProgress(data);
+    if (data.status === 'PROCESSING') {
+      batchPollTimer = setTimeout(() => pollBatch(batchId), BATCH_POLL_MS);
+    }
+  }
+
+  function renderBatchProgress(data) {
+    const target = container.querySelector('#er-batch-progress');
+    if (!target) return;
+    const processing = data.status === 'PROCESSING';
+    const done = data.matched_count + data.needs_review_count;
+    const studentOptions = data.available_students
+      .map((s) => `<option value="${tmEsc(s.student_id)}">${tmEsc(s.full_name)}${s.document_number ? ` — CPF ${tmEsc(s.document_number)}` : ''}</option>`)
+      .join('');
+
+    target.innerHTML = `
+      <div class="card">
+        <h4>${processing ? 'Processando o lote...' : 'Lote processado'}</h4>
+        <p class="empty-text">${done} de ${data.total_pages} páginas lidas — ${data.matched_count} identificadas, ${data.needs_review_count} aguardando você.</p>
+        ${data.needs_review_pages.length ? `
+        <h4>Folhas que o sistema não conseguiu identificar</h4>
+        <div class="tm-table-wrap" style="overflow-x:auto;">
+          <table class="tm-table">
+            <thead><tr><th>Página</th><th>Folha</th><th>Nome lido</th><th>CPF lido</th><th>Aluno</th><th></th></tr></thead>
+            <tbody>
+              ${data.needs_review_pages.map((page) => `
+                <tr data-batch-page="${tmEsc(page.id)}">
+                  <td>${page.page_number}</td>
+                  <td><a href="/api/v1/teacher/essay-batches/${tmEsc(data.id)}/pages/${tmEsc(page.id)}/image" target="_blank" rel="noopener" data-page-image="${tmEsc(page.id)}">ver folha</a></td>
+                  <td>${tmEsc(page.ocr_name_raw || '—')}</td>
+                  <td>${tmEsc(page.ocr_cpf_raw || '—')}</td>
+                  <td>
+                    <select class="text-input" data-student-select="${tmEsc(page.id)}" ${page.has_text ? '' : 'disabled'}>
+                      <option value="">Selecione...</option>${studentOptions}
+                    </select>
+                  </td>
+                  <td>
+                    ${page.has_text
+                      ? `<button class="btn btn-primary" type="button" data-resolve-page="${tmEsc(page.id)}">Confirmar</button>`
+                      : '<span class="empty-text">Sem texto legível — reenvie esta folha em outro lote.</span>'}
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : (processing ? '' : '<p class="empty-text">Todas as folhas foram identificadas automaticamente.</p>')}
+      </div>`;
+
+    // A imagem da folha e servida por uma rota autenticada, entao um <a href>
+    // simples abriria sem o cabecalho Authorization - buscamos o blob e abrimos
+    // a URL de objeto, mesmo caminho que o export de XLSX ja usa.
+    target.querySelectorAll('[data-page-image]').forEach((link) => {
+      link.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        try {
+          const res = await fetch(link.getAttribute('href'), { headers: reviewHeaders() });
+          if (!res.ok) throw new Error('Não foi possível abrir a imagem da folha.');
+          const url = URL.createObjectURL(await res.blob());
+          window.open(url, '_blank', 'noopener');
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+
+    target.querySelectorAll('[data-resolve-page]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const pageId = btn.dataset.resolvePage;
+        const select = target.querySelector(`[data-student-select="${pageId}"]`);
+        if (!select.value) {
+          alert('Escolha o aluno desta folha.');
+          return;
+        }
+        btn.disabled = true;
+        try {
+          const updated = await reviewRequest(
+            `/api/v1/teacher/essay-batches/${data.id}/pages/${pageId}/resolve`,
+            {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ student_id: select.value }),
+            },
+          );
+          renderBatchProgress(updated);
+        } catch (e) {
+          alert(e.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
   function renderNewPromptForm() {
     container.innerHTML = `
       ${renderTabs('prompts')}
@@ -278,6 +472,14 @@
         <h3>${tmEsc(detail.title)}</h3>
         <p>${tmEsc(detail.statement)}</p>
         <p class="empty-text">Status: ${tmEsc(statusLabel(detail.status))}</p>
+        <div class="tm-form-actions" style="margin: 8px 0;">
+          <label for="er-sheet-copies" style="margin-right:6px;">Cópias</label>
+          <input id="er-sheet-copies" class="text-input" type="number" min="1" max="60" value="30" style="width:80px;display:inline-block;">
+          <button class="btn btn-secondary" type="button" id="er-answer-sheet-btn">Gerar folha de resposta</button>
+          <input id="er-logo-file" type="file" accept="image/png,image/jpeg" hidden>
+          <button class="btn btn-secondary" type="button" id="er-logo-btn">Enviar logo da escola</button>
+          <span id="er-sheet-msg" class="tm-msg" hidden></span>
+        </div>
 
         <h4>Materiais de apoio</h4>
         <ul id="er-materials-list">${detail.materials.map((m) => `<li>${renderMaterialLabel(m)}</li>`).join('') || '<li class="empty-text">Nenhum material.</li>'}</ul>
@@ -310,6 +512,57 @@
     tabsEl.insertAdjacentElement('afterend', detailHtml.firstElementChild);
 
     container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+    const sheetMsg = container.querySelector('#er-sheet-msg');
+    function showSheetMsg(text) {
+      sheetMsg.hidden = false;
+      sheetMsg.textContent = text;
+    }
+
+    container.querySelector('#er-answer-sheet-btn').addEventListener('click', async () => {
+      const btn = container.querySelector('#er-answer-sheet-btn');
+      const copies = Math.max(1, Math.min(60, Number(container.querySelector('#er-sheet-copies').value) || 1));
+      btn.disabled = true;
+      sheetMsg.hidden = true;
+      try {
+        // Aviso (nao bloqueio): sem logo a folha e gerada do mesmo jeito.
+        const logoState = await reviewRequest('/api/v1/teacher/school/logo');
+        if (!logoState.has_logo) showSheetMsg('A folha vai sair sem logo - envie a logo da escola se quiser que ela apareça.');
+        const res = await fetch(
+          `/api/v1/catalog/essay-prompts/${promptId}/answer-sheet.pdf?copies=${copies}`,
+          { headers: reviewHeaders() },
+        );
+        if (!res.ok) throw new Error('Não foi possível gerar a folha de resposta.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `folha-de-redacao-${copies}-copias.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        showSheetMsg(e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    container.querySelector('#er-logo-btn').addEventListener('click', () => {
+      container.querySelector('#er-logo-file').click();
+    });
+    container.querySelector('#er-logo-file').addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        await reviewRequest('/api/v1/teacher/school/logo', { method: 'POST', body: formData });
+        showSheetMsg('Logo enviada. As próximas folhas geradas já saem com ela.');
+      } catch (e) {
+        showSheetMsg(e.message);
+      }
+    });
     container.querySelector('#er-material-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const content = container.querySelector('#er-material-content').value.trim();
