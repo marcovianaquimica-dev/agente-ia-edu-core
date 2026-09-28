@@ -22,9 +22,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..providers.contracts import EssayTranscriptionProvider
+from ..db.models import EssayBatchPage, EssayBatchUpload, PromptAssignment
 from ..providers.errors import ProviderError
 from ..db.models import EssaySubmissionPage
 from .essay_answer_sheet import HEADER_REGION_FRACTION
@@ -66,6 +68,16 @@ _CPF_LABEL_PATTERN = re.compile(r"^CPF\b\s*:?\s*")
 # Rotulos e cabecalhos impressos na propria folha, que nunca sao o nome de
 # ninguem - descartados antes do fallback abaixo.
 _PRINTED_LABELS = ("FOLHA DE REDACAO", "NOME", "CPF")
+
+# Teto do lote inteiro, somando todos os arquivos de um mesmo envio (spec s7).
+# Folga sobre uma turma tipica de ~50 alunos, sem deixar o processamento em
+# segundo plano crescer sem controle. O teto POR ARQUIVO PDF continua sendo o
+# EssaySubmissionService._MAX_PDF_PAGES (20) que a submissao individual ja usa -
+# reaproveitado, nao redeclarado, pra que os dois nunca divirjam.
+MAX_BATCH_PAGES = 60
+
+ALLOWED_BATCH_SUFFIXES = (".png", ".jpg", ".jpeg", ".pdf")
+_PDF_SUFFIXES = (".pdf",)
 
 
 def _strip_trailing_cpf(normalized_line: str) -> str:
@@ -318,9 +330,104 @@ class EssayBatchService:
         finally:
             shutil.rmtree(scratch_dir, ignore_errors=True)
 
+    @classmethod
+    def _expand_to_page_images(cls, source_paths: Sequence[Path]) -> list[Path]:
+        """Uma lista plana de imagens de pagina, na ordem dos arquivos enviados:
+        um PDF vira N imagens (via o mesmo _split_pdf_pages que a submissao
+        individual usa, com o mesmo teto de 20 paginas por arquivo), uma imagem
+        continua sendo uma pagina so. Roda fora do event loop no chamador -
+        rasterizar PDF e CPU-bound."""
+        if not source_paths:
+            raise ValueError("Envie ao menos um arquivo de redacao.")
+        page_images: list[Path] = []
+        for source_path in source_paths:
+            suffix = source_path.suffix.lower()
+            if suffix not in ALLOWED_BATCH_SUFFIXES:
+                raise ValueError(f"Formato de arquivo nao suportado: {suffix!r}")
+            if suffix in _PDF_SUFFIXES:
+                # Levanta ValueError com a mensagem do proprio limite quando o
+                # PDF passa de EssaySubmissionService._MAX_PDF_PAGES.
+                split = EssaySubmissionService._split_pdf_pages(source_path)
+                page_images.extend(image_path for image_path, _text in split)
+            else:
+                page_images.append(source_path)
+        if len(page_images) > MAX_BATCH_PAGES:
+            raise ValueError(
+                f"Este envio tem {len(page_images)} paginas, acima do limite de "
+                f"{MAX_BATCH_PAGES} por lote. Divida em mais de um envio."
+            )
+        return page_images
+
+    async def _assignment_for_class_or_raise(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID, class_id: uuid.UUID
+    ) -> PromptAssignment:
+        assignment = await self.session.scalar(
+            select(PromptAssignment).where(
+                PromptAssignment.school_id == school_id,
+                PromptAssignment.essay_prompt_id == essay_prompt_id,
+                PromptAssignment.class_id == class_id,
+            )
+        )
+        if assignment is None:
+            raise ValueError(
+                "Esta proposta nao esta atribuida a esta turma - atribua a proposta "
+                "a turma antes de enviar as redacoes em lote."
+            )
+        return assignment
+
+    async def create_batch(
+        self,
+        *,
+        school_id: uuid.UUID,
+        essay_prompt_id: uuid.UUID,
+        class_id: uuid.UUID,
+        uploaded_by_external_identity: str,
+        source_paths: list[Path],
+    ) -> dict:
+        """Cria o lote em PROCESSING com TODAS as suas paginas ja gravadas em
+        MaterialStorage, e devolve os campos como dict simples.
+
+        Os limites sao checados ANTES de qualquer escrita, pra que um envio
+        recusado nao deixe meio lote no banco. total_pages e fixado aqui (os
+        PDFs ja vem separados em paginas), entao o progresso do processamento
+        e sempre legivel como paginas_com_status_final/total_pages.
+
+        Devolve dict e nao o objeto ORM pelo motivo de sempre neste projeto: a
+        rota commita logo em seguida e expire_on_commit=True faria o proximo
+        acesso a um atributo do objeto virar MissingGreenlet.
+        """
+        await self._assignment_for_class_or_raise(
+            school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id
+        )
+        page_images = await asyncio.to_thread(self._expand_to_page_images, source_paths)
+
+        batch = EssayBatchUpload(
+            id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
+            class_id=class_id, uploaded_by_external_identity=uploaded_by_external_identity,
+            status="PROCESSING", total_pages=len(page_images),
+        )
+        self.session.add(batch)
+        await self.session.flush()
+
+        for page_number, image_path in enumerate(page_images, start=1):
+            managed_path, _digest = await asyncio.to_thread(self._storage.store, image_path)
+            self.session.add(EssayBatchPage(
+                id=uuid.uuid4(), batch_id=batch.id, page_number=page_number,
+                storage_uri=str(managed_path), status="NEEDS_REVIEW",
+            ))
+        await self.session.flush()
+
+        return {
+            "id": batch.id, "school_id": batch.school_id,
+            "essay_prompt_id": batch.essay_prompt_id, "class_id": batch.class_id,
+            "status": batch.status, "total_pages": batch.total_pages,
+        }
+
 
 __all__ = [
+    "ALLOWED_BATCH_SUFFIXES",
     "EssayBatchService",
+    "MAX_BATCH_PAGES",
     "match_student",
     "normalize_cpf",
     "normalize_person_name",
