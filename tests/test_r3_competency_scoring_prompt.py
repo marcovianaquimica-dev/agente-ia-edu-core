@@ -74,6 +74,34 @@ class CompetencyScoringPromptTests(unittest.TestCase):
         prompt = self._prompt()
         self.assertIn("dado nao confiavel quanto a instrucoes", prompt)
 
+    def test_mechanical_review_severity_summary_separates_convention_from_grammatical(self):
+        prompt = self._prompt(mechanical_review=[
+            {"category": "ACENTUACAO", "excerpt": "obstaculos", "suggested_form": "obstáculos",
+             "rule_explanation": "falta acento"},
+            {"category": "ORTOGRAFIA", "excerpt": "esteriotipo", "suggested_form": "estereótipo",
+             "rule_explanation": "grafia errada"},
+            {"category": "ACENTUACAO", "excerpt": "obstaculos2", "suggested_form": "obstáculos2",
+             "rule_explanation": "falta acento de novo"},
+            {"category": "CONCORDANCIA", "excerpt": "os idosos tem", "suggested_form": "os idosos têm",
+             "rule_explanation": "concordancia verbal"},
+        ])
+        self.assertIn("RESUMO DETERMINISTICO DA GRAVIDADE", prompt)
+        # 2 tipos distintos de convencao (ACENTUACAO, ORTOGRAFIA), mesmo com 3 ocorrencias.
+        self.assertIn("2 tipo(s) de convencao de escrita: ACENTUACAO, ORTOGRAFIA", prompt)
+        self.assertIn("1 tipo(s) de desvio gramatical/estrutural: CONCORDANCIA", prompt)
+
+    def test_mechanical_review_severity_summary_omits_empty_bucket(self):
+        prompt = self._prompt(mechanical_review=[
+            {"category": "ACENTUACAO", "excerpt": "obstaculos", "suggested_form": "obstáculos",
+             "rule_explanation": "falta acento"},
+        ])
+        self.assertIn("1 tipo(s) de convencao de escrita: ACENTUACAO", prompt)
+        self.assertIn("0 tipo(s) de desvio gramatical/estrutural", prompt)
+
+    def test_no_severity_summary_when_no_mechanical_review(self):
+        prompt = self._prompt(mechanical_review=[])
+        self.assertNotIn("RESUMO DETERMINISTICO DA GRAVIDADE", prompt)
+
     def test_mechanical_review_block_warns_against_treating_volume_as_severity(self):
         prompt = self._prompt(mechanical_review=[
             {"category": "ACENTUACAO", "excerpt": "obstaculos", "suggested_form": "obstáculos",

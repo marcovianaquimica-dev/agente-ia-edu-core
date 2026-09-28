@@ -80,6 +80,51 @@ _RULES_SCORING = (
     "nivel quando o juizo holistico aponta o contrario."
 )
 
+_CONVENTION_CATEGORIES = ("ACENTUACAO", "ORTOGRAFIA", "PORQUES")
+_GRAMMATICAL_CATEGORIES = ("CONCORDANCIA", "REGENCIA", "PONTUACAO", "CRASE")
+
+
+def _classify_mechanical_severity(mechanical_review: Sequence[dict[str, str]]) -> str:
+    """Resumo deterministico (nao pedido ao modelo) do TIPO de desvio
+    presente, separando convencao de escrita (ACENTUACAO/ORTOGRAFIA/
+    PORQUES - a cartilha do ENEM p.15 chama isso de "convencoes da
+    escrita") de desvio gramatical/estrutural (CONCORDANCIA/REGENCIA/
+    PONTUACAO/CRASE - a mesma cartilha chama isso de "desvios
+    gramaticais"). Conta TIPOS DISTINTOS presentes, nunca ocorrencias -
+    3 ocorrencias de ACENTUACAO sao 1 tipo, nao 3.
+
+    Por que isso existe (2026-09-28): os proprios descritores oficiais de
+    C1 sao escritos em termos de quantidade ("poucos/alguns/muitos
+    desvios"), entao uma instrucao textual generica pedindo pro modelo
+    "nao julgar pela quantidade" nao muda o resultado quando a evidencia
+    mecanica bruta lista 10+ ocorrencias - confirmado empiricamente
+    (4 redacoes revalidadas, C1 continuou travando em 80 mesmo apos essa
+    instrucao ser adicionada). Pre-calcular os TIPOS distintos aqui, em
+    codigo, tira do modelo o trabalho de agrupar ocorrencias repetidas -
+    ele so precisa somar tipos, que e um numero muito menor e mais
+    estavel que a lista bruta.
+    """
+    categories = {m["category"] for m in mechanical_review}
+    convention_types = sorted(c for c in categories if c in _CONVENTION_CATEGORIES)
+    grammatical_types = sorted(c for c in categories if c in _GRAMMATICAL_CATEGORIES)
+    convention_text = ", ".join(convention_types) if convention_types else "nenhum"
+    grammatical_text = ", ".join(grammatical_types) if grammatical_types else "nenhum"
+    return (
+        "\nRESUMO DETERMINISTICO DA GRAVIDADE (calculado por codigo, conta "
+        "TIPOS distintos de desvio, nunca ocorrencias repetidas do mesmo "
+        "tipo):\n"
+        f"- {len(convention_types)} tipo(s) de convencao de escrita: {convention_text}\n"
+        f"- {len(grammatical_types)} tipo(s) de desvio gramatical/estrutural: {grammatical_text}\n"
+        "Varios tipos de CONVENCAO juntos (acentuacao/ortografia/porques) "
+        "equivalem, no maximo, a UM desvio estrutural isolado para fins de "
+        "nivel. O que efetivamente caracteriza 'muitos desvios "
+        "gramaticais' (nivel 80) ou desvios 'diversificados e frequentes' "
+        "(nivel 40) nos descritores oficiais e sobretudo a QUANTIDADE DE "
+        "TIPOS gramaticais/estruturais distintos presentes - nao a "
+        "contagem de ocorrencias de convencao.\n"
+    )
+
+
 _RULES_MECHANICAL_SEVERITY = (
     "\nATENCAO especifica sobre as ocorrencias mecanicas acima: avalie a "
     "GRAVIDADE de cada tipo de desvio individualmente, nunca o TAMANHO da "
@@ -147,6 +192,7 @@ def build_prompt(
         mechanical_block = (
             f"\nEVIDENCIA - ocorrencias mecanicas confirmadas relacionadas "
             f"a {competency_code}:\n{mechanical_text}\n"
+            + _classify_mechanical_severity(mechanical_review)
             + _RULES_MECHANICAL_SEVERITY
         )
     else:
