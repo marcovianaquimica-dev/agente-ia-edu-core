@@ -623,6 +623,49 @@ class EssayBatchService:
                     "correcao do lote falhou para essay_submission_id=%s", submission_id
                 )
 
+    async def resolve_page(
+        self, *, batch_id: uuid.UUID, page_id: uuid.UUID, student_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """O professor diz de quem e esta pagina.
+
+        Depois de atribuir o aluno, a corrida que CONTEM esta pagina e
+        re-materializada inteira - e assim que uma pagina resolvida ao lado de
+        outra ja resolvida do mesmo aluno entra na MESMA submissao em vez de
+        criar uma segunda (spec s2, rota de resolve), sem nenhuma regra de
+        concatenacao propria: e exatamente a mesma que o caminho automatico usa.
+        """
+        batch = await self.session.get(EssayBatchUpload, batch_id)
+        if batch is None:
+            raise ValueError(f"EssayBatchUpload not found: {batch_id}")
+        page = await self.session.get(EssayBatchPage, page_id)
+        if page is None or page.batch_id != batch_id:
+            raise ValueError("Esta pagina nao pertence a este lote.")
+        if not (page.ocr_body_text or "").strip():
+            raise ValueError(
+                "Esta pagina nao tem texto reconhecido - nao da para criar uma redacao "
+                "vazia. Envie uma foto mais nitida desta folha em um novo lote."
+            )
+        student = await self.session.get(Student, student_id)
+        if student is None or student.school_id != batch.school_id:
+            raise ValueError("Este aluno nao pertence a esta escola.")
+
+        page.matched_student_id = student_id
+        page.status = "RESOLVED_MANUAL"
+        await self.session.flush()
+
+        pages = (await self.session.execute(
+            select(EssayBatchPage)
+            .where(EssayBatchPage.batch_id == batch_id)
+            .order_by(EssayBatchPage.page_number)
+        )).scalars().all()
+        run = next(
+            (group for group in consecutive_runs(pages) if any(p.id == page_id for p in group)),
+            [page],
+        )
+        submission_id = await self._materialize_run(batch, run)
+        await self.session.commit()
+        return [submission_id] if submission_id is not None else []
+
     async def _process_page(
         self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]]
     ) -> None:
