@@ -72,7 +72,12 @@ _RULES_SCORING = (
     "demonstra sobre o dominio do participante nesta competencia, nunca um "
     "calculo. Se a lista de evidencia estiver vazia, isso e sinal de bom "
     "desempenho nesta competencia, nao motivo para desconfiar ou presumir "
-    "problemas nao relatados."
+    "problemas nao relatados. Quando houver poucas anotacoes pontuais mas o "
+    "juizo holistico (quando fornecido) descrever uma fragilidade ampla ou "
+    "difusa nesta competencia (um problema geral de qualidade, nao um erro "
+    "isolado localizavel), o nivel deve refletir essa fragilidade - a "
+    "ausencia de anotacoes pontuais NAO e, por si so, motivo para elevar o "
+    "nivel quando o juizo holistico aponta o contrario."
 )
 
 
@@ -83,6 +88,7 @@ def build_prompt(
     levels: Sequence[tuple[int, str]],
     annotations: Sequence[dict[str, str]],
     mechanical_review: Sequence[dict[str, str]] = (),
+    rationale: dict[str, str] | None = None,
 ) -> str:
     """Assemble the competency-scoring prompt.
 
@@ -97,6 +103,14 @@ def build_prompt(
     ever non-empty for C1, since MechanicalOccurrence.category
     (ORTOGRAFIA/ACENTUACAO/CRASE/PORQUES/CONCORDANCIA/REGENCIA/PONTUACAO)
     is exclusively about C1's own domain (norma padrao).
+    ``rationale``: this competency's own CompetencyRationale from phase 1
+    (summary/strengths/growth_area), when present - phase 1's holistic
+    judgment for this competency, written for free alongside annotations
+    but previously never sent to phase 2 (2026-09-28 finding: diffusely
+    weak essays, with few discrete quotable errors, had too little signal
+    in annotations alone and defaulted to middling scores). None when phase
+    1 didn't produce one (should not normally happen, but this function
+    stays defensive about it).
     """
     levels_text = "\n".join(
         f"- {points} pontos: {descriptor}" for points, descriptor in levels
@@ -122,6 +136,18 @@ def build_prompt(
     else:
         mechanical_block = ""
 
+    if rationale:
+        rationale_block = (
+            "\nEVIDENCIA - juizo holistico da fase anterior sobre "
+            f"{competency_code} (leitura do texto INTEIRO, nao apenas dos "
+            "trechos anotados):\n"
+            f"- Resumo: {rationale['summary']}\n"
+            f"- Pontos fortes: {rationale['strengths']}\n"
+            f"- Ponto de melhoria: {rationale['growth_area']}\n"
+        )
+    else:
+        rationale_block = ""
+
     return (
         _SYSTEM_POLICY + "\n"
         + "RESPONSE_SCHEMA: " + json.dumps(RESPONSE_SCHEMA, ensure_ascii=False) + "\n"
@@ -131,6 +157,7 @@ def build_prompt(
         + f"\nEVIDENCIA - anotacoes especificas de {competency_code} "
         + f"encontradas nesta redacao:\n{annotations_text}\n"
         + mechanical_block
+        + rationale_block
         + f"\nTAREFA: com base APENAS nessa evidencia, decida qual dos seis "
         + f"niveis oficiais de {competency_code} (0, 40, 80, 120, 160 ou "
         + "200) melhor representa o desempenho demonstrado. Responda no "

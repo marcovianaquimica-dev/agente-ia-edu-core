@@ -679,6 +679,7 @@ class EssayCorrectionService:
         annotations_by_code: dict[str, list] = {code: [] for code in COMPETENCY_CODES}
         for annotation in output.annotations:
             annotations_by_code.setdefault(annotation.competency_code, []).append(annotation)
+        rationale_by_code = {r.competency_code: r for r in output.rationales}
         mechanical_review = [
             {
                 "category": m.category, "excerpt": m.excerpt,
@@ -694,12 +695,23 @@ class EssayCorrectionService:
                 {"short_comment": a.short_comment, "long_comment": a.long_comment}
                 for a in annotations_by_code.get(code, [])
             ]
+            rationale_obj = rationale_by_code.get(code)
+            rationale = (
+                {
+                    "summary": rationale_obj.summary,
+                    "strengths": rationale_obj.strengths,
+                    "growth_area": rationale_obj.growth_area,
+                }
+                if rationale_obj is not None
+                else None
+            )
             prompt_text = competency_scoring_v1.build_prompt(
                 competency_code=code, competency_label=competency.official_title,
                 levels=levels, annotations=annotations,
                 # mechanical_review is exclusively C1's own domain (norma
                 # padrao) - see MechanicalOccurrence.category's Literal.
                 mechanical_review=mechanical_review if code == "C1" else (),
+                rationale=rationale,
             )
             result = await self._get_text_provider().generate(
                 TextGenerationRequest(prompt=prompt_text, seed=_CORRECTION_SEED)

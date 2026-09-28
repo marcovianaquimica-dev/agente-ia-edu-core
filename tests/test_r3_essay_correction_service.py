@@ -67,6 +67,11 @@ class _StubTextProvider:
         # prompt's own content (SCORING_MODE, rubric signals, etc.) want
         # THIS one instead.
         self.last_phase1_request = None
+        # Phase 2a runs 5 concurrent calls, one per competency - keyed here
+        # by the RUBRIC_<code> the prompt itself embeds, so tests can assert
+        # on a SPECIFIC competency's own prompt content (e.g. its rationale)
+        # without a race on which call happened to finish last.
+        self.phase2_requests_by_code: dict[str, object] = {}
         self.call_count = 0
         self._per_competency_points = per_competency_points or {
             c: 160 for c in ("C1", "C2", "C3", "C4", "C5")
@@ -82,6 +87,7 @@ class _StubTextProvider:
                 return TextGenerationResult(text=self._phase2_text, provider="stub", model=self.model)
             match = re.search(r"RUBRIC_(C\d)", request.prompt)
             code = match.group(1) if match else "C1"
+            self.phase2_requests_by_code[code] = request
             points = self._per_competency_points.get(code, 160)
             return TextGenerationResult(
                 text=json.dumps({"points": points, "reasoning": "stub"}),
@@ -849,6 +855,49 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("ORTOGRAFIA", seen_prompts["C1"])
             for code in ("C2", "C3", "C4", "C5"):
                 self.assertNotIn("ocorrencias mecanicas", seen_prompts[code])
+
+    async def test_phase2_prompt_carries_that_competencys_own_rationale(self):
+        """2026-09-28 calibration fix: phase 1's per-competency rationale
+        (summary/strengths/growth_area) was being produced for free but
+        never sent to phase 2 - diffusely weak essays with few discrete
+        quotable errors had too little signal in annotations alone and
+        defaulted to middling scores. Each competency's phase-2a prompt
+        must now carry THAT competency's own rationale text."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "30")
+            payload = json.loads(
+                _happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text)
+            )
+            payload["rationales"] = [
+                {
+                    "competency_code": "C1", "summary": "Resumo unico de C1.",
+                    "strengths": "Forcas unicas de C1.", "growth_area": "Melhoria unica de C1.",
+                    "signal_keys": [],
+                },
+                {
+                    "competency_code": "C2", "summary": "Resumo unico de C2.",
+                    "strengths": "Forcas unicas de C2.", "growth_area": "Melhoria unica de C2.",
+                    "signal_keys": [],
+                },
+            ]
+            provider = _StubTextProvider(text=json.dumps(payload))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIn("Resumo unico de C1.", provider.phase2_requests_by_code["C1"].prompt)
+            self.assertIn("Forcas unicas de C1.", provider.phase2_requests_by_code["C1"].prompt)
+            self.assertIn("Melhoria unica de C1.", provider.phase2_requests_by_code["C1"].prompt)
+            self.assertIn("Resumo unico de C2.", provider.phase2_requests_by_code["C2"].prompt)
+            # C1's own rationale must not leak into C2's prompt.
+            self.assertNotIn("Resumo unico de C1.", provider.phase2_requests_by_code["C2"].prompt)
+            # C3 got no rationale in this payload - its prompt carries no
+            # holistic-judgment EVIDENCE block (the rule text itself always
+            # mentions "juizo holistico" generically, so assert on the
+            # block's own marker instead).
+            self.assertNotIn(
+                "EVIDENCIA - juizo holistico", provider.phase2_requests_by_code["C3"].prompt,
+            )
 
     async def test_alert_review_can_reject_a_false_positive_anula_redacao_alert(self):
         """The whole point of phase 2b (calibration run 2026-09-28, see
