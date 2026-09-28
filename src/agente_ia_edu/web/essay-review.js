@@ -24,6 +24,18 @@
   const DASH_COMPETENCY_COLORS = { C1: '#4f46e5', C2: '#06b6d4', C3: '#ef4444', C4: '#f59e0b', C5: '#10b981' };
   const DASH_COMPETENCY_CODES = ['C1', 'C2', 'C3', 'C4', 'C5'];
 
+  // Display-only translation - the values stored/sent to the API stay the
+  // English DB enum values (EssayPrompt.status, PromptAssignment.status),
+  // only what the teacher reads on screen changes.
+  const STATUS_LABEL = {
+    DRAFT: 'Rascunho', ACTIVE: 'Ativa', SUPERSEDED: 'Substituída',
+    OPEN: 'Aberta', CLOSED: 'Encerrada',
+  };
+
+  function statusLabel(status) {
+    return STATUS_LABEL[status] || status;
+  }
+
   function tmEsc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -34,6 +46,18 @@
     if (typeof detail === 'string') {
       const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
       if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+      if (detail.includes('does not allow disabling teacher review per proposal')) {
+        return 'Esta escola não permite desativar a revisão docente por proposta - a opção "Exigir revisão docente" precisa continuar marcada.';
+      }
+      if (/^Class not found in school /.test(detail)) {
+        return 'Turma não encontrada nesta escola.';
+      }
+      if (/^EssayPrompt .+ is already assigned to class /.test(detail)) {
+        return 'Esta proposta já está atribuída a essa turma.';
+      }
+      if (/^EssayPrompt not found in school /.test(detail)) {
+        return 'Proposta não encontrada nesta escola.';
+      }
       return detail;
     }
     if (detail && detail.message) return detail.message;
@@ -107,7 +131,7 @@
           <tbody id="er-prompts-body">
             ${prompts.map((p) => `
               <tr>
-                <td>${tmEsc(p.title)}</td><td>${p.year}</td><td>${tmEsc(p.status)}</td>
+                <td>${tmEsc(p.title)}</td><td>${p.year}</td><td>${tmEsc(statusLabel(p.status))}</td>
                 <td>
                   <button class="btn btn-secondary" type="button" data-open-prompt="${tmEsc(p.id)}">Abrir</button>
                   <button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>
@@ -253,7 +277,7 @@
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
         <h3>${tmEsc(detail.title)}</h3>
         <p>${tmEsc(detail.statement)}</p>
-        <p class="empty-text">Status: ${tmEsc(detail.status)}</p>
+        <p class="empty-text">Status: ${tmEsc(statusLabel(detail.status))}</p>
 
         <h4>Materiais de apoio</h4>
         <ul id="er-materials-list">${detail.materials.map((m) => `<li>${renderMaterialLabel(m)}</li>`).join('') || '<li class="empty-text">Nenhum material.</li>'}</ul>
@@ -265,7 +289,7 @@
         <p id="er-material-msg" class="tm-msg" hidden></p>
 
         <h4>Turmas atribuídas</h4>
-        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(a.status)}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
+        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
         <form id="er-assign-form" class="tm-form-row">
           <div class="form-group">
             <label>Turmas (selecione uma ou mais)</label>
@@ -349,7 +373,7 @@
         });
         detail.assignments = detail.assignments.concat(result.assigned);
         container.querySelector('#er-assignments-list').innerHTML = detail.assignments
-          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(a.status)}</li>`)
+          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`)
           .join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>';
         container.querySelectorAll('[data-assign-class-id]:checked').forEach((cb) => { cb.checked = false; });
         const failureEntries = Object.entries(result.failures || {});
@@ -360,7 +384,7 @@
           // classes that succeeded above already show as assigned.
           failuresEl.hidden = false;
           failuresEl.innerHTML = failureEntries.map(([classId, reason]) => `
-            <li>${tmEsc(classNameById.get(classId) || classId)}: ${tmEsc(reason)}</li>`).join('');
+            <li>${tmEsc(classNameById.get(classId) || classId)}: ${tmEsc(translateDetail(reason))}</li>`).join('');
         }
       } catch (e) {
         msg.hidden = false;
