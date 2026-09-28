@@ -383,6 +383,32 @@ class TestInitialDiagnostic(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resumed.metadata_["objective"], "Revisar diluição")
             self.assertEqual(resumed_pending.id, pending.id)
 
+    async def test_23b_resume_with_incompatible_school_context_starts_fresh_instead_of_403(self):
+        """Found live 2026-09-28: an old IN_PROGRESS diagnostic created as an
+        independent student (school_id=None) sat unfinished for 18 days. When
+        the same student later had a real UserSchoolLink and tried again,
+        start_diagnostic() kept "resuming" that old, school-less diagnostic -
+        but every downstream authorization check (save_entry_profile,
+        answer_question) compares the diagnostic's OWN school_id against the
+        caller's CURRENT resolved school_id and 403s on mismatch, permanently
+        blocking the student with no way to retry. Resuming across an
+        incompatible school context is never useful - fix at the source: a
+        stale diagnostic whose school_id no longer matches gets cancelled and
+        a fresh one is started instead of being resumed into a dead end."""
+        async with self.session_factory() as session:
+            school = await PlatformAdminService(session).create_school(
+                performed_by_external_id="admin:master", code="RESUME_CTX", name="Escola Retomada",
+            )
+            service = InitialDiagnosticService(session, KnowledgeService(session))
+            stale, _ = await service.start_diagnostic(student_id="student:ctxshift", school_id=None)
+
+            fresh, _ = await service.start_diagnostic(student_id="student:ctxshift", school_id=school.id)
+
+            self.assertNotEqual(fresh.id, stale.id, "must not resume a diagnostic from an incompatible school context")
+            self.assertEqual(fresh.school_id, school.id)
+            await session.refresh(stale)
+            self.assertEqual(stale.status, DiagnosticStatus.CANCELLED)
+
     async def test_24_prerequisite_gap_is_an_evidence_not_a_certainty(self):
         async with self.session_factory() as session:
             _, parent_id, _, _, _, _, _, _, _ = await self._seed_catalog_and_questions(session)

@@ -140,6 +140,65 @@ class DiagnosticHttpGapsTests(unittest.TestCase):
             "wrong), not only the one marked is_valid_option=True",
         )
 
+    # -- PUT /diagnostic/{id}/entry with complete=true, right after a real ---
+    # POST /diagnostic/start, must not 500 (found live 2026-09-28: /start
+    # always creates the position=1 DiagnosticQuestionSelection immediately
+    # (start_diagnostic's defer_questions defaults to False), but app.js
+    # always shows the entry-profile form first and never uses that
+    # next_question for a brand-new diagnostic (initDiagnosticView only skips
+    # the profile form when entry_status is already "COMPLETED" - never true
+    # right after /start). Submitting that profile calls
+    # save_entry_profile(complete=True), which unconditionally tried to
+    # INSERT another position=1 row, colliding with the one /start already
+    # made: psycopg.errors.UniqueViolation on
+    # uq_diagnostic_selections_diagnostic_position) --------------------------
+
+    def test_completing_entry_profile_right_after_start_does_not_duplicate_position_one(self):
+        async def seed():
+            async with self.session_factory() as session:
+                root = CatalogNode(parent_id=None, root_id=None, node_type="DISCIPLINE", name="Química", active=True)
+                session.add(root)
+                await session.flush()
+                root.root_id = root.id
+                content = CatalogNode(parent_id=root.id, root_id=root.id, node_type="CONTENT", name="Soluções", active=True)
+                session.add(content)
+                await session.flush()
+
+                question = Question(validation_status="approved", status="PUBLISHED", visibility_scope="PUBLIC")
+                session.add(question)
+                await session.flush()
+                version = QuestionVersion(
+                    question_id=question.id, version_kind="official_original",
+                    canonical_text="Questão de teste", content_hash="gap-entry-dup",
+                    recommended_difficulty="EASY",
+                )
+                session.add(version)
+                await session.flush()
+                session.add_all([
+                    QuestionOption(question_version_id=version.id, option_key="A", position=1, text="Errada", is_valid_option=False),
+                    QuestionOption(question_version_id=version.id, option_key="B", position=2, text="Correta", is_valid_option=True),
+                    ContentQuestionLink(content_node_id=content.id, question_version_id=version.id),
+                ])
+                await session.commit()
+
+        asyncio.run(seed())
+        start = self.client.post(
+            "/api/v1/student/diagnostic/start",
+            json={"classroom_id": "CLASS_A", "discipline": "Química"},
+        )
+        self.assertEqual(start.status_code, 201, start.text)
+        diagnostic_id = start.json()["diagnostic_id"]
+        # app.js's real flow: for a brand-new diagnostic it ALWAYS shows the
+        # entry-profile form next, regardless of next_question already being
+        # populated by /start - reproduce that exact call.
+        entry = self.client.put(f"/api/v1/student/diagnostic/{diagnostic_id}/entry", json={
+            "preferred_name": "Aluno Teste", "study_objectives": ["ENEM"],
+            "perceived_difficulties": [], "free_text": None,
+            "needs_guidance": False, "step": "PREPARATION", "complete": True,
+        })
+        self.assertEqual(entry.status_code, 200, entry.text)
+        self.assertIsNotNone(entry.json().get("next_question"))
+
     # -- POST /diagnostic/start with requested_universe_id (never hit via ----
     # this endpoint before - only /entry/start's identical code was tested) --
 

@@ -123,9 +123,24 @@ class InitialDiagnosticService:
         existing = res_existing.scalar_one_or_none()
 
         if existing:
-            # Return current diagnostic and next question
-            next_q = await self._get_next_question_selection(existing)
-            return existing, next_q
+            if existing.school_id == school_id:
+                # Same context (both None/independent, or the same real
+                # school) - return current diagnostic and next question.
+                next_q = await self._get_next_question_selection(existing)
+                return existing, next_q
+            # Found live 2026-09-28: resuming across an incompatible school
+            # context (e.g. an old independent-student diagnostic from
+            # before the student had any real UserSchoolLink) is never
+            # useful - every downstream authorization check compares the
+            # diagnostic's own school_id against the caller's CURRENT
+            # resolved school_id and permanently 403s on mismatch, leaving
+            # the student stuck with no way to retry. Cancel the stale one
+            # and fall through to start a fresh diagnostic instead.
+            existing.status = DiagnosticStatus.CANCELLED
+            meta = dict(existing.metadata_ or {})
+            meta["cancelled_reason"] = "superseded_by_incompatible_school_context"
+            existing.metadata_ = meta
+            await self.session.flush()
 
         diagnostic = InitialDiagnostic(
             student_id=student_id,
@@ -211,7 +226,15 @@ class InitialDiagnosticService:
         next_question = None
         if complete:
             await self.session.flush()
-            next_question = await self._select_next_question_for_diagnostic(diagnostic, position=1)
+            # start_diagnostic() already creates the position=1 selection
+            # immediately (defer_questions defaults to False) - the frontend
+            # simply never shows it until the entry profile is confirmed, so
+            # it's still sitting there unanswered. Reuse it instead of
+            # inserting a second position=1 row, which violates
+            # uq_diagnostic_selections_diagnostic_position.
+            next_question = await self._get_next_question_selection(diagnostic)
+            if next_question is None:
+                next_question = await self._select_next_question_for_diagnostic(diagnostic, position=1)
         await self.session.commit()
         await self.session.refresh(diagnostic)
         if next_question is not None:
