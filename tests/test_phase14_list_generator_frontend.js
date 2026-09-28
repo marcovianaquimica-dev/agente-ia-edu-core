@@ -125,6 +125,25 @@ test('deterministic ordering: the wizard never re-sorts the selection', () => {
   assert.match(js, /state\.selection\.map\(\(row, i\)/);  // renderReviewList numbers 1..N in array order
 });
 
+test('PHASE 33 - review step and list preview warn about visual-dependent questions, reusing the bank-preview copy/style', () => {
+  // renderReviewList reuses the same qb-tag-visual badge already used in renderList
+  const reviewFn = js.match(/function renderReviewList\(\)[\s\S]*?\n  \}\n/);
+  assert.ok(reviewFn, 'renderReviewList not found');
+  assert.match(reviewFn[0], /qb-tag-visual/);
+  assert.match(reviewFn[0], /row\.visual/);
+
+  // toggleSelect carries has_visual_dependency into state.selection so the
+  // review step can render it without a second network round trip
+  assert.match(js, /visual: src \? !!src\.has_visual_dependency : false/);
+
+  // renderListPreview reuses the same qb-visual-note block already used in renderPreview
+  const previewFn = js.match(/function renderListPreview\(\)[\s\S]*?\n  \}\n/);
+  assert.ok(previewFn, 'renderListPreview not found');
+  assert.match(previewFn[0], /qb-visual-note/);
+  assert.match(previewFn[0], /it\.has_visual_dependency/);
+  assert.match(previewFn[0], /Esta questão depende de material visual\./);
+});
+
 test('the PHASE 14 wizard preview generates no PDF/DOCX itself (export is PHASE 15)', () => {
   // no client-side PDF/DOCX library, no print
   for (const blob of [html, js]) {

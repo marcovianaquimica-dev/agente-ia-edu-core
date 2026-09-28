@@ -69,6 +69,11 @@
 .qb-class-meta { display: flex; gap: 6px; flex-wrap: wrap; }
 .qb-provisional-banner { background: #fef3c7; color: #92400e; padding: 8px 12px; border-radius: 8px; font-weight: 700; font-size: .85rem; margin-bottom: 10px; }
 .qb-visual-note { background: #ede9fe; color: #5b21b6; padding: 8px 12px; border-radius: 8px; font-size: .85rem; margin: 10px 0; }
+.qb-evidence { margin-top: 8px; }
+.qb-evidence h5 { margin: 0 0 4px; font-size: .8rem; color: var(--text-muted, #64748b); text-transform: uppercase; letter-spacing: .02em; }
+.qb-evidence-list { list-style: disc; margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.qb-evidence-list li { font-size: .82rem; }
+.qb-evidence-uri { margin-top: 6px; font-size: .8rem; color: var(--text-muted, #64748b); word-break: break-all; }
 .qb-preview-statement { margin-top: 14px; }
 .qb-preview-statement p { white-space: pre-wrap; line-height: 1.55; }
 .qb-option-list { padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }

@@ -23,7 +23,38 @@ const coordJs = fs.readFileSync(path.join(WEB, 'coordination.js'), 'utf8');
 
 const MR = appJs.slice(appJs.indexOf('PHASE 25 — Material Player'), appJs.indexOf('// Initial Boot'));
 
+const MATERIALS_VIEW = appJs.slice(
+  appJs.indexOf('// 4. Materials View'), appJs.indexOf('// 5. Videos View'));
+
 // ---------------------------------------------------------------- student --
+
+test('the top-nav "Materiais" tab loads the REAL catalog (GET /student/materials), never the legacy active_recommendation.primary_resource', () => {
+  assert.match(MATERIALS_VIEW, /studentRequest\('\/api\/v1\/student\/materials'\)/);
+  assert.doesNotMatch(MATERIALS_VIEW, /active_recommendation/);
+  assert.doesNotMatch(MATERIALS_VIEW, /primary_resource/);
+});
+
+test('Materiais tab renders each real material\'s title, description, content_code and estimated_minutes - no invented fields', () => {
+  assert.match(MATERIALS_VIEW, /m\.title/);
+  assert.match(MATERIALS_VIEW, /m\.description/);
+  assert.match(MATERIALS_VIEW, /m\.content_code/);
+  assert.match(MATERIALS_VIEW, /m\.section_count/);
+  assert.match(MATERIALS_VIEW, /m\.estimated_minutes/);
+});
+
+test('Materiais tab shows an honest empty state when the real catalog has no materials for this student - no fake card', () => {
+  assert.match(MATERIALS_VIEW, /if \(!materials\.length\)/);
+  assert.match(MATERIALS_VIEW, /Nenhum material teórico disponível/);
+});
+
+test('Materiais tab shows an honest error state on a failed fetch', () => {
+  assert.match(MATERIALS_VIEW, /catch \(err\)/);
+  assert.match(MATERIALS_VIEW, /Erro ao carregar materiais teóricos/);
+});
+
+test('opening a material from the Materiais tab reuses the EXISTING openMaterialReader() - no second reader', () => {
+  assert.match(appJs, /openMaterialReader\(btn\.dataset\.materialId, \{ returnTo: 'materials' \}\)/);
+});
 
 test('the Material Player view exists and is NOT a top-nav item', () => {
   assert.ok(MR.length > 1500, 'PHASE 25 material reader block should be substantial');
@@ -80,9 +111,10 @@ test('"Pratique o que você estudou" reuses the EXISTING launchPractice()/PHASE 
   assert.doesNotMatch(MR, /new.*Player\(/);
 });
 
-test('"Voltar" preserves the calling context (Trilha vs Momento de Aprendizado)', () => {
+test('"Voltar" preserves the calling context (Trilha vs Momento de Aprendizado vs Materiais)', () => {
   assert.match(MR, /materialReaderFlow = opts \|\| \{\}/);
-  assert.match(MR, /flow\.returnTo === 'study-session' \? 'study-session' : 'study-path'/);
+  assert.match(MR, /flow\.returnTo === 'study-session' \? 'study-session'/);
+  assert.match(MR, /flow\.returnTo === 'materials' \? 'materials'/);
 });
 
 test('a finished material-linked practice returns to the SAME material, not the Trilha', () => {

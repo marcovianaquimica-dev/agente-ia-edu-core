@@ -106,6 +106,15 @@ class StudentLearningPathResponse(BaseModel):
     active_step_index: int = 0
 
 
+class StudentModulesResponse(BaseModel):
+    """Which platform modules are enabled for the caller's own school -
+    reflects AuthorizationService.resolve_context(...).modules exactly,
+    never a fabricated default."""
+
+    AGENTE_IA_EDU: bool
+    REDACAO_IA: bool
+
+
 class StudySearchItem(BaseModel):
     id: str | None = None
     title: str | None = None

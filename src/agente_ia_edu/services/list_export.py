@@ -23,6 +23,14 @@ _A4 = (595.0, 842.0)  # points
 _MARGIN = 56.0
 _LINE = 13.5
 _RESOLUTION_UNAVAILABLE = "Resolução não disponível."
+# PHASE 33 - honest disclosure when a question's official statement references an
+# image/chart this system does not store (no asset repository exists yet). Printed
+# right after the statement so the reader of the exported document is never led to
+# believe the enunciado is complete.
+_VISUAL_DEPENDENCY_NOTE = (
+    "[Esta questão faz referência a uma imagem/gráfico que não está incluído "
+    "neste documento.]"
+)
 
 
 def pdf_available() -> bool:
@@ -51,6 +59,7 @@ def build_render_model(definition: dict) -> dict:
             "statement": (it.get("statement") or "").strip(),
             "options": [(o["key"], (o["text"] or "").strip())
                         for o in sorted(it["options"], key=lambda x: x["position"])],
+            "has_visual_dependency": bool(it.get("has_visual_dependency")),
         })
         if include_key:
             ak = it.get("answer_key") or {}
@@ -162,6 +171,8 @@ def render_pdf(model: dict) -> bytes:
     for q in model["items"]:
         write(q["heading"], size=11, bold=True, gap=12)
         write(q["statement"], size=10, gap=3)
+        if q.get("has_visual_dependency"):
+            write(_VISUAL_DEPENDENCY_NOTE, size=9, gap=3, color=(0.55, 0.35, 0.0))
         for key, txt in q["options"]:
             write(f"{key}) {txt}", size=10, indent=14, gap=1)
 
@@ -207,6 +218,11 @@ def render_docx(model: dict) -> bytes:
         qh = doc.add_paragraph()
         qh.add_run(q["heading"]).bold = True
         doc.add_paragraph(q["statement"])
+        if q.get("has_visual_dependency"):
+            note = doc.add_paragraph()
+            note_run = note.add_run(_VISUAL_DEPENDENCY_NOTE)
+            note_run.italic = True
+            note_run.font.size = Pt(9)
         for key, txt in q["options"]:
             op = doc.add_paragraph(style="List Bullet")
             op.add_run(f"{key}) {txt}")
@@ -237,4 +253,7 @@ def render_both(definition: dict) -> dict[str, Any]:
     return result
 
 
-__all__ = ["build_render_model", "pdf_available", "render_both", "render_docx", "render_pdf"]
+__all__ = [
+    "build_render_model", "pdf_available", "render_both", "render_docx", "render_pdf",
+    "_VISUAL_DEPENDENCY_NOTE",
+]

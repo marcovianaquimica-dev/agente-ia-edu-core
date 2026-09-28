@@ -1,5 +1,5 @@
 """Coverage for create_app()'s static-portal GET routes (/teacher, /coordination,
-/reception, /question-bank, /admin).
+/reception, /question-bank, /admin, /entrada, /redacao).
 
 These handlers are registered inside `if web_dir.exists():` in
 src/agente_ia_edu/api/app.py, but no existing test issues an HTTP request against
@@ -127,6 +127,31 @@ class TestStaticPortalRoutes(unittest.TestCase):
             response = self.client.get("/admin")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, expected)
+
+    # --- /entrada: always serves entrada.html directly (no fallback branch,
+    #     same as /reception) - new student entry point that resolves which
+    #     module(s) the school has enabled before routing onward. ---
+
+    def test_entrada_serves_entrada_html(self):
+        expected = (WEB_DIR / "entrada.html").read_bytes()
+        for path in ("/entrada", "/entrada/"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, expected)
+
+    # --- /redacao: always serves redacao.html directly (no fallback branch,
+    #     same as /reception) - new standalone shell around the existing
+    #     essay*.js files, previously only reachable as a tab inside
+    #     index.html. ---
+
+    def test_redacao_serves_redacao_html(self):
+        expected = (WEB_DIR / "redacao.html").read_bytes()
+        for path in ("/redacao", "/redacao/"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, expected)
 
 
 if __name__ == "__main__":

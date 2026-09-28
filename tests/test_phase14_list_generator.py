@@ -119,14 +119,19 @@ async def _seed(factory: async_sessionmaker[AsyncSession]) -> dict:
                 official_answer_label=correct, resolved_option_id=opts[correct].id, page_number=1,
             ))
             if num in (130, 132):
+                md = {"taxonomy_version": "curriculum-v2",
+                      "primary_content_code": "MATH-ALGEBRA-FUNCTIONS", "evidence": []}
+                if num == 132:
+                    # PHASE 33 - one classified question depends on a visual asset
+                    # the system does not store; used to verify propagation into
+                    # the generated list / export, never into the others.
+                    md["visual_dependency"] = True
                 s.add(PedagogicalClassification(
                     question_version_id=v.id, discipline="CURRICULUM_PROPOSAL",
                     content="MATH-ALGEBRA-FUNCTIONS", subcontent="MATH-ALGEBRA-FUNCTIONS",
                     difficulty="UNKNOWN", reasoning_type="UNSPECIFIED", prerequisites=[], keywords=[],
                     competencies=[], skills=[], status="CLASSIFIED", source="rule", lifecycle="ACTIVE",
-                    model_version="fixture", prompt_version="v1",
-                    metadata_={"taxonomy_version": "curriculum-v2",
-                               "primary_content_code": "MATH-ALGEBRA-FUNCTIONS", "evidence": []}))
+                    model_version="fixture", prompt_version="v1", metadata_=md))
             made[num] = {"question_id": str(q.id), "question_version_id": str(v.id), "correct": correct}
         await s.commit()
         return made
@@ -349,6 +354,14 @@ class Phase14ListGeneratorTests(unittest.TestCase):
             self.assertIsNotNone(res_without["unavailable_reason"])
         finally:
             self.loop.run_until_complete(_set(None))  # never leave fixture state mutated
+
+    # -- PHASE 33 - has_visual_dependency must survive bank_item -> GeneratedListItem --
+    def test_has_visual_dependency_propagates_per_item(self):
+        d = self._gen(self.all_vids, answer_key_presentation="NONE").json()
+        by_number = {it["official_number"]: it for it in d["items"]}
+        self.assertTrue(by_number[132]["has_visual_dependency"])
+        for num in (130, 131, 133, 96):
+            self.assertFalse(by_number[num]["has_visual_dependency"], num)
 
     # -- acceptance walk: 10+ questions is out of fixture range, but the pipeline shape holds --
     def test_full_pipeline_shape(self):

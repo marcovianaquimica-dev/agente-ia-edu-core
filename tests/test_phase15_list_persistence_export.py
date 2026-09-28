@@ -40,6 +40,7 @@ from agente_ia_edu.db.models import (
 )
 from agente_ia_edu.db.models.assessments import Assessment, AssessmentItem, AssessmentVersion
 from agente_ia_edu.identity import AuthenticatedUserContext
+from agente_ia_edu.services.list_export import _VISUAL_DEPENDENCY_NOTE
 
 ANSWERS = {130: "C", 131: "A", 132: "E", 133: "B", 96: "D", 97: "A", 98: "B"}
 
@@ -98,12 +99,16 @@ async def _seed(factory) -> dict:
             s.add(AnswerKeyEntry(answer_key_revision_id=rev.id, booklet_question_id=bq.id,
                                  official_answer_label=correct, resolved_option_id=opts[correct].id, page_number=1))
             if num == 130:
+                # PHASE 33 - one classified question in this fixture depends on a
+                # visual asset the system does not store (used to verify the
+                # export carries an honest disclosure, never silently drops it).
                 s.add(PedagogicalClassification(
                     question_version_id=v.id, discipline="CURRICULUM_PROPOSAL", content="MATH-ALGEBRA-FUNCTIONS",
                     subcontent="MATH-ALGEBRA-FUNCTIONS", difficulty="UNKNOWN", reasoning_type="U",
                     prerequisites=[], keywords=[], competencies=[], skills=[], status="CLASSIFIED",
                     source="rule", lifecycle="ACTIVE", model_version="fx", prompt_version="v1",
-                    metadata_={"taxonomy_version": "curriculum-v2", "primary_content_code": "MATH-ALGEBRA-FUNCTIONS", "evidence": []}))
+                    metadata_={"taxonomy_version": "curriculum-v2", "primary_content_code": "MATH-ALGEBRA-FUNCTIONS",
+                               "evidence": [], "visual_dependency": True}))
             made[num] = {"question_id": str(q.id), "question_version_id": str(v.id), "correct": correct}
         await s.commit()
         return made
@@ -178,6 +183,11 @@ class Phase15Tests(unittest.TestCase):
         self.assertTrue(d["persisted"]["fingerprint_matches"])
         self.assertEqual(d["persisted"]["stored_fingerprint"], s["selection_fingerprint"])
         self.assertTrue(d["persisted"]["editable"])
+        # PHASE 33 - has_visual_dependency survives persistence + retrieval, per item
+        by_number = {i["official_number"]: i for i in d["items"]}
+        self.assertTrue(by_number[130]["has_visual_dependency"])
+        for num in (131, 132, 133, 96, 97, 98):
+            self.assertFalse(by_number[num]["has_visual_dependency"], num)
 
     # -- persists on the reused Assessment tables, one version, ordered items --
     def test_persisted_on_assessment_tables(self):
@@ -344,6 +354,17 @@ class Phase15Tests(unittest.TestCase):
         self.assertIn("Gabarito", doc_xml)
         # resolution has no official source -> the "unavailable" string, never invented text
         self.assertIn("Resolução não disponível.", doc_xml)
+        # PHASE 33 - Q130 depends on a visual asset this system does not store;
+        # the export must disclose it honestly, exactly once (only for Q130).
+        self.assertIn(_VISUAL_DEPENDENCY_NOTE, doc_xml)
+        self.assertEqual(doc_xml.count(_VISUAL_DEPENDENCY_NOTE), 1)
+        if pdf.content:
+            import pymupdf as fitz
+            pdf_doc = fitz.open(stream=pdf.content, filetype="pdf")
+            pdf_text = "\n".join(page.get_text() for page in pdf_doc)
+            pdf_doc.close()
+            self.assertIn(_VISUAL_DEPENDENCY_NOTE, pdf_text)
+            self.assertEqual(pdf_text.count(_VISUAL_DEPENDENCY_NOTE), 1)
 
     def test_export_no_answer_key_when_mode_none(self):
         self._as(_ctx("prof_nokey"))

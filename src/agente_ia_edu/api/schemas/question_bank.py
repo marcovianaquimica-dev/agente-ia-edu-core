@@ -193,6 +193,7 @@ class QBGeneratedListItem(BaseModel):
     statement: str
     options: list[QBGeneratedOption]
     answer_key: QBAnswerKey | None
+    has_visual_dependency: bool
 
 
 class QBListConfiguration(BaseModel):

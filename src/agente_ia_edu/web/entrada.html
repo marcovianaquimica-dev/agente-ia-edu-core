@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENTE IA EDU — Entrada</title>
+  <!-- served at /entrada but its static assets are mounted at
+       /entrada/assets/ - resolve every relative asset there. API calls are
+       absolute (/api/v1/...) and unaffected. -->
+  <base href="/entrada/assets/">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="entrada.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="entrada-body">
+  <main class="entrada-container">
+    <div class="entrada-brand">
+      <div class="brand-logo">🎓</div>
+      <div class="brand-text">AGENTE IA <span>EDU</span></div>
+    </div>
+
+    <div class="card entrada-identity-box">
+      <h1>Entrar na plataforma</h1>
+      <p class="empty-text">Informe sua identidade de aluno para continuar.</p>
+      <div class="form-group">
+        <label for="entrada-student-id">Identidade do aluno</label>
+        <input type="text" id="entrada-student-id" class="text-input" placeholder="student:alice" autocomplete="off">
+      </div>
+      <button id="entrada-confirm-btn" class="btn btn-primary" type="button">Entrar</button>
+      <p id="entrada-loading" class="empty-text" hidden>Verificando os módulos habilitados para sua escola...</p>
+    </div>
+
+    <div id="entrada-error" class="alert-banner entrada-error" role="alert" style="display:none;"></div>
+
+    <div id="entrada-cards" class="entrada-cards" style="display:none;">
+      <button class="card entrada-card" type="button" data-env="agente">
+        <span class="entrada-card-icon">🎓</span>
+        <h2>Agente IA Edu</h2>
+        <p>Diagnóstico, trilha de estudos, prática e materiais.</p>
+      </button>
+      <button class="card entrada-card" type="button" data-env="redacao">
+        <span class="entrada-card-icon">📝</span>
+        <h2>Plataforma de Redação</h2>
+        <p>Treino de redação no padrão ENEM.</p>
+      </button>
+    </div>
+  </main>
+  <script src="entrada.js"></script>
+</body>
+</html>

@@ -53,12 +53,12 @@
         <button class="nav-item" data-view="evolution">
           <span class="icon">📈</span> Minha Evolução
         </button>
-        <button class="nav-item" data-view="essay">
-          <span class="icon">📝</span> Redação
-        </button>
         <button class="nav-item" data-view="profile">
           <span class="icon">👤</span> Meu Perfil
         </button>
+        <a class="nav-item" href="/entrada">
+          <span class="icon">🔀</span> Trocar de ambiente
+        </a>
       </nav>
 
       <div class="user-badge">
@@ -575,11 +575,6 @@
           <div id="evolution-stats-container" class="evolution-body" aria-live="polite"></div>
         </section>
 
-        <!-- 7. REDAÇÃO VIEW -->
-        <section id="view-essay" class="view-panel">
-          <div id="essay-root" aria-live="polite"></div>
-        </section>
-
         <!-- 8. MEU PERFIL VIEW -->
         <section id="view-profile" class="view-panel">
           <div class="card">
@@ -598,10 +593,6 @@
   </div>
 
   <script src="evolution.js"></script>
-  <script src="essay-annotations.js"></script>
-  <script src="essay-report.js"></script>
-  <script src="essay-evolution.js"></script>
-  <script src="essay.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

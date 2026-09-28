@@ -234,9 +234,13 @@ class VideoDiscoveryService:
                 persisted_candidates.append(existing)
                 continue
 
-            # Classify candidate if classifier provided
-            confidence = Decimal("0.0000")
-            recommended_difficulty = "EASY"
+            # Classify candidate if classifier provided. Both fields default
+            # to None (not a fabricated 0.0000 / "EASY") because no
+            # classification has actually run yet - the column is nullable
+            # for exactly this reason. They are only ever overwritten below
+            # once a real classifier result is available.
+            confidence: Decimal | None = None
+            recommended_difficulty: str | None = None
             status = CandidateStatus.DISCOVERED
 
             if classifier:

@@ -89,6 +89,8 @@ def create_app() -> FastAPI:
         app.mount("/reception/assets", StaticFiles(directory=str(web_dir), html=False), name="reception-assets")
         app.mount("/question-bank/assets", StaticFiles(directory=str(web_dir), html=False), name="question-bank-assets")
         app.mount("/admin/assets", StaticFiles(directory=str(web_dir), html=False), name="admin-assets")
+        app.mount("/entrada/assets", StaticFiles(directory=str(web_dir), html=False), name="entrada-assets")
+        app.mount("/redacao/assets", StaticFiles(directory=str(web_dir), html=False), name="redacao-assets")
 
         @app.get("/teacher", include_in_schema=False)
         @app.get("/teacher/", include_in_schema=False)
@@ -126,6 +128,16 @@ def create_app() -> FastAPI:
             if page.exists():
                 return FileResponse(page)
             return FileResponse(web_dir / "index.html")
+
+        @app.get("/entrada", include_in_schema=False)
+        @app.get("/entrada/", include_in_schema=False)
+        async def serve_entrada():
+            return FileResponse(web_dir / "entrada.html")
+
+        @app.get("/redacao", include_in_schema=False)
+        @app.get("/redacao/", include_in_schema=False)
+        async def serve_redacao():
+            return FileResponse(web_dir / "redacao.html")
 
     return app
 

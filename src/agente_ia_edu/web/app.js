@@ -127,7 +127,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'material-reader': { title: 'Material', sub: 'Estude o conteúdo, seção por seção' },
       'videos': { title: 'Videoaulas Recomendadas', sub: 'Aulas interativas e personalizadas para seu nível' },
       'evolution': { title: 'Minha Evolução', sub: 'Veja o que você já domina e descubra seu melhor próximo passo' },
-      'essay': { title: 'Módulo Redação IA', sub: 'Treino de redação no padrão ENEM' },
       'profile': { title: 'Meu Perfil', sub: 'Informações da sua conta e escola' },
     };
 
@@ -141,7 +140,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (viewName === 'diagnostic') initDiagnosticView();
     if (viewName === 'learning-path') loadLearningPathData();
     if (viewName === 'evolution') loadEvolutionData();
-    if (viewName === 'essay') window.EssayView.init();
     if (viewName === 'materials') loadMaterialsView();
     if (viewName === 'videos') loadVideosView();
     if (viewName === 'activities') loadActivitiesView();
@@ -332,26 +330,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 4. Materials View
+  // 4. Materials View — the real PHASE 23/25 catalog (TheoryMaterial /
+  // TheoryMaterialVersion), the SAME source "📘 Estudar agora" (Trilha) uses.
+  // Never the legacy RecommendationEngine resource pipeline surfaced on the
+  // Dashboard - that one stays for other screens (Dashboard/Vídeos), but it
+  // is not this tab's catalog.
   async function loadMaterialsView() {
     const container = document.getElementById('materials-list-container');
-    if (!state.dashboardData) {
-      await loadDashboardData();
-    }
-    const rec = state.dashboardData?.active_recommendation;
-    if (rec && rec.primary_resource) {
-      const r = rec.primary_resource;
-      container.innerHTML = `
-        <div class="card">
-          <h4>📖 ${r.title}</h4>
-          <p>${r.description || 'Apostila recomendada para revisão.'}</p>
-          <span class="badge badge-primary" style="margin-top:10px; display:inline-block;">${r.resource_type}</span>
+    container.innerHTML = '<p>Carregando materiais teóricos...</p>';
+    try {
+      const res = await studentRequest('/api/v1/student/materials');
+      if (!res.ok) throw new Error('Falha ao carregar materiais');
+      const materials = await res.json();
+      if (!materials.length) {
+        container.innerHTML = '<p class="empty-text">Nenhum material teórico disponível para você no momento.</p>';
+        return;
+      }
+      container.innerHTML = materials.map((m) => `
+        <div class="card material-card">
+          <div class="card-header">
+            <h4>📖 ${escActivity(m.title || 'Material')}</h4>
+            ${m.material_kind ? `<span class="badge badge-primary">${escActivity(m.material_kind)}</span>` : ''}
+          </div>
+          <p>${escActivity(m.description || 'Sem descrição.')}</p>
+          <p class="material-card-meta">
+            ${m.content_code ? `<span>${escActivity(m.content_code)}</span>` : ''}
+            <span>${m.section_count || 0} seç${m.section_count === 1 ? 'ão' : 'ões'}</span>
+            ${m.estimated_minutes ? `<span>~${m.estimated_minutes} min de leitura</span>` : ''}
+          </p>
+          <button class="btn btn-secondary materials-open-btn" type="button"
+            data-material-id="${escActivity(m.material_id)}">📘 Abrir material</button>
         </div>
-      `;
-    } else {
-      container.innerHTML = '<p class="empty-text">Acesse a aba Início para ver os materiais da sua trilha recomendada.</p>';
+      `).join('');
+    } catch (err) {
+      console.warn('Materials API call error:', err);
+      container.innerHTML = '<p class="empty-text">Erro ao carregar materiais teóricos.</p>';
     }
   }
+
+  (function wireMaterialsView() {
+    const container = document.getElementById('materials-list-container');
+    if (!container) return;
+    container.addEventListener('click', (e) => {
+      const btn = e.target.closest('.materials-open-btn');
+      if (btn) openMaterialReader(btn.dataset.materialId, { returnTo: 'materials' });
+    });
+  })();
 
   // 5. Videos View
   async function loadVideosView() {
@@ -2499,7 +2523,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (backBtn) backBtn.addEventListener('click', () => {
       const flow = materialReaderFlow || {};
       materialReaderFlow = null;
-      switchView(flow.returnTo === 'study-session' ? 'study-session' : 'study-path');
+      const dest = flow.returnTo === 'study-session' ? 'study-session'
+        : flow.returnTo === 'materials' ? 'materials'
+        : 'study-path';
+      switchView(dest);
     });
     const prevBtn = document.getElementById('mr-prev');
     if (prevBtn) prevBtn.addEventListener('click', () => {
