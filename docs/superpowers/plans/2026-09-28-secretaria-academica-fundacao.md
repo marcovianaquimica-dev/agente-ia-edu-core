@@ -16,7 +16,7 @@
 - Toda entidade nova carrega `school_id` não nulo com `ForeignKey("schools.id", ondelete="RESTRICT")`.
 - Toda entidade que será referenciada por chave estrangeira composta declara `UniqueConstraint("school_id", "id")` — é o que permite à tabela filha nomear `(school_id, pai_id)` e impedir o cruzamento de escolas no próprio banco.
 - Migrations são **aditivas**: nenhuma tabela existente é alterada em nenhuma task deste plano. Todo `upgrade()` tem `downgrade()` funcional.
-- `revision` segue o padrão `NNN_nome_curto`; a cadeia deste plano começa em `down_revision = "056_material_assignments"`. **Se a migration 056 não tiver sido mergeada quando este plano for executado** (ela está no working tree mas não commitada em 2026-09-28), aponte a Task 1 para `055_essay_prompt_soft_delete` e mantenha o resto da cadeia intacto.
+- `revision` segue o padrão `NNN_nome_curto`; a cadeia deste plano começa em `down_revision = "055_essay_prompt_soft_delete"`. **Decisão de execução (2026-09-28):** a migration `056_material_assignments` pertence à leva de segmentação, que estava no working tree sem commit quando este plano começou a ser executado, e portanto não existe no worktree isolado. Ancorar em 055 é o que faz a cadeia subir. Quando a leva de segmentação for mergeada, o Alembic terá dois heads (056 e 057): reaponte `057_academic_registry_base.down_revision` para `"056_material_assignments"` no momento do merge, ou use `alembic merge`. Não altere esta âncora durante a execução do plano.
 - Testes de modelo rodam em SQLite in-memory com `PRAGMA foreign_keys=ON` registrado antes do primeiro connect — sem isso o SQLite ignora chave estrangeira e o teste passa provando nada.
 - Testes de migration rodam em PostgreSQL real na porta 5433, em banco dedicado, com `upgrade → downgrade → re-upgrade`.
 - A suíte completa (`pytest`) roda ao fim de cada task. Coluna nova em tabela existente não se verifica pela leitura da migration.
@@ -436,7 +436,7 @@ Crie `migrations/versions/057_academic_registry_base.py`:
 """Secretaria academica - cadastros base: disciplina, sala, professor.
 
 Revision ID: 057_academic_registry_base
-Revises: 056_material_assignments
+Revises: 055_essay_prompt_soft_delete
 
 Puramente aditiva: nenhuma tabela existente e tocada. As chaves estrangeiras
 compostas (school_id, pai_id) apontam para as UniqueConstraint (school_id, id)
@@ -450,7 +450,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "057_academic_registry_base"
-down_revision = "056_material_assignments"
+down_revision = "055_essay_prompt_soft_delete"
 branch_labels = None
 depends_on = None
 
@@ -568,7 +568,7 @@ def downgrade() -> None:
 
 Run:
 ```bash
-alembic upgrade head && alembic downgrade 056_material_assignments && alembic upgrade head
+alembic upgrade head && alembic downgrade 055_essay_prompt_soft_delete && alembic upgrade head
 ```
 Expected: os três comandos terminam sem erro. Se o `downgrade` falhar, corrija `downgrade()` antes de prosseguir — uma migration sem volta trava o ambiente de desenvolvimento de todo mundo.
 
@@ -3787,7 +3787,7 @@ _TABLES = (
     "person_civil_records",
 )
 
-_BASE_REVISION = "056_material_assignments"
+_BASE_REVISION = "055_essay_prompt_soft_delete"
 _HEAD_REVISION = "062_person_civil_record"
 
 
