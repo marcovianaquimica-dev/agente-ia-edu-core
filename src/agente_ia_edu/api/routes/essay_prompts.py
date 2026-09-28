@@ -7,12 +7,15 @@ the same role set catalog.py's create_material/create_resource already use.
 
 from __future__ import annotations
 
+import tempfile
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +24,14 @@ from ..dependencies import get_current_identity, get_session_factory
 from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
+from ...services.essay_dashboard_export import build_essay_dashboard_xlsx, xlsx_media_type
 from ...services.essay_proposal import EssayProposalService
+from ...services.essay_teacher_dashboard import EssayDashboardResponse, build_essay_prompt_dashboard
+from ...services.material_storage import MaterialStorage
+
+# Same cap essay_submissions.py's page/document uploads already use - no
+# reason for a teacher's motivational-material upload to be more permissive.
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 essay_prompts_router = APIRouter(prefix="/api/v1/catalog/essay-prompts", tags=["essay-prompts"])
 
@@ -70,6 +80,17 @@ class PromptAssignmentResponse(BaseModel):
     class_id: UUID
     status: str
     validation_enabled: bool
+
+
+class PromptAssignmentBulkCreateRequest(BaseModel):
+    class_ids: list[UUID] = Field(..., min_length=1)
+    due_at: Optional[datetime] = None
+    validation_enabled: bool = True
+
+
+class PromptAssignmentBulkCreateResponse(BaseModel):
+    assigned: list[PromptAssignmentResponse]
+    failures: dict[str, str]
 
 
 async def _authorize(
@@ -172,6 +193,66 @@ async def add_prompt_material(
 
 
 @essay_prompts_router.post(
+    "/{essay_prompt_id}/materials/upload", status_code=201, response_model=PromptMaterialResponse
+)
+async def upload_prompt_material(
+    essay_prompt_id: UUID,
+    position: int = Form(...),
+    file: UploadFile = File(...),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> PromptMaterialResponse:
+    """Real file upload for a "texto motivador" (any file type - a teacher
+    may attach a reportagem PDF, an infographic image, a chart screenshot,
+    whatever the proposal needs). Mirrors essay_submissions.py's page/
+    document upload: stream to a capped temp file first, THEN hand the real
+    path to MaterialStorage (the same content-addressed local store student
+    essay uploads already use), so a bad/huge upload never lands a partial
+    file in managed storage."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="r2_prompt_material_upload_"))
+        tmp_path = tmp_dir / (file.filename or "material")
+        size = 0
+        with open(tmp_path, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > _MAX_UPLOAD_BYTES:
+                    out.close()
+                    tmp_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file too large (max 25MB)")
+                out.write(chunk)
+
+        managed_path, _digest = MaterialStorage().store(tmp_path)
+
+        service = EssayProposalService(session)
+        try:
+            material = await service.add_material(
+                school_id=school_id,
+                essay_prompt_id=essay_prompt_id,
+                material_type="FILE",
+                storage_uri=str(managed_path),
+                position=position,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # See create_essay_prompt above: build the response before commit()
+        # expires `material`, to avoid a MissingGreenlet error in
+        # production (expire_on_commit=True).
+        response = PromptMaterialResponse(
+            id=material.id, essay_prompt_id=material.essay_prompt_id,
+            material_type=material.material_type, content=material.content,
+            storage_uri=material.storage_uri, position=material.position,
+        )
+        await session.commit()
+        return response
+
+
+@essay_prompts_router.post(
     "/{essay_prompt_id}/assignments", status_code=201, response_model=PromptAssignmentResponse
 )
 async def create_prompt_assignment(
@@ -207,6 +288,104 @@ async def create_prompt_assignment(
         )
         await session.commit()
         return response
+
+
+@essay_prompts_router.post(
+    "/{essay_prompt_id}/assignments/bulk", response_model=PromptAssignmentBulkCreateResponse
+)
+async def create_prompt_assignments_bulk(
+    essay_prompt_id: UUID,
+    request: PromptAssignmentBulkCreateRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> PromptAssignmentBulkCreateResponse:
+    """Atribui a mesma proposta a varias turmas de uma vez (pedido do
+    professor: escolher multiplas turmas ao inves de repetir o fluxo de
+    atribuicao turma por turma). Best-effort por turma, igual ao
+    bulk-approve de correcoes - uma turma ja atribuida antes nao derruba as
+    demais."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        service = EssayProposalService(session)
+        assigned, failures = await service.create_assignments_bulk(
+            school_id=school_id,
+            essay_prompt_id=essay_prompt_id,
+            class_ids=request.class_ids,
+            assigned_by_external_identity=identity.external_user_id,
+            due_at=request.due_at,
+            validation_enabled=request.validation_enabled,
+        )
+        return PromptAssignmentBulkCreateResponse(
+            assigned=[PromptAssignmentResponse(**a) for a in assigned],
+            failures={str(class_id): reason for class_id, reason in failures.items()},
+        )
+
+
+@essay_prompts_router.get("/{essay_prompt_id}/dashboard", response_model=EssayDashboardResponse)
+async def get_essay_prompt_dashboard(
+    essay_prompt_id: UUID,
+    grade_level_id: Optional[UUID] = Query(None),
+    class_id: Optional[UUID] = Query(None),
+    student_id: Optional[UUID] = Query(None),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayDashboardResponse:
+    """% de entrega, media geral, media por competencia, lista de quem
+    entregou/nao entregou e o plano de acao da turma para esta proposta -
+    ve services/essay_teacher_dashboard.py para a logica de agregacao
+    (determinstica, sem chamada de IA)."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        try:
+            return await build_essay_prompt_dashboard(
+                session, school_id=school_id, essay_prompt_id=essay_prompt_id,
+                grade_level_id=grade_level_id, class_id=class_id, student_id=student_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@essay_prompts_router.get("/{essay_prompt_id}/dashboard/export.xlsx")
+async def export_essay_prompt_dashboard_xlsx(
+    essay_prompt_id: UUID,
+    report_type: str = Query(..., pattern="^(grades_total|grades_per_competency|submission_list)$"),
+    grade_level_id: Optional[UUID] = Query(None),
+    class_id: Optional[UUID] = Query(None),
+    student_id: Optional[UUID] = Query(None),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    """Same three views the dashboard screen offers (nota total / nota por
+    competencia / quem entregou), exported as a real XLSX file - the same
+    filters (serie/turma/aluno) narrow the export exactly like they narrow
+    the on-screen dashboard, since both read from the same
+    build_essay_prompt_dashboard() call."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        prompt = await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        try:
+            dashboard = await build_essay_prompt_dashboard(
+                session, school_id=school_id, essay_prompt_id=essay_prompt_id,
+                grade_level_id=grade_level_id, class_id=class_id, student_id=student_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        data = build_essay_dashboard_xlsx(dashboard, report_type=report_type)
+        safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in prompt.title).strip() or "redacao"
+        filename = f"{report_type}-{safe_title[:60]}.xlsx"
+        return Response(
+            content=data, media_type=xlsx_media_type(),
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 class EssayPromptDetailResponse(EssayPromptResponse):

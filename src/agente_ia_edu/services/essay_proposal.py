@@ -70,9 +70,9 @@ class EssayProposalService:
             )
         if material_type == "TEXT" and not content:
             raise ValueError("material_type=TEXT requires content")
-        if material_type == "IMAGE" and not storage_uri:
-            raise ValueError("material_type=IMAGE requires storage_uri")
-        if material_type not in ("TEXT", "IMAGE"):
+        if material_type in ("IMAGE", "FILE") and not storage_uri:
+            raise ValueError(f"material_type={material_type} requires storage_uri")
+        if material_type not in ("TEXT", "IMAGE", "FILE"):
             raise ValueError(f"Unknown material_type: {material_type!r}")
 
         material = PromptMaterial(
@@ -143,6 +143,49 @@ class EssayProposalService:
                 f"EssayPrompt {essay_prompt_id} is already assigned to class {class_id}"
             ) from exc
         return assignment
+
+    async def create_assignments_bulk(
+        self,
+        *,
+        school_id: uuid.UUID,
+        essay_prompt_id: uuid.UUID,
+        class_ids: list[uuid.UUID],
+        assigned_by_external_identity: str,
+        due_at: datetime | None = None,
+        validation_enabled: bool = True,
+    ) -> tuple[list[dict], dict[uuid.UUID, str]]:
+        """Best-effort per class, mirroring EssayCorrectionService.bulk_approve
+        - one class already assigned to this prompt (IntegrityError ->
+        ValueError inside create_assignment) must never block the rest of
+        the batch. create_assignment() itself calls session.rollback() on
+        that conflict, which - inside a shared multi-class loop - would
+        ALSO discard any earlier class in this same batch that was flushed
+        but not yet committed; committing after every individual success
+        keeps each class's rollback blast radius to itself. The field
+        values are captured into a plain dict before that commit (not the
+        ORM object itself), since expire_on_commit=True in production
+        would otherwise force a lazy re-select on the next attribute read -
+        the same MissingGreenlet hazard every other route+commit pair in
+        this codebase already works around by building the response before
+        committing."""
+        assigned: list[dict] = []
+        failures: dict[uuid.UUID, str] = {}
+        for class_id in class_ids:
+            try:
+                assignment = await self.create_assignment(
+                    school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id,
+                    assigned_by_external_identity=assigned_by_external_identity,
+                    due_at=due_at, validation_enabled=validation_enabled,
+                )
+                assigned.append({
+                    "id": assignment.id, "school_id": assignment.school_id,
+                    "essay_prompt_id": assignment.essay_prompt_id, "class_id": assignment.class_id,
+                    "status": assignment.status, "validation_enabled": assignment.validation_enabled,
+                })
+                await self.session.commit()
+            except ValueError as exc:
+                failures[class_id] = str(exc)
+        return assigned, failures
 
 
 __all__ = ["EssayProposalService"]
