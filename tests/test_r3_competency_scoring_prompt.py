@@ -114,6 +114,20 @@ class CompetencyScoringPromptTests(unittest.TestCase):
         prompt = self._prompt(mechanical_review=[])
         self.assertNotIn("NAO equivale, por si so, a dominio insuficiente", prompt)
 
+    def test_c1_rationale_gets_a_caveat_against_overstating_severity(self):
+        prompt = self._prompt(competency_code="C1", rationale={
+            "summary": "Domínio insuficiente.", "strengths": "Vocabulário formal.",
+            "growth_area": "Revisar concordancia.",
+        })
+        self.assertIn("o RESUMO do juizo holistico as vezes descreve", prompt)
+
+    def test_other_competencies_rationale_gets_no_c1_caveat(self):
+        prompt = self._prompt(competency_code="C3", rationale={
+            "summary": "Argumentacao mediana.", "strengths": "Bons exemplos.",
+            "growth_area": "Aprofundar.",
+        })
+        self.assertNotIn("o RESUMO do juizo holistico as vezes descreve", prompt)
+
     def test_no_rationale_block_when_not_given(self):
         prompt = self._prompt(rationale=None)
         self.assertNotIn("EVIDENCIA - juizo holistico", prompt)

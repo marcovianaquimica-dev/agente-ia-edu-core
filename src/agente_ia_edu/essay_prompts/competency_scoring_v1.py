@@ -141,6 +141,17 @@ _RULES_MECHANICAL_SEVERITY = (
 )
 
 
+_RULES_C1_RATIONALE_CAVEAT = (
+    "ATENCAO especifica sobre o juizo holistico acima: em C1, o RESUMO do "
+    "juizo holistico as vezes descreve o desempenho de forma mais severa "
+    "do que a evidencia concreta (anotacoes + ocorrencias mecanicas acima) "
+    "sustenta - e um vies conhecido desta etapa. Trate o resumo como um "
+    "indicio a mais, nunca como o fator decisivo: ancore a decisao final "
+    "principalmente nas anotacoes e no resumo deterministico de tipos "
+    "mecanicos acima, nao no adjetivo usado no resumo do juizo holistico.\n"
+)
+
+
 def build_prompt(
     *,
     competency_code: str,
@@ -207,6 +218,8 @@ def build_prompt(
             f"- Pontos fortes: {rationale['strengths']}\n"
             f"- Ponto de melhoria: {rationale['growth_area']}\n"
         )
+        if competency_code == "C1":
+            rationale_block += _RULES_C1_RATIONALE_CAVEAT
     else:
         rationale_block = ""
 
