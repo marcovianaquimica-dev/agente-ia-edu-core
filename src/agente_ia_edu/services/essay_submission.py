@@ -260,6 +260,8 @@ class EssaySubmissionService:
             existing.height = height
             existing.ocr_tokens = None
             existing.reviewed_text = None
+            existing.input_tokens = None
+            existing.output_tokens = None
             page = existing
         else:
             page = EssaySubmissionPage(
@@ -358,6 +360,13 @@ class EssaySubmissionService:
         last_error: ProviderError | None = None
         best_tokens: tuple | None = None
         best_average_confidence = -1.0
+        # Summed across every actual OpenAI call this page triggers - a
+        # retried or low-confidence-reattempted page really did cost the sum
+        # of all those attempts, not just whichever one is finally kept.
+        # None until at least one attempt reports real usage, so a provider
+        # that never reports usage never masquerades as a real zero-cost page.
+        total_input_tokens: int | None = None
+        total_output_tokens: int | None = None
         for attempt in range(1, self._OCR_ATTEMPTS + 1):
             try:
                 result = await self._get_transcriber().transcribe_page(
@@ -365,6 +374,10 @@ class EssaySubmissionService:
                         image_path=image_path, mime_type=_guess_mime(image_path)
                     )
                 )
+                if result.input_tokens is not None:
+                    total_input_tokens = (total_input_tokens or 0) + result.input_tokens
+                if result.output_tokens is not None:
+                    total_output_tokens = (total_output_tokens or 0) + result.output_tokens
                 tokens = result.tokens
                 average_confidence = (
                     sum(t.confidence for t in tokens) / len(tokens) if tokens else 0.0
@@ -373,7 +386,9 @@ class EssaySubmissionService:
                     best_tokens = tokens
                     best_average_confidence = average_confidence
                 if average_confidence >= self._MIN_AVERAGE_CONFIDENCE:
-                    await self._finalize_page_tokens(page, tokens, image_path)
+                    await self._finalize_page_tokens(
+                        page, tokens, image_path, total_input_tokens, total_output_tokens
+                    )
                     return
                 logger.warning(
                     "transcription attempt %d/%d for page %s scored low average "
@@ -389,24 +404,36 @@ class EssaySubmissionService:
         # Every attempt scored below the floor (or errored): the explicit
         # product decision is to always transcribe regardless of quality, so
         # a low-confidence result still beats no result at all - use
-        # whichever attempt scored best rather than whichever ran last.
+        # whichever attempt scored best rather than whichever ran last. The
+        # token totals still reflect EVERY attempt made, not just the kept one.
         if best_tokens is not None:
-            await self._finalize_page_tokens(page, best_tokens, image_path)
+            await self._finalize_page_tokens(
+                page, best_tokens, image_path, total_input_tokens, total_output_tokens
+            )
             return
         raise last_error
 
     async def _finalize_page_tokens(
-        self, page: EssaySubmissionPage, tokens: tuple, image_path: Path
+        self, page: EssaySubmissionPage, tokens: tuple, image_path: Path,
+        total_input_tokens: int | None, total_output_tokens: int | None,
     ) -> None:
-        reconciled = await self._reconcile_low_confidence_tokens(tokens, image_path)
+        reconciled, extra_input_tokens, extra_output_tokens = (
+            await self._reconcile_low_confidence_tokens(tokens, image_path)
+        )
+        if extra_input_tokens is not None:
+            total_input_tokens = (total_input_tokens or 0) + extra_input_tokens
+        if extra_output_tokens is not None:
+            total_output_tokens = (total_output_tokens or 0) + extra_output_tokens
         page.ocr_tokens = [
             {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
             for t in reconciled
         ]
+        page.input_tokens = total_input_tokens
+        page.output_tokens = total_output_tokens
 
     async def _reconcile_low_confidence_tokens(
         self, tokens: tuple, image_path: Path
-    ) -> tuple:
+    ) -> tuple[tuple, int | None, int | None]:
         """A second, fully independent transcription of the SAME page,
         requested ONLY when `tokens` has at least one low-confidence entry -
         every other page never pays this extra call. The second reading is
@@ -425,14 +452,20 @@ class EssaySubmissionService:
         confidence is left untouched - the explicit product decision (see
         OCR_DUVIDOSO in essay_prompts) is that a genuine ambiguity is
         surfaced to a human, never silently resolved by picking whichever
-        reading "sounds more correct"."""
+        reading "sounds more correct".
+
+        Returns (tokens, input_tokens, output_tokens): the last two are the
+        SECOND call's own usage (None when no second call was made, e.g. no
+        low-confidence tokens at all) - the caller adds this to the page's
+        running total, since a reconciliation attempt costs real tokens
+        whether or not it ends up confirming anything."""
         if not any(t.confidence < self._LOW_CONFIDENCE_TOKEN_THRESHOLD for t in tokens):
-            return tokens
+            return tokens, None, None
 
         text1 = _reconstruct_text_from_tokens(tokens)
         word_spans1 = [m.span() for m in re.finditer(r"\S+", text1)]
         if not word_spans1:
-            return tokens
+            return tokens, None, None
 
         def _is_low_confidence(span: tuple[int, int]) -> bool:
             start, end = span
@@ -446,7 +479,7 @@ class EssaySubmissionService:
             i for i, span in enumerate(word_spans1) if _is_low_confidence(span)
         }
         if not low_confidence_word_indices:
-            return tokens
+            return tokens, None, None
 
         try:
             second_result = await self._get_transcriber().transcribe_page(
@@ -459,7 +492,7 @@ class EssaySubmissionService:
                 "low-confidence reconciliation read failed for %s, keeping "
                 "original tokens: %s", image_path, exc,
             )
-            return tokens
+            return tokens, None, None
 
         text2 = _reconstruct_text_from_tokens(second_result.tokens)
         words1 = [text1[s:e] for s, e in word_spans1]
@@ -474,13 +507,16 @@ class EssaySubmissionService:
         reconciled_confirmed_spans = [
             word_spans1[i] for i in (low_confidence_word_indices & agreeing_word_indices)
         ]
+        # From here on the second call already happened (successfully) - its
+        # usage counts toward the page's total regardless of whether it ended
+        # up confirming anything, so both remaining returns carry it.
         if not reconciled_confirmed_spans:
-            return tokens
+            return tokens, second_result.input_tokens, second_result.output_tokens
 
         def _in_confirmed_span(t: EssayOcrToken) -> bool:
             return any(t.start < end and t.end > start for start, end in reconciled_confirmed_spans)
 
-        return tuple(
+        reconciled = tuple(
             EssayOcrToken(
                 text=t.text,
                 # max(): a token that was already above the reconciled floor
@@ -492,6 +528,7 @@ class EssaySubmissionService:
             )
             for t in tokens
         )
+        return reconciled, second_result.input_tokens, second_result.output_tokens
 
     def _get_transcriber(self) -> EssayTranscriptionProvider:
         if self._transcriber is None:

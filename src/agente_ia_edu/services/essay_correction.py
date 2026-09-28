@@ -456,6 +456,7 @@ class EssayCorrectionService:
                 "engine_version": _ENGINE_VERSION, "ai_output": None,
                 "final_scores": None, "final_feedback": None,
                 "failure_reason": f"Failed to load rubric file {_RUBRIC_FILE_NAME!r}: {exc}",
+                "input_tokens": None, "output_tokens": None,
             }
         rubric_version = rubric_file.rubric_version
         failure_fields = {
@@ -463,6 +464,7 @@ class EssayCorrectionService:
             "model_version": None, "prompt_version": _PROMPT_VERSION,
             "engine_version": _ENGINE_VERSION, "ai_output": None,
             "final_scores": None, "final_feedback": None, "failure_reason": None,
+            "input_tokens": None, "output_tokens": None,
         }
         try:
             rubric_view = await load_rubric_view(self.session, rubric_version)
@@ -486,7 +488,7 @@ class EssayCorrectionService:
 
         try:
             if submission.anchor_mode == "TEXT_OFFSET":
-                raw_payload, model_version, text, page_boxes, input_hash = (
+                raw_payload, model_version, text, page_boxes, input_hash, input_tokens, output_tokens = (
                     await self._call_text_provider(
                         submission=submission, essay_prompt=essay_prompt,
                         rubric_payload=rubric_payload, prompt_artifact=prompt_artifact,
@@ -494,7 +496,7 @@ class EssayCorrectionService:
                     )
                 )
             else:
-                raw_payload, model_version, text, page_boxes, input_hash = (
+                raw_payload, model_version, text, page_boxes, input_hash, input_tokens, output_tokens = (
                     await self._call_image_provider(
                         submission=submission, essay_prompt=essay_prompt,
                         rubric_payload=rubric_payload, prompt_artifact=prompt_artifact,
@@ -555,6 +557,7 @@ class EssayCorrectionService:
             return {
                 **failure_fields, "model_version": model_version,
                 "failure_reason": f"{exc}",
+                "input_tokens": input_tokens, "output_tokens": output_tokens,
             }
 
         key = compute_correction_key(
@@ -570,12 +573,13 @@ class EssayCorrectionService:
             "final_scores": _apply_deterministic_scoring_rules(output),
             "final_feedback": output.feedback.model_dump(mode="json"),
             "failure_reason": None,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
         }
 
     async def _call_text_provider(
         self, *, submission: EssaySubmission, essay_prompt: EssayPrompt,
         rubric_payload: dict, prompt_artifact, include_scores: bool,
-    ) -> tuple[dict, str, str, None, str]:
+    ) -> tuple[dict, str, str, None, str, int | None, int | None]:
         text = submission.canonical_text
         prompt_text = prompt_artifact.build(
             anchor_mode="TEXT_OFFSET",
@@ -586,12 +590,15 @@ class EssayCorrectionService:
             TextGenerationRequest(prompt=prompt_text)
         )
         raw_payload = json.loads(result.text)
-        return raw_payload, result.model, text, None, submission.normalized_text_hash
+        return (
+            raw_payload, result.model, text, None, submission.normalized_text_hash,
+            result.input_tokens, result.output_tokens,
+        )
 
     async def _call_image_provider(
         self, *, submission: EssaySubmission, essay_prompt: EssayPrompt,
         rubric_payload: dict, prompt_artifact, include_scores: bool,
-    ) -> tuple[dict, str, None, dict[int, tuple[float, float]], str]:
+    ) -> tuple[dict, str, None, dict[int, tuple[float, float]], str, int | None, int | None]:
         result = await self.session.execute(
             select(EssaySubmissionPage)
             .where(EssaySubmissionPage.essay_submission_id == submission.id)
@@ -620,7 +627,10 @@ class EssayCorrectionService:
         raw_payload = json.loads(result.text)
         page_boxes = {page.page_number: (page.width, page.height) for page in pages}
         input_hash = _image_pages_hash(pages)
-        return raw_payload, result.model, None, page_boxes, input_hash
+        return (
+            raw_payload, result.model, None, page_boxes, input_hash,
+            result.input_tokens, result.output_tokens,
+        )
 
 
 __all__ = ["EssayCorrectionService"]

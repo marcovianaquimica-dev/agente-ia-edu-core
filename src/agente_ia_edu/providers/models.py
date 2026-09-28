@@ -14,6 +14,13 @@ class TextGenerationResult:
     text: str
     provider: str
     model: str
+    # Real per-call token usage from the underlying LLM SDK response, when the
+    # provider reports it (e.g. OpenAI's `response.usage`). None whenever a
+    # provider doesn't expose usage at all (e.g. FakeProvider, or a real SDK
+    # response that legitimately came back with usage=None) - never a
+    # fabricated 0, so a missing cost signal never masquerades as a real one.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,9 @@ class EssayPageTranscriptionResult:
     tokens: tuple[EssayOcrToken, ...]
     provider: str
     model: str
+    # Same real-usage convention as TextGenerationResult - see its docstring.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass(frozen=True)

@@ -77,6 +77,30 @@ CREDENTIAL_COLUMN_EXCEPTIONS = {
         "False positive of the 'token' fragment, same class as the "
         "pedagogical_classifications.*_tokens entries above."
     ),
+    ("essay_submission_pages", "input_tokens"): (
+        "LLM usage counter (prompt token count, summed across every "
+        "transcribe_page attempt for the page), not a secret - false "
+        "positive of the 'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
+    ("essay_submission_pages", "output_tokens"): (
+        "LLM usage counter (completion token count, summed across every "
+        "transcribe_page attempt for the page), not a secret - false "
+        "positive of the 'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
+    ("essay_corrections", "input_tokens"): (
+        "LLM usage counter (prompt token count) for the AI call that "
+        "produced this correction, not a secret - false positive of the "
+        "'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
+    ("essay_corrections", "output_tokens"): (
+        "LLM usage counter (completion token count) for the AI call that "
+        "produced this correction, not a secret - false positive of the "
+        "'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
 }
 
 
