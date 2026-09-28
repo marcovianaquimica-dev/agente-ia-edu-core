@@ -10,6 +10,20 @@
   let prompts = [];
   let currentCorrections = [];
 
+  // Same labels/styles teacher.js's own content-mastery action plan already
+  // uses (PRIORITY_LABEL/PRIORITY_STYLE there, applied via .plan-column
+  // .column-danger/-warning/-success) - kept as a local copy here since
+  // teacher.js declares them as plain top-level `const`s, never attached to
+  // `window`, so this module (loaded as a separate script) can't reach them.
+  const DASH_PRIORITY_LABEL = { HIGH: 'Alta', MEDIUM: 'Média', LOW: 'Baixa' };
+  const DASH_PRIORITY_STYLE = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
+  // Same hex values essay-evolution.js's COMPETENCY_COLORS already uses for
+  // C1-C5, kept as a local literal copy for the same reason (that module
+  // only exports renderEvolutionSection/wireEvolutionSection, not its color
+  // map or chart primitives).
+  const DASH_COMPETENCY_COLORS = { C1: '#4f46e5', C2: '#06b6d4', C3: '#ef4444', C4: '#f59e0b', C5: '#10b981' };
+  const DASH_COMPETENCY_CODES = ['C1', 'C2', 'C3', 'C4', 'C5'];
+
   function tmEsc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -54,6 +68,7 @@
         <button class="btn ${activeTab === 'prompts' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="prompts">Propostas</button>
         <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
         <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
+        <button class="btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="dashboard">Dashboard</button>
       </div>`;
   }
 
@@ -63,6 +78,7 @@
         if (btn.dataset.tab === 'prompts') renderPromptsList();
         if (btn.dataset.tab === 'queue') renderReviewQueue();
         if (btn.dataset.tab === 'evolution') renderEvolutionTab();
+        if (btn.dataset.tab === 'dashboard') renderDashboardTab();
       });
     });
   }
@@ -161,6 +177,12 @@
     } catch (e) {
       classrooms = [];
     }
+    // classrooms only carries a real class_id when the free-text scope code
+    // already resolved to an academic-hierarchy Class row (see
+    // ClassroomSummaryItem.class_id's docstring) - only those can be
+    // assigned a proposal (PromptAssignment.class_id is a real FK).
+    const assignableClassrooms = classrooms.filter((c) => c.class_id);
+    const classNameById = new Map(assignableClassrooms.map((c) => [c.class_id, c.name]));
 
     const detailHtml = document.createElement('div');
     detailHtml.innerHTML = `
@@ -171,29 +193,30 @@
         <p class="empty-text">Status: ${tmEsc(detail.status)}</p>
 
         <h4>Materiais de apoio</h4>
-        <ul>${detail.materials.map((m) => `<li>${tmEsc(m.content || m.material_type)}</li>`).join('') || '<li class="empty-text">Nenhum material.</li>'}</ul>
+        <ul id="er-materials-list">${detail.materials.map((m) => `<li>${renderMaterialLabel(m)}</li>`).join('') || '<li class="empty-text">Nenhum material.</li>'}</ul>
         <form id="er-material-form" class="tm-form-row">
           <div class="form-group"><label for="er-material-content">Adicionar material de texto</label><textarea id="er-material-content" class="textarea-input" rows="3"></textarea></div>
+          <div class="form-group"><label for="er-material-file">Ou enviar arquivo (PDF, imagem, reportagem...)</label><input id="er-material-file" class="text-input" type="file"></div>
           <button class="btn btn-secondary" type="submit">Adicionar</button>
         </form>
         <p id="er-material-msg" class="tm-msg" hidden></p>
 
         <h4>Turmas atribuídas</h4>
-        <ul>${detail.assignments.map((a) => `<li>${tmEsc(a.class_id)} — ${tmEsc(a.status)}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
+        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(a.status)}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
         <form id="er-assign-form" class="tm-form-row">
           <div class="form-group">
-            <label for="er-assign-class">Turma</label>
-            <select id="er-assign-class" class="text-input">
-              ${classrooms.map((c) => (c.class_id
-                ? `<option value="${tmEsc(c.class_id)}">${tmEsc(c.name)}</option>`
-                : `<option value="" disabled>${tmEsc(c.name)} (sem turma cadastrada)</option>`)).join('') || '<option value="">Nenhuma turma disponível</option>'}
-            </select>
+            <label>Turmas (selecione uma ou mais)</label>
+            <div id="er-assign-classes" class="essay-class-checklist">
+              ${assignableClassrooms.map((c) => `
+                <label class="essay-class-check"><input type="checkbox" data-assign-class-id="${tmEsc(c.class_id)}"> ${tmEsc(c.name)}</label>`).join('') || '<p class="empty-text">Nenhuma turma disponível.</p>'}
+            </div>
           </div>
           <div class="form-group"><label for="er-assign-due">Prazo (opcional)</label><input id="er-assign-due" class="text-input" type="date"></div>
           <div class="form-group"><label for="er-assign-validation"><input id="er-assign-validation" type="checkbox" checked> Exigir revisão docente</label></div>
-          <button class="btn btn-primary" type="submit">Atribuir</button>
+          <button class="btn btn-primary" type="submit">Atribuir às turmas selecionadas</button>
         </form>
         <p id="er-assign-msg" class="tm-msg" hidden></p>
+        <ul id="er-assign-failures" class="essay-assign-failures" hidden></ul>
       </div>`;
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
@@ -203,31 +226,57 @@
     container.querySelector('#er-material-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const content = container.querySelector('#er-material-content').value.trim();
+      const fileInput = container.querySelector('#er-material-file');
+      const file = fileInput.files[0];
       const msg = container.querySelector('#er-material-msg');
-      if (!content) return;
+      msg.hidden = true;
+      if (!content && !file) return;
+      const submitBtn = ev.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
       try {
-        await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/materials`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ material_type: 'TEXT', content, position: detail.materials.length }),
-        });
+        if (file) {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('position', String(detail.materials.length));
+          await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/materials/upload`, {
+            method: 'POST', body: formData,
+          });
+        } else {
+          await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/materials`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ material_type: 'TEXT', content, position: detail.materials.length }),
+          });
+        }
         renderPromptDetail(promptId);
       } catch (e) {
         msg.hidden = false;
         msg.textContent = e.message;
+        submitBtn.disabled = false;
       }
     });
     container.querySelector('#er-assign-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      const classId = container.querySelector('#er-assign-class').value;
+      const classIds = Array.from(container.querySelectorAll('[data-assign-class-id]:checked'))
+        .map((cb) => cb.dataset.assignClassId);
       const validationEnabled = container.querySelector('#er-assign-validation').checked;
       const dueDate = container.querySelector('#er-assign-due').value;
       const msg = container.querySelector('#er-assign-msg');
-      if (!classId) return;
+      const failuresEl = container.querySelector('#er-assign-failures');
+      msg.hidden = true;
+      failuresEl.hidden = true;
+      failuresEl.innerHTML = '';
+      if (!classIds.length) {
+        msg.hidden = false;
+        msg.textContent = 'Selecione ao menos uma turma.';
+        return;
+      }
+      const submitBtn = ev.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
       try {
-        await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignments`, {
+        const result = await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignments/bulk`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            class_id: classId,
+            class_ids: classIds,
             validation_enabled: validationEnabled,
             // <input type="date"> gives "YYYY-MM-DD" or "" when left blank -
             // never send an empty string as due_at, the backend expects a
@@ -235,12 +284,36 @@
             due_at: dueDate ? new Date(dueDate).toISOString() : null,
           }),
         });
-        renderPromptDetail(promptId);
+        detail.assignments = detail.assignments.concat(result.assigned);
+        container.querySelector('#er-assignments-list').innerHTML = detail.assignments
+          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(a.status)}</li>`)
+          .join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>';
+        container.querySelectorAll('[data-assign-class-id]:checked').forEach((cb) => { cb.checked = false; });
+        const failureEntries = Object.entries(result.failures || {});
+        if (failureEntries.length) {
+          // Best-effort per class (same shape the bulk-approve flow already
+          // uses elsewhere) - a class that failed (e.g. already assigned)
+          // never silently disappears, it's listed here instead while the
+          // classes that succeeded above already show as assigned.
+          failuresEl.hidden = false;
+          failuresEl.innerHTML = failureEntries.map(([classId, reason]) => `
+            <li>${tmEsc(classNameById.get(classId) || classId)}: ${tmEsc(reason)}</li>`).join('');
+        }
       } catch (e) {
         msg.hidden = false;
         msg.textContent = e.message;
+      } finally {
+        submitBtn.disabled = false;
       }
     });
+  }
+
+  function renderMaterialLabel(material) {
+    if (material.material_type === 'FILE') {
+      const filename = (material.storage_uri || '').split('/').pop() || 'arquivo';
+      return `📎 ${tmEsc(filename)}`;
+    }
+    return tmEsc(material.content || material.material_type);
   }
 
   async function renderReviewQueue(status) {
@@ -382,6 +455,296 @@
 
     searchInput.addEventListener('input', () => loadStudents(searchInput.value.trim()));
     await loadStudents('');
+  }
+
+  // --- Dashboard tab: submission rate / average scores / per-competency
+  // chart / roster / action plan for one essay prompt, with série-turma-
+  // aluno filters and XLSX export - see essay_teacher_dashboard.py for the
+  // aggregation this renders. ---
+
+  async function renderDashboardTab() {
+    container.innerHTML = `${renderTabs('dashboard')}<p class="empty-text">Carregando propostas...</p>`;
+    wireTabs();
+    try {
+      if (!prompts.length) prompts = await reviewRequest('/api/v1/catalog/essay-prompts');
+    } catch (e) {
+      container.innerHTML = `${renderTabs('dashboard')}<p class="empty-text">${tmEsc(e.message)}</p>`;
+      wireTabs();
+      return;
+    }
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="tm-form-row" style="margin: 12px 0;">
+        <div class="form-group">
+          <label for="er-dash-prompt">Proposta</label>
+          <select id="er-dash-prompt" class="text-input">
+            ${prompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
+          </select>
+        </div>
+      </div>
+      <div id="er-dash-body"></div>`);
+
+    const promptSelect = container.querySelector('#er-dash-prompt');
+    promptSelect.addEventListener('change', () => {
+      if (promptSelect.value) renderDashboardBody(promptSelect.value);
+    });
+    if (prompts.length) {
+      renderDashboardBody(prompts[0].id);
+    } else {
+      container.querySelector('#er-dash-body').innerHTML = '<p class="empty-text">Nenhuma proposta criada ainda.</p>';
+    }
+  }
+
+  async function renderDashboardBody(promptId) {
+    const body = container.querySelector('#er-dash-body');
+    if (!body) return;
+    body.innerHTML = '<p class="empty-text">Carregando turmas...</p>';
+
+    let classrooms = [];
+    try {
+      classrooms = await reviewRequest(
+        `/api/v1/teacher/classrooms?school_id=${encodeURIComponent(schoolId)}&academic_year=2026`,
+      );
+    } catch (e) {
+      classrooms = [];
+    }
+    const assignableClassrooms = classrooms.filter((c) => c.class_id);
+    const classNameById = new Map(assignableClassrooms.map((c) => [c.class_id, c.name]));
+    // NOTE (backend contract gap): the dashboard route accepts a
+    // grade_level_id (UUID) filter, but no endpoint in this app exposes
+    // GradeLevel ids to the frontend - /api/v1/teacher/classrooms only
+    // returns `grade_level` as a display string. So "Série" below is a
+    // client-side-only filter that narrows which turmas are offered (by
+    // matching that same string label); it's never sent to the backend as
+    // grade_level_id. Only Turma/Aluno actually filter the server response.
+    const gradeLevels = Array.from(new Set(assignableClassrooms.map((c) => c.grade_level).filter(Boolean)));
+
+    body.innerHTML = `
+      <div class="tm-form-row" style="margin: 12px 0;">
+        <div class="form-group">
+          <label for="er-dash-grade">Série</label>
+          <select id="er-dash-grade" class="text-input">
+            <option value="">Todas</option>
+            ${gradeLevels.map((g) => `<option value="${tmEsc(g)}">${tmEsc(g)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="er-dash-class">Turma</label>
+          <select id="er-dash-class" class="text-input">
+            <option value="">Todas</option>
+            ${assignableClassrooms.map((c) => `<option value="${tmEsc(c.class_id)}" data-grade="${tmEsc(c.grade_level || '')}">${tmEsc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="er-dash-student">Aluno</label>
+          <select id="er-dash-student" class="text-input"><option value="">Todos</option></select>
+        </div>
+      </div>
+      <div id="er-dash-results"><p class="empty-text">Carregando dashboard...</p></div>`;
+
+    const gradeSelect = body.querySelector('#er-dash-grade');
+    const classSelect = body.querySelector('#er-dash-class');
+    const studentSelect = body.querySelector('#er-dash-student');
+
+    function applyGradeFilterToClassOptions() {
+      const grade = gradeSelect.value;
+      Array.from(classSelect.options).forEach((opt) => {
+        if (!opt.value) return; // "Todas" always stays visible
+        opt.hidden = Boolean(grade) && opt.dataset.grade !== grade;
+      });
+      const selected = classSelect.selectedOptions[0];
+      if (grade && selected && selected.value && selected.dataset.grade !== grade) {
+        classSelect.value = '';
+      }
+    }
+
+    async function loadDashboard() {
+      const resultsEl = body.querySelector('#er-dash-results');
+      resultsEl.innerHTML = '<p class="empty-text">Carregando...</p>';
+      const params = new URLSearchParams();
+      if (classSelect.value) params.set('class_id', classSelect.value);
+      if (studentSelect.value) params.set('student_id', studentSelect.value);
+      let dashboard;
+      try {
+        dashboard = await reviewRequest(
+          `/api/v1/catalog/essay-prompts/${promptId}/dashboard${params.toString() ? `?${params.toString()}` : ''}`,
+        );
+      } catch (e) {
+        resultsEl.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+        return;
+      }
+      const previousStudent = studentSelect.value;
+      studentSelect.innerHTML = `<option value="">Todos</option>${dashboard.students
+        .map((s) => `<option value="${tmEsc(s.student_id)}">${tmEsc(s.student_name)}</option>`).join('')}`;
+      if (dashboard.students.some((s) => s.student_id === previousStudent)) studentSelect.value = previousStudent;
+
+      resultsEl.innerHTML = renderDashboardResults(dashboard, classNameById);
+      wireDashboardExportButtons(resultsEl, promptId, params);
+    }
+
+    gradeSelect.addEventListener('change', () => {
+      applyGradeFilterToClassOptions();
+      studentSelect.value = '';
+      loadDashboard();
+    });
+    classSelect.addEventListener('change', () => {
+      studentSelect.value = '';
+      loadDashboard();
+    });
+    studentSelect.addEventListener('change', () => loadDashboard());
+
+    await loadDashboard();
+  }
+
+  function renderDashboardResults(dashboard, classNameById) {
+    if (dashboard.total_students === 0) {
+      return '<p class="empty-text">Nenhum aluno encontrado para este filtro (a proposta pode ainda não estar atribuída a nenhuma turma).</p>';
+    }
+    const submittedPct = `${dashboard.submitted_percentage.toFixed(0)}%`;
+    const avgTotal = dashboard.average_total_score != null ? `${dashboard.average_total_score.toFixed(0)}/1000` : '—';
+
+    const statsHtml = `
+      <div class="stats-grid" style="margin-bottom:20px;">
+        <div class="stat-card">
+          <div class="stat-icon bg-blue">📤</div>
+          <div class="stat-data">
+            <span class="stat-value">${submittedPct}</span>
+            <span class="stat-label">${dashboard.submitted_count} de ${dashboard.total_students} entregaram</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon bg-purple">📊</div>
+          <div class="stat-data">
+            <span class="stat-value">${avgTotal}</span>
+            <span class="stat-label">Nota média</span>
+          </div>
+        </div>
+      </div>`;
+
+    const chartHtml = renderCompetencyBarChart(dashboard.average_per_competency);
+
+    const rosterHtml = `
+      <div class="tm-table-wrap" style="overflow-x:auto;">
+        <table class="tm-table">
+          <thead><tr><th>Aluno</th><th>Turma</th><th>Entregou</th><th>Nota</th></tr></thead>
+          <tbody>
+            ${dashboard.students.map((s) => `
+              <tr>
+                <td>${tmEsc(s.student_name)}</td>
+                <td>${tmEsc(classNameById.get(s.class_id) || '—')}</td>
+                <td>${s.submitted ? 'Sim' : 'Não'}</td>
+                <td>${s.total_score != null ? s.total_score : '—'}</td>
+              </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhum aluno neste filtro.</td></tr>'}
+          </tbody>
+        </table>
+      </div>`;
+
+    const actionPlanHtml = dashboard.action_plan.length
+      ? dashboard.action_plan.map((a) => `
+          <div class="plan-column column-${DASH_PRIORITY_STYLE[a.priority] || 'warning'}" style="margin-bottom:12px;">
+            <div class="column-header"><strong>Prioridade ${tmEsc(DASH_PRIORITY_LABEL[a.priority] || a.priority)}</strong></div>
+            <p style="font-size:13px; margin-bottom:6px;"><strong>Evidência:</strong> ${tmEsc(a.evidence)}</p>
+            <p style="font-size:13px; color:#4f46e5;"><strong>Ação recomendada:</strong> ${tmEsc(a.recommended_action)}</p>
+          </div>`).join('')
+      : '<p class="empty-text">Sem recomendações para este filtro.</p>';
+
+    return `
+      ${statsHtml}
+      <h4 style="margin:16px 0 8px 0;">Média por competência</h4>
+      ${chartHtml}
+      <div class="tm-form-actions" style="margin: 16px 0; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-secondary" type="button" id="er-dash-export-total">Exportar nota total</button>
+        <button class="btn btn-secondary" type="button" id="er-dash-export-competency">Exportar nota por competência</button>
+        <button class="btn btn-secondary" type="button" id="er-dash-export-submission">Exportar lista de entrega</button>
+      </div>
+      <h4 style="margin:24px 0 8px 0;">Alunos</h4>
+      ${rosterHtml}
+      <h4 style="margin:24px 0 8px 0;">Plano de ação</h4>
+      <div class="plan-list">${actionPlanHtml}</div>`;
+  }
+
+  // Bar chart in the same inline-SVG / visual language as essay-evolution.js's
+  // renderLineChart (same viewBox, grid, axis labels, point-value labels) -
+  // a bar per competency instead of a line over time, since this dashboard
+  // has one snapshot (the current filter), not a timeline.
+  function renderCompetencyBarChart(averagePerCompetency) {
+    const hasData = averagePerCompetency && DASH_COMPETENCY_CODES.some((code) => averagePerCompetency[code] != null);
+    if (!hasData) {
+      return `
+        <div class="essay-evolution-chart-card">
+          <p class="empty-text">Sem notas suficientes ainda para este filtro.</p>
+        </div>`;
+    }
+    const max = 200;
+    const left = 50;
+    const right = 500;
+    const top = 20;
+    const bottom = 180;
+    const bandWidth = (right - left) / DASH_COMPETENCY_CODES.length;
+    const barWidth = bandWidth * 0.5;
+    const gridHtml = [top, (top + bottom) / 2, bottom]
+      .map((y) => `<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" stroke="#eef1f5"/>`).join('');
+    const axisLabelsHtml = `
+      <text x="10" y="${top + 4}" class="essay-evolution-axis-label">${max}</text>
+      <text x="10" y="${(top + bottom) / 2 + 4}" class="essay-evolution-axis-label">${max / 2}</text>
+      <text x="10" y="${bottom + 4}" class="essay-evolution-axis-label">0</text>`;
+    const barsHtml = DASH_COMPETENCY_CODES.map((code, i) => {
+      const value = averagePerCompetency[code];
+      const bandCenter = left + bandWidth * (i + 0.5);
+      const x = bandCenter - barWidth / 2;
+      const h = value != null ? (Math.max(0, Math.min(value, max)) / max) * (bottom - top) : 0;
+      const y = bottom - h;
+      return `
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" fill="${DASH_COMPETENCY_COLORS[code]}" rx="3"></rect>
+        <text x="${bandCenter}" y="${bottom + 20}" text-anchor="middle" class="essay-evolution-pt-label">${code}</text>
+        ${value != null ? `<text x="${bandCenter}" y="${Math.max(top + 10, y - 8)}" text-anchor="middle" class="essay-evolution-pt-value">${value.toFixed(0)}</text>` : ''}`;
+    }).join('');
+    return `
+      <div class="essay-evolution-chart-card">
+        <svg viewBox="0 0 520 220" width="100%">
+          ${gridHtml}
+          ${axisLabelsHtml}
+          ${barsHtml}
+        </svg>
+      </div>`;
+  }
+
+  function wireDashboardExportButtons(resultsEl, promptId, baseParams) {
+    const exports = [
+      { id: 'er-dash-export-total', reportType: 'grades_total', label: 'a nota total' },
+      { id: 'er-dash-export-competency', reportType: 'grades_per_competency', label: 'a nota por competência' },
+      { id: 'er-dash-export-submission', reportType: 'submission_list', label: 'a lista de entrega' },
+    ];
+    exports.forEach(({ id, reportType, label }) => {
+      const btn = resultsEl.querySelector(`#${id}`);
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const params = new URLSearchParams(baseParams);
+          params.set('report_type', reportType);
+          const res = await fetch(
+            `/api/v1/catalog/essay-prompts/${promptId}/dashboard/export.xlsx?${params.toString()}`,
+            { headers: reviewHeaders() },
+          );
+          if (!res.ok) throw new Error('export failed');
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${reportType}.xlsx`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          alert(`Não foi possível exportar ${label}.`);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   function renderReviewPanel(correctionId, returnStatus) {
