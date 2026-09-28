@@ -78,6 +78,9 @@ class OpenAIProvider:
             raise ProviderConfigurationError("OpenAI model is not configured")
         try:
             client = self._client or self._create_client()
+            extra_kwargs: dict = {}
+            if request.seed is not None:
+                extra_kwargs["seed"] = request.seed
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -86,6 +89,7 @@ class OpenAIProvider:
                 ],
                 response_format={"type": "json_object"},
                 timeout=self._timeout_seconds,
+                **extra_kwargs,
             )
             content = response.choices[0].message.content
             if not content:
@@ -197,6 +201,9 @@ class OpenAIProvider:
                         "image_url": {"url": f"data:{request.mime_type};base64,{image_b64}"},
                     }
                 )
+            extra_kwargs: dict = {}
+            if request.seed is not None:
+                extra_kwargs["seed"] = request.seed
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -208,6 +215,7 @@ class OpenAIProvider:
                 ],
                 response_format={"type": "json_object"},
                 timeout=self._timeout_seconds,
+                **extra_kwargs,
             )
             text = response.choices[0].message.content
             if not text:

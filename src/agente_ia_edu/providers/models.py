@@ -7,6 +7,15 @@ from pathlib import Path
 class TextGenerationRequest:
     prompt: str
     model: str | None = None
+    # Optional determinism knob - None means "use the provider's own
+    # default" (unchanged behavior for every caller that doesn't set this,
+    # e.g. curriculum_classification.py/question_modification.py). Essay
+    # correction sets a fixed seed (see essay_correction.py) - "mesma
+    # redacao = mesma nota". A matching `temperature` knob was tried and
+    # dropped: confirmed live (2026-09-28) that the model backing
+    # OPENAI_MODEL rejects any value other than its default (1) with a 400
+    # error, so there is no caller left that could ever set it.
+    seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -73,3 +82,6 @@ class EssayImageCorrectionRequest:
     mime_type: str
     prompt: str
     model: str | None = None
+    # Same determinism knob as TextGenerationRequest, same reason - the
+    # IMAGE_REGION correction path needs "mesma redacao = mesma nota" too.
+    seed: int | None = None
