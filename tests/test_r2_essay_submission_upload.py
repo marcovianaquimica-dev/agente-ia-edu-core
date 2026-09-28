@@ -193,9 +193,15 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_page_with_transcription_runs_ocr_synchronously(self):
         async with self.session_factory() as session:
+            # Both tokens comfortably above the low-confidence-reconciliation
+            # threshold (0.6, see _LOW_CONFIDENCE_TOKEN_THRESHOLD) - this
+            # test's own concern is the synchronous OCR/page bookkeeping,
+            # not reconciliation, so transcriber.calls must stay exactly 1.
+            # The reconciliation extra-call behavior has its own dedicated
+            # tests below.
             tokens = (
                 EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
-                EssayOcrToken(text="mundo", confidence=0.4, start=4, end=9),
+                EssayOcrToken(text="mundo", confidence=0.9, start=4, end=9),
             )
             transcriber = _ScriptedTranscriber(tokens)
             svc = EssaySubmissionService(
@@ -220,7 +226,7 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(transcriber.calls, 1)
             self.assertEqual(len(page.ocr_tokens), 2)
             self.assertEqual(page.ocr_tokens[0]["text"], "Ola")
-            self.assertEqual(page.ocr_tokens[1]["confidence"], 0.4)
+            self.assertEqual(page.ocr_tokens[1]["confidence"], 0.9)
             self.assertIsNone(page.reviewed_text)
 
             refreshed = await session.get(type(submission), submission.id)
@@ -320,8 +326,15 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
                 essay_submission_id=submission.id, page_number=1, source_path=source,
             )
 
-            self.assertEqual(transcriber.calls, 3)
+            # 3 retry attempts, plus a 4th reconciliation call: the kept
+            # "melhor" attempt is itself below the low-confidence
+            # reconciliation threshold (0.5 < 0.6), and the sequence's last
+            # entry ("meio") repeats for any call beyond the 3 scripted ones
+            # (see _ScriptedSequenceTranscriber) - it disagrees with
+            # "melhor", so the reconciliation leaves it untouched.
+            self.assertEqual(transcriber.calls, 4)
             self.assertEqual(page.ocr_tokens[0]["text"], "melhor")
+            self.assertEqual(page.ocr_tokens[0]["confidence"], 0.5)
 
     async def test_upload_page_propagates_a_transcription_refusal(self):
         """Explicit product decision (2026-09-25): always transcribe,
@@ -439,6 +452,126 @@ class PhotoUploadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(transcriber.calls, 1)
             self.assertEqual(len(page.ocr_tokens), 1)
             self.assertIsNone(page.reviewed_text)
+
+
+class _SucceedsThenFailsTranscriber:
+    """Test double: the FIRST call succeeds with fixed tokens (the normal
+    OCR read), every call after that raises - models the reconciliation
+    call itself failing, which must never crash the upload or discard the
+    (already-successful) first reading."""
+
+    def __init__(self, tokens):
+        self._tokens = tokens
+        self.calls = 0
+
+    async def transcribe_page(self, request):
+        from agente_ia_edu.providers.errors import ProviderInvalidResponseError
+        self.calls += 1
+        if self.calls == 1:
+            return EssayPageTranscriptionResult(tokens=self._tokens, provider="scripted", model="v1")
+        raise ProviderInvalidResponseError("OpenAI refused to transcribe the image: sorry")
+
+
+class LowConfidenceReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    """Coverage for essay_submission.py's second-opinion reconciliation:
+    _ocr_page requests one extra, fully independent transcribe_page call
+    ONLY when the accepted reading has a low-confidence token, and only
+    upgrades that word's confidence when the second read agrees with it."""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:", echo=False, poolclass=StaticPool
+        )
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.session_factory = async_sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=False
+        )
+        self.storage_root = Path("/tmp/r2_upload_test_storage_reconciliation")
+        self.tmp_dir = Path("/tmp/r2_upload_test_fixtures_reconciliation")
+        self.tmp_dir.mkdir(exist_ok=True)
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def _upload_one_page(self, session, transcriber):
+        svc = EssaySubmissionService(
+            session, storage=MaterialStorage(root=self.storage_root), transcriber=transcriber
+        )
+        school_id, assignment_id, student_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        submission = await svc.start_photo_submission(
+            school_id=school_id, prompt_assignment_id=assignment_id,
+            student_id=student_id, mode="PHOTO", transcription_enabled=True,
+        )
+        source = self.tmp_dir / f"page-{uuid.uuid4()}.png"
+        _make_png(source)
+        return await svc.upload_page(
+            essay_submission_id=submission.id, page_number=1, source_path=source,
+        )
+
+    async def test_agreeing_second_read_boosts_the_low_confidence_word(self):
+        first_attempt = (
+            EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.4, start=4, end=9),
+        )
+        # Independent re-read of the exact same page agrees on "mundo".
+        second_attempt = (
+            EssayOcrToken(text="Ola", confidence=0.6, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.55, start=4, end=9),
+        )
+        transcriber = _ScriptedSequenceTranscriber([first_attempt, second_attempt])
+        async with self.session_factory() as session:
+            page = await self._upload_one_page(session, transcriber)
+
+        self.assertEqual(transcriber.calls, 2)
+        by_text = {t["text"]: t["confidence"] for t in page.ocr_tokens}
+        self.assertEqual(by_text["mundo"], 0.85)
+        # "Ola" was never low-confidence, so reconciliation must never touch
+        # it even though it's part of the same second-read response.
+        self.assertEqual(by_text["Ola"], 0.99)
+
+    async def test_disagreeing_second_read_leaves_the_word_untouched(self):
+        first_attempt = (
+            EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.4, start=4, end=9),
+        )
+        # Independent re-read disagrees on the uncertain word.
+        second_attempt = (
+            EssayOcrToken(text="Ola", confidence=0.9, start=0, end=3),
+            EssayOcrToken(text="mundu", confidence=0.5, start=4, end=9),
+        )
+        transcriber = _ScriptedSequenceTranscriber([first_attempt, second_attempt])
+        async with self.session_factory() as session:
+            page = await self._upload_one_page(session, transcriber)
+
+        self.assertEqual(transcriber.calls, 2)
+        by_text = {t["text"]: t["confidence"] for t in page.ocr_tokens}
+        self.assertEqual(by_text["mundo"], 0.4)
+
+    async def test_no_low_confidence_tokens_never_triggers_the_extra_call(self):
+        tokens = (
+            EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.95, start=4, end=9),
+        )
+        transcriber = _ScriptedTranscriber(tokens)
+        async with self.session_factory() as session:
+            await self._upload_one_page(session, transcriber)
+
+        self.assertEqual(transcriber.calls, 1)
+
+    async def test_reconciliation_call_failure_keeps_the_original_reading(self):
+        tokens = (
+            EssayOcrToken(text="Ola", confidence=0.99, start=0, end=3),
+            EssayOcrToken(text="mundo", confidence=0.4, start=4, end=9),
+        )
+        transcriber = _SucceedsThenFailsTranscriber(tokens)
+        async with self.session_factory() as session:
+            page = await self._upload_one_page(session, transcriber)
+
+        self.assertEqual(transcriber.calls, 2)
+        by_text = {t["text"]: t["confidence"] for t in page.ocr_tokens}
+        self.assertEqual(by_text["mundo"], 0.4)
+        self.assertEqual(by_text["Ola"], 0.99)
 
 
 class PdfUploadTests(unittest.IsolatedAsyncioTestCase):

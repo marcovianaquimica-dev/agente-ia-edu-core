@@ -1606,10 +1606,15 @@ body.sidebar-open {
 }
 
 /* Módulo Redação */
-.essay-prompt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-@media (max-width: 1100px) { .essay-prompt-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 640px) { .essay-prompt-grid { grid-template-columns: 1fr; } }
-.essay-prompt-card { display: flex; flex-direction: column; gap: 10px; }
+.essay-prompt-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+  max-height: 600px; overflow-y: auto; padding-right: 6px;
+}
+.essay-prompt-grid::-webkit-scrollbar { width: 8px; }
+.essay-prompt-grid::-webkit-scrollbar-track { background: transparent; }
+.essay-prompt-grid::-webkit-scrollbar-thumb { background: var(--border-color, #d8dee8); border-radius: 4px; }
+.essay-prompt-grid::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+.essay-prompt-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .essay-prompt-card .btn { margin-top: auto; }
 .essay-prompt-card--free-theme {
   background: var(--accent-light); border: 2px solid var(--accent);

@@ -768,6 +768,17 @@ async def list_essay_prompts_for_student(
                     )
                 )
                 correction_status = correction.status if correction is not None else None
+            if prompt.is_free_theme and correction_status == "APPROVED":
+                # "Tema livre" is a reusable practice slot, not a one-shot
+                # assignment: once a submission is fully corrected, hide it
+                # from my_submission so the card opens a fresh compose form
+                # for a brand new essay/theme instead of freezing on the old
+                # devolutiva. The old submission (and its correction) is
+                # untouched in the database - still visible via "Minha
+                # Evolução" - only what THIS response reports as "current"
+                # changes.
+                submission = None
+                correction_status = None
             my_submission = (
                 MySubmissionSummary(
                     id=submission.id, essay_id=submission.essay_id,

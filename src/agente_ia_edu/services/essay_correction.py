@@ -409,6 +409,13 @@ class EssayCorrectionService:
             # either way it needs a human, not a silent auto-approval.
             correction.status = "PENDING_REVIEW"
             return
+        if submission.student_declared_theme:
+            # "Tema livre": the student picked their own theme, so there's no
+            # official gabarito a teacher would validate the grade against -
+            # always auto-publish, the same way FORMATIVO does, regardless of
+            # this school's AVALIATIVO threshold policy.
+            self._publish(correction)
+            return
         needs_review = _requires_teacher_review(
             total_score=total,
             validation_threshold_points=settings.validation_threshold_points,
