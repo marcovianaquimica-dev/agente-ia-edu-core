@@ -1758,6 +1758,9 @@ body.sidebar-open {
 .essay-competency-table th.essay-mark-C3 { background: var(--danger-light); color: var(--danger); }
 .essay-competency-table th.essay-mark-C4 { background: var(--warning-light); color: var(--warning); }
 .essay-competency-table th.essay-mark-C5 { background: var(--success-light); color: var(--success); }
+.essay-competency-aspects { list-style: none; margin: 0; padding: 0; }
+.essay-competency-aspects li { margin: 0 0 6px; }
+.essay-competency-aspects li:last-child { margin-bottom: 0; }
 @media (max-width: 640px) {
   .essay-competency-table thead { display: none; }
   .essay-competency-table, .essay-competency-table tbody, .essay-competency-table tr,

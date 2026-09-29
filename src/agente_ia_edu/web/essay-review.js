@@ -786,7 +786,7 @@
         body.innerHTML = '<p class="empty-text">Este aluno ainda não tem redação aprovada.</p>';
         return;
       }
-      let checklistData = { rationales: [], feedbackStrengths: [] };
+      let checklistData = { rationales: [], feedbackStrengths: [], structured: null };
       try {
         const approved = await reviewRequest('/api/v1/teacher/essay-corrections?status=APPROVED');
         const match = approved.find((c) => c.essay_submission_id === data.entries[0].essay_submission_id);
@@ -794,6 +794,7 @@
           checklistData = {
             rationales: (match.ai_output || {}).rationales || [],
             feedbackStrengths: (match.final_feedback || {}).strengths || [],
+            structured: match.ai_output || {},
           };
         }
       } catch (e) {

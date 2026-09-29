@@ -203,9 +203,9 @@
 
   function renderEvolutionSection(data, checklistData) {
     const entries = data.entries || [];
-    const checklist = checklistData || { rationales: [], feedbackStrengths: [] };
+    const checklist = checklistData || { rationales: [], feedbackStrengths: [], structured: null };
     const checklistHtml = window.EssayReport.renderCompetencyChecklist(
-      checklist.rationales, checklist.feedbackStrengths, esc,
+      checklist.rationales, checklist.feedbackStrengths, esc, checklist.structured,
     );
     return `
       ${renderDeltaSummary(data.total_delta)}

@@ -124,7 +124,7 @@
       section.innerHTML = '<p class="empty-text">Vamos ver sua evolução assim que sua primeira redação for corrigida.</p>';
       return;
     }
-    let checklistData = { rationales: [], feedbackStrengths: [] };
+    let checklistData = { rationales: [], feedbackStrengths: [], structured: null };
     try {
       const mostRecent = await essayRequest(
         `/api/v1/student/essay-submissions/${data.entries[0].essay_submission_id}/correction`,
@@ -132,6 +132,9 @@
       checklistData = {
         rationales: mostRecent.rationales || [],
         feedbackStrengths: (mostRecent.final_feedback || {}).strengths || [],
+        // The eight structured C2/C3 fields are top-level on the correction
+        // response (contract v5) - null on every v4-era correction.
+        structured: mostRecent,
       };
     } catch (e) {
       // Checklist degrades to its own empty state below - the timeline and
