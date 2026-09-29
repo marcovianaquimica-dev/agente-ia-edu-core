@@ -29,6 +29,7 @@ está sob controle do projeto, o que este design explora deliberadamente.
 | Metadados do gabarito | Área/disciplina por questão |
 | Níveis de relatório | Aluno, turma, escola/rede e análise de itens |
 | Equalização entre simulados | Sim — itens-âncora disponíveis |
+| Escala de reporte | Referência ENEM por área (mínimo, mediana, máximo), cadastrada manualmente |
 | Hospedagem | Core, com o OMR isolado em worker de processo separado |
 
 ### Fora de escopo
@@ -186,10 +187,18 @@ para a análise de distratores.
 ### TRI
 
 **`tri_scales`** — a régua
-`id`, `school_id`, `area_code`, `name`, `reference_mean` (500), `reference_sd` (100),
-`base_mock_exam_id`, `created_at`.
+`id`, `school_id`, `area_code`, `name`, `base_mock_exam_id`, `reference_label`,
+`reference_min_score`, `reference_median_score`, `reference_max_score`,
+`reference_theta_min` (padrão −3.0), `reference_theta_max` (padrão +3.0),
+`reference_source`, `reference_verified_at`, `created_at`.
 
-Uma régua por escola e por área. É contra ela que os itens-âncora são travados.
+Uma régua por escola e por área. É contra ela que os itens-âncora são travados, e é ela que
+converte theta em nota exibida (§6.3).
+
+Os três valores de referência são **cadastrados manualmente** pela coordenação, com os campos
+pré-preenchidos a partir da última edição do ENEM (§6.3.1). `reference_source` e
+`reference_verified_at` registram de onde vieram e quando foram conferidos — sem isso, ninguém
+consegue auditar de onde saiu a nota de um aluno dois anos depois.
 
 **`tri_calibrations`**
 `id`, `mock_exam_id`, `area_code`, `scale_id`, `model` (`RASCH` | `2PL` | `3PL`), `status`,
@@ -285,12 +294,71 @@ Decisão deliberada: o MLE diverge para ±∞ para quem acertou tudo ou errou tu
 todos, ao custo de uma leve regressão à média nos extremos — um custo aceitável diante de uma
 nota impossível de calcular.
 
-### 6.3 Escala
+### 6.3 Escala de reporte
 
-Transformação linear de theta para média 500 e desvio 100, ancorada na população do
-`base_mock_exam_id` da régua.
+O theta bruto não significa nada para aluno nem para professor. A nota exibida é obtida
+mapeando theta na faixa de uma edição do ENEM, registrada na régua.
+
+**O que é mapeado nos extremos.** Os extremos da escala teórica de theta — `−3.0` e `+3.0`,
+configuráveis na régua — mapeiam em `reference_min_score` e `reference_max_score`. Thetas
+fora dessa faixa são fixados nos extremos.
+
+Decisão deliberada: os extremos **não** são o pior e o melhor aluno do simulado. Mínimo e
+máximo observados são as duas estatísticas menos estáveis de qualquer distribuição — cada uma
+é determinada por uma única pessoa — e usá-las deslocaria a régua inteira a cada aplicação.
+Ancorar nos extremos teóricos de theta entrega a mesma faixa de nota com estabilidade entre
+aplicações.
+
+**Mapeamento em dois trechos.** Linear por partes, passando por três pontos:
+
+| theta | nota |
+|---|---|
+| `reference_theta_min` (−3.0) | `reference_min_score` |
+| `0.0` | `reference_median_score` |
+| `reference_theta_max` (+3.0) | `reference_max_score` |
+
+A mediana existe porque um mapeamento linear simples entre mínimo e máximo **infla a nota do
+miolo da distribuição**. A distribuição do ENEM é fortemente assimétrica: a massa se acumula
+embaixo e pouquíssimos chegam aos 900. Em Matemática 2025, o ponto médio entre mínimo e máximo
+é 646, contra uma média nacional real na casa dos 520 — mais de 100 pontos de inflação para
+todo aluno mediano. Passar a curva pela mediana elimina isso mantendo os extremos pedidos.
+
+**O que essa nota é e o que não é.** É uma **escala de referência da escola**, construída para
+ser legível na faixa do ENEM. **Não é previsão de nota do ENEM** — a população da escola não é
+a população nacional, e nenhum item em comum liga as duas provas. Os relatórios (§7) precisam
+apresentá-la com esse rótulo; tratá-la como estimativa de desempenho no ENEM real seria erro
+de interpretação, não de cálculo.
+
+### 6.3.1 Valores de referência iniciais
+
+A régua nasce pré-preenchida com o ENEM 2025:
+
+| Área | Mínimo | Mediana | Máximo |
+|---|---|---|---|
+| Linguagens | 309,2 | a computar | 794,5 |
+| Ciências Humanas | 320,8 | a computar | 856,4 |
+| Ciências da Natureza | 308,6 | a computar | 858,7 |
+| Matemática | 312,6 | a computar | 980,3 |
+
+**Procedência e verificação.** Mínimos e máximos acima vieram de portal educacional
+secundário, **não do INEP direto**, e estão registrados no seed como não verificados
+(`reference_verified_at` nulo). As medianas são calculadas a partir das colunas `NU_NOTA_*`
+dos microdados públicos do ENEM 2025, que trazem a nota de cada participante.
+
+Uma régua com `reference_verified_at` nulo **não publica nota**: o sistema calcula e mostra o
+resultado marcado como provisório, e exige confirmação da coordenação. Números de terceira mão
+não viram nota de aluno em silêncio.
+
+O seed vive em `src/agente_ia_edu/data/enem_reference_scales.yaml`, seguindo o padrão de
+`agente_ia_edu.rubrics` (YAML como package-data), e um script em `scripts/` computa as
+medianas a partir do arquivo de microdados baixado.
 
 ### 6.4 Equalização entre simulados
+
+A escala de reporte (§6.3) e a equalização por âncoras resolvem problemas diferentes e
+operam juntas: as âncoras colocam os thetas de aplicações distintas na **mesma** régua; a
+escala de reporte converte theta em nota legível. Sem as âncoras, cada simulado teria a sua
+própria régua e a conversão produziria notas incomparáveis com aparência de comparáveis.
 
 **Fixed-parameter calibration.** Os itens-âncora entram na calibragem com `a` e `b` travados
 nos valores já registrados na régua (`is_fixed = true`). O EM então posiciona a distribuição
@@ -338,8 +406,10 @@ atual, `c` é o parâmetro pior estimado dos três e a sua má estimação conta
 ## 7. Relatórios
 
 **Aluno.** Acertos e nota por área, nota total, percentil na turma e na escola, evolução no
-ano. A evolução por nota absoluta só é exibida quando existe equalização por âncoras; sem
-elas o gráfico é **suprimido**, não estimado — thetas de calibragens independentes estão em
+ano. A nota é sempre rotulada como escala de referência da escola, nunca como previsão de nota
+do ENEM (§6.3); régua não verificada exibe o resultado como provisório. A evolução por nota
+absoluta só é exibida quando existe equalização por âncoras; sem elas o gráfico é
+**suprimido**, não estimado — thetas de calibragens independentes estão em
 réguas diferentes e compará-los seria um erro silencioso.
 
 **Turma (professor).** Desempenho por área, questões mais erradas, distribuição das notas,
@@ -405,7 +475,7 @@ Ordenadas por valor entregue e risco crescente. Cada fase entrega algo utilizáv
 |---|---|---|
 | 1 | Modelo de dados + gerador de cartão com QR e ArUco + template | Cartões nominais imprimíveis |
 | 2 | Digitação manual de respostas + nota bruta por área + relatórios | Simulado corrigido de ponta a ponta, sem visão computacional |
-| 3 | Motor de TRI + calibragem + análise de itens | Nota TRI e detecção de gabarito errado |
+| 3 | Motor de TRI + calibragem + escala de referência ENEM + análise de itens | Nota TRI legível e detecção de gabarito errado |
 | 4 | Worker de OMR + fila de conferência humana | Leitura automática dos cartões |
 | 5 | Âncoras + equalização + evolução no ano | Comparação real entre aplicações |
 
