@@ -153,6 +153,53 @@ async def _prompt_for_own_school_or_403(
     return prompt
 
 
+async def _materialize_if_platform_prompt(
+    session: AsyncSession,
+    *,
+    essay_prompt_id: uuid.UUID,
+    school_id: uuid.UUID,
+    created_by_external_identity: str,
+) -> uuid.UUID:
+    """Devolve sempre o id de um EssayPrompt REAL e escopado a esta escola.
+
+    A lista do professor mistura propostas da escola e propostas da
+    plataforma ainda nao materializadas sob o mesmo campo de id (spec s2) -
+    e aqui que o backend decide qual e qual. Se o id for de uma
+    PlatformEssayPrompt, busca-ou-cria a copia desta escola (spec s4) e
+    devolve o id dela; caso contrario devolve o id recebido, intacto.
+
+    Do ponto de vista de PromptAssignment pra frente nada muda: ele sempre
+    aponta para um EssayPrompt escopado a escola, como sempre apontou.
+
+    A materializacao acontece ANTES da validacao da turma, entao uma
+    atribuicao que depois falhar (turma de outra escola, turma ja atribuida)
+    deixa a copia criada na escola do professor. E inofensivo: a copia e uma
+    proposta comum daquela escola, sem turma nenhuma, e a proxima tentativa a
+    reaproveita em vez de criar outra.
+    """
+    service = PlatformEssayPromptService(session)
+    origin = await service.get_platform_prompt(essay_prompt_id)
+    if origin is None:
+        return essay_prompt_id
+
+    copy = await service.materialize_for_school(
+        platform_essay_prompt_id=origin.id,
+        school_id=school_id,
+        created_by_external_identity=created_by_external_identity,
+    )
+    # Ler copy.id ANTES do commit: commit() expira o objeto
+    # (expire_on_commit=True em producao) e a leitura seguinte viraria um
+    # lazy-load sincrono com MissingGreenlet.
+    copy_id = copy.id
+    # Commit imediato, antes de qualquer atribuicao: create_assignments_bulk
+    # faz rollback por turma que falha (ver o docstring dele em
+    # services/essay_proposal.py) e um rollback depois deste ponto
+    # descartaria a copia recem-criada enquanto as turmas seguintes do mesmo
+    # lote continuariam apontando para o id dela.
+    await session.commit()
+    return copy_id
+
+
 @essay_prompts_router.post("", status_code=201, response_model=EssayPromptResponse)
 async def create_essay_prompt(
     request: EssayPromptCreateRequest,
@@ -291,6 +338,10 @@ async def create_prompt_assignment(
 ) -> PromptAssignmentResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        essay_prompt_id = await _materialize_if_platform_prompt(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id,
+            created_by_external_identity=identity.external_user_id,
+        )
         await _prompt_for_own_school_or_403(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id
         )
@@ -334,6 +385,10 @@ async def create_prompt_assignments_bulk(
     demais."""
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        essay_prompt_id = await _materialize_if_platform_prompt(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id,
+            created_by_external_identity=identity.external_user_id,
+        )
         await _prompt_for_own_school_or_403(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id
         )
