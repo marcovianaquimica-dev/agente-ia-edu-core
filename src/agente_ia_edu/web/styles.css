@@ -1664,7 +1664,7 @@ body.sidebar-open {
 .essay-transcription-preview:focus { outline: 2px solid var(--primary); border-color: var(--primary); }
 .essay-token-low-confidence { color: var(--danger, #d64545); font-weight: 700; text-decoration: underline wavy; }
 .essay-total-score { font-size: 22px; font-weight: 800; margin: 12px 0; }
-.essay-competency-row { display: grid; grid-template-columns: 260px 1fr 60px; align-items: center; gap: 10px; margin: 8px 0; }
+.essay-competency-row { display: grid; grid-template-columns: 300px 1fr 60px; align-items: center; gap: 10px; margin: 8px 0; }
 .essay-competency-row > span:first-child { white-space: nowrap; }
 @media (max-width: 560px) {
   .essay-competency-row {
