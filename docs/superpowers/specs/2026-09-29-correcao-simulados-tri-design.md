@@ -81,6 +81,13 @@ A geometria é separada da renderização. O cálculo das coordenadas do templat
 sem ReportLab, para que o leitor (§2.3) e os testes possam consumi-lo sem arrastar nada
 gráfico. Só o renderizador toca ReportLab.
 
+**O template carrega a razão de aspecto** do retângulo entre os centros dos marcadores
+(altura/largura). Sem ela o leitor não tem como escolher um retângulo canônico em pixels com a
+mesma proporção do impresso, e a homografia entrega um cartão esticado: a bolha redonda vira
+elipse, e a máscara circular da §5.4 mede fora do disco em todas as 450. A razão não é
+derivável das demais chaves, e o leitor deve **recusar** um template que não a traga em vez de
+supor um valor.
+
 **O tipo do template é declarado uma única vez**, no módulo de geometria, e o leitor o
 **importa** — não redeclara uma cópia própria para ler o mesmo JSON. Duas definições do mesmo
 contrato divergem em silêncio, e o sintoma de divergência aqui não é teste vermelho: é o leitor
