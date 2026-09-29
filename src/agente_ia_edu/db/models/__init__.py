@@ -126,6 +126,7 @@ from .essay_rubric import (
     EssayRubricScoringRule,
 )
 from .institution import SchoolIdentityVersion, SchoolSetting
+from .platform_essay_prompt import PlatformEssayPrompt
 from .essay_proposal import (
     EssayPrompt,
     PromptMaterial,
@@ -231,6 +232,7 @@ __all__ = [
     "EssayCorrection",
     "EssayBatchUpload",
     "EssayBatchPage",
+    "PlatformEssayPrompt",
     "Person",
     "User",
     "AcademicYear",
