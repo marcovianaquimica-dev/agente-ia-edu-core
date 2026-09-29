@@ -331,6 +331,48 @@ class EssayPdfExportTests(unittest.TestCase):
         self.assertNotIn("Respeita os direitos humanos", text)
         self.assertNotIn("estimativa pedagógica", text)
 
+    def test_mechanical_review_section_omitted_when_no_occurrences(self):
+        """Product ask (2026-09-29, mirrors tests/test_essay_report_empty_sections.js):
+        when there is no confirmed mechanical occurrence, the whole "Revisão
+        de domínio da norma padrão (C1)" section - heading AND content - must
+        disappear from the exported PDF, not just fall back to a placeholder
+        sentence. The on-screen essay-report.js already does this; this pins
+        the same behavior down for the PDF export used by both the student
+        and teacher download routes."""
+        view = _full_correction_view(mechanical_review=[])
+        model = build_render_model(view)
+        self.assertEqual(_mechanical_occurrences_html(model), "")
+        pdf_bytes = render_pdf(
+            model, title="Sem ocorrências mecânicas", anchor_mode="TEXT_OFFSET",
+            canonical_text="Um texto qualquer para o teste.",
+        )
+        import pymupdf
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            text = "".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+        self.assertNotIn("Revisão de domínio da norma padrão", text)
+        self.assertNotIn("Nenhuma ocorrência mecânica confirmada", text)
+
+    def test_mechanical_review_section_shown_when_occurrences_present(self):
+        """Counterpart to the omission test above: with at least one
+        confirmed occurrence, the section must render normally (heading and
+        occurrence content)."""
+        model = build_render_model(_full_correction_view())
+        pdf_bytes = render_pdf(
+            model, title="Com ocorrência mecânica", anchor_mode="TEXT_OFFSET",
+            canonical_text="Um texto qualquer para o teste.",
+        )
+        import pymupdf
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            text = "".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+        self.assertIn("Revisão de domínio da norma padrão", text)
+        self.assertIn("de acordo com a pesquisa", text)
+
     def test_annotations_rewrites_mechanics_and_table_never_use_fill_decorations(self):
         """Confirmed live 2026-09-28: PyMuPDF's Story engine (1.28.2) echoes
         `background`/`border-left` fills from these exact sections as empty,

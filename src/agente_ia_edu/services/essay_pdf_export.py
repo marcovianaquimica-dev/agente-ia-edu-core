@@ -315,7 +315,7 @@ def _rewrites_html(model: dict) -> str:
 def _mechanical_occurrences_html(model: dict) -> str:
     occurrences = model["mechanical_occurrences"]
     if not occurrences:
-        return "<p><i>Nenhuma ocorrência mecânica confirmada nesta redação.</i></p>"
+        return ""
     parts = []
     for m in occurrences:
         if not isinstance(m, dict):
@@ -328,7 +328,7 @@ def _mechanical_occurrences_html(model: dict) -> str:
             f'<p style="color:#64748b;">{_esc(m.get("rule_explanation"))}</p>'
             f"</div>"
         )
-    return "".join(parts)
+    return f'<h4>Revisão de domínio da norma padrão (C1)</h4>{"".join(parts)}'
 
 
 def _action_plan_html(model: dict) -> str:
@@ -439,7 +439,6 @@ def _document_after_html(model: dict) -> str:
     return (
         "<h4>Anotações</h4>" + _annotations_html(model)
         + _rewrites_html(model)
-        + "<h4>Revisão de domínio da norma padrão (C1)</h4>"
         + _mechanical_occurrences_html(model)
         + "<h4>Plano de ação</h4>" + _action_plan_html(model)
         + next_essay_html + closing_html
