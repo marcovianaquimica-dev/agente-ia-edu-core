@@ -134,10 +134,11 @@
           <tbody id="er-prompts-body">
             ${prompts.map((p) => `
               <tr>
-                <td>${tmEsc(p.title)}</td><td>${p.year}</td><td>${tmEsc(statusLabel(p.status))}</td>
+                <td>${tmEsc(p.title)}${p.is_platform ? ' <span class="er-platform-badge">Plataforma</span>' : ''}</td>
+                <td>${p.year}</td><td>${tmEsc(statusLabel(p.status))}</td>
                 <td>
                   <button class="btn btn-secondary" type="button" data-open-prompt="${tmEsc(p.id)}">Abrir</button>
-                  <button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>
+                  ${p.is_platform ? '' : `<button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>`}
                 </td>
               </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhuma proposta criada ainda.</td></tr>'}
           </tbody>
@@ -472,7 +473,7 @@
         <h3>${tmEsc(detail.title)}</h3>
         <p>${tmEsc(detail.statement)}</p>
         <p class="empty-text">Status: ${tmEsc(statusLabel(detail.status))}</p>
-        <div class="tm-form-actions" style="margin: 8px 0;">
+        <div class="tm-form-actions" id="er-sheet-actions" style="margin: 8px 0;">
           <label for="er-sheet-copies" style="margin-right:6px;">Cópias</label>
           <input id="er-sheet-copies" class="text-input" type="number" min="1" max="60" value="30" style="width:80px;display:inline-block;">
           <button class="btn btn-secondary" type="button" id="er-answer-sheet-btn">Gerar folha de resposta</button>
@@ -510,6 +511,21 @@
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
     tabsEl.insertAdjacentElement('afterend', detailHtml.firstElementChild);
+
+    // Proposta da plataforma é somente-leitura pro professor (spec, decisão
+    // 3): ele só atribui a turmas, nunca edita nem adiciona material. Os
+    // blocos continuam no DOM (os listeners abaixo os procuram) e só são
+    // escondidos - o backend recusaria essas chamadas de qualquer forma.
+    const isPlatform = !!detail.is_platform;
+    if (isPlatform) {
+      container.querySelector('#er-material-form').hidden = true;
+    }
+    if (detail.materialized === false) {
+      // Ainda não existe EssayPrompt nenhum nesta escola - a folha de
+      // resposta (answer-sheet.pdf) só passa a fazer sentido depois da
+      // primeira atribuição, que é o que materializa a cópia.
+      container.querySelector('#er-sheet-actions').hidden = true;
+    }
 
     container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
     const sheetMsg = container.querySelector('#er-sheet-msg');
