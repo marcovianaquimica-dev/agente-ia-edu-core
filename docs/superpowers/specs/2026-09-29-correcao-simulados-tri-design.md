@@ -81,6 +81,13 @@ A geometria é separada da renderização. O cálculo das coordenadas do templat
 sem ReportLab, para que o leitor (§2.3) e os testes possam consumi-lo sem arrastar nada
 gráfico. Só o renderizador toca ReportLab.
 
+**O tipo do template é declarado uma única vez**, no módulo de geometria, e o leitor o
+**importa** — não redeclara uma cópia própria para ler o mesmo JSON. Duas definições do mesmo
+contrato divergem em silêncio, e o sintoma de divergência aqui não é teste vermelho: é o leitor
+medindo intensidade na coordenada errada e produzindo respostas plausíveis e falsas. Gerador e
+leitor rodam no mesmo ambiente isolado justamente por serem as duas pontas deste contrato; o
+import direto é o que torna a divergência impossível em vez de improvável.
+
 Os marcadores ArUco **não são gerados em tempo de execução**. Um dicionário ArUco é um
 conjunto fixo e pequeno de padrões conhecidos; os quatro usados aqui são pré-gerados uma vez
 e versionados no repositório como imagens estáticas, que o ReportLab apenas posiciona. É isso
@@ -199,14 +206,22 @@ que já existe. Reenviar o mesmo arquivo não cria segunda cópia.
 
 **`answer_card_marks`**
 `id`, `scan_id`, `item_position`, `detected_option`, `fill_intensities` (JSON, 5 floats),
-`confidence`, `resolution` (`AUTO` | `HUMAN`), `resolved_option`, `resolved_by_user_id`,
-`resolved_at`.
+`confidence`, `resolution` (`PENDING` | `AUTO` | `HUMAN`), `resolved_option`,
+`resolved_by_user_id`, `resolved_at`.
+
+`resolution` precisa dos três estados porque `detected_option` nulo é ambíguo por si só: pode
+ser item em branco (decidido — o aluno não marcou nada) ou item indeciso (esperando conferência
+humana). Sem `PENDING` a fila de conferência não tem como ser montada.
 
 Guardar as cinco intensidades medidas, e não só a conclusão, é o que permite auditar uma
 leitura contestada sem reprocessar a imagem.
 
 **`omr_jobs`**
-`id`, `scan_id`, `status`, `attempts`, `last_error`, `locked_at`, `locked_by`.
+`id`, `scan_id`, `status`, `attempts`, `last_error`, `locked_at`, `locked_by`, `created_at`.
+
+`created_at` existe para a fila ordenar por chegada. Sem ele a ordenação cairia no `id`, que é
+UUID — estável e arbitrária, mas não FIFO, e um lote enviado de manhã poderia ficar atrás de um
+enviado à tarde.
 
 ### Respostas consolidadas
 
@@ -272,7 +287,13 @@ notas já publicadas vieram de qual versão, sem recalcular a história inteira.
 
 Diferente de uma nota individual faltante, calibrar com parte dos alunos ausente distorce os
 parâmetros dos itens — e portanto contamina a nota de *todos*. O sistema bloqueia a transição
-para `CALIBRATED` enquanto houver `answer_card_scans` em `NEEDS_REVIEW` ou `PENDING`.
+para `CALIBRATED` enquanto houver `answer_card_scans` em `PENDING`, `NEEDS_REVIEW` **ou
+`FAILED`**.
+
+`FAILED` bloqueia pela mesma razão que os outros dois: um cartão que o leitor não conseguiu
+processar é um aluno ausente da matriz de respostas, e a matriz é o insumo da calibragem. Um
+cartão só sai do caminho de duas formas — sendo lido, ou sendo digitado manualmente (§9,
+fase 2). Nunca sendo ignorado.
 
 ---
 
