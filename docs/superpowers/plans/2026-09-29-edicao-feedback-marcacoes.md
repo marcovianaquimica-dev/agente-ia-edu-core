@@ -1133,6 +1133,8 @@ if (aiOutputPatch) body.ai_output_patch = aiOutputPatch;
 
 `feedback.strengths`/`feedback.improvements` (listas) continuam indo por `final_feedback` (já existe, só precisa incluir as duas chaves novas no objeto montado junto de `next_essay_strategy`, com o mesmo dirty-check por igualdade de array serializado como JSON string, já que são arrays e não strings simples).
 
+**Importante:** o handler de `er-edit-btn` hoje tem um retorno antecipado quando nada mudou (`if (!scoresEdited && !feedbackEdited) { editBtn.disabled = false; return; }`) - estenda essa condição para `if (!scoresEdited && !feedbackEdited && !aiOutputPatch) { ... return; }`, senão editar só um campo estruturado novo (sem tocar nota nenhuma nem "Próxima redação") faz o clique em "Salvar alterações" não fazer nada. `er-approve-btn` não tem esse retorno antecipado (sempre envia, mesmo com corpo vazio, pra mover a correção pra APPROVED) - não mexer nesse comportamento.
+
 - [ ] **Step 5: Rodar e confirmar que passa**
 
 Run: `node --test tests/test_essay_review_feedback_editing_frontend.js`
@@ -1241,38 +1243,49 @@ Expected: FAIL com `Cannot find module '../src/agente_ia_edu/web/essay-review-se
 Run: `node --test tests/test_essay_review_annotation_offsets_frontend.js`
 Expected: PASS (2 testes)
 
-- [ ] **Step 5: Modo de seleção em `essay-review.js`**
+- [ ] **Step 5: Fila local de operações pendentes — por que não envia direto**
 
-Em `loadOriginalContent` (linhas ~1413-1452), depois de renderizar o texto destacado normalmente (`window.EssayAnnotations.renderHighlightedText`), adicione:
+**Restrição do spec (Global Constraints/seção Frontend): "uma única chamada a `/edit` por vez, não uma por campo"** - isso cobre o bloco de marcações também, não só os campos de texto que a Task 5 já implementou. Adicionar/editar/remover uma marcação NÃO dispara uma requisição própria: acumula numa fila local (`pendingAnnotationsPatch`, um array em memória, vive só enquanto o painel desta correção está aberto) e só viaja pro servidor junto com tudo o mais, no PRÓXIMO clique em "Aprovar"/"Salvar alterações" - o mesmo botão e a mesma chamada que a Task 5 já monta com `final_scores`/`final_feedback`/`ai_output_patch`.
 
-- Um botão "Adicionar marcação" visível só quando `content.anchor_mode === 'TEXT_OFFSET'`.
-- Ao clicar: substitui temporariamente `target.innerHTML` por `<div id="er-plain-text-for-selection">${tmEsc(content.canonical_text)}</div>` (texto puro, sem `<mark>`/`<sup>` nenhum - é isso que garante que `getSelectionOffsets` acima nunca precisa lidar com caracteres injetados).
-- Um listener de `mouseup` nesse `<div>` chama `window.EssayReviewSelection.getSelectionOffsets(target.querySelector('#er-plain-text-for-selection'))`; se devolver `null`, não faz nada; se devolver `{start, end, quote}`, mostra um popover simples (reaproveite o CSS de `.essay-popover` já existente) com: select de competência (C1-C5), select de tipo (ACERTO/ATENCAO/MELHORIA), dois `<textarea>` (curto/longo), botão "Salvar".
-- Ao salvar: `POST` na rota de aprovação/edição que já está ativa nesta correção (`/edit` se `APPROVED`, `/approve` se `PENDING_REVIEW` - mesma decisão que `er-approve-btn`/`er-edit-btn` já tomam hoje via `correction.status`) com `{"annotations_patch": [{"op": "add", "annotation": {competency_code, kind, anchor: {start, end, quote}, short_comment, long_comment}}]}`; em caso de sucesso, chama `renderReviewPanel(correctionId, returnStatus)` de novo pra recarregar a tela inteira com a marcação nova já aparecendo destacada.
-- Ligue `onEdit`/`onRemove` na chamada de `window.EssayAnnotations.wirePopovers(target, annotations, {...})` (Task 4) na visualização normal (não a plana): `onEdit(annotation)` abre um popover de edição só com os 4 campos editáveis (`competency_code`, `kind`, `short_comment`, `long_comment` - a posição/texto ancorado nunca muda numa edição, só remove+recria se o professor quiser mudar o trecho) e salva via `annotations_patch: [{"op": "edit", "letter": annotation.letter, "changes": {...}}]`; `onRemove(annotation)` confirma (`window.confirm`, mesmo padrão que "Rejeitar" já usa em algum lugar deste projeto - grep por `confirm(` em `essay-review.js` pra achar o precedente exato) e salva via `annotations_patch: [{"op": "remove", "letter": annotation.letter}]`.
+Dentro de `renderReviewPanel`, declare `let pendingAnnotationsPatch = [];` e `let displayedAnnotations = annotations.slice();` (cópia local da lista real, é o que `loadOriginalContent`/`renderHighlightedText`/`wirePopovers` passam a usar pra desenhar a tela - nunca `annotations` direto, pra refletir os pendentes sem esperar o servidor). Cada ação do professor muda as DUAS coisas juntas, sem nenhuma chamada de rede:
 
-Isto é HTML/DOM real (listeners, `window.getSelection`, popover dinâmico) - não é razoável cobrir o fluxo inteiro com `node --test` sem jsdom (que este projeto não usa). O Step 6 cobre a verificação real.
+- **Adicionar**: `pendingAnnotationsPatch.push({op: 'add', annotation: {...}})`; em `displayedAnnotations`, acrescenta uma entrada com uma letra temporária só pra exibição (ex: `'_pending_' + pendingAnnotationsPatch.length`, nunca enviada ao servidor - o array `annotation` dentro da operação `add` no patch é o que de fato viaja, sem `letter` nenhum, igual ao brief da Task 1 já espera). Re-renderiza o texto destacado (`renderHighlightedText(canonicalText, displayedAnnotations)`) pra mostrar a marcação nova na hora.
+- **Editar**: se a letra é `_pending_*` (uma marcação ainda não salva), muda o `annotation` dentro da PRÓPRIA operação `add` já na fila (não cria uma segunda operação) e a entrada correspondente em `displayedAnnotations`. Se é uma letra real (já existe no servidor, seja da IA ou de um save anterior), empilha `{op: 'edit', letter, changes: {...}}` em `pendingAnnotationsPatch` e atualiza a entrada em `displayedAnnotations` do mesmo jeito.
+- **Remover**: se é `_pending_*`, tira a operação `add` correspondente da fila e a entrada de `displayedAnnotations` - cancela sem nunca ter tocado o servidor. Se é uma letra real, empilha `{op: 'remove', letter}` e tira a entrada de `displayedAnnotations`.
 
-- [ ] **Step 6: Verificação manual no navegador (obrigatória, documentar no relatório)**
+O botão "Adicionar marcação" (visível só quando `content.anchor_mode === 'TEXT_OFFSET'`) entra em modo de seleção: substitui temporariamente `target.innerHTML` por `<div id="er-plain-text-for-selection">${tmEsc(content.canonical_text)}</div>` (texto puro, sem `<mark>`/`<sup>` - é isso que garante que `getSelectionOffsets` do Step 3 nunca precisa lidar com caracteres injetados). Um listener de `mouseup` nesse `<div>` chama `window.EssayReviewSelection.getSelectionOffsets(...)`; se devolver `{start, end, quote}`, mostra um popover (reaproveite o CSS de `.essay-popover`) com select de competência (C1-C5), select de tipo (ACERTO/ATENCAO/MELHORIA), dois `<textarea>` (curto/longo), botão "Adicionar" - que executa a operação "Adicionar" descrita acima (sem rede) e volta pra visualização destacada normal (não mais o texto plano).
+
+Ligue `onEdit`/`onRemove` na chamada de `window.EssayAnnotations.wirePopovers(target, displayedAnnotations, {...})` (Task 4) na visualização normal: `onEdit(annotation)` abre um popover só com os 4 campos editáveis (`competency_code`, `kind`, `short_comment`, `long_comment` - a posição/texto ancorado nunca muda numa edição, só remove+recria se o professor quiser mudar o trecho) e executa a operação "Editar" acima; `onRemove(annotation)` confirma (`window.confirm`, mesmo padrão que "Rejeitar" já usa em algum lugar deste projeto - grep por `confirm(` em `essay-review.js` pra achar o precedente exato) e executa a operação "Remover" acima.
+
+- [ ] **Step 6: Ligar `pendingAnnotationsPatch` ao botão de salvar já existente (Task 5)**
+
+Nos handlers de `er-approve-btn`/`er-edit-btn` que a Task 5 já estendeu (adicionando `ai_output_patch` ao `body` quando `aiOutputPatch` não é `null`), adicione mais uma condição: `if (pendingAnnotationsPatch.length) body.annotations_patch = pendingAnnotationsPatch;`. Isso entra na MESMA condição de "tem algo pra enviar" que já decide se o botão de aprovar dispara com corpo vazio ou não - para "Salvar alterações" (`er-edit-btn`), que hoje só envia a requisição se `scoresEdited || feedbackEdited` (Task 5 já estendeu pra incluir `aiOutputPatch`), estenda de novo pra incluir `pendingAnnotationsPatch.length > 0` na condição que decide se o clique faz alguma coisa.
+
+Depois de uma chamada bem-sucedida, o código já existente chama `renderReviewQueue(returnStatus)` (sai do painel) - isso descarta `pendingAnnotationsPatch`/`displayedAnnotations` (variáveis locais da função `renderReviewPanel`) naturalmente, sem precisar de nenhuma limpeza explícita: a próxima vez que o professor abrir esta correção, `renderReviewPanel` roda de novo do zero com os dados frescos do servidor (já incluindo as marcações que acabaram de ser salvas, com as letras reais atribuídas por `next_annotation_letter`, Task 1).
+
+Isto é HTML/DOM real (listeners, `window.getSelection`, popover dinâmico, estado local em closure) - não é razoável cobrir o fluxo inteiro com `node --test` sem jsdom (que este projeto não usa). O Step 7 cobre a verificação real.
+
+- [ ] **Step 7: Verificação manual no navegador (obrigatória, documentar no relatório)**
 
 Suba o servidor de dev, abra uma correção `APPROVED` de uma redação `TEXT_OFFSET` no portal do professor:
-1. Clique "Adicionar marcação", selecione um trecho de texto, preencha o popover, salve - confirme que a marcação nova aparece destacada na tela depois de recarregar.
-2. Clique numa marcação existente (da IA), clique "Editar" no popover, mude o comentário curto, salve - confirme que o texto mudou sem a posição do destaque mudar.
-3. Clique "Remover" numa marcação - confirme que ela some da tela e da lista.
-4. Repita o passo 1 com uma correção da mesma escola mas `anchor_mode = IMAGE_REGION` - confirme que o botão "Adicionar marcação" **não aparece**.
-5. Confira no banco (ou reabrindo a tela depois de recarregar o servidor) que `AdminAuditLog` tem uma entrada `ESSAY_CORRECTION_EDITED` pra cada uma das 3 ações acima.
+1. Clique "Adicionar marcação", selecione um trecho de texto, preencha o popover, clique "Adicionar" - confirme que a marcação aparece destacada na tela IMEDIATAMENTE, sem nenhuma requisição de rede ainda (verifique na aba de rede do navegador/`read_network_requests`).
+2. Clique numa marcação existente (da IA), clique "Editar", mude o comentário curto, salve - confirme que o texto mudou na tela, ainda sem requisição.
+3. Clique "Remover" numa marcação - confirme que ela some da tela, ainda sem requisição.
+4. Clique "Salvar alterações" - confirme que UMA ÚNICA requisição a `/edit` sai, com `annotations_patch` contendo as 3 operações das etapas 1-3 juntas. Recarregue a página e confirme que as 3 mudanças persistiram (a nova tem uma letra real atribuída pelo servidor).
+5. Repita o passo 1 com uma correção da mesma escola mas `anchor_mode = IMAGE_REGION` - confirme que o botão "Adicionar marcação" **não aparece**.
+6. Confira no banco (ou reabrindo a tela) que existe **uma única** entrada nova de `AdminAuditLog` (`ESSAY_CORRECTION_EDITED`) cobrindo as 3 ações do passo 4, não três entradas separadas.
 
-- [ ] **Step 7: Rodar a suíte de frontend inteira**
+- [ ] **Step 8: Rodar a suíte de frontend inteira**
 
 Run: `node --test tests/*_frontend.js`
 Expected: todos passam (300+ testes já existentes + os novos desta leva).
 
-- [ ] **Step 8: Rodar a suíte Python inteira do subsistema de redação**
+- [ ] **Step 9: Rodar a suíte Python inteira do subsistema de redação**
 
 Run: `.venv/bin/pytest tests -k "essay" --ignore=tests/test_r4_essay_batch_migration_postgresql.py -q`
 Expected: todos passam (as 2 falhas conhecidas desse arquivo ignorado são pré-existentes e não relacionadas, já documentadas nesta sessão).
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/agente_ia_edu/web/essay-review.js src/agente_ia_edu/web/essay-review-selection.js \
