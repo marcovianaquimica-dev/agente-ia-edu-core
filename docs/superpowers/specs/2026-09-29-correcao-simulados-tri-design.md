@@ -313,9 +313,22 @@ operador reenvia ou digita manualmente.
 Máxima verossimilhança marginal por algoritmo EM (Bock-Aitkin):
 
 - quadratura gaussiana de 41 pontos sobre theta
-- distribuição a priori de theta: N(0,1)
 - convergência quando a maior mudança absoluta de parâmetro fica abaixo de 1e-4
 - teto de 500 iterações; estourar o teto marca `converged = false`
+
+**A distribuição de theta da população depende do modo:**
+
+- **Calibragem livre** (primeiro simulado de uma régua, sem âncoras): prior fixo em N(0,1). A
+  escala precisa de uma origem, e essa é a convenção que a fornece.
+- **Calibragem equalizada** (§6.4, com âncoras travadas): média e desvio da população são
+  **estimados junto com o resto**, num laço externo que alterna passo E, passo M e atualização
+  da distribuição populacional.
+
+Essa distinção é obrigatória, não um refinamento. Com o prior preso em N(0,1), travar os
+parâmetros das âncoras **não produz equalização nenhuma**: o EM re-centra o grupo novo em zero
+e desfaz exatamente o deslocamento que a equalização existe para medir. A turma melhora, a
+régua sobe junto, a nota não mexe — o bug silencioso que as âncoras deveriam eliminar,
+reintroduzido pela mecânica da estimação.
 
 Modelo 2PL: `P(acerto | theta) = 1 / (1 + exp(-a(theta - b)))`.
 
@@ -403,14 +416,34 @@ por não acrescentar uma segunda etapa de estimação — cada etapa a mais é u
 erro.
 
 **Verificação de deriva.** Antes de travar, o motor estima os âncoras livremente e compara
-com os valores da régua. O limiar é configurável, com padrão de **0,5 na escala logit de `b`**
-(meio desvio-padrão de theta). Âncora deslocada além do limiar é **descartada e sinalizada** —
+com os valores da régua — mas **não diretamente**. A estimativa livre sai na escala do grupo
+novo, então uma comparação crua marcaria *todas* as âncoras como derivadas sempre que a turma
+fosse mais forte ou mais fraca que a de referência, que é precisamente o caso de uso. Antes de
+comparar, aplica-se uma transformação **mean-sigma sobre o próprio conjunto de âncoras**, com
+purificação iterativa: transforma, mede o desvio de cada âncora, descarta a pior, e repete até
+estabilizar.
+
+Isso não contradiz a rejeição de Stocking-Lord e Haebara acima. Lá a rejeição é do **método de
+equalização**; aqui mean-sigma é apenas **instrumento de diagnóstico**, descartado depois de
+identificar as âncoras saudáveis. A equalização em si continua sendo por parâmetros travados.
+
+O limiar é configurável, com padrão de **0,5 na escala logit de `b`** (meio desvio-padrão de
+theta). Âncora deslocada além do limiar é **descartada e sinalizada** —
 nunca usada em silêncio. Deslocamento é a assinatura de vazamento do item (alunos tiveram
 acesso à questão) ou de mudança relevante de contexto.
+
+**Número mínimo de âncoras.** Se a purificação derrubar âncoras demais, o sistema **recusa
+equalizar** em vez de equalizar mal. Padrão de 4 âncoras sobreviventes, configurável.
 
 **Consequência operacional que precisa ser respeitada fora do software:** item-âncora não
 pode vazar. O sistema marca quais itens são âncora e impede que apareçam em qualquer
 devolutiva de gabarito ao aluno.
+
+A omissão precisa ser **total e sem posição**. Marcar "questão 12: reservada" na devolutiva
+entregaria de bandeja quais itens se repetem entre aplicações, matando a equalização tão bem
+quanto publicar o gabarito. O item-âncora é omitido inteiro — nem alternativa correta, nem a
+marcação do aluno, nem acerto/erro, nem a posição — e a devolutiva informa apenas uma
+**contagem agregada** de itens omitidos. O item continua contando normalmente para a nota.
 
 ### 6.5 Portões de qualidade
 
