@@ -118,6 +118,10 @@ class BatchStatusTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["matched_count"], 2)
             self.assertEqual(data["needs_review_count"], 1)
             self.assertEqual(data["status"], "DONE")
+            self.assertEqual(
+                data["processed_count"], 3,
+                "lote DONE: toda pagina ja passou pelo OCR, mesmo a que falhou",
+            )
 
     async def test_lists_needs_review_pages_with_their_ocr_hints(self):
         async with self.session_factory() as session:
@@ -159,7 +163,13 @@ class BatchStatusTests(unittest.IsolatedAsyncioTestCase):
                   "document_number": None}],
             )
 
-    async def test_a_processing_batch_reports_its_partial_state(self):
+    async def test_a_processing_batch_with_untouched_pages_reports_zero_progress(self):
+        """Problema 2(a) do fix-round-1-brief.md: enquanto o lote esta
+        PROCESSING, uma pagina que o OCR ainda nem visitou (ocr_body_text
+        IS NULL - o mesmo estado em que create_batch a deixou) nao pode
+        aparecer como "aguardando revisao": ela nao e uma pendencia real pro
+        professor, e so ainda nao foi lida. O contador real de progresso
+        (processed_count) precisa refletir isso."""
         async with self.session_factory() as session:
             school, klass, prompt, _students = await self._seed(
                 session, [("Ana Lúcia Ferreira", None)]
@@ -172,7 +182,52 @@ class BatchStatusTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(data["status"], "PROCESSING")
             self.assertEqual(data["matched_count"], 0)
-            self.assertEqual(data["needs_review_count"], 2)
+            self.assertEqual(data["needs_review_count"], 0)
+            self.assertEqual(data["needs_review_pages"], [])
+            self.assertEqual(data["processed_count"], 0)
+
+    async def test_a_processing_batch_still_surfaces_a_genuinely_unmatched_page(self):
+        """Uma pagina que o OCR JA leu (ocr_body_text preenchido) e que NAO
+        casou com nenhum aluno e uma pendencia real, mesmo com o lote ainda
+        PROCESSING - o professor pode resolve-la sem esperar o lote inteiro
+        terminar."""
+        async with self.session_factory() as session:
+            school, klass, prompt, _students = await self._seed(
+                session, [("Ana Lúcia Ferreira", None)]
+            )
+            batch = await self._batch(session, school, klass, prompt, [
+                {"status": "NEEDS_REVIEW", "name": "CARLOS MENDES", "body": "algum texto"},
+                {"status": "NEEDS_REVIEW"},
+            ], status="PROCESSING")
+
+            data = await EssayBatchService(session).get_batch_status(batch.id)
+
+            self.assertEqual(data["needs_review_count"], 1)
+            self.assertEqual([p["page_number"] for p in data["needs_review_pages"]], [1])
+            self.assertEqual(data["processed_count"], 1)
+
+    async def test_a_matched_but_not_yet_materialized_page_does_not_need_review(self):
+        """Problema 2(b): enquanto o lote esta PROCESSING, uma pagina que ja
+        foi lida pelo OCR E ja casou com um aluno (matched_student_id
+        preenchido) mas ainda nao foi materializada (status continua
+        NEEDS_REVIEW porque _materialize_run so roda no fim do lote) NAO
+        pode aparecer na fila de resolucao manual - resolve-la de novo
+        sobrescreveria um match que ja estava certo."""
+        async with self.session_factory() as session:
+            school, klass, prompt, students = await self._seed(
+                session, [("Ana Lúcia Ferreira", None)]
+            )
+            batch = await self._batch(session, school, klass, prompt, [
+                {"status": "NEEDS_REVIEW", "name": "ANA LUCIA FERREIRA", "body": "texto lido",
+                 "student_id": students["Ana Lúcia Ferreira"]},
+            ], status="PROCESSING")
+
+            data = await EssayBatchService(session).get_batch_status(batch.id)
+
+            self.assertEqual(data["needs_review_count"], 0)
+            self.assertEqual(data["needs_review_pages"], [])
+            self.assertEqual(data["matched_count"], 1)
+            self.assertEqual(data["processed_count"], 1)
 
     async def test_unknown_batch_raises(self):
         async with self.session_factory() as session:

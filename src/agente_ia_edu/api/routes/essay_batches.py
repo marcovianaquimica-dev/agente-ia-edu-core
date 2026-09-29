@@ -61,6 +61,12 @@ class EssayBatchNeedsReviewPage(BaseModel):
     ocr_name_raw: Optional[str] = None
     ocr_cpf_raw: Optional[str] = None
     has_text: bool
+    # Sempre None: get_batch_status ja filtra fora do que esta lista qualquer
+    # pagina com matched_student_id preenchido (Problema 2b do
+    # fix-round-1-brief.md). Exposto mesmo assim como defesa em profundidade
+    # pro frontend nunca precisar confiar cegamente em "esta na lista
+    # portanto precisa de revisao" - ver essay-review.js.
+    matched_student_id: Optional[UUID] = None
 
 
 class EssayBatchAvailableStudent(BaseModel):
@@ -78,6 +84,13 @@ class EssayBatchStatusResponse(BaseModel):
     total_pages: int
     matched_count: int
     needs_review_count: int
+    # Paginas que ja passaram pelo OCR (ocr_body_text preenchido) ou que o
+    # lote ja nao esta mais processando - a diferenca entre "ainda nao lida"
+    # e "lida e sem match" que needs_review_count por si so nao capturava
+    # enquanto o lote estava PROCESSING (Problema 2a do
+    # fix-round-1-brief.md). total_pages - processed_count = quantas paginas
+    # a fila de OCR ainda tem pela frente.
+    processed_count: int
     needs_review_pages: list[EssayBatchNeedsReviewPage]
     available_students: list[EssayBatchAvailableStudent]
 

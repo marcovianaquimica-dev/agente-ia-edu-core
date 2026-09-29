@@ -336,7 +336,20 @@
     const target = container.querySelector('#er-batch-progress');
     if (!target) return;
     const processing = data.status === 'PROCESSING';
-    const done = data.matched_count + data.needs_review_count;
+    // processed_count (nao matched_count + needs_review_count) e o contador
+    // real de progresso: enquanto o lote esta PROCESSING, uma pagina que o
+    // OCR ainda nem visitou nao entra em nenhum dos dois - so em
+    // processed_count quando ela realmente foi lida (Problema 2a do
+    // fix-round-1-brief.md, spec s5: GET .../essay-batches/{id} sempre
+    // reflete o progresso real, mesmo com o lote ainda rodando).
+    const done = data.processed_count;
+    // Defesa em profundidade (Problema 2b): o backend ja filtra fora de
+    // needs_review_pages qualquer pagina com matched_student_id preenchido
+    // (ja casada, so ainda nao materializada porque o lote esta
+    // PROCESSING), mas a fila de resolucao nunca deve confiar cegamente
+    // nisso - resolver essa pagina de novo sobrescreveria um match que ja
+    // estava certo.
+    const resolvableNeedsReview = data.needs_review_pages.filter((page) => !page.matched_student_id);
     const studentOptions = data.available_students
       .map((s) => `<option value="${tmEsc(s.student_id)}">${tmEsc(s.full_name)}${s.document_number ? ` — CPF ${tmEsc(s.document_number)}` : ''}</option>`)
       .join('');
@@ -345,13 +358,13 @@
       <div class="card">
         <h4>${processing ? 'Processando o lote...' : 'Lote processado'}</h4>
         <p class="empty-text">${done} de ${data.total_pages} páginas lidas — ${data.matched_count} identificadas, ${data.needs_review_count} aguardando você.</p>
-        ${data.needs_review_pages.length ? `
+        ${resolvableNeedsReview.length ? `
         <h4>Folhas que o sistema não conseguiu identificar</h4>
         <div class="tm-table-wrap" style="overflow-x:auto;">
           <table class="tm-table">
             <thead><tr><th>Página</th><th>Folha</th><th>Nome lido</th><th>CPF lido</th><th>Aluno</th><th></th></tr></thead>
             <tbody>
-              ${data.needs_review_pages.map((page) => `
+              ${resolvableNeedsReview.map((page) => `
                 <tr data-batch-page="${tmEsc(page.id)}">
                   <td>${page.page_number}</td>
                   <td><a href="/api/v1/teacher/essay-batches/${tmEsc(data.id)}/pages/${tmEsc(page.id)}/image" target="_blank" rel="noopener" data-page-image="${tmEsc(page.id)}">ver folha</a></td>

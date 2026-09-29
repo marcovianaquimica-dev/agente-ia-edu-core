@@ -12,10 +12,47 @@ from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
-    AcademicYear, Class, EssayBatchPage, EssayBatchUpload, EssayPrompt, EssaySubmission,
-    GradeLevel, Person, PromptAssignment, School, Segment, Student, StudentEnrollment,
+    AcademicYear, Class, EssayBatchPage, EssayBatchUpload, EssayCorrection, EssayPrompt,
+    EssaySubmission, GradeLevel, Person, PromptAssignment, School, Segment, Student,
+    StudentEnrollment,
 )
 from agente_ia_edu.services.essay_batch import EssayBatchService
+
+
+class DumbCorrectionService:
+    """Reproduz SO o contrato de idempotencia real de
+    EssayCorrectionService.correct() (essay_correction.py): existe uma
+    EssayCorrection para a submissao? devolve ela sem "corrigir" de novo. Nao
+    existe? cria uma nova gravando o canonical_text ATUAL da submissao - e
+    exatamente esse "atual" que fica errado quando a corrida e
+    re-materializada mas a correcao antiga nao e invalidada (Problema 1 do
+    fix-round-1-brief.md): correct() encontraria a correcao velha e nunca
+    chamaria a IA sobre o texto completo."""
+
+    def __init__(self, session):
+        self.session = session
+
+    async def correct(self, essay_submission_id):
+        existing = await self.session.scalar(
+            select(EssayCorrection).where(
+                EssayCorrection.essay_submission_id == essay_submission_id
+            )
+        )
+        if existing is not None:
+            return existing
+        submission = await self.session.get(EssaySubmission, essay_submission_id)
+        correction = EssayCorrection(
+            id=uuid.uuid4(), school_id=submission.school_id,
+            essay_submission_id=essay_submission_id,
+            correction_key=f"key-{uuid.uuid4()}", rubric_version="v1",
+            model_version="m1", prompt_version="p1", engine_version="e1",
+            ai_output={"corrected_text": submission.canonical_text},
+            final_scores={"total": len(submission.canonical_text)},
+            final_feedback={}, status="PENDING_REVIEW",
+        )
+        self.session.add(correction)
+        await self.session.flush()
+        return correction
 
 
 class ResolvePageTests(unittest.IsolatedAsyncioTestCase):
@@ -230,6 +267,76 @@ class ResolvePageTests(unittest.IsolatedAsyncioTestCase):
             refreshed = await session.get(EssayBatchPage, pages[0].id)
             self.assertEqual(refreshed.status, "NEEDS_REVIEW")
             self.assertIsNone(refreshed.matched_student_id)
+
+    async def test_resolving_a_page_after_the_run_was_already_corrected_reruns_the_ai(self):
+        """Problema 1 (CRITICAL) do fix-round-1-brief.md: folha 1 casa
+        automaticamente e ja e corrigida; folha 2 so e resolvida pelo
+        professor DEPOIS. A segunda correcao precisa refletir o texto
+        completo (as duas folhas), nao a correcao antiga intacta sobre
+        metade do texto."""
+        async with self.session_factory() as session:
+            school, klass, prompt, students = await self._seed(session, ["Ana Lúcia Ferreira"])
+            student_id = students["Ana Lúcia Ferreira"]
+            batch, pages = await self._batch_with_pages(
+                session, school, klass, prompt,
+                ["Primeira parte.", "Segunda parte."],
+            )
+            # Folha 1 "ja casou automaticamente" (como o process_batch real
+            # deixaria); folha 2 fica NEEDS_REVIEW, sem aluno casado - exatamente
+            # como cairia na fila de resolucao manual por cabecalho ilegivel.
+            pages[0].matched_student_id = student_id
+            await session.commit()
+            service = EssayBatchService(session, correction_factory=DumbCorrectionService)
+
+            # O lote materializa a corrida [folha 1] sozinha e ela e corrigida.
+            first_submission_ids = await service.materialize_batch(batch.id)
+            self.assertEqual(len(first_submission_ids), 1)
+            await service.run_corrections(first_submission_ids)
+
+            first_correction = await session.scalar(
+                select(EssayCorrection).where(
+                    EssayCorrection.essay_submission_id == first_submission_ids[0]
+                )
+            )
+            self.assertIsNotNone(first_correction)
+            self.assertEqual(
+                first_correction.ai_output["corrected_text"], "Primeira parte.",
+                "a primeira correcao so viu a folha 1 - e o comportamento correto ate aqui",
+            )
+            first_correction_id = first_correction.id
+
+            # O professor resolve a folha 2 - agora as duas folhas formam uma
+            # corrida consecutiva do mesmo aluno.
+            second_submission_ids = await service.resolve_page(
+                batch_id=batch.id, page_id=pages[1].id, student_id=student_id,
+            )
+            self.assertEqual(second_submission_ids, first_submission_ids)
+            await service.run_corrections(second_submission_ids)
+
+            submission = await session.get(EssaySubmission, first_submission_ids[0])
+            self.assertIn("Primeira parte.", submission.canonical_text)
+            self.assertIn("Segunda parte.", submission.canonical_text)
+
+            corrections = (await session.execute(
+                select(EssayCorrection).where(
+                    EssayCorrection.essay_submission_id == first_submission_ids[0]
+                )
+            )).scalars().all()
+            self.assertEqual(
+                len(corrections), 1,
+                "a correcao antiga precisa ser invalidada, nao duplicada ao lado da nova",
+            )
+            final_correction = corrections[0]
+            self.assertNotEqual(
+                final_correction.id, first_correction_id,
+                "a correcao antiga (so com a folha 1) precisa ter sido substituida",
+            )
+            self.assertIn(
+                "Segunda parte.", final_correction.ai_output["corrected_text"],
+                "a correcao final precisa refletir o texto COMPLETO da submissao, "
+                "nao a correcao antiga rodada so sobre a folha 1",
+            )
+            self.assertIn("Primeira parte.", final_correction.ai_output["corrected_text"])
 
 
 if __name__ == "__main__":

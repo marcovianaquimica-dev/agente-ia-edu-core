@@ -23,13 +23,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..providers.contracts import EssayTranscriptionProvider
 from ..db.models import (
-    EssayBatchPage, EssayBatchUpload, PromptAssignment, Person, Student, StudentEnrollment,
-    EssaySubmission,
+    EssayBatchPage, EssayBatchUpload, EssayCorrection, PromptAssignment, Person, Student,
+    StudentEnrollment, EssaySubmission,
 )
 from ..providers.errors import ProviderError
 from ..db.models import EssaySubmissionPage
@@ -564,8 +564,29 @@ class EssayBatchService:
         )
         if existing_id is not None:
             submission = await self.session.get(EssaySubmission, existing_id)
+            new_hash = essay_text_hash(text)
+            if new_hash != submission.normalized_text_hash:
+                # O texto canonico mudou de verdade (uma pagina resolvida
+                # manualmente se juntou a corrida DEPOIS que a IA ja tinha
+                # corrigido a submissao com o texto antigo/incompleto -
+                # Problema 1 CRITICAL do fix-round-1-brief.md). A correcao
+                # antiga aponta pra um texto que nao existe mais (nota e
+                # ancoras de anotacao errados), entao ela precisa ser
+                # apagada AQUI, antes de run_corrections ser disparado de
+                # novo - assim EssayCorrectionService.correct() (que e
+                # idempotente por design: existe correcao -> devolve ela sem
+                # chamar a IA) encontra a submissao SEM correcao valida e
+                # roda a IA de verdade sobre o texto completo e atualizado.
+                # Nunca mexe na idempotencia de correct() em si - so garante
+                # que a submissao deixa de "ja ter" uma correcao quando o
+                # texto dela mudou.
+                await self.session.execute(
+                    delete(EssayCorrection).where(
+                        EssayCorrection.essay_submission_id == submission.id
+                    )
+                )
             submission.canonical_text = normalize_essay_text(text)
-            submission.normalized_text_hash = essay_text_hash(text)
+            submission.normalized_text_hash = new_hash
         else:
             submission = EssaySubmission(
                 id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=batch.school_id,
@@ -746,7 +767,38 @@ class EssayBatchService:
             .order_by(EssayBatchPage.page_number)
         )).scalars().all()
 
-        needs_review = [page for page in pages if page.status == "NEEDS_REVIEW"]
+        # Problema 2 (IMPORTANT) do fix-round-1-brief.md: status de cada
+        # pagina so sai de NEEDS_REVIEW dentro de _materialize_run, que so
+        # roda depois que a ULTIMA pagina do lote inteiro foi processada
+        # (process_batch). Enquanto o lote esta PROCESSING, uma pagina em
+        # NEEDS_REVIEW pode estar em dois estados bem diferentes que o
+        # status por si so nao distingue:
+        #   - "ainda nem foi lida pelo OCR" (o mesmo estado em que
+        #     create_batch a deixou: ocr_body_text IS NULL) - nao e uma
+        #     pendencia real, so ainda nao chegou a vez dela;
+        #   - "ja foi lida E ja casou com um aluno" (ocr_body_text
+        #     preenchido, matched_student_id setado) - vai virar
+        #     MATCHED_AUTO quando o lote terminar, tambem nao e uma
+        #     pendencia real agora.
+        # So a pagina PROCESSADA e SEM MATCH e uma pendencia de verdade.
+        # Uma vez que o lote nao esta mais PROCESSING, todas as paginas ja
+        # passaram por _process_page (inclusive a que falhou o OCR pra
+        # sempre, com ocr_body_text ainda None) - nesse caso o antigo
+        # comportamento (NEEDS_REVIEW = precisa de revisao) continua certo.
+        batch_still_processing = batch.status == "PROCESSING"
+
+        def _not_yet_processed(page: EssayBatchPage) -> bool:
+            return (
+                batch_still_processing
+                and page.status == "NEEDS_REVIEW"
+                and page.ocr_body_text is None
+            )
+
+        processed_pages = [page for page in pages if not _not_yet_processed(page)]
+        needs_review = [
+            page for page in processed_pages
+            if page.status == "NEEDS_REVIEW" and page.matched_student_id is None
+        ]
         taken_student_ids = {
             page.matched_student_id for page in pages
             if page.essay_submission_id is not None and page.matched_student_id is not None
@@ -760,8 +812,9 @@ class EssayBatchService:
             "class_id": batch.class_id,
             "status": batch.status,
             "total_pages": batch.total_pages,
-            "matched_count": len(pages) - len(needs_review),
+            "matched_count": len(processed_pages) - len(needs_review),
             "needs_review_count": len(needs_review),
+            "processed_count": len(processed_pages),
             "needs_review_pages": [
                 {
                     "id": page.id,
@@ -772,6 +825,10 @@ class EssayBatchService:
                     # resolver essa pagina so criaria uma redacao vazia, que
                     # resolve_page recusa de qualquer forma.
                     "has_text": bool((page.ocr_body_text or "").strip()),
+                    # Sempre None aqui: `needs_review` ja filtrou fora
+                    # qualquer pagina com matched_student_id preenchido.
+                    # Exposto pro frontend como defesa em profundidade.
+                    "matched_student_id": page.matched_student_id,
                 }
                 for page in needs_review
             ],
