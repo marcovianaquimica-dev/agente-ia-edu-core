@@ -129,6 +129,31 @@
 
         <div id="school-users-list" class="admin-table-wrap"><p class="empty-text">Carregando vínculos…</p></div>
       </section>
+
+      <!-- ================= PLATFORM ESSAY PROMPTS ================= -->
+      <section class="card">
+        <div class="card-header">
+          <h3>✍️ Propostas de Redação da Plataforma</h3>
+          <button class="btn btn-primary" id="btn-new-platform-prompt" type="button">+ Nova proposta</button>
+        </div>
+        <p class="empty-text">Visíveis para professores de todas as escolas. Cada escola recebe uma cópia própria na primeira vez que atribui a proposta a uma turma — arquivar não afeta nenhuma cópia já criada.</p>
+
+        <form id="platform-prompt-form" class="admin-form" hidden>
+          <div class="admin-form-row">
+            <div class="form-group admin-form-row-grow"><label for="platform-prompt-title">Título *</label><input id="platform-prompt-title" class="text-input" placeholder="Os desafios da mobilidade urbana no Brasil" maxlength="255" required></div>
+          </div>
+          <div class="admin-form-row">
+            <div class="form-group admin-form-row-grow"><label for="platform-prompt-statement">Enunciado *</label><textarea id="platform-prompt-statement" class="textarea-input" rows="6" placeholder="A partir da leitura dos textos motivadores, redija um texto dissertativo-argumentativo…" required></textarea></div>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="btn btn-primary">Criar proposta</button>
+            <button type="button" class="btn btn-secondary" id="platform-prompt-cancel-btn">Cancelar</button>
+          </div>
+          <p id="platform-prompt-form-msg" class="admin-msg" hidden></p>
+        </form>
+
+        <div id="platform-prompts-list" class="admin-table-wrap"><p class="empty-text">Carregando propostas…</p></div>
+      </section>
     </main>
   </div>
 

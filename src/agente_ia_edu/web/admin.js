@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     disciplines: null,          // [{id, name, code}] - fetched once, ungated
     schoolUniverse: null,       // this school's SCHOOL-owned PedagogicalUniverse, or null
     schoolUniverseScopes: [],   // that universe's current catalog scopes
+    platformPrompts: [],        // propostas de redacao da plataforma (cross-escola)
   };
 
   const $ = (id) => document.getElementById(id);
@@ -505,6 +506,107 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // ---------- Platform essay prompts (propostas de redação cross-escola) ----------
+  // Backed by /api/v1/admin/platform-essay-prompts (PLATFORM_ADMIN only, ver
+  // api/routes/admin_essay_prompts.py). Uma proposta criada aqui fica visível
+  // a professores de TODAS as escolas; a cópia por escola
+  // (essay_prompts.materialized_from_platform_prompt_id) é criada pelo backend
+  // na primeira atribuição daquela escola, e é isso que
+  // materialized_school_count conta. Nunca há edição: arquivar e cadastrar
+  // outra é o caminho.
+
+  const PLATFORM_PROMPT_STATUS_LABELS = { ACTIVE: 'Ativa', ARCHIVED: 'Arquivada' };
+
+  async function loadPlatformPrompts() {
+    const container = $('platform-prompts-list');
+    try {
+      const res = await fetch(`${API}/platform-essay-prompts`, { headers: authHeaders() });
+      if (res.status === 403) {
+        container.innerHTML = '<p class="empty-text">Acesso negado — este usuário não tem papel de Administrador da Plataforma.</p>';
+        return;
+      }
+      if (!res.ok) throw new Error(await errorDetail(res));
+      state.platformPrompts = await res.json();
+      renderPlatformPrompts();
+    } catch (err) {
+      container.innerHTML = '<p class="empty-text">Não foi possível carregar as propostas da plataforma.</p>';
+    }
+  }
+
+  function renderPlatformPrompts() {
+    const container = $('platform-prompts-list');
+    if (!state.platformPrompts.length) {
+      container.innerHTML = '<p class="empty-text">Nenhuma proposta da plataforma cadastrada ainda.</p>';
+      return;
+    }
+    container.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>Título</th><th>Enunciado</th><th>Status</th><th>Escolas que já usaram</th><th>Criada em</th><th></th></tr></thead>
+        <tbody>
+          ${state.platformPrompts.map((p) => `
+            <tr>
+              <td><strong>${esc(p.title)}</strong></td>
+              <td>${esc(String(p.statement || '').slice(0, 120))}${String(p.statement || '').length > 120 ? '…' : ''}</td>
+              <td>${esc(PLATFORM_PROMPT_STATUS_LABELS[p.status] || p.status)}</td>
+              <td>${p.materialized_school_count}</td>
+              <td>${formatDate(p.created_at)}</td>
+              <td>${p.status === 'ACTIVE'
+                ? `<button class="btn btn-secondary" type="button" data-archive-platform-prompt="${esc(p.id)}">Arquivar</button>`
+                : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+    container.querySelectorAll('[data-archive-platform-prompt]').forEach((btn) => {
+      btn.addEventListener('click', () => archivePlatformPrompt(btn.dataset.archivePlatformPrompt));
+    });
+  }
+
+  async function archivePlatformPrompt(promptId) {
+    const prompt = state.platformPrompts.find((p) => p.id === promptId);
+    const title = prompt ? prompt.title : 'esta proposta';
+    if (!confirm(`Arquivar "${title}"? Ela deixa de aparecer para escolas que ainda não a usaram. As cópias já criadas continuam funcionando normalmente.`)) return;
+    try {
+      const res = await fetch(`${API}/platform-essay-prompts/${promptId}/archive`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      showAlert('✅ Proposta arquivada.', 'success');
+      loadPlatformPrompts();
+    } catch (err) {
+      showAlert(`Não foi possível arquivar a proposta: ${err.message}`, 'error');
+    }
+  }
+
+  $('btn-new-platform-prompt').addEventListener('click', () => {
+    $('platform-prompt-form').hidden = false;
+    formMsg('platform-prompt-form-msg', '');
+  });
+  $('platform-prompt-cancel-btn').addEventListener('click', () => {
+    $('platform-prompt-form').hidden = true;
+    $('platform-prompt-form').reset();
+  });
+  $('platform-prompt-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    formMsg('platform-prompt-form-msg', '');
+    const body = {
+      title: $('platform-prompt-title').value.trim(),
+      statement: $('platform-prompt-statement').value.trim(),
+    };
+    try {
+      const res = await fetch(`${API}/platform-essay-prompts`, {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      $('platform-prompt-form').hidden = true;
+      $('platform-prompt-form').reset();
+      showAlert(`✅ Proposta "${body.title}" publicada para todas as escolas.`, 'success');
+      loadPlatformPrompts();
+    } catch (err) {
+      formMsg('platform-prompt-form-msg', `Não foi possível criar a proposta: ${err.message}`, false);
+    }
+  });
+
   // ---------- Identity ----------
 
   $('admin-identity-id').addEventListener('change', (e) => {
@@ -514,7 +616,9 @@ document.addEventListener('DOMContentLoaded', () => {
     state.schoolUniverse = null;
     state.schoolUniverseScopes = [];
     loadSchools();
+    loadPlatformPrompts();
   });
 
   loadSchools();
+  loadPlatformPrompts();
 });
