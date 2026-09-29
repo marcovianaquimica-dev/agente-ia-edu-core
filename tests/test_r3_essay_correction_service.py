@@ -161,6 +161,14 @@ def _happy_payload(
                     "signal_keys": [],
                 }
             ],
+            "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
+            "c2_tema": "Desenvolve o tema especifico proposto.",
+            "c2_repertorio_sociocultural": "Cita a Constituicao de 1988.",
+            "c2_orientacao_melhoria": "Articule o repertorio ao argumento.",
+            "c3_projeto_argumentativo": "Tese retomada na conclusao.",
+            "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
+            "c3_autoria": "Ha ponto de vista proprio.",
+            "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
             "annotations": [
                 {
                     "letter": "A", "competency_code": "C1", "kind": "ACERTO",
@@ -734,9 +742,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v14(self):
+    def test_production_prompt_version_is_v15(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v14")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v15")
 
     def test_production_engine_version_is_v2(self):
         from agente_ia_edu.services.essay_correction import _ENGINE_VERSION
@@ -874,12 +882,11 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                     "strengths": "Forcas unicas de C1.", "growth_area": "Melhoria unica de C1.",
                     "signal_keys": [],
                 },
-                {
-                    "competency_code": "C2", "summary": "Resumo unico de C2.",
-                    "strengths": "Forcas unicas de C2.", "growth_area": "Melhoria unica de C2.",
-                    "signal_keys": [],
-                },
             ]
+            payload["c2_tipologia_textual"] = "Tipologia unica de C2."
+            payload["c2_tema"] = "Tema unico de C2."
+            payload["c2_repertorio_sociocultural"] = "Repertorio unico de C2."
+            payload["c2_orientacao_melhoria"] = "Melhoria unica de C2."
             provider = _StubTextProvider(text=json.dumps(payload))
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
@@ -888,15 +895,15 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Resumo unico de C1.", provider.phase2_requests_by_code["C1"].prompt)
             self.assertIn("Forcas unicas de C1.", provider.phase2_requests_by_code["C1"].prompt)
             self.assertIn("Melhoria unica de C1.", provider.phase2_requests_by_code["C1"].prompt)
-            self.assertIn("Resumo unico de C2.", provider.phase2_requests_by_code["C2"].prompt)
+            self.assertIn("Repertorio unico de C2.", provider.phase2_requests_by_code["C2"].prompt)
             # C1's own rationale must not leak into C2's prompt.
             self.assertNotIn("Resumo unico de C1.", provider.phase2_requests_by_code["C2"].prompt)
-            # C3 got no rationale in this payload - its prompt carries no
-            # holistic-judgment EVIDENCE block (the rule text itself always
-            # mentions "juizo holistico" generically, so assert on the
-            # block's own marker instead).
+            # C3 keeps its own default structured evidence (unaffected by the
+            # C1/C2 overrides above) and neither C1's nor C2's unique text.
+            self.assertIn("Tese retomada na conclusao.", provider.phase2_requests_by_code["C3"].prompt)
+            self.assertNotIn("Resumo unico de C1.", provider.phase2_requests_by_code["C3"].prompt)
             self.assertNotIn(
-                "EVIDENCIA - juizo holistico", provider.phase2_requests_by_code["C3"].prompt,
+                "Repertorio unico de C2.", provider.phase2_requests_by_code["C3"].prompt,
             )
 
     async def test_alert_review_can_reject_a_false_positive_anula_redacao_alert(self):
@@ -1010,6 +1017,103 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.status, "NEEDS_REVIEW")
             self.assertIn("CompetencyScoringFailed", correction.failure_reason)
             self.assertIn("ValueError", correction.failure_reason)
+
+
+class StructuredC2C3RationaleTests(unittest.TestCase):
+    """The phase-2a scorer used to receive each competency's own
+    CompetencyRationale. Under contract v5, C2 and C3 no longer have one -
+    their feedback lives in eight named fields. The scorer must still see the
+    same evidence, synthesized from those fields, so this leva changes the
+    FEEDBACK shape without silently changing how C2/C3 are SCORED (spec §2,
+    "Não entrega")."""
+
+    def _output(self, **overrides):
+        import uuid as _uuid
+
+        from agente_ia_edu.essay_engine_contract.v5 import (
+            CONTRACT_VERSION, EssayEngineOutput,
+        )
+
+        payload = {
+            "identification": {
+                "essay_id": str(_uuid.uuid4()), "essay_version_id": str(_uuid.uuid4()),
+                "rubric_version": "ENEM_2025", "model_version": "fake-model-1",
+                "prompt_version": "essay_correction_v15",
+                "engine_version": "r3_correction_engine_v2",
+                "contract_version": CONTRACT_VERSION, "anchor_mode": "TEXT_OFFSET",
+            },
+            "scores": {
+                "per_competency": {
+                    c: {"points": 160, "confidence": 0.9}
+                    for c in ("C1", "C2", "C3", "C4", "C5")
+                },
+                "total": 800,
+            },
+            "rationales": [
+                {"competency_code": c, "summary": f"resumo {c}",
+                 "strengths": f"forcas {c}", "growth_area": f"melhoria {c}",
+                 "signal_keys": []}
+                for c in ("C1", "C4", "C5")
+            ],
+            "annotations": [],
+            "rewrites": [],
+            "feedback": {"strengths": [], "improvements": [], "next_essay_strategy": "..."},
+            "intervention": {"respeita_direitos_humanos": True},
+            "alerts": [],
+            "intro_message": "Ola.",
+            "closing_message": "Continue.",
+            "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
+            "c2_tema": "Desenvolve o tema especifico proposto.",
+            "c2_repertorio_sociocultural": "Cita a Constituicao de 1988.",
+            "c2_orientacao_melhoria": "Articule o repertorio ao argumento.",
+            "c3_projeto_argumentativo": "Tese retomada na conclusao.",
+            "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
+            "c3_autoria": "Ha ponto de vista proprio.",
+            "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
+        }
+        payload.update(overrides)
+        return EssayEngineOutput.model_validate(payload)
+
+    def test_c2_rationale_is_synthesized_from_the_four_structured_fields(self):
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        rationale = _structured_rationale(self._output(), "C2")
+        self.assertIsNotNone(rationale)
+        self.assertIn("Tipologia textual: Texto dissertativo-argumentativo completo.",
+                      rationale["strengths"])
+        self.assertIn("Tema: Desenvolve o tema especifico proposto.", rationale["strengths"])
+        self.assertIn("Repertório sociocultural: Cita a Constituicao de 1988.",
+                      rationale["strengths"])
+        self.assertEqual(rationale["growth_area"], "Articule o repertorio ao argumento.")
+        self.assertIn("Desenvolve o tema especifico proposto.", rationale["summary"])
+
+    def test_c3_rationale_is_synthesized_from_the_four_structured_fields(self):
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        rationale = _structured_rationale(self._output(), "C3")
+        self.assertIsNotNone(rationale)
+        self.assertIn("Projeto argumentativo: Tese retomada na conclusao.",
+                      rationale["strengths"])
+        self.assertIn("Informações, fatos e opiniões: Usa dados do IBGE.",
+                      rationale["strengths"])
+        self.assertIn("Autoria: Ha ponto de vista proprio.", rationale["strengths"])
+        self.assertEqual(rationale["growth_area"], "Desenvolva o segundo argumento.")
+
+    def test_non_structured_competencies_get_no_synthesized_rationale(self):
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        for code in ("C1", "C4", "C5"):
+            with self.subTest(code=code):
+                self.assertIsNone(_structured_rationale(self._output(), code))
+
+    def test_missing_structured_field_degrades_to_none(self):
+        """FORMATIVO output (no scores) may legitimately omit the fields -
+        the scorer then falls back to whatever rationales carry, exactly as
+        it did before this leva."""
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        output = self._output(scores=None, c2_tema=None)
+        self.assertIsNone(_structured_rationale(output, "C2"))
 
 
 if __name__ == "__main__":

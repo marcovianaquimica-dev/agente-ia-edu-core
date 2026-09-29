@@ -41,7 +41,7 @@ from ..db.models import (
     EssaySubmissionPage,
     PromptAssignment,
 )
-from ..essay_engine_contract.v4 import (
+from ..essay_engine_contract.v5 import (
     COMPETENCY_CODES,
     CONTRACT_VERSION,
     EssayEngineOutput,
@@ -67,7 +67,7 @@ from .institution_settings import InstitutionSettingsService
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v2"
-_PROMPT_VERSION = "essay_correction_v14"
+_PROMPT_VERSION = "essay_correction_v15"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 # Determinism: "mesma redacao = mesma nota" (the C1 protocol's own item 25
@@ -82,6 +82,58 @@ _RUBRIC_FILE_NAME = "enem_2025"
 # best-effort reproducibility hint the API does not guarantee but does
 # accept for this model, and costs nothing when a provider ignores it.
 _CORRECTION_SEED = 20260928
+
+#: Aspect label -> structured field, per competency, in rendering order. The
+#: same pairs (same labels, same order) live in web/essay-report.js's
+#: COMPETENCY_ASPECTS and essay_pdf_export.py's _COMPETENCY_ASPECTS - three
+#: copies on purpose, one per runtime, never three different orders.
+_STRUCTURED_ASPECTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "C2": (
+        ("Tipologia textual", "c2_tipologia_textual"),
+        ("Tema", "c2_tema"),
+        ("Repertório sociocultural", "c2_repertorio_sociocultural"),
+        ("Como melhorar", "c2_orientacao_melhoria"),
+    ),
+    "C3": (
+        ("Projeto argumentativo", "c3_projeto_argumentativo"),
+        ("Informações, fatos e opiniões", "c3_fatos_informacoes_opinioes"),
+        ("Autoria", "c3_autoria"),
+        ("Como melhorar", "c3_orientacao_melhoria"),
+    ),
+}
+
+
+def _structured_rationale(output: EssayEngineOutput, code: str) -> dict[str, str] | None:
+    """Rebuild phase 1's per-competency rationale for C2/C3 from contract v5's
+    eight structured fields.
+
+    Under v4 the phase-2a scorer read each competency's own
+    CompetencyRationale (summary/strengths/growth_area) - 2026-09-28
+    calibration finding: diffusely weak essays with few quotable errors had
+    too little signal in annotations alone. v5 removed C2/C3 from
+    ``rationales``, so without this the scorer would silently lose that
+    signal for exactly two competencies - a scoring change this leva
+    deliberately does NOT make (spec §2, "Não entrega").
+
+    Returns None for C1/C4/C5 (they still carry a real rationale) and for any
+    output missing one of the four fields (FORMATIVO, or older data) - the
+    caller then falls back to the rationale it already had.
+    """
+    aspects = _STRUCTURED_ASPECTS.get(code)
+    if aspects is None:
+        return None
+    values: list[tuple[str, str]] = []
+    for label, field in aspects:
+        value = getattr(output, field, None)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        values.append((label, value))
+    *evidence, (_, improvement) = values
+    return {
+        "summary": " ".join(text for _, text in evidence),
+        "strengths": "\n".join(f"{label}: {text}" for label, text in evidence),
+        "growth_area": improvement,
+    }
 
 
 def _utcnow() -> datetime:
@@ -696,15 +748,13 @@ class EssayCorrectionService:
                 for a in annotations_by_code.get(code, [])
             ]
             rationale_obj = rationale_by_code.get(code)
-            rationale = (
-                {
+            rationale = _structured_rationale(output, code)
+            if rationale is None and rationale_obj is not None:
+                rationale = {
                     "summary": rationale_obj.summary,
                     "strengths": rationale_obj.strengths,
                     "growth_area": rationale_obj.growth_area,
                 }
-                if rationale_obj is not None
-                else None
-            )
             prompt_text = competency_scoring_v1.build_prompt(
                 competency_code=code, competency_label=competency.official_title,
                 levels=levels, annotations=annotations,

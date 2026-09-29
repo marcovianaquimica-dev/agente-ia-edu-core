@@ -8,9 +8,10 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import EssayRubric, EssayRubricSignal
 from agente_ia_edu.essay_engine_contract.v1 import CONTRACT_VERSION, EssayEngineOutput
-from agente_ia_edu.essay_engine_contract.v4 import (
-    CONTRACT_VERSION as CONTRACT_VERSION_V4,
-    EssayEngineOutput as EssayEngineOutputV4,
+from agente_ia_edu.essay_engine_contract.v5 import (
+    CONTRACT_VERSION as CONTRACT_VERSION_V5,
+    STRUCTURED_FEEDBACK_FIELDS,
+    EssayEngineOutput as EssayEngineOutputV5,
 )
 from agente_ia_edu.rubrics.loader import load_rubric_file
 from agente_ia_edu.services.essay_rubric_seed import EssayRubricSeeder
@@ -108,11 +109,21 @@ def build_output(**overrides) -> EssayEngineOutput:
     return EssayEngineOutput.model_validate(build_payload(**overrides))
 
 
-def build_payload_v4(**overrides) -> dict:
+def build_payload_v5(**overrides) -> dict:
     """Like build_payload(), but for validate_engine_output_from_payload
-    calls, which parse against essay_engine_contract.v4 internally."""
+    calls, which parse against essay_engine_contract.v5 internally: the v5
+    contract_version, the eight structured C2/C3 fields, and rationales
+    restricted to C1/C4/C5."""
     payload = build_payload(**overrides)
-    payload["identification"] = {**payload["identification"], "contract_version": CONTRACT_VERSION_V4}
+    payload["identification"] = {
+        **payload["identification"], "contract_version": CONTRACT_VERSION_V5,
+    }
+    if "rationales" not in overrides:
+        payload["rationales"] = [
+            r for r in payload["rationales"] if r["competency_code"] not in ("C2", "C3")
+        ]
+    for field in STRUCTURED_FEEDBACK_FIELDS:
+        payload.setdefault(field, f"texto de {field}")
     return payload
 
 
@@ -395,7 +406,7 @@ class TestEngineValidation(unittest.TestCase):
         text = LIVE_TRANSCRIPTION
         quote = "4. sas principais"
         drifted_start = text.index("3. a invisibilida")
-        payload = build_payload_v4(annotations=[{
+        payload = build_payload_v5(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "LOCALIZED",
             "anchor": {
@@ -593,7 +604,7 @@ class TestEngineValidation(unittest.TestCase):
         """End-to-end through the single entry point spec §7 promises: a
         payload with a GLOBAL, anchor-omitted annotation must validate clean
         through all three layers, not just layer 1."""
-        raw_payload = build_payload_v4(annotations=[{
+        raw_payload = build_payload_v5(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "GLOBAL",
             "short_comment": "curto", "long_comment": "longo",
@@ -751,7 +762,7 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
 
     def test_a_rubric_invalid_payload_still_raises_its_own_layer_2_code(self):
         """Shape is fine; the rejection must come from layer 2, not layer 1."""
-        raw_payload = build_payload(
+        raw_payload = build_payload_v5(
             identification={
                 "essay_id": str(uuid.uuid4()),
                 "essay_version_id": str(uuid.uuid4()),
@@ -759,7 +770,7 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
                 "model_version": "fake-model-1",
                 "prompt_version": "v1",
                 "engine_version": "r1.0.0",
-                "contract_version": CONTRACT_VERSION_V4,
+                "contract_version": CONTRACT_VERSION_V5,
                 "anchor_mode": "TEXT_OFFSET",
             }
         )
@@ -770,9 +781,9 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
         self.assertEqual(caught.exception.reason_code, "RUBRIC_VERSION_MISMATCH")
 
     def test_a_valid_payload_returns_the_parsed_output(self):
-        raw_payload = build_payload_v4()
+        raw_payload = build_payload_v5()
 
         output = validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
 
-        self.assertIsInstance(output, EssayEngineOutputV4)
+        self.assertIsInstance(output, EssayEngineOutputV5)
         self.assertEqual(output.identification.rubric_version, "ENEM_2025")
