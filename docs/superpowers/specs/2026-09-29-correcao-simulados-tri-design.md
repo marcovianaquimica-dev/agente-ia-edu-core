@@ -178,8 +178,9 @@ Quem publicou a nota de um simulado, e quando, precisa estar registrado. Segue o
 `assessment_workflow_audit`, que já existe em `db/models/assessments.py:200` — inclusive no
 tipo do ator: **`String(255)` com o identificador externo, não FK para `users`**.
 
-A escolha é deliberada. A camada HTTP autentica por identificador externo e sempre o tem em
-mãos; um UUID exigiria uma resolução que pode devolver nulo, e a coluna perderia exatamente o
+A escolha é deliberada e vale para **todos os atores deste subsistema** — quem transicionou o
+status, quem digitou uma resposta e quem resolveu uma marca ambígua na fila de conferência. A
+camada HTTP autentica por identificador externo e sempre o tem em mãos; um UUID exigiria uma resolução que pode devolver nulo, e a coluna perderia exatamente o
 propósito que motivou criá-la — "quem digitou este cartão?" voltaria a não ter resposta no caso
 em que alguém pergunta. Gravar o identificador que o chamador de fato possui nunca fica nulo, e
 o UUID continua derivável quando houver linha correspondente.
@@ -225,7 +226,7 @@ que já existe. Reenviar o mesmo arquivo não cria segunda cópia.
 **`answer_card_marks`**
 `id`, `scan_id`, `item_position`, `detected_option`, `fill_intensities` (JSON, 5 floats),
 `confidence`, `resolution` (`PENDING` | `AUTO` | `HUMAN`), `resolved_option`,
-`resolved_by_user_id`, `resolved_at`.
+`resolved_by_external_id` (`String(255)`), `resolved_at`.
 
 `resolution` precisa dos três estados porque `detected_option` nulo é ambíguo por si só: pode
 ser item em branco (decidido — o aluno não marcou nada) ou item indeciso (esperando conferência
