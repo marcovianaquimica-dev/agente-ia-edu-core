@@ -11,7 +11,8 @@
   if (root) root.EssayEvolution = api;
 })(typeof window !== 'undefined' ? window : null, function createEssayEvolution() {
   const COMPETENCY_LABELS = {
-    C1: 'Domínio da norma padrão', C2: 'Compreensão do tema', C3: 'Argumentação',
+    C1: 'Domínio da norma padrão', C2: 'Tipologia, tema e repertório',
+    C3: 'Projeto argumentativo e autoria',
     C4: 'Coesão textual', C5: 'Proposta de intervenção',
   };
   const COMPETENCY_CODES = ['C1', 'C2', 'C3', 'C4', 'C5'];

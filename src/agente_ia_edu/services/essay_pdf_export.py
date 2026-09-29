@@ -29,7 +29,8 @@ from typing import Any
 
 _COMPETENCY_CODES: tuple[str, ...] = ("C1", "C2", "C3", "C4", "C5")
 _COMPETENCY_LABELS: dict[str, str] = {
-    "C1": "Domínio da norma padrão", "C2": "Compreensão do tema", "C3": "Argumentação",
+    "C1": "Domínio da norma padrão", "C2": "Tipologia, tema e repertório",
+    "C3": "Projeto argumentativo e autoria",
     "C4": "Coesão textual", "C5": "Proposta de intervenção",
 }
 # Same literal hex values as styles.css's --primary-light/--accent-light/

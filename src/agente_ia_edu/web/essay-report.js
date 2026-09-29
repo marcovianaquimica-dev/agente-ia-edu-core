@@ -13,7 +13,8 @@
   if (root) root.EssayReport = api;
 })(typeof window !== 'undefined' ? window : null, function createEssayReport() {
   const COMPETENCY_LABELS = {
-    C1: 'Domínio da norma padrão', C2: 'Compreensão do tema', C3: 'Argumentação',
+    C1: 'Domínio da norma padrão', C2: 'Tipologia, tema e repertório',
+    C3: 'Projeto argumentativo e autoria',
     C4: 'Coesão textual', C5: 'Proposta de intervenção',
   };
 
