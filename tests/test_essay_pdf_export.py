@@ -7,6 +7,7 @@ from agente_ia_edu.services.essay_pdf_export import (
     _competency_table_html,
     _mechanical_occurrences_html,
     _rewrites_html,
+    _strengths_fallback_html,
     build_render_model,
     filename_for_title,
     pdf_available,
@@ -350,6 +351,133 @@ class EssayPdfExportTests(unittest.TestCase):
         ):
             self.assertNotIn("background:", html)
             self.assertNotIn("border-left:", html)
+
+
+STRUCTURED_C2_C3 = {
+    "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
+    "c2_tema": "Desenvolve o tema proposto.",
+    "c2_repertorio_sociocultural": "Não foi identificado repertório sociocultural no texto.",
+    "c2_orientacao_melhoria": "Traga um repertório pertinente ao tema.",
+    "c3_projeto_argumentativo": "A tese é retomada na conclusão.",
+    "c3_fatos_informacoes_opinioes": "Usa dados do IBGE no segundo parágrafo.",
+    "c3_autoria": "Há voz autoral no terceiro parágrafo.",
+    "c3_orientacao_melhoria": "Desenvolva o segundo argumento com um exemplo.",
+}
+
+
+def _rationale(code: str) -> dict:
+    return {
+        "competency_code": code, "summary": f"resumo {code}",
+        "strengths": f"forças {code}", "growth_area": f"avançar {code}",
+        "signal_keys": [],
+    }
+
+
+def _view(rationale_codes, **overrides) -> dict:
+    """The PDF export mirrors renderCompetencyChecklist's fallback rules
+    deliberately (spec §4) - these tests are the Python half of the same
+    three-level contract tested in
+    tests/test_feedback_estruturado_c2_c3_frontend.js."""
+    view = {
+        "final_scores": {
+            "total": 800,
+            "per_competency": {c: {"points": 160} for c in ("C1", "C2", "C3", "C4", "C5")},
+        },
+        "final_feedback": {"strengths": [], "improvements": [], "next_essay_strategy": "x"},
+        "annotations": [], "rewrites": [], "alerts": [], "mechanical_review": [],
+        "intervention": {}, "intro_message": "", "closing_message": "",
+        "rationales": [_rationale(c) for c in rationale_codes],
+    }
+    view.update(overrides)
+    return view
+
+
+class StructuredC2C3PdfTests(unittest.TestCase):
+    def _row(self, model, code):
+        return next(r for r in model["competency_rows"] if r["code"] == code)
+
+    def test_level_1_c2_row_carries_the_four_labelled_aspects_in_order(self):
+        model = build_render_model(_view(["C1", "C4", "C5"], **STRUCTURED_C2_C3))
+        row = self._row(model, "C2")
+        self.assertEqual(
+            [a["label"] for a in row["aspects"]],
+            ["Tipologia textual", "Tema", "Repertório sociocultural", "Como melhorar"],
+        )
+        self.assertEqual(
+            row["aspects"][2]["text"],
+            "Não foi identificado repertório sociocultural no texto.",
+        )
+
+    def test_level_1_c3_row_carries_the_four_labelled_aspects_in_order(self):
+        model = build_render_model(_view(["C1", "C4", "C5"], **STRUCTURED_C2_C3))
+        row = self._row(model, "C3")
+        self.assertEqual(
+            [a["label"] for a in row["aspects"]],
+            ["Projeto argumentativo", "Informações, fatos e opiniões", "Autoria",
+             "Como melhorar"],
+        )
+
+    def test_level_1_rows_exist_even_without_a_rationale_for_c2_c3(self):
+        """Contract v5: rationales covers only C1/C4/C5. Without this the two
+        rows would simply vanish from the PDF."""
+        model = build_render_model(_view(["C1", "C4", "C5"], **STRUCTURED_C2_C3))
+        self.assertEqual(
+            [r["code"] for r in model["competency_rows"]], ["C1", "C2", "C3", "C4", "C5"]
+        )
+
+    def test_level_1_html_renders_labels_and_the_new_competency_name(self):
+        model = build_render_model(_view(["C1", "C4", "C5"], **STRUCTURED_C2_C3))
+        html = _competency_table_html(model)
+        self.assertIn("Tipologia textual:", html)
+        self.assertIn("Informações, fatos e opiniões:", html)
+        self.assertIn("C2 — Tipologia, tema e repertório", html)
+        self.assertIn("C3 — Projeto argumentativo e autoria", html)
+
+    def test_level_2_when_the_structured_fields_are_absent(self):
+        model = build_render_model(_view(["C1", "C2", "C3", "C4", "C5"]))
+        row = self._row(model, "C2")
+        self.assertIsNone(row["aspects"])
+        self.assertTrue(row["has_split"])
+        html = _competency_table_html(model)
+        self.assertIn("forças C2", html)
+        self.assertNotIn("Tipologia textual:", html)
+
+    def test_partial_structured_fields_fall_back_to_level_2(self):
+        partial = dict(STRUCTURED_C2_C3)
+        del partial["c2_orientacao_melhoria"]
+        model = build_render_model(_view(["C1", "C2", "C3", "C4", "C5"], **partial))
+        self.assertIsNone(self._row(model, "C2")["aspects"])
+        self.assertIsNotNone(self._row(model, "C3")["aspects"])
+
+    def test_blank_structured_field_falls_back_to_level_2(self):
+        blank = {**STRUCTURED_C2_C3, "c2_tema": "   "}
+        model = build_render_model(_view(["C1", "C2", "C3", "C4", "C5"], **blank))
+        self.assertIsNone(self._row(model, "C2")["aspects"])
+
+    def test_level_3_summary_only_still_renders_a_single_cell(self):
+        view = _view([])
+        view["rationales"] = [{"competency_code": "C2", "summary": "resumo antigo de C2"}]
+        model = build_render_model(view)
+        html = _competency_table_html(model)
+        self.assertIn('colspan="2">resumo antigo de C2', html)
+
+    def test_c1_c4_c5_keep_the_split_layout(self):
+        model = build_render_model(_view(["C1", "C4", "C5"], **STRUCTURED_C2_C3))
+        for code in ("C1", "C4", "C5"):
+            with self.subTest(code=code):
+                row = self._row(model, code)
+                self.assertIsNone(row["aspects"])
+                self.assertTrue(row["has_split"])
+
+    def test_has_any_split_is_true_when_only_structured_rows_exist(self):
+        """has_any_split drives the "Pontos fortes" fallback list, which only
+        exists for corrections with NO per-competency detail at all."""
+        view = _view([], **STRUCTURED_C2_C3)
+        view["final_feedback"] = {"strengths": ["ponto forte solto"],
+                                  "improvements": [], "next_essay_strategy": "x"}
+        model = build_render_model(view)
+        self.assertTrue(model["has_any_split"])
+        self.assertEqual(_strengths_fallback_html(model), "")
 
 
 if __name__ == "__main__":

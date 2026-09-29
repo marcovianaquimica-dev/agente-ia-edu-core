@@ -39,6 +39,24 @@ _COMPETENCY_LABELS: dict[str, str] = {
 _COMPETENCY_COLORS: dict[str, str] = {
     "C1": "#eef2ff", "C2": "#ecfeff", "C3": "#fef2f2", "C4": "#fffbeb", "C5": "#ecfdf5",
 }
+# Aspect label -> structured field, per competency, in rendering order
+# (spec §4). The SAME pairs, same labels and same order, live in
+# web/essay-report.js's COMPETENCY_ASPECTS and in
+# services/essay_correction.py's _STRUCTURED_ASPECTS.
+_COMPETENCY_ASPECTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "C2": (
+        ("Tipologia textual", "c2_tipologia_textual"),
+        ("Tema", "c2_tema"),
+        ("Repertório sociocultural", "c2_repertorio_sociocultural"),
+        ("Como melhorar", "c2_orientacao_melhoria"),
+    ),
+    "C3": (
+        ("Projeto argumentativo", "c3_projeto_argumentativo"),
+        ("Informações, fatos e opiniões", "c3_fatos_informacoes_opinioes"),
+        ("Autoria", "c3_autoria"),
+        ("Como melhorar", "c3_orientacao_melhoria"),
+    ),
+}
 # Solid variants of _COMPETENCY_COLORS above (same hex as styles.css's
 # --primary/--accent/--danger/--warning/--success) - used for anything that
 # needs a strong fill/border rather than a light background tint.
@@ -100,6 +118,24 @@ def _as_dict(value: Any) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _structured_aspects(correction_view: dict, code: str) -> list[dict] | None:
+    """Level 1 of the three-level fallback (spec §4) - the structured C2/C3
+    fields contract v5 introduced, read straight off the ai_output-shaped
+    view. Mirrors web/essay-report.js's structuredAspects deliberately,
+    including the all-or-nothing rule: a partially-structured correction
+    falls back to level 2 rather than rendering half a table."""
+    spec = _COMPETENCY_ASPECTS.get(code)
+    if spec is None:
+        return None
+    aspects: list[dict] = []
+    for label, field in spec:
+        text = correction_view.get(field)
+        if not isinstance(text, str) or not text.strip():
+            return None
+        aspects.append({"label": label, "text": text})
+    return aspects
+
+
 def build_render_model(correction_view: dict) -> dict:
     """Normalize ai_output-shaped data into the fields render_pdf needs.
     Same field reads and fallback rules as essay-report.js's renderRichReport
@@ -113,19 +149,35 @@ def build_render_model(correction_view: dict) -> dict:
 
     competency_rows = []
     for code in _COMPETENCY_CODES:
+        aspects = _structured_aspects(correction_view, code)
         rationale = rationale_by_code.get(code)
-        if rationale is None:
+        if aspects is None and rationale is None:
+            continue
+        if aspects is not None:
+            competency_rows.append({
+                "code": code,
+                "label": _COMPETENCY_LABELS[code],
+                "aspects": aspects,
+                "has_split": False,
+                "strengths": None,
+                "growth_area": None,
+                "summary": "",
+            })
             continue
         has_split = bool(rationale.get("strengths")) and bool(rationale.get("growth_area"))
         competency_rows.append({
             "code": code,
             "label": _COMPETENCY_LABELS[code],
+            "aspects": None,
             "has_split": has_split,
             "strengths": rationale.get("strengths"),
             "growth_area": rationale.get("growth_area"),
             "summary": rationale.get("summary") or "",
         })
-    has_any_split = any(
+    # Drives the "Pontos fortes" fallback list, which only exists for
+    # corrections with NO per-competency detail at all - a structured C2/C3
+    # row counts as detail just like a split rationale does.
+    has_any_split = any(row["aspects"] for row in competency_rows) or any(
         bool(r.get("strengths")) and bool(r.get("growth_area"))
         for r in rationales
         if isinstance(r, dict)
@@ -181,7 +233,13 @@ def _competency_table_html(model: dict) -> str:
         code = row["code"]
         fg = _COMPETENCY_SOLID_COLORS[code]
         header = f'{_esc(code)} — {_esc(row["label"])}'
-        if row["has_split"]:
+        if row.get("aspects"):
+            items = "".join(
+                f'<li><b>{_esc(a["label"])}:</b> {_esc(a["text"])}</li>'
+                for a in row["aspects"]
+            )
+            cells = f'<td colspan="2"><ul style="margin:0;padding-left:16px;">{items}</ul></td>'
+        elif row["has_split"]:
             cells = f'<td>{_esc(row["strengths"])}</td><td>{_esc(row["growth_area"])}</td>'
         else:
             cells = f'<td colspan="2">{_esc(row["summary"])}</td>'
