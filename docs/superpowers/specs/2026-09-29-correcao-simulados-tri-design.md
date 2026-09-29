@@ -164,7 +164,18 @@ As descrições de coluna abaixo omitem `school_id` por brevidade; ele está em 
 
 **`mock_exams`**
 `id`, `school_id`, `academic_year_id`, `name`, `application_date`, `exam_day` (1 ou 2),
-`status`, `created_at`.
+`status`, `created_at`, `updated_at`.
+
+`academic_year_id` é **obrigatório**. Aluno, turma e todos os relatórios são resolvidos por
+`StudentEnrollment → Class.academic_year_id`; um simulado sem ano letivo produziria roster
+vazio e boletim vazio **em silêncio**, que é a pior forma de errar.
+
+**`mock_exam_workflow_audit`**
+`id`, `school_id`, `mock_exam_id`, `from_status`, `to_status`, `actor_user_id`, `occurred_at`,
+`note`.
+
+Quem publicou a nota de um simulado, e quando, precisa estar registrado. Segue o padrão de
+`assessment_workflow_audit`, que já existe em `db/models/assessments.py`.
 
 `status` percorre `DRAFT → PRINTED → APPLIED → SCANNED → CALIBRATED → PUBLISHED`.
 
@@ -227,7 +238,12 @@ enviado à tarde.
 
 **`mock_exam_responses`**
 `id`, `mock_exam_id`, `student_id`, `item_id`, `chosen_option` (A–E ou nulo para branco),
-`is_correct`.
+`is_correct`, `source` (`MANUAL` | `OMR`), `entered_by_user_id` (nulo quando `OMR`),
+`created_at`.
+
+A procedência não é opcional. Sem `source` e sem autor, uma resposta digitada à mão fica
+indistinguível de uma lida pelo scanner, e não há como auditar quem digitou o cartão de um
+aluno quando a nota for contestada. A fila de conferência da §5 depende dessa distinção.
 
 É a matriz que alimenta a TRI. Um simulado de 1.500 alunos × 90 itens produz ~135 mil linhas —
 volume trivial para Postgres, e a granularidade é necessária tanto para a calibragem quanto
@@ -294,6 +310,11 @@ para `CALIBRATED` enquanto houver `answer_card_scans` em `PENDING`, `NEEDS_REVIE
 processar é um aluno ausente da matriz de respostas, e a matriz é o insumo da calibragem. Um
 cartão só sai do caminho de duas formas — sendo lido, ou sendo digitado manualmente (§9,
 fase 2). Nunca sendo ignorado.
+
+A trava vale para a transição para `CALIBRATED` **e** para a transição para `PUBLISHED`. O
+efeito que ela protege é a publicação; `CALIBRATED` é apenas onde o dano se origina. Enquanto
+a fase 2 não tiver leitura óptica, não existe scan algum e a trava é vacuamente verdadeira —
+mas ela já é escrita e testada ali, para não precisar ser lembrada depois.
 
 ---
 
@@ -505,6 +526,12 @@ comparação com as demais turmas.
 
 **Escola/rede (coordenação).** Comparação entre turmas e unidades, evolução por aplicação ao
 longo do ano.
+
+A evolução por aplicação está sujeita à **mesma regra do boletim do aluno**: só é exibida quando
+existe equalização por âncoras. Duas aplicações são duas provas de dificuldade diferente, e uma
+queda de 62% para 54% não distingue "a escola piorou" de "a prova era mais difícil". O argumento
+não perde força por a média ser de uma escola em vez de um aluno — perde só a visibilidade, o que
+o torna mais perigoso, não menos.
 
 **Itens (qualidade da prova).** Dificuldade, discriminação, curva característica do item e
 análise de distratores — qual alternativa errada atraiu os alunos de theta alto. Sai
