@@ -136,6 +136,7 @@ from .essay_proposal import (
 )
 from .essay_correction import EssayCorrection
 from .essay_batch import EssayBatchPage, EssayBatchUpload
+from .mass_correction_run import MassCorrectionRun
 
 __all__ = [
     "StudySession",
@@ -232,6 +233,7 @@ __all__ = [
     "EssayCorrection",
     "EssayBatchUpload",
     "EssayBatchPage",
+    "MassCorrectionRun",
     "PlatformEssayPrompt",
     "Person",
     "User",
