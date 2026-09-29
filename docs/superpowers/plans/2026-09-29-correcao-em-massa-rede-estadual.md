@@ -386,15 +386,17 @@ git commit -m "feat: tabela de acompanhamento de lotes de correcao em massa"
   - `async def get_batch(batch_id: str, *, api_key: str) -> dict` - `GET /v1/batches/{batch_id}`, devolve o objeto JSON do lote (contém `status`, `output_file_id` quando `status == "completed"`, `error_file_id` quando há falhas parciais).
   - `async def download_file_lines(file_id: str, *, api_key: str) -> list[dict]` - `GET /v1/files/{file_id}/content`, devolve a lista de dicts (um `json.loads` por linha do JSONL baixado).
 
-**Por que um cliente próprio em vez da SDK `openai`:** a SDK assíncrona já usada em `providers/adapters/openai.py` (`AsyncOpenAI`) tem suporte a Batch API só em versões mais novas que a instalada neste projeto hoje - confirme com `.venv/bin/python -c "import openai; print(openai.__version__)"` e `.venv/bin/python -c "from openai import AsyncOpenAI; c = AsyncOpenAI(api_key='x'); print(hasattr(c, 'batches'))"` antes de escrever este módulo. Se `hasattr` devolver `True`, use `client.files.create`/`client.batches.create`/`client.batches.retrieve`/`client.files.content` da própria SDK em vez de `httpx` cru (mais seguro contra mudança de formato da API) - ajuste as assinaturas das 4 funções acima pra aceitar um `client: AsyncOpenAI` em vez de `api_key: str` nesse caso, e essa mudança se propaga pras Tasks 3-6 (troque `api_key=...` por `client=...` nos exemplos delas também). Se `hasattr` devolver `False`, siga com `httpx.AsyncClient` cru como as chamadas de teste real já feitas nesta sessão (mesmo padrão de `Authorization: Bearer {api_key}`).
+**Decisão já tomada (verificada, não condicional):** a SDK `openai` instalada neste projeto (confirmado agora: versão 1.109.1) já suporta a Batch API via `client.files`/`client.batches` no client assíncrono (`AsyncOpenAI(...).batches` existe). Use a SDK, não `httpx` cru - é mais seguro contra mudança de formato da API. As 4 funções abaixo mantêm a assinatura `*, api_key: str` (não `client: AsyncOpenAI`) para não propagar uma mudança de assinatura pras Tasks 3-6, que já referenciam `api_key=...` - cada função constrói seu próprio `AsyncOpenAI(api_key=api_key)` internamente, mesmo padrão que `providers/adapters/openai.py`'s `_create_client()` já usa.
 
 - [ ] **Step 1: Escrever os testes (falhando)**
+
+Assinaturas reais confirmadas na versão instalada (`openai==1.109.1`) antes de escrever este plano: `client.files.create(*, file, purpose)` devolve um `FileObject` (tem `.id`); `client.batches.create(*, completion_window, endpoint, input_file_id)` e `client.batches.retrieve(batch_id)` devolvem um `Batch` (tem `.model_dump()`); `client.files.content(file_id)` devolve um objeto com `.text` (conteúdo bruto do arquivo).
 
 ```python
 # tests/test_openai_batch_client.py
 import json
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from agente_ia_edu.providers.openai_batch_client import (
     create_batch,
@@ -405,14 +407,11 @@ from agente_ia_edu.providers.openai_batch_client import (
 
 
 class OpenAIBatchClientTests(unittest.IsolatedAsyncioTestCase):
-    @patch("agente_ia_edu.providers.openai_batch_client.httpx.AsyncClient")
-    async def test_upload_batch_file_serializes_lines_as_jsonl_and_returns_file_id(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_response = unittest.mock.Mock(status_code=200)
-        mock_response.json.return_value = {"id": "file-abc123"}
-        mock_client.post.return_value = mock_response
-        mock_client_cls.return_value = mock_client
+    @patch("agente_ia_edu.providers.openai_batch_client.AsyncOpenAI")
+    async def test_upload_batch_file_serializes_lines_as_jsonl_and_returns_file_id(self, mock_cls):
+        mock_client = MagicMock()
+        mock_client.files.create = AsyncMock(return_value=MagicMock(id="file-abc123"))
+        mock_cls.return_value = mock_client
 
         file_id = await upload_batch_file(
             [{"custom_id": "a", "body": {"x": 1}}, {"custom_id": "b", "body": {"x": 2}}],
@@ -420,56 +419,57 @@ class OpenAIBatchClientTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(file_id, "file-abc123")
-        call_kwargs = mock_client.post.call_args.kwargs
-        uploaded_bytes = call_kwargs["files"]["file"][1]
+        call_kwargs = mock_client.files.create.call_args.kwargs
+        self.assertEqual(call_kwargs["purpose"], "batch")
+        uploaded_bytes = call_kwargs["file"][1]
         lines = uploaded_bytes.decode("utf-8").strip().split("\n")
         self.assertEqual(len(lines), 2)
         self.assertEqual(json.loads(lines[0]), {"custom_id": "a", "body": {"x": 1}})
 
-    @patch("agente_ia_edu.providers.openai_batch_client.httpx.AsyncClient")
-    async def test_create_batch_posts_the_right_endpoint_and_window(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_response = unittest.mock.Mock(status_code=200)
-        mock_response.json.return_value = {"id": "batch-xyz", "status": "validating"}
-        mock_client.post.return_value = mock_response
-        mock_client_cls.return_value = mock_client
+    @patch("agente_ia_edu.providers.openai_batch_client.AsyncOpenAI")
+    async def test_create_batch_posts_the_right_endpoint_and_window(self, mock_cls):
+        mock_client = MagicMock()
+        mock_batch = MagicMock()
+        mock_batch.model_dump.return_value = {"id": "batch-xyz", "status": "validating"}
+        mock_client.batches.create = AsyncMock(return_value=mock_batch)
+        mock_cls.return_value = mock_client
 
         result = await create_batch("file-abc123", api_key="sk-test")
 
         self.assertEqual(result, {"id": "batch-xyz", "status": "validating"})
-        body = mock_client.post.call_args.kwargs["json"]
-        self.assertEqual(body["input_file_id"], "file-abc123")
-        self.assertEqual(body["endpoint"], "/v1/chat/completions")
-        self.assertEqual(body["completion_window"], "24h")
+        call_kwargs = mock_client.batches.create.call_args.kwargs
+        self.assertEqual(call_kwargs["input_file_id"], "file-abc123")
+        self.assertEqual(call_kwargs["endpoint"], "/v1/chat/completions")
+        self.assertEqual(call_kwargs["completion_window"], "24h")
 
-    @patch("agente_ia_edu.providers.openai_batch_client.httpx.AsyncClient")
-    async def test_get_batch_returns_the_raw_status_object(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_response = unittest.mock.Mock(status_code=200)
-        mock_response.json.return_value = {"id": "batch-xyz", "status": "completed", "output_file_id": "file-out"}
-        mock_client.get.return_value = mock_response
-        mock_client_cls.return_value = mock_client
+    @patch("agente_ia_edu.providers.openai_batch_client.AsyncOpenAI")
+    async def test_get_batch_returns_the_raw_status_object(self, mock_cls):
+        mock_client = MagicMock()
+        mock_batch = MagicMock()
+        mock_batch.model_dump.return_value = {
+            "id": "batch-xyz", "status": "completed", "output_file_id": "file-out",
+        }
+        mock_client.batches.retrieve = AsyncMock(return_value=mock_batch)
+        mock_cls.return_value = mock_client
 
         result = await get_batch("batch-xyz", api_key="sk-test")
 
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["output_file_id"], "file-out")
+        mock_client.batches.retrieve.assert_called_once_with("batch-xyz")
 
-    @patch("agente_ia_edu.providers.openai_batch_client.httpx.AsyncClient")
-    async def test_download_file_lines_parses_each_line_as_json(self, mock_client_cls):
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_response = unittest.mock.Mock(status_code=200)
-        mock_response.content = (
-            json.dumps({"custom_id": "a", "response": {"body": {"ok": 1}}}).encode("utf-8")
-            + b"\n"
-            + json.dumps({"custom_id": "b", "response": {"body": {"ok": 2}}}).encode("utf-8")
-            + b"\n"
+    @patch("agente_ia_edu.providers.openai_batch_client.AsyncOpenAI")
+    async def test_download_file_lines_parses_each_line_as_json(self, mock_cls):
+        mock_client = MagicMock()
+        mock_content = MagicMock()
+        mock_content.text = (
+            json.dumps({"custom_id": "a", "response": {"body": {"ok": 1}}})
+            + "\n"
+            + json.dumps({"custom_id": "b", "response": {"body": {"ok": 2}}})
+            + "\n"
         )
-        mock_client.get.return_value = mock_response
-        mock_client_cls.return_value = mock_client
+        mock_client.files.content = AsyncMock(return_value=mock_content)
+        mock_cls.return_value = mock_client
 
         lines = await download_file_lines("file-out", api_key="sk-test")
 
@@ -482,77 +482,60 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-(Se a Task 2 decidir pela SDK `openai` em vez de `httpx` cru por causa da checagem do Step 0, adapte estes testes pra usar `unittest.mock.patch` sobre `AsyncOpenAI` em vez de `httpx.AsyncClient` - a intenção de cada teste continua a mesma, só o alvo do mock muda.)
-
 - [ ] **Step 2: Rodar e confirmar que falha**
 
 Run: `.venv/bin/pytest tests/test_openai_batch_client.py -v`
 Expected: FAIL com `ModuleNotFoundError`
 
-- [ ] **Step 3: Implementar (versão `httpx` cru - adapte pra SDK se o Step 0 encontrar suporte)**
+- [ ] **Step 3: Implementar**
 
 ```python
 # src/agente_ia_edu/providers/openai_batch_client.py
 """Cliente fino da Batch API da OpenAI (upload de arquivo, criacao de lote,
-consulta de status, download de resultado). Usado pelos 3 estagios de
-correcao em massa (services/mass_correction_batch.py) - nenhuma logica de
-negocio aqui, so a mecanica HTTP da Batch API em si."""
+consulta de status, download de resultado), usando a SDK oficial (versao
+instalada ja suporta client.files/client.batches). Usado pelos 3 estagios
+de correcao em massa (services/mass_correction_batch.py) - nenhuma logica
+de negocio aqui, so a mecanica de chamada da Batch API em si.
+
+Cada funcao constroi seu proprio AsyncOpenAI(api_key=...) - mesmo padrao
+que providers/adapters/openai.py's _create_client() ja usa - em vez de
+receber um client pronto, para manter a assinatura simples e nao acoplar
+quem chama a um client de longa duracao."""
 
 from __future__ import annotations
 
 import json
 
-import httpx
-
-_BASE_URL = "https://api.openai.com/v1"
-
-
-def _headers(api_key: str) -> dict:
-    return {"Authorization": f"Bearer {api_key}"}
+from openai import AsyncOpenAI
 
 
 async def upload_batch_file(lines: list[dict], *, api_key: str) -> str:
     jsonl_bytes = "\n".join(json.dumps(line, ensure_ascii=False) for line in lines).encode("utf-8")
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{_BASE_URL}/files",
-            headers=_headers(api_key),
-            data={"purpose": "batch"},
-            files={"file": ("batch_input.jsonl", jsonl_bytes, "application/jsonl")},
-        )
-        response.raise_for_status()
-        return response.json()["id"]
+    client = AsyncOpenAI(api_key=api_key)
+    file_object = await client.files.create(
+        file=("batch_input.jsonl", jsonl_bytes, "application/jsonl"), purpose="batch",
+    )
+    return file_object.id
 
 
 async def create_batch(input_file_id: str, *, api_key: str) -> dict:
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{_BASE_URL}/batches",
-            headers={**_headers(api_key), "Content-Type": "application/json"},
-            json={
-                "input_file_id": input_file_id,
-                "endpoint": "/v1/chat/completions",
-                "completion_window": "24h",
-            },
-        )
-        response.raise_for_status()
-        return response.json()
+    client = AsyncOpenAI(api_key=api_key)
+    batch = await client.batches.create(
+        input_file_id=input_file_id, endpoint="/v1/chat/completions", completion_window="24h",
+    )
+    return batch.model_dump()
 
 
 async def get_batch(batch_id: str, *, api_key: str) -> dict:
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.get(f"{_BASE_URL}/batches/{batch_id}", headers=_headers(api_key))
-        response.raise_for_status()
-        return response.json()
+    client = AsyncOpenAI(api_key=api_key)
+    batch = await client.batches.retrieve(batch_id)
+    return batch.model_dump()
 
 
 async def download_file_lines(file_id: str, *, api_key: str) -> list[dict]:
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.get(f"{_BASE_URL}/files/{file_id}/content", headers=_headers(api_key))
-        response.raise_for_status()
-        return [
-            json.loads(line) for line in response.content.decode("utf-8").splitlines() if line.strip()
-        ]
+    client = AsyncOpenAI(api_key=api_key)
+    content = await client.files.content(file_id)
+    return [json.loads(line) for line in content.text.splitlines() if line.strip()]
 ```
 
 - [ ] **Step 4: Rodar e confirmar que passa**
