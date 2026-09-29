@@ -1,4 +1,4 @@
-"""Validacao em PostgreSQL da migration 056 (envio em lote de redacao).
+"""Validacao em PostgreSQL da migration 057 (envio em lote de redacao).
 
 Ler a migration nao prova nada: uma coluna nova em tabela ja existente
 (schools.logo_storage_uri) so aparece rodando o upgrade de verdade. Banco
@@ -56,7 +56,7 @@ class TestEssayBatchMigrationPostgreSQL(unittest.TestCase):
         config.set_main_option("sqlalchemy.url", self.database_url)
         return config
 
-    def test_upgrade_056_creates_batch_tables_and_logo_column(self):
+    def test_upgrade_057_creates_batch_tables_and_logo_column(self):
         config = self._alembic_config()
         command.upgrade(config, "057_essay_batch_upload")
 
@@ -102,10 +102,10 @@ class TestEssayBatchMigrationPostgreSQL(unittest.TestCase):
         finally:
             engine.dispose()
 
-    def test_downgrade_056_is_clean(self):
+    def test_downgrade_057_is_clean(self):
         config = self._alembic_config()
         command.upgrade(config, "057_essay_batch_upload")
-        command.downgrade(config, "056_material_assignments")
+        command.downgrade(config, "055_essay_prompt_soft_delete")
 
         engine = create_engine(self.database_url)
         try:

@@ -1,7 +1,7 @@
 """Envio em lote de redacoes fisicas: duas tabelas novas + logo da escola.
 
 Revision ID: 057_essay_batch_upload
-Revises: 056_material_assignments
+Revises: 055_essay_prompt_soft_delete
 
 Puramente aditiva: duas tabelas que nao existiam e uma coluna nullable em
 schools (default NULL = toda escola atual continua sem logo, e a folha de
@@ -12,18 +12,20 @@ As FKs compostas (school_id, essay_prompt_id) e (school_id, class_id) sao o que
 impede no banco um lote cuja proposta e de uma escola e cuja turma e de outra -
 mesma convencao de prompt_assignments.
 
-Renumerada de 056 para 057 em 2026-09-29: colidiu em numero (nao em conteudo)
-com uma migration de outra sessao concorrente trabalhando na mesma arvore de
-checkouts (056_material_assignments, tambem filha de 055). Encadeada apos ela
-em vez de renumerar a delas, que ja estava commitada e aplicada em producao/dev
-por aquela sessao primeiro.
+Numerada 057 em 2026-09-29 pra nao colidir com uma migration de outra sessao
+concorrente trabalhando na mesma arvore de checkouts (056_material_assignments,
+tambem filha de 055) - mas encadeada direto apos 055, nao apos ela: esta branch
+nao usa nada do que 056_material_assignments cria, entao nao faz sentido esta
+migration depender de codigo de outra leva que pode mudar/renumerar antes de
+mergear. Quando as duas branches se juntarem, o Alembic resolve as duas pontas
+(055->056 e 055->057) como um merge point normal.
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "057_essay_batch_upload"
-down_revision = "056_material_assignments"
+down_revision = "055_essay_prompt_soft_delete"
 branch_labels = None
 depends_on = None
 
