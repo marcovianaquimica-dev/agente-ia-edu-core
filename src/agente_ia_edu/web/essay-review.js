@@ -42,6 +42,17 @@
     })[character]);
   }
 
+  // GET /api/v1/catalog/essay-prompts (Task 6) devolve, na mesma lista, as
+  // propostas da plataforma ACTIVE que esta escola ainda nao materializou -
+  // so pre-visualizacao, sem EssayPrompt real por tras. Como ainda nao
+  // existe um essay_prompts.id real pra elas, o backend devolve o proprio
+  // platform_prompt_id como id (ver list_essay_prompts em
+  // api/routes/essay_prompts.py). Numa copia ja materializada, id e o id
+  // real da copia - sempre diferente do platform_prompt_id de origem.
+  function isUnmaterializedPlatformPrompt(p) {
+    return !!p.is_platform && p.id === p.platform_prompt_id;
+  }
+
   function translateDetail(detail) {
     if (typeof detail === 'string') {
       const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
@@ -234,6 +245,11 @@
     } catch (e) {
       promptOptions = [];
     }
+    // Uma proposta da plataforma ainda nao materializada nesta escola nao
+    // tem PromptAssignment nenhuma pra nenhuma turma - o backend rejeitaria
+    // o envio em lote com 422, mas so depois do professor ja ter subido ate
+    // 60 paginas de fotos. Tira essas da lista antes.
+    promptOptions = promptOptions.filter((p) => !isUnmaterializedPlatformPrompt(p));
     try {
       classrooms = await reviewRequest(
         `/api/v1/teacher/classrooms?school_id=${encodeURIComponent(schoolId)}&academic_year=2026`,
@@ -828,6 +844,12 @@
       wireTabs();
       return;
     }
+    // O dashboard so faz sentido pra uma proposta que ja tem EssayPrompt
+    // real nesta escola (materializada) - uma proposta da plataforma ainda
+    // nao adotada bateria em GET .../dashboard com 403 "This proposal is
+    // not yours.", e pior, essa seria a primeira da lista (e abriria
+    // sozinha) numa escola que ainda nao tem proposta propria nenhuma.
+    const dashboardPrompts = prompts.filter((p) => !isUnmaterializedPlatformPrompt(p));
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
     tabsEl.insertAdjacentHTML('afterend', `
@@ -835,7 +857,7 @@
         <div class="form-group">
           <label for="er-dash-prompt">Proposta</label>
           <select id="er-dash-prompt" class="text-input">
-            ${prompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
+            ${dashboardPrompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
           </select>
         </div>
       </div>
@@ -845,8 +867,8 @@
     promptSelect.addEventListener('change', () => {
       if (promptSelect.value) renderDashboardBody(promptSelect.value);
     });
-    if (prompts.length) {
-      renderDashboardBody(prompts[0].id);
+    if (dashboardPrompts.length) {
+      renderDashboardBody(dashboardPrompts[0].id);
     } else {
       container.querySelector('#er-dash-body').innerHTML = '<p class="empty-text">Nenhuma proposta criada ainda.</p>';
     }

@@ -57,3 +57,42 @@ test('o formulario de atribuicao continua postando com o id recebido na lista', 
 test('teacher.css tem a regra do selo', () => {
   assert.match(css, /\.er-platform-badge\s*\{/);
 });
+
+// Fix round 1 (revisao final I-1/M-2): GET /api/v1/catalog/essay-prompts
+// devolve, na MESMA lista, propostas da plataforma ainda nao materializadas
+// nesta escola - o backend so consegue devolver o platform_prompt_id como
+// id nesse caso (nao existe essay_prompts.id real ainda), entao
+// is_platform === true && id === platform_prompt_id e a assinatura de "essa
+// proposta e so pre-visualizacao". Os selects de Dashboard e Envio em lote
+// batem em rotas que exigem um EssayPrompt real (.../dashboard,
+// PromptAssignment do lote) e tem que filtrar essas antes de listar.
+
+test('existe um helper que reconhece proposta da plataforma ainda nao materializada', () => {
+  assert.match(js, /function isUnmaterializedPlatformPrompt\(p\)/);
+  const helper = js.slice(
+    js.indexOf('function isUnmaterializedPlatformPrompt'),
+    js.indexOf('function isUnmaterializedPlatformPrompt') + 400,
+  );
+  assert.match(helper, /p\.is_platform/);
+  assert.match(helper, /p\.id\s*===\s*p\.platform_prompt_id/);
+});
+
+test('a aba Dashboard nao lista nem auto-abre proposta da plataforma ainda nao materializada', () => {
+  const tab = js.slice(
+    js.indexOf('async function renderDashboardTab'),
+    js.indexOf('async function renderDashboardBody'),
+  );
+  assert.match(tab, /isUnmaterializedPlatformPrompt/);
+  assert.match(tab, /dashboardPrompts\.map/);
+  assert.doesNotMatch(tab, /prompts\.map/);
+  assert.match(tab, /renderDashboardBody\(dashboardPrompts\[0\]\.id\)/);
+});
+
+test('a aba Envio em lote nao lista proposta da plataforma ainda nao materializada', () => {
+  const tab = js.slice(
+    js.indexOf('async function renderBatchTab'),
+    js.indexOf('async function pollBatch'),
+  );
+  assert.match(tab, /isUnmaterializedPlatformPrompt/);
+  assert.match(tab, /promptOptions\s*=\s*promptOptions\.filter\(/);
+});
