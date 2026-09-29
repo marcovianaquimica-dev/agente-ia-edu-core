@@ -171,11 +171,18 @@ As descrições de coluna abaixo omitem `school_id` por brevidade; ele está em 
 vazio e boletim vazio **em silêncio**, que é a pior forma de errar.
 
 **`mock_exam_workflow_audit`**
-`id`, `school_id`, `mock_exam_id`, `from_status`, `to_status`, `actor_user_id`, `occurred_at`,
-`note`.
+`id`, `school_id`, `mock_exam_id`, `from_status`, `to_status`, `actor_external_id`,
+`occurred_at`, `note`.
 
 Quem publicou a nota de um simulado, e quando, precisa estar registrado. Segue o padrão de
-`assessment_workflow_audit`, que já existe em `db/models/assessments.py`.
+`assessment_workflow_audit`, que já existe em `db/models/assessments.py:200` — inclusive no
+tipo do ator: **`String(255)` com o identificador externo, não FK para `users`**.
+
+A escolha é deliberada. A camada HTTP autentica por identificador externo e sempre o tem em
+mãos; um UUID exigiria uma resolução que pode devolver nulo, e a coluna perderia exatamente o
+propósito que motivou criá-la — "quem digitou este cartão?" voltaria a não ter resposta no caso
+em que alguém pergunta. Gravar o identificador que o chamador de fato possui nunca fica nulo, e
+o UUID continua derivável quando houver linha correspondente.
 
 `status` percorre `DRAFT → PRINTED → APPLIED → SCANNED → CALIBRATED → PUBLISHED`.
 
@@ -238,8 +245,8 @@ enviado à tarde.
 
 **`mock_exam_responses`**
 `id`, `mock_exam_id`, `student_id`, `item_id`, `chosen_option` (A–E ou nulo para branco),
-`is_correct`, `source` (`MANUAL` | `OMR`), `entered_by_user_id` (nulo quando `OMR`),
-`created_at`.
+`is_correct`, `source` (`MANUAL` | `OMR`), `entered_by_external_id` (`String(255)`, nulo
+quando `OMR`), `created_at`.
 
 A procedência não é opcional. Sem `source` e sem autor, uma resposta digitada à mão fica
 indistinguível de uma lida pelo scanner, e não há como auditar quem digitou o cartão de um
