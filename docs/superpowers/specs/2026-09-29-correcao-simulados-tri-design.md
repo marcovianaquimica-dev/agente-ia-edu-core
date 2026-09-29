@@ -1,0 +1,415 @@
+# Correção de simulados com TRI — design
+
+**Data:** 2026-09-29
+**Status:** design aprovado, aguardando plano de implementação
+**Projeto:** `agente-ia-edu-core` (subsistema novo)
+
+---
+
+## 1. Contexto e objetivo
+
+A escola aplica simulados no modelo ENEM em papel. Hoje a correção é manual. Este subsistema
+cobre o ciclo completo: gerar os cartões-resposta, ler os cartões preenchidos, calcular nota
+por Teoria de Resposta ao Item (TRI) e entregar relatórios em quatro níveis (aluno, turma,
+escola/rede e qualidade dos itens).
+
+O cartão de referência é o arquivo `CARTÃO RESPOSTA.pdf` fornecido pelo usuário: uma página,
+90 questões de 5 alternativas, modelo ENEM 1º dia, com o quadro de notas
+`LINGUAGENS | HUMANAS | TOTAL`. Foi gerado com ReportLab — ou seja, a geração do cartão já
+está sob controle do projeto, o que este design explora deliberadamente.
+
+### Decisões de contexto que fundamentam o design
+
+| Questão | Decisão |
+|---|---|
+| Nº de alunos por simulado | 400 a 1.500 |
+| Captura das imagens | Scanner **e** foto de celular |
+| Identificação do aluno | Cartão nominal com QR impresso |
+| Origem das questões | Prova externa, sistema conhece só o gabarito |
+| Metadados do gabarito | Área/disciplina por questão |
+| Níveis de relatório | Aluno, turma, escola/rede e análise de itens |
+| Equalização entre simulados | Sim — itens-âncora disponíveis |
+| Hospedagem | Core, com o OMR isolado em worker de processo separado |
+
+### Fora de escopo
+
+- **Cadernos com ordem embaralhada** (cores azul/amarelo do ENEM real). O v1 assume um único
+  caderno por simulado. O modelo de dados reserva `booklet_code` no cartão para não travar a
+  evolução, mas nenhuma lógica de permutação é implementada.
+- **Redação.** O cartão-modelo menciona a folha de redação, mas o projeto já tem um motor de
+  correção de redação independente. Nenhuma integração é feita aqui.
+- **Integração com o banco de questões.** As questões vêm de fora e o sistema conhece apenas
+  o gabarito. Consequência aceita conscientemente: os parâmetros de TRI calibrados ficam
+  presos ao item do simulado e **não realimentam** os pipelines de maestria
+  (`LearningHistory`, `DomainContentMastery`) nem a seleção adaptativa de questões. A decisão
+  é reversível — ver `source_question_version_id` em §3.
+- **Modelo 3PL.** O v1 calibra em 2PL. Ver §6 para o critério de promoção a 3PL.
+- **Infraestrutura de fila externa** (Celery, RQ, Redis). A fila é uma tabela Postgres.
+
+---
+
+## 2. Arquitetura
+
+Quatro unidades, cada uma com um propósito e uma fronteira explícita.
+
+### 2.1 `simulado_card` — geração do cartão (core)
+
+Gera o PDF dos cartões nominais em ReportLab e emite, **no mesmo ato**, o template geométrico:
+as coordenadas normalizadas de cada bolha de cada questão, a posição dos quatro marcadores
+ArUco de canto e a posição do QR.
+
+Depende de: ReportLab e de uma biblioteca de geração de QR.
+Não depende de: OpenCV, banco de dados (recebe os dados já resolvidos).
+
+Os marcadores ArUco **não são gerados em tempo de execução**. Um dicionário ArUco é um
+conjunto fixo e pequeno de padrões conhecidos; os quatro usados aqui são pré-gerados uma vez
+e versionados no repositório como imagens estáticas, que o ReportLab apenas posiciona. É isso
+que permite ao gerador não depender de OpenCV, mantendo a fronteira do §2.3 intacta.
+
+O acoplamento entre gerador e template é intencional e é a principal alavanca de robustez do
+subsistema: o leitor nunca precisa *descobrir* onde as bolhas estão, porque quem imprimiu já
+disse. Isso elimina a etapa mais frágil de qualquer OMR.
+
+### 2.2 `tri_engine` — matemática (core)
+
+Módulo puro. Recebe uma matriz de respostas NumPy e devolve parâmetros de item e estimativas
+de theta.
+
+**Não conhece banco de dados, não conhece aluno, não conhece HTTP.** Essa fronteira é o que
+torna o motor verificável: dá para alimentá-lo com respostas simuladas a partir de parâmetros
+conhecidos e exigir que ele os recupere (§8.1).
+
+Depende de: NumPy, SciPy.
+
+Implementa o protocolo `ProficiencyEstimator` já definido em
+`src/agente_ia_edu/services/proficiency.py`, cujo docstring antecipa este encaixe
+("TRI/MIRT can implement this protocol later").
+
+### 2.3 `omr_worker` — leitura óptica (processo separado)
+
+**O único lugar do sistema onde `cv2` é importado.** Roda como processo/container próprio,
+com o seu próprio conjunto de dependências.
+
+Essa separação existe por uma razão concreta e documentada: o `pyproject.toml` do core proíbe
+explicitamente Pillow nas dependências, porque ele altera o comportamento de `page.images` do
+pypdf e quebra o parser de ingestão de questões. OpenCV convive com Pillow no mesmo ambiente.
+Isolar o worker preserva essa garantia sem abrir mão da visão computacional.
+
+Depende de: OpenCV, NumPy, PyMuPDF, driver de banco.
+O core **nunca** importa nada disso.
+
+### 2.4 `simulado_service` — orquestração (core)
+
+Monta simulado, cadastra gabarito, gera e registra cartões, consolida respostas, dispara
+calibragem, aplica portões de qualidade e produz relatórios.
+
+### 2.5 Comunicação core ↔ worker
+
+Tabela `omr_jobs` no próprio Postgres, consumida com `SELECT ... FOR UPDATE SKIP LOCKED`.
+
+É uma fila real — atômica, com retry, sem perda de mensagem em queda do worker — e não custa
+nenhum serviço de infraestrutura adicional. O repositório não tem hoje nenhum mecanismo de
+job em segundo plano (auditado: nenhum Celery, RQ ou fila), então esta é a menor abstração
+que resolve o problema. Uma fila externa só se justifica se o volume um dia exigir.
+
+---
+
+## 3. Modelo de dados
+
+Migrations a partir da **057** (a 056 é `material_assignments`, ainda não commitada).
+
+### Prova e gabarito
+
+**`mock_exams`**
+`id`, `school_id`, `academic_year_id`, `name`, `application_date`, `exam_day` (1 ou 2),
+`status`, `created_at`.
+
+`status` percorre `DRAFT → PRINTED → APPLIED → SCANNED → CALIBRATED → PUBLISHED`.
+
+**`mock_exam_items`**
+`id`, `mock_exam_id`, `position` (1..N), `area_code`, `correct_option` (A–E),
+`is_anchor` (bool), `anchor_key` (nullable), `source_question_version_id` (nullable).
+
+- `anchor_key` é a identidade estável de um item através de simulados diferentes. Dois itens
+  em simulados distintos com o mesmo `anchor_key` são a mesma questão, e é isso que torna a
+  equalização possível.
+- `source_question_version_id` é o gancho para o dia em que a prova for montada a partir do
+  banco de questões interno. Fica nulo em todo o v1.
+
+**`mock_exam_areas`**
+`id`, `mock_exam_id`, `code`, `label`, `display_order`.
+
+Códigos de área são dados do simulado, não enum fixo no código — a escola pode aplicar um
+simulado só de Química, ou o 1º dia completo do ENEM.
+
+### Cartão e digitalização
+
+**`answer_cards`**
+`id`, `mock_exam_id`, `student_id`, `booklet_code` (fixo em `"UNICO"` no v1),
+`qr_token` (opaco, único), `template_version`, `printed_at`.
+
+O `qr_token` é opaco por decisão de privacidade: o QR impresso no papel não carrega nome,
+matrícula nem qualquer dado pessoal — apenas uma chave que só o banco resolve.
+
+**`answer_card_scans`**
+`id`, `mock_exam_id`, `answer_card_id` (nullable até o QR ser resolvido), `image_hash`,
+`storage_path`, `source` (`SCANNER` | `MOBILE`), `status`, `reader_version`, `processed_at`,
+`failure_reason`.
+
+`status`: `PENDING → PROCESSED` | `NEEDS_REVIEW` | `FAILED`.
+
+As imagens são gravadas via `MaterialStorage`
+(`src/agente_ia_edu/services/material_storage.py`), o storage local endereçado por conteúdo
+que já existe. Reenviar o mesmo arquivo não cria segunda cópia.
+
+**`answer_card_marks`**
+`id`, `scan_id`, `item_position`, `detected_option`, `fill_intensities` (JSON, 5 floats),
+`confidence`, `resolution` (`AUTO` | `HUMAN`), `resolved_option`, `resolved_by_user_id`,
+`resolved_at`.
+
+Guardar as cinco intensidades medidas, e não só a conclusão, é o que permite auditar uma
+leitura contestada sem reprocessar a imagem.
+
+**`omr_jobs`**
+`id`, `scan_id`, `status`, `attempts`, `last_error`, `locked_at`, `locked_by`.
+
+### Respostas consolidadas
+
+**`mock_exam_responses`**
+`id`, `mock_exam_id`, `student_id`, `item_id`, `chosen_option` (A–E ou nulo para branco),
+`is_correct`.
+
+É a matriz que alimenta a TRI. Um simulado de 1.500 alunos × 90 itens produz ~135 mil linhas —
+volume trivial para Postgres, e a granularidade é necessária tanto para a calibragem quanto
+para a análise de distratores.
+
+### TRI
+
+**`tri_scales`** — a régua
+`id`, `school_id`, `area_code`, `name`, `reference_mean` (500), `reference_sd` (100),
+`base_mock_exam_id`, `created_at`.
+
+Uma régua por escola e por área. É contra ela que os itens-âncora são travados.
+
+**`tri_calibrations`**
+`id`, `mock_exam_id`, `area_code`, `scale_id`, `model` (`RASCH` | `2PL` | `3PL`), `status`,
+`n_examinees`, `n_items`, `converged` (bool), `iterations`, `log_likelihood`,
+`engine_version`, `calibrated_at`.
+
+`engine_version` não é burocracia: quando o algoritmo for melhorado, é preciso saber quais
+notas já publicadas vieram de qual versão, sem recalcular a história inteira.
+
+**`tri_item_parameters`**
+`id`, `calibration_id`, `item_id`, `a`, `b`, `c` (nullable), `se_a`, `se_b`, `n_responses`,
+`p_value`, `point_biserial`, `is_fixed` (bool, âncora travada), `flags` (JSON).
+
+**`tri_student_scores`**
+`id`, `calibration_id`, `student_id`, `area_code`, `theta`, `theta_se`, `scaled_score`,
+`raw_correct`, `percentile_class`, `percentile_school`.
+
+---
+
+## 4. Ciclo de vida
+
+1. Coordenação cria o simulado e cadastra o gabarito (posição, área, alternativa correta,
+   marcação de âncora).
+2. Sistema gera os cartões nominais e o template. Status → `PRINTED`.
+3. Aplicação em papel. Status → `APPLIED`.
+4. Cartões digitalizados e enviados (lote em PDF ou imagens soltas). Cada arquivo vira um
+   `answer_card_scan` e um `omr_job`.
+5. Worker processa. Status → `SCANNED`.
+6. Fila de conferência humana resolve o que ficou ambíguo.
+7. Respostas consolidadas em `mock_exam_responses`.
+8. Calibragem por área. Status → `CALIBRATED`.
+9. Portões de qualidade (§6.5). Publicação dos relatórios. Status → `PUBLISHED`.
+
+### Trava de integridade
+
+**A publicação exige que nenhum cartão esteja pendente de conferência.**
+
+Diferente de uma nota individual faltante, calibrar com parte dos alunos ausente distorce os
+parâmetros dos itens — e portanto contamina a nota de *todos*. O sistema bloqueia a transição
+para `CALIBRATED` enquanto houver `answer_card_scans` em `NEEDS_REVIEW` ou `PENDING`.
+
+---
+
+## 5. Pipeline de leitura óptica
+
+Executado inteiramente dentro do `omr_worker`.
+
+1. **Rasterizar.** PDF ou imagem → páginas a ~200 DPI (PyMuPDF).
+2. **Alinhar.** Detectar os quatro marcadores ArUco de canto, calcular a homografia e
+   desentortar para o tamanho canônico. É este passo que torna a foto de celular viável:
+   perspectiva, rotação e escala são desfeitas de uma vez.
+3. **Identificar.** Ler o QR, resolver o `answer_card` e portanto o aluno e o template.
+4. **Medir.** Para cada bolha do template, intensidade média no disco interno, normalizada
+   pelo fundo local imediato — o que neutraliza sombra irregular e papel amarelado.
+5. **Limiarizar.** Limiar adaptativo **por cartão**, via Otsu sobre a distribuição das
+   intensidades das bolhas daquele cartão. Caneta mais clara, scanner mais escuro ou foto
+   subexposta deixam de ser casos especiais.
+6. **Classificar** cada bolha: preenchida, vazia ou **ambígua**.
+7. **Resolver por questão:** exatamente uma preenchida → resposta; nenhuma → branco; duas ou
+   mais → dupla marcação; qualquer bolha ambígua → conferência humana.
+
+### Princípio: o leitor nunca chuta
+
+Qualquer incerteza — bolha em zona ambígua, dupla marcação, rasura, QR ilegível, ArUco não
+detectado — vira item na fila de conferência, com o recorte da imagem exibido para o operador
+decidir. Um OMR que adivinha é pior que um que pede ajuda, porque o erro dele é silencioso e
+vira nota.
+
+Falhas de alinhamento ou de QR marcam o scan como `FAILED` com `failure_reason` legível, e o
+operador reenvia ou digita manualmente.
+
+---
+
+## 6. Motor de TRI
+
+### 6.1 Calibragem
+
+Máxima verossimilhança marginal por algoritmo EM (Bock-Aitkin):
+
+- quadratura gaussiana de 41 pontos sobre theta
+- distribuição a priori de theta: N(0,1)
+- convergência quando a maior mudança absoluta de parâmetro fica abaixo de 1e-4
+- teto de 500 iterações; estourar o teto marca `converged = false`
+
+Modelo 2PL: `P(acerto | theta) = 1 / (1 + exp(-a(theta - b)))`.
+
+### 6.2 Estimativa do theta
+
+**EAP** (esperança a posteriori), não MLE.
+
+Decisão deliberada: o MLE diverge para ±∞ para quem acertou tudo ou errou tudo, e com
+400–1.500 alunos esses casos aparecem. O EAP produz estimativa finita e erro-padrão para
+todos, ao custo de uma leve regressão à média nos extremos — um custo aceitável diante de uma
+nota impossível de calcular.
+
+### 6.3 Escala
+
+Transformação linear de theta para média 500 e desvio 100, ancorada na população do
+`base_mock_exam_id` da régua.
+
+### 6.4 Equalização entre simulados
+
+**Fixed-parameter calibration.** Os itens-âncora entram na calibragem com `a` e `b` travados
+nos valores já registrados na régua (`is_fixed = true`). O EM então posiciona a distribuição
+de theta do novo grupo sobre a escala existente automaticamente.
+
+Escolhido sobre transformações posteriores (Stocking-Lord, Haebara) por ser mais simples e
+por não acrescentar uma segunda etapa de estimação — cada etapa a mais é uma fonte a mais de
+erro.
+
+**Verificação de deriva.** Antes de travar, o motor estima os âncoras livremente e compara
+com os valores da régua. O limiar é configurável, com padrão de **0,5 na escala logit de `b`**
+(meio desvio-padrão de theta). Âncora deslocada além do limiar é **descartada e sinalizada** —
+nunca usada em silêncio. Deslocamento é a assinatura de vazamento do item (alunos tiveram
+acesso à questão) ou de mudança relevante de contexto.
+
+**Consequência operacional que precisa ser respeitada fora do software:** item-âncora não
+pode vazar. O sistema marca quais itens são âncora e impede que apareçam em qualquer
+devolutiva de gabarito ao aluno.
+
+### 6.5 Portões de qualidade
+
+Bloqueiam a publicação:
+
+- **N insuficiente.** Menos de 200 respondentes na área → 2PL é recusado. O sistema cai para
+  Rasch, ou para nota bruta apenas, sempre com aviso explícito na tela — nunca silenciosamente.
+- **Não convergiu.** Calibragem sem convergência não publica.
+
+Sinalizam sem bloquear (`flags` em `tri_item_parameters`):
+
+- **Discriminação negativa** (`a < 0`): o aluno forte erra e o fraco acerta. É a assinatura
+  clássica de **gabarito cadastrado errado**, e na prática é a verificação que mais vai evitar
+  prejuízo real.
+- **Discriminação baixa** (`a < 0.2`): item que não separa ninguém.
+- **Item degenerado**: proporção de acerto abaixo de 0.05 ou acima de 0.95.
+
+### 6.6 Critério para promover a 3PL
+
+O motor nasce com o modelo plugável. O 3PL entra quando houver volume acumulado que o
+sustente — na prática, quando uma régua acumular mais de ~1.500 respondentes por item — e
+mesmo então com o parâmetro `c` restringido por prior bayesiano, não livre. Com N na faixa
+atual, `c` é o parâmetro pior estimado dos três e a sua má estimação contamina `a` e `b`.
+
+---
+
+## 7. Relatórios
+
+**Aluno.** Acertos e nota por área, nota total, percentil na turma e na escola, evolução no
+ano. A evolução por nota absoluta só é exibida quando existe equalização por âncoras; sem
+elas o gráfico é **suprimido**, não estimado — thetas de calibragens independentes estão em
+réguas diferentes e compará-los seria um erro silencioso.
+
+**Turma (professor).** Desempenho por área, questões mais erradas, distribuição das notas,
+comparação com as demais turmas.
+
+**Escola/rede (coordenação).** Comparação entre turmas e unidades, evolução por aplicação ao
+longo do ano.
+
+**Itens (qualidade da prova).** Dificuldade, discriminação, curva característica do item e
+análise de distratores — qual alternativa errada atraiu os alunos de theta alto. Sai
+diretamente dos parâmetros calibrados, sem cálculo adicional.
+
+Os painéis de professor e coordenação já existem (`api/routes/teacher_portal.py`,
+`api/routes/coordination_portal.py`) e recebem as novas seções, seguindo o padrão vigente.
+
+---
+
+## 8. Estratégia de verificação
+
+### 8.1 TRI — recuperação de parâmetros
+
+Simular 1.000 respondentes a partir de parâmetros `a`,`b` conhecidos, calibrar, e exigir que o
+motor recupere os originais dentro de tolerância. Os limites de partida, a ajustar apenas com
+justificativa registrada: correlação acima de 0,95 entre `b` verdadeiro e estimado, erro
+quadrático médio de `b` abaixo de 0,15, e viés médio de `b` abaixo de 0,05 em valor absoluto.
+A semente do gerador aleatório é fixa, para que o teste seja determinístico.
+
+Este é o teste central do subsistema. **Um motor de TRI errado não lança exceção, não quebra
+teste de integração e não falha em produção** — ele devolve números plausíveis e errados, que
+viram nota de aluno. Recuperação de parâmetros é a única forma honesta de saber que está
+certo.
+
+Complementos:
+- **Invariância da equalização.** Mesmos alunos, dois simulados ligados por âncoras → theta
+  estável dentro de tolerância.
+- **Casos-limite.** Respondente que zerou, que gabaritou, item respondido por todos, item sem
+  variância.
+- **Conjunto-ouro.** Uma matriz de respostas fixa, com os parâmetros conferidos contra o
+  `mirt` (R), implementação de referência da área.
+
+### 8.2 OMR — cartões sintéticos
+
+Renderizar o cartão, preencher bolhas programaticamente, aplicar transformações de
+perspectiva, ruído, borrão, sombra e subexposição, e exigir leitura correta. Cobre regressão
+de forma barata e determinística.
+
+### 8.3 Aceite físico — portão de fase, não teste unitário
+
+Imprimir cartões reais, preencher à mão com canetas diferentes, fotografar com aparelhos
+diferentes em sala de aula real, e comparar a leitura automática contra digitação manual das
+mesmas folhas.
+
+**A fase de OMR não está pronta sem essa evidência.** Este ciclo é físico e não comprime por
+esforço de engenharia; o plano de implementação precisa reservar tempo de calendário para ele.
+
+---
+
+## 9. Fatias de implementação
+
+Ordenadas por valor entregue e risco crescente. Cada fase entrega algo utilizável sozinha.
+
+| Fase | Entrega | Destrava |
+|---|---|---|
+| 1 | Modelo de dados + gerador de cartão com QR e ArUco + template | Cartões nominais imprimíveis |
+| 2 | Digitação manual de respostas + nota bruta por área + relatórios | Simulado corrigido de ponta a ponta, sem visão computacional |
+| 3 | Motor de TRI + calibragem + análise de itens | Nota TRI e detecção de gabarito errado |
+| 4 | Worker de OMR + fila de conferência humana | Leitura automática dos cartões |
+| 5 | Âncoras + equalização + evolução no ano | Comparação real entre aplicações |
+
+A fase 2 é o eixo desta ordem. Com digitação manual o simulado funciona de verdade antes de
+existir uma linha de visão computacional, e o trabalho não é descartado depois: a digitação
+permanece como caminho de exceção para cartão rasgado, aluno que preencheu a lápis, ou o dia
+em que o scanner quebrar.
