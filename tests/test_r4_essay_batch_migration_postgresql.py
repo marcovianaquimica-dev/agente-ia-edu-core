@@ -58,7 +58,7 @@ class TestEssayBatchMigrationPostgreSQL(unittest.TestCase):
 
     def test_upgrade_056_creates_batch_tables_and_logo_column(self):
         config = self._alembic_config()
-        command.upgrade(config, "056_essay_batch_upload")
+        command.upgrade(config, "057_essay_batch_upload")
 
         engine = create_engine(self.database_url)
         try:
@@ -104,8 +104,8 @@ class TestEssayBatchMigrationPostgreSQL(unittest.TestCase):
 
     def test_downgrade_056_is_clean(self):
         config = self._alembic_config()
-        command.upgrade(config, "056_essay_batch_upload")
-        command.downgrade(config, "055_essay_prompt_soft_delete")
+        command.upgrade(config, "057_essay_batch_upload")
+        command.downgrade(config, "056_material_assignments")
 
         engine = create_engine(self.database_url)
         try:
