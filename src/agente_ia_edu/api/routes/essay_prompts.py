@@ -29,6 +29,7 @@ from ...services.essay_dashboard_export import build_essay_dashboard_xlsx, xlsx_
 from ...services.essay_proposal import EssayProposalService, as_aware_utc
 from ...services.essay_teacher_dashboard import EssayDashboardResponse, build_essay_prompt_dashboard
 from ...services.material_storage import MaterialStorage
+from ...services.platform_essay_prompt import PlatformEssayPromptService, materialization_year
 
 # Same cap essay_submissions.py's page/document uploads already use - no
 # reason for a teacher's motivational-material upload to be more permissive.
@@ -56,11 +57,20 @@ class EssayPromptTrashResponse(BaseModel):
 
 class EssayPromptResponse(BaseModel):
     id: UUID
+    # Para uma proposta da plataforma ainda NAO materializada, este e o
+    # school_id da escola do professor que esta lendo - a escola que vai
+    # receber a copia se ele atribuir. Nunca vem do corpo da requisicao.
     school_id: UUID
     title: str
     statement: str
     year: int
     status: str
+    # True tanto para uma proposta da plataforma ainda nao materializada
+    # quanto para a copia dela ja materializada nesta escola: em ambos os
+    # casos ela e somente-leitura para o professor (spec, decisao 3).
+    is_platform: bool = False
+    # A origem em platform_essay_prompts, quando houver.
+    platform_prompt_id: Optional[UUID] = None
 
 
 class PromptMaterialCreateRequest(BaseModel):
@@ -409,6 +419,12 @@ async def export_essay_prompt_dashboard_xlsx(
 class EssayPromptDetailResponse(EssayPromptResponse):
     materials: list[PromptMaterialResponse]
     assignments: list[PromptAssignmentResponse]
+    # False so na pre-visualizacao de uma proposta da plataforma que esta
+    # escola ainda nao adotou: nao existe linha em essay_prompts ainda, entao
+    # nada que dependa de um EssayPrompt real (folha de resposta, materiais,
+    # dashboard) funciona nela - so o formulario de atribuicao, que e o que
+    # dispara a materializacao.
+    materialized: bool = True
 
 
 @essay_prompts_router.get("/{essay_prompt_id}/answer-sheet.pdf")
@@ -456,6 +472,11 @@ async def list_essay_prompts(
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> list[EssayPromptResponse]:
+    """As propostas da escola do professor, seguidas das propostas da
+    plataforma ACTIVE que esta escola ainda nao materializou - na MESMA
+    lista, com o campo is_platform como unica diferenca (spec, decisao 2).
+    Uma proposta da plataforma ja adotada por esta escola aparece so uma
+    vez, como a copia dela (que tambem carrega is_platform=True)."""
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
         result = await session.execute(
@@ -463,13 +484,35 @@ async def list_essay_prompts(
             .where(EssayPrompt.school_id == school_id, EssayPrompt.deleted_at.is_(None))
             .order_by(EssayPrompt.created_at.desc())
         )
-        return [
+        items = [
             EssayPromptResponse(
                 id=p.id, school_id=p.school_id, title=p.title,
                 statement=p.statement, year=p.year, status=p.status,
+                is_platform=p.materialized_from_platform_prompt_id is not None,
+                platform_prompt_id=p.materialized_from_platform_prompt_id,
             )
             for p in result.scalars().all()
         ]
+        available = await PlatformEssayPromptService(session).list_available_for_school(
+            school_id=school_id
+        )
+        # O mesmo ano que materialize_for_school vai gravar em
+        # EssayPrompt.year, para o professor nao ver um ano na lista e outro
+        # depois de atribuir.
+        year = materialization_year()
+        items.extend(
+            EssayPromptResponse(
+                id=origin.id, school_id=school_id, title=origin.title,
+                statement=origin.statement, year=year,
+                # A copia nasce ACTIVE - e o status que a proposta tera nesta
+                # escola. list_available_for_school ja so devolve origens
+                # ACTIVE, entao nao ha ARCHIVED para propagar aqui.
+                status="ACTIVE",
+                is_platform=True, platform_prompt_id=origin.id,
+            )
+            for origin in available
+        )
+        return items
 
 
 @essay_prompts_router.get("/trash", response_model=list[EssayPromptTrashResponse])
@@ -543,6 +586,26 @@ async def get_essay_prompt_detail(
 ) -> EssayPromptDetailResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+
+        # A tela do professor lista proposta propria e proposta da plataforma
+        # sob o mesmo campo de id, e so abre o detalhe antes de atribuir - sem
+        # este trecho, abrir uma proposta da plataforma daria 403 e o fluxo
+        # nunca chegaria ao formulario de atribuicao.
+        platform_service = PlatformEssayPromptService(session)
+        origin = await platform_service.get_platform_prompt(essay_prompt_id)
+        if origin is not None:
+            copy = await platform_service.find_materialized(
+                platform_essay_prompt_id=origin.id, school_id=school_id
+            )
+            if copy is None:
+                return EssayPromptDetailResponse(
+                    id=origin.id, school_id=school_id, title=origin.title,
+                    statement=origin.statement, year=materialization_year(),
+                    status="ACTIVE", is_platform=True, platform_prompt_id=origin.id,
+                    materialized=False, materials=[], assignments=[],
+                )
+            essay_prompt_id = copy.id
+
         prompt = await _prompt_for_own_school_or_403(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id
         )
@@ -561,6 +624,9 @@ async def get_essay_prompt_detail(
         return EssayPromptDetailResponse(
             id=prompt.id, school_id=prompt.school_id, title=prompt.title,
             statement=prompt.statement, year=prompt.year, status=prompt.status,
+            is_platform=prompt.materialized_from_platform_prompt_id is not None,
+            platform_prompt_id=prompt.materialized_from_platform_prompt_id,
+            materialized=True,
             materials=[
                 PromptMaterialResponse(
                     id=m.id, essay_prompt_id=m.essay_prompt_id, material_type=m.material_type,
