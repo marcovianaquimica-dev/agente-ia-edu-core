@@ -30,7 +30,8 @@ está sob controle do projeto, o que este design explora deliberadamente.
 | Níveis de relatório | Aluno, turma, escola/rede e análise de itens |
 | Equalização entre simulados | Sim — itens-âncora disponíveis |
 | Escala de reporte | Referência ENEM por área (mínimo, mediana, máximo), cadastrada manualmente |
-| Hospedagem | Core, com o OMR isolado em worker de processo separado |
+| Hospedagem | Core, com geração de cartão e OMR num ambiente isolado de processo separado |
+| Isolamento multi-tenant | `school_id` e FKs compostas em todas as tabelas, como no modelo acadêmico |
 
 ### Fora de escopo
 
@@ -53,14 +54,32 @@ está sob controle do projeto, o que este design explora deliberadamente.
 
 Quatro unidades, cada uma com um propósito e uma fronteira explícita.
 
-### 2.1 `simulado_card` — geração do cartão (core)
+### 2.1 `simulado_card` — geração do cartão (ambiente isolado)
 
 Gera o PDF dos cartões nominais em ReportLab e emite, **no mesmo ato**, o template geométrico:
 as coordenadas normalizadas de cada bolha de cada questão, a posição dos quatro marcadores
 ArUco de canto e a posição do QR.
 
-Depende de: ReportLab e de uma biblioteca de geração de QR.
+Depende de: ReportLab. O QR sai do `QrCodeWidget` vetorial que o próprio ReportLab já traz,
+sem biblioteca adicional.
 Não depende de: OpenCV, banco de dados (recebe os dados já resolvidos).
+
+**Roda fora do ambiente do core, junto do `omr_worker` (§2.3).** ReportLab declara
+`pillow>=9.0.0` como dependência obrigatória — verificado em `pypi.org/pypi/reportlab/json`
+para a versão 5.0.1 — e Pillow é exatamente o que o `pyproject.toml` do core proíbe, porque
+altera o comportamento de `page.images` do pypdf, consumido em
+`src/agente_ia_edu/services/ingestion_parser.py:371`.
+
+Import tardio **não** resolve: o pypdf muda de comportamento conforme Pillow estar instalado
+no ambiente, independentemente de quem o importou. A única garantia real é o ReportLab nunca
+entrar no `site-packages` do core.
+
+Gerador e leitor no mesmo ambiente isolado é também o arranjo natural: eles são as duas pontas
+do mesmo template geométrico.
+
+A geometria é separada da renderização. O cálculo das coordenadas do template é stdlib puro,
+sem ReportLab, para que o leitor (§2.3) e os testes possam consumi-lo sem arrastar nada
+gráfico. Só o renderizador toca ReportLab.
 
 Os marcadores ArUco **não são gerados em tempo de execução**. Um dicionário ArUco é um
 conjunto fixo e pequeno de padrões conhecidos; os quatro usados aqui são pré-gerados uma vez
@@ -89,12 +108,13 @@ Implementa o protocolo `ProficiencyEstimator` já definido em
 ### 2.3 `omr_worker` — leitura óptica (processo separado)
 
 **O único lugar do sistema onde `cv2` é importado.** Roda como processo/container próprio,
-com o seu próprio conjunto de dependências.
+com o seu próprio conjunto de dependências, compartilhado com o gerador de cartão (§2.1).
 
 Essa separação existe por uma razão concreta e documentada: o `pyproject.toml` do core proíbe
 explicitamente Pillow nas dependências, porque ele altera o comportamento de `page.images` do
 pypdf e quebra o parser de ingestão de questões. OpenCV convive com Pillow no mesmo ambiente.
-Isolar o worker preserva essa garantia sem abrir mão da visão computacional.
+Isolar o ambiente preserva essa garantia sem abrir mão da visão computacional nem da geração
+de cartão.
 
 Depende de: OpenCV, NumPy, PyMuPDF, driver de banco.
 O core **nunca** importa nada disso.
@@ -118,6 +138,20 @@ que resolve o problema. Uma fila externa só se justifica se o volume um dia exi
 ## 3. Modelo de dados
 
 Migrations a partir da **057** (a 056 é `material_assignments`, ainda não commitada).
+
+### 3.0 Isolamento multi-tenant
+
+**Toda tabela deste subsistema carrega `school_id`, e toda chave estrangeira entre elas é
+composta** — `(school_id, parent_id)` referenciando `parent(school_id, id)`, viabilizada por um
+`UNIQUE(school_id, id)` em cada pai. É a mesma regra que `src/agente_ia_edu/db/models/academic.py`
+documenta e aplica em todo o modelo acadêmico, e a razão é a mesma: a coluna é redundante com a
+cadeia de chaves, mas transforma "nunca misturar dados de escolas diferentes" de disciplina de
+query em invariante que o banco recusa violar.
+
+Sem isso, um único `join` mal escrito consegue ligar o aluno de uma escola ao simulado de outra
+— e num subsistema cujo produto final é a nota do aluno, esse erro é caro e silencioso.
+
+As descrições de coluna abaixo omitem `school_id` por brevidade; ele está em todas.
 
 ### Prova e gabarito
 
