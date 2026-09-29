@@ -32,7 +32,7 @@ Copiadas verbatim da §6 da spec — todo requisito de tarefa inclui implicitame
 ### Decisões de implementação tomadas ao escrever este plano (não reabrir)
 
 1. **`COMPETENCY_DESCRIPTIONS` (em `web/essay-report.js`) NÃO muda.** Esse dicionário é a citação verbatim da Matriz de Referência do ENEM (está documentado como tal no próprio arquivo) e a spec não fornece texto substituto. Reescrever uma citação oficial seria inventar texto — proibido pelas Global Constraints. Só `COMPETENCY_LABELS`/`_COMPETENCY_LABELS` (o rótulo curto, idêntico nos 4 arquivos) muda. A Tarefa 5 tem um teste de regressão que trava as descrições oficiais no texto atual.
-2. **Frase exata da REGRA DO REPERTÓRIO VAZIO:** `Não foi identificado repertório sociocultural no texto.` A spec cita o começo dessa frase com reticências; esta é a forma completa, canônica, usada no prompt e nos testes. Não varie a pontuação nem acrescente palavras.
+2. **Frase exata da REGRA DO REPERTÓRIO VAZIO** (corrigida pelo controlador depois que o plano foi escrito - a spec truncou a frase com reticências, mas o texto completo do usuário está preservado no histórico da conversa): `"Não foi identificado repertório sociocultural no texto. Para fortalecer sua argumentação, procure utilizar referências pertinentes ao tema, como fatos históricos, conceitos, pesquisas, dados, obras, legislação ou outros conhecimentos socioculturais, relacionando-os ao argumento desenvolvido."` - esta é a forma completa e canônica, usada em `EMPTY_REPERTOIRE_SENTENCE` (Task 2). Não varie a pontuação nem acrescente/remova palavras.
 3. **Os 8 campos são obrigatórios só quando `scores is not None`** (AVALIATIVO). Em FORMATIVO o prompt continua pedindo os 8 campos, mas o contrato não falha se vierem ausentes — mesma assimetria que `scores` já tem.
 4. **A exclusão de C2/C3 de `rationales` é validada só quando `scores is not None`.** Em FORMATIVO um rationale de C2/C3 continua aceito (não quebra nada e a renderização já prioriza os campos estruturados).
 5. **Fase 2a (pontuação por competência) não muda de lógica.** Como C2/C3 deixam de ter `CompetencyRationale`, o serviço passa a SINTETIZAR o dicionário `rationale` de C2/C3 a partir dos 8 campos, para que a fase 2a receba exatamente a mesma quantidade de evidência que recebia antes. Isso preserva o comportamento; não é calibração.
@@ -758,7 +758,13 @@ import unittest
 
 from agente_ia_edu.essay_prompts import available_versions, get_essay_prompt
 
-REPERTORIO_VAZIO = "Não foi identificado repertório sociocultural no texto."
+REPERTORIO_VAZIO = (
+    "Não foi identificado repertório sociocultural no texto. Para "
+    "fortalecer sua argumentação, procure utilizar referências pertinentes "
+    "ao tema, como fatos históricos, conceitos, pesquisas, dados, obras, "
+    "legislação ou outros conhecimentos socioculturais, relacionando-os ao "
+    "argumento desenvolvido."
+)
 
 STRUCTURED_FIELDS = (
     "c2_tipologia_textual", "c2_tema", "c2_repertorio_sociocultural",
@@ -1036,7 +1042,13 @@ VERSION = "essay_correction_v15"
 #: The exact sentence c2_repertorio_sociocultural must carry when the essay
 #: shows no sociocultural repertoire at all. Exported so the prompt text and
 #: the tests cannot drift apart.
-EMPTY_REPERTOIRE_SENTENCE = "Não foi identificado repertório sociocultural no texto."
+EMPTY_REPERTOIRE_SENTENCE = (
+    "Não foi identificado repertório sociocultural no texto. Para "
+    "fortalecer sua argumentação, procure utilizar referências pertinentes "
+    "ao tema, como fatos históricos, conceitos, pesquisas, dados, obras, "
+    "legislação ou outros conhecimentos socioculturais, relacionando-os ao "
+    "argumento desenvolvido."
+)
 
 RESPONSE_SCHEMA: dict[str, Any] = {
     "scores": {

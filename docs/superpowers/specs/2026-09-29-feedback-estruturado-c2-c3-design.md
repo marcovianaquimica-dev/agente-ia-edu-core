@@ -49,7 +49,7 @@ c3_projeto_argumentativo, c3_fatos_informacoes_opinioes, c3_autoria, c3_orientac
 **Prompt novo (`essay_prompts/v15.py`, cópia de v14 + mudanças):**
 
 - `RESPONSE_SCHEMA` atualizado: os 8 campos novos substituem as entradas de C2/C3 em `rationales`.
-- Regra nova pro repertório de C2: quando nenhum repertório for identificado, `c2_repertorio_sociocultural` deve usar exatamente o texto que o usuário especificou ("não foi identificado repertório sociocultural no texto...").
+- Regra nova pro repertório de C2: quando nenhum repertório for identificado, `c2_repertorio_sociocultural` deve usar exatamente o texto que o usuário especificou: "Não foi identificado repertório sociocultural no texto. Para fortalecer sua argumentação, procure utilizar referências pertinentes ao tema, como fatos históricos, conceitos, pesquisas, dados, obras, legislação ou outros conhecimentos socioculturais, relacionando-os ao argumento desenvolvido."
 - Regra nova pra C3: toda afirmação em `c3_fatos_informacoes_opinioes` e `c3_autoria` deve ser ancorada em evidência real do texto - nunca inventar fato, exemplo ou traço de autoria que não esteja na redação. Quando não houver desenvolvimento suficiente de algum aspecto, dizer isso explicitamente (não fingir que existe).
 - Regra nova pra `mechanical_review`: quando `category=CRASE` e o motivo envolver pronome, `rule_explanation` deve nomear o tipo de pronome (demonstrativo/relativo/pessoal oblíquo/indefinido/possessivo) e explicar a regra específica daquele tipo, nunca uma explicação genérica de crase. Quando `category=PONTUACAO`, critério mais detalhado sobre quando a vírgula é exigida (não só "falta vírgula", mas por qual construção - aposto, vocativo, oração intercalada, adjunto deslocado, etc.).
 
