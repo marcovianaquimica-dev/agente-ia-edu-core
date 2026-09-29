@@ -185,11 +185,32 @@ class EngineContractV5Tests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             EssayEngineOutput.model_validate(payload)
 
-    def test_total_must_be_the_sum_of_the_five_competencies(self):
+    def test_a_text_offset_anchor_whose_end_does_not_follow_start_no_longer_rejects_at_the_shape_layer(self):
+        """Confirmed live 2026-09-29: the model reported an anchor with
+        end <= start for an otherwise verbatim, correctly-chosen quote,
+        sinking the whole correction. essay_engine_validation.py's anchoring
+        layer (Layer 3) is what re-derives the real offsets from the quote -
+        this layer (shape) must let a self-inconsistent offset through so
+        Layer 3 gets the chance, instead of rejecting outright."""
+        payload = minimal_payload()
+        payload["identification"]["anchor_mode"] = "TEXT_OFFSET"
+        payload["annotations"][0]["anchor"] = {
+            "type": "TEXT_OFFSET", "start": 10, "end": 3, "quote": "x",
+        }
+        output = EssayEngineOutput.model_validate(payload)
+        anchor = output.annotations[0].anchor
+        self.assertEqual((anchor.start, anchor.end), (10, 3))
+
+    def test_total_is_recomputed_from_the_five_competencies_when_the_models_own_total_disagrees(self):
+        """Confirmed live 2026-09-29: the model reported total=800 for
+        competencies that actually summed to 800 in this fixture (all 160s),
+        so use a deliberately wrong self-reported total (999) instead -
+        total is redundant with per_competency and must never sink an
+        otherwise-good correction over the model's own arithmetic mistake."""
         payload = minimal_payload()
         payload["scores"]["total"] = 999
-        with self.assertRaises(ValidationError):
-            EssayEngineOutput.model_validate(payload)
+        output = EssayEngineOutput.model_validate(payload)
+        self.assertEqual(output.scores.total, 800)
 
 
 if __name__ == "__main__":

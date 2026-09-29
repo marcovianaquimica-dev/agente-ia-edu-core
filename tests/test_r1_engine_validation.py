@@ -420,6 +420,52 @@ class TestEngineValidation(unittest.TestCase):
         self.assertEqual(dumped["start"], text.index(quote))
         self.assertEqual(text[dumped["start"] : dumped["end"]], quote)
 
+    def test_reanchors_an_anchor_whose_end_does_not_follow_start(self):
+        """Confirmed live 2026-09-29: the model reported end <= start for an
+        otherwise verbatim, correctly-chosen quote - essay_engine_contract.v5
+        no longer rejects this shape (see TextOffsetAnchor's docstring), so
+        this layer gets the chance to do what it already does for drifted-but-
+        consistent offsets: treat the quote as authoritative and re-derive the
+        real position from it."""
+        text = TEXT
+        quote = "valorização"
+        real_start = text.index(quote)
+        payload = build_payload_v5(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            # Garbage, self-inconsistent offsets (end before start) - the
+            # quote itself is genuine and unique in the text.
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": real_start + len(quote), "end": real_start,
+                "quote": quote,
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        output = validate_engine_output_from_payload(payload, rubric=RUBRIC, text=text)
+
+        anchor = output.annotations[0].anchor
+        self.assertEqual((anchor.start, anchor.end), (real_start, real_start + len(quote)))
+        self.assertEqual(text[anchor.start : anchor.end], quote)
+
+    def test_still_rejects_an_end_before_start_anchor_whose_quote_is_not_in_the_text(self):
+        """The recovery above must never mask a genuinely hallucinated quote -
+        this is the same anti-hallucination guard as
+        test_rejects_a_quote_that_does_not_match_the_text, just with a
+        self-inconsistent (end <= start) claimed span instead of a
+        consistent-but-wrong one."""
+        payload = build_payload_v5(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": 10, "end": 2,
+                "quote": "isto não está no texto",
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output_from_payload(payload, rubric=RUBRIC, text=TEXT)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
     def test_reanchors_an_anchor_whose_drift_ran_past_the_end_of_the_text(self):
         """Drift is as likely on the last paragraph as on the first, and there
         the same miscount produces offsets beyond the text. The quote is still

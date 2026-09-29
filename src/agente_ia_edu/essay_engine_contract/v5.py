@@ -89,7 +89,20 @@ _Strict = ConfigDict(extra="forbid")
 
 
 class TextOffsetAnchor(BaseModel):
-    """Verifiable anchor: the quote can be checked against the canonical text."""
+    """Verifiable anchor: the quote can be checked against the canonical text.
+
+    ``start``/``end`` are NOT required to be internally consistent here
+    (``end`` may be <= ``start``) - confirmed live 2026-09-29: the model
+    occasionally reports self-contradictory offsets for an otherwise
+    correctly-chosen, verbatim quote. Rejecting the whole correction at this
+    shape layer over one annotation's arithmetic mistake would throw away a
+    good correction; instead, essay_engine_validation.py's anchoring layer
+    (``_resolve_text_offset``) treats the quote - which the model copies
+    reliably - as authoritative and re-derives the real offsets from it,
+    the same recovery already relied on for offsets that drifted by a few
+    characters (see that function's docstring). Only when the quote itself
+    cannot be found unambiguously does that layer reject the annotation.
+    """
 
     model_config = _Strict
 
@@ -97,12 +110,6 @@ class TextOffsetAnchor(BaseModel):
     start: int = Field(ge=0)
     end: int = Field(ge=0)
     quote: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _end_follows_start(self) -> "TextOffsetAnchor":
-        if self.end <= self.start:
-            raise ValueError("TEXT_OFFSET anchor requires end > start")
-        return self
 
 
 class ImageRegionAnchor(BaseModel):
@@ -173,12 +180,14 @@ class Scores(BaseModel):
                 f"scores must cover exactly {list(COMPETENCY_CODES)}; "
                 f"got {sorted(self.per_competency)}"
             )
-        expected = sum(score.points for score in self.per_competency.values())
-        if self.total != expected:
-            raise ValueError(
-                f"total must be the sum of the five competencies ({expected}); "
-                f"got {self.total}"
-            )
+        # total is redundant with per_competency (each score independently
+        # constrained to OFFICIAL_LEVEL_POINTS above) and the model
+        # sometimes gets its own arithmetic wrong reporting it - confirmed
+        # live 2026-09-29 (reported 800, the five competencies actually summed
+        # to 760). per_competency is what carries the AI's real judgment, so
+        # total is always recomputed from it instead of rejecting an
+        # otherwise-good correction over the model's redundant arithmetic.
+        self.total = sum(score.points for score in self.per_competency.values())
         return self
 
 
