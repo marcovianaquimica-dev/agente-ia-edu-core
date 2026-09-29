@@ -28,6 +28,7 @@ from .routes.video_engine import video_router
 from .routes.discovery import discovery_router
 from .routes.student import student_router
 from .routes.admin import admin_router
+from .routes.admin_essay_prompts import admin_essay_prompts_router
 from .routes.teaching_context import (
     teacher_router,
     coordination_router,
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(discovery_router, dependencies=reception_only_guard)
     app.include_router(student_router, dependencies=reception_only_guard)
     app.include_router(admin_router, dependencies=reception_only_guard)
+    app.include_router(admin_essay_prompts_router, dependencies=reception_only_guard)
     app.include_router(teacher_router, dependencies=reception_only_guard)
     app.include_router(coordination_router, dependencies=reception_only_guard)
     app.include_router(pedagogical_context_router, dependencies=reception_only_guard)
