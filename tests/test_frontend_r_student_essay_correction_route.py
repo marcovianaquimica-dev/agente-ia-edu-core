@@ -320,6 +320,107 @@ class StudentEssayCorrectionRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertIsNone(resp.json()["rationales"])
 
+    def test_approved_exposes_the_eight_structured_c2_c3_fields(self):
+        submission_id = self._seed_submission("60")
+
+        async def _add():
+            async with self.factory() as session:
+                submission = await session.get(EssaySubmission, submission_id)
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=submission.school_id,
+                    essay_submission_id=submission_id, correction_key="s" * 64,
+                    rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v15",
+                    engine_version="r3_correction_engine_v2",
+                    ai_output={
+                        "annotations": [], "rewrites": [],
+                        "intervention": {"respeita_direitos_humanos": True}, "alerts": [],
+                        "rationales": [{
+                            "competency_code": "C1", "summary": "ok",
+                            "strengths": "boa norma", "growth_area": "revisar crase",
+                            "signal_keys": [],
+                        }],
+                        "c2_tipologia_textual": "Dissertativo-argumentativo.",
+                        "c2_tema": "Desenvolve o tema proposto.",
+                        "c2_repertorio_sociocultural": "Não foi identificado repertório sociocultural no texto.",
+                        "c2_orientacao_melhoria": "Traga um repertório pertinente.",
+                        "c3_projeto_argumentativo": "Tese sustentada.",
+                        "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
+                        "c3_autoria": "Há voz autoral no 3º parágrafo.",
+                        "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
+                    },
+                    final_scores={"total": 800},
+                    final_feedback={"next_essay_strategy": "Revisar conectivos."},
+                    status="APPROVED",
+                    reviewed_at=datetime.now(timezone.utc),
+                    published_at=datetime.now(timezone.utc),
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add())
+        self._as("student_60")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["c2_tipologia_textual"], "Dissertativo-argumentativo.")
+        self.assertEqual(body["c2_tema"], "Desenvolve o tema proposto.")
+        self.assertEqual(
+            body["c2_repertorio_sociocultural"],
+            "Não foi identificado repertório sociocultural no texto.",
+        )
+        self.assertEqual(body["c2_orientacao_melhoria"], "Traga um repertório pertinente.")
+        self.assertEqual(body["c3_projeto_argumentativo"], "Tese sustentada.")
+        self.assertEqual(body["c3_fatos_informacoes_opinioes"], "Usa dados do IBGE.")
+        self.assertEqual(body["c3_autoria"], "Há voz autoral no 3º parágrafo.")
+        self.assertEqual(body["c3_orientacao_melhoria"], "Desenvolva o segundo argumento.")
+
+    def test_old_v4_correction_returns_none_for_the_structured_fields_not_500(self):
+        """A correction published under contract v4 has none of these keys -
+        and a seed script may even have stored one with the wrong type. Both
+        must degrade to null, never 500 the student's own devolutiva."""
+        submission_id = self._seed_submission("61")
+
+        async def _add():
+            async with self.factory() as session:
+                submission = await session.get(EssaySubmission, submission_id)
+                session.add(EssayCorrection(
+                    id=uuid.uuid4(), school_id=submission.school_id,
+                    essay_submission_id=submission_id, correction_key="t" * 64,
+                    rubric_version="ENEM_2025", model_version="gpt-test",
+                    prompt_version="essay_correction_v14",
+                    engine_version="r3_correction_engine_v2",
+                    ai_output={
+                        "annotations": [], "rewrites": [],
+                        "intervention": {"respeita_direitos_humanos": True}, "alerts": [],
+                        "rationales": [{
+                            "competency_code": "C2", "summary": "ok",
+                            "strengths": "boa leitura do tema",
+                            "growth_area": "ampliar repertório", "signal_keys": [],
+                        }],
+                        "c2_tema": {"texto": "shape errado de um seed antigo"},
+                    },
+                    final_scores={"total": 800},
+                    final_feedback={"next_essay_strategy": "Revisar conectivos."},
+                    status="APPROVED",
+                    reviewed_at=datetime.now(timezone.utc),
+                    published_at=datetime.now(timezone.utc),
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add())
+        self._as("student_61")
+        resp = self.client.get(f"/api/v1/student/essay-submissions/{submission_id}/correction")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        for field in (
+            "c2_tipologia_textual", "c2_tema", "c2_repertorio_sociocultural",
+            "c2_orientacao_melhoria", "c3_projeto_argumentativo",
+            "c3_fatos_informacoes_opinioes", "c3_autoria", "c3_orientacao_melhoria",
+        ):
+            with self.subTest(field=field):
+                self.assertIsNone(body[field])
+        self.assertEqual(body["rationales"][0]["strengths"], "boa leitura do tema")
+
     def test_another_students_submission_is_403(self):
         submission_id = self._seed_submission("5")
         self._add_correction(submission_id, status="APPROVED", with_content=True)
