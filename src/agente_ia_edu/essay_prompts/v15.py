@@ -450,6 +450,17 @@ _RULES_REWRITES = (
     "por essa annotation."
 )
 
+_RULES_FEEDBACK = (
+    "FEEDBACK_RULES: feedback.improvements nunca pode ser uma lista vazia, "
+    "mesmo para uma redacao muito boa - toda redacao, por melhor que seja, "
+    "tem pelo menos um refinamento possivel (aprofundar um argumento, "
+    "articular melhor um repertorio, detalhar mais a proposta de "
+    "intervencao, etc.). Inclua no minimo um item real e especifico, ligado "
+    "a algo que voce observou no texto - nunca invente um problema que nao "
+    "existe so para preencher a lista, e nunca deixe a lista vazia so "
+    "porque a redacao e forte."
+)
+
 _RULES_MECHANICAL_REVIEW = (
     "MECHANICAL_REVIEW_RULES: preencha mechanical_review apenas com "
     "ocorrencias de ORTOGRAFIA, ACENTUACAO, CRASE, PORQUES, CONCORDANCIA, "
@@ -597,6 +608,7 @@ def build_prompt(
         + _RULES_C2_STRUCTURED + "\n"
         + _RULES_C3_STRUCTURED + "\n"
         + _RULES_REWRITES + "\n"
+        + _RULES_FEEDBACK + "\n"
         + _RULES_MECHANICAL_REVIEW + "\n"
         + _RULES_NARRATIVE + "\n"
         + anchor_rules + "\n"

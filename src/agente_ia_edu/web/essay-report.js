@@ -128,15 +128,15 @@
         }).join('')
       : '';
 
-    const mechanicalOccurrencesHtml = mechanicalReview.length
-      ? mechanicalReview.map((m) => `
+    const mechanicalReviewSectionHtml = mechanicalReview.length
+      ? `<h4>Revisão de domínio da norma padrão (C1)</h4>${mechanicalReview.map((m) => `
           <div class="essay-mechanical-occurrence">
             <strong>${esc(m.category)}</strong>
             <blockquote>"${esc(m.excerpt)}"</blockquote>
             <p>Forma sugerida: ${esc(m.suggested_form)}</p>
             <p class="empty-text">${esc(m.rule_explanation)}</p>
-          </div>`).join('')
-      : '<p class="empty-text">Nenhuma ocorrência mecânica confirmada nesta redação.</p>';
+          </div>`).join('')}`
+      : '';
 
     const actionPlanItems = feedback.improvements || [];
     const actionPlanHtml = actionPlanItems.length
@@ -165,8 +165,7 @@
       <h4>Anotações</h4>
       ${annotationsHtml}
       ${rewritesHtml ? `<h4>Reescritas sugeridas</h4>${rewritesHtml}` : ''}
-      <h4>Revisão de domínio da norma padrão (C1)</h4>
-      ${mechanicalOccurrencesHtml}
+      ${mechanicalReviewSectionHtml}
       <h4>Plano de ação</h4>
       ${actionPlanHtml}
       ${nextEssayHtml}

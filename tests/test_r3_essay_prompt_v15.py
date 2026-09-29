@@ -110,6 +110,12 @@ class EssayPromptV15Tests(unittest.TestCase):
         self.assertIn("RATIONALE_RULES", prompt)
         self.assertIn("rationales cobre APENAS C1, C4 e C5", prompt)
 
+    def test_feedback_rules_forbid_an_empty_improvements_list(self):
+        prompt = self._prompt()
+        self.assertIn("FEEDBACK_RULES", prompt)
+        self.assertIn("improvements", prompt)
+        self.assertIn("nunca pode ser uma lista vazia", prompt)
+
     def test_c2_rules_name_the_three_aspects_and_the_improvement_field(self):
         prompt = self._prompt()
         self.assertIn("C2_RULES", prompt)
