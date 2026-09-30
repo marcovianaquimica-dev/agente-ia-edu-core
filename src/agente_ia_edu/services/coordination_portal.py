@@ -26,8 +26,14 @@ from agente_ia_edu.db.models import (
     TeachingLesson,
     UserSchoolLink,
 )
+from agente_ia_edu.db.models.academic import Class as AcademicClass
+from agente_ia_edu.db.models.academic import GradeLevel, Segment, SchoolUnit
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
-from agente_ia_edu.services.external_id_resolution import ExternalIdResolver, ResolutionState
+from agente_ia_edu.services.external_id_resolution import (
+    ExternalIdResolver,
+    ResolutionState,
+    real_classroom_external_ids,
+)
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.learning_path_policies import DifficultyLevel
 from agente_ia_edu.services.recommendation import RecommendationEngine
@@ -102,13 +108,62 @@ class CoordinationPortalService:
         if is_global:
             stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
             res = await self.session.execute(stmt)
-            classrooms = set(res.scalars().all()) or {"TURMA_3A", "TURMA_3B"}
+            classrooms = set(res.scalars().all())
+
+            # Any CLASSROOM-scoped UserSchoolLink (teacher, student, or
+            # coordinator) is also real evidence of a classroom's existence -
+            # mirrors TeacherPortalService._full_classroom_set's own
+            # school-wide query, which this branch used to fall short of.
+            stmt_users = select(UserSchoolLink.scope_external_id).where(
+                UserSchoolLink.school_id == school_id,
+                UserSchoolLink.scope_type == AdminScopeType.CLASSROOM,
+                UserSchoolLink.scope_external_id.isnot(None),
+            ).distinct()
+            res_users = await self.session.execute(stmt_users)
+            classrooms.update(res_users.scalars().all())
+
+            # The R0 hierarchy's own real Class rows complete the picture for
+            # a freshly onboarded school with no TeachingLesson/CLASSROOM-link
+            # history yet. Never an invented placeholder name (the reported
+            # bug: a real school's classrooms are named "1EM_A"/"1EM_B", not
+            # "TURMA_3A"/"TURMA_3B") - a genuinely empty school now correctly
+            # yields an empty set instead.
+            classrooms.update(await real_classroom_external_ids(self.session, school_id))
+
+            # Real grade/unit/segment external_ids for this school, never the
+            # hardcoded "1ª Série"/"Unidade Principal"/"Ensino Médio" strings.
+            # A school with no rows yet at a level (pre-R0, or a real school
+            # like Escola ABC that has no SchoolUnit) gets an empty set for
+            # that level - which is what verify_coordinator_access actually
+            # checks these against (lines below, unreached when is_global is
+            # True but real for any future caller); an empty set there
+            # correctly denies a filter for a level the school has no real
+            # data for, rather than pretending three grades or one unit
+            # exist when they do not.
+            res_grades = await self.session.execute(
+                select(GradeLevel.external_id).where(
+                    GradeLevel.school_id == school_id,
+                    GradeLevel.external_id.isnot(None),
+                )
+            )
+            res_units = await self.session.execute(
+                select(SchoolUnit.external_id).where(
+                    SchoolUnit.school_id == school_id,
+                    SchoolUnit.external_id.isnot(None),
+                )
+            )
+            res_segments = await self.session.execute(
+                select(Segment.external_id).where(
+                    Segment.school_id == school_id,
+                    Segment.external_id.isnot(None),
+                )
+            )
             return {
                 "is_global": True,
                 "allowed_classrooms": classrooms,
-                "allowed_grades": {"1ª Série", "2ª Série", "3ª Série"},
-                "allowed_units": {"Unidade Principal"},
-                "allowed_segments": {"Ensino Médio"},
+                "allowed_grades": set(res_grades.scalars().all()),
+                "allowed_units": set(res_units.scalars().all()),
+                "allowed_segments": set(res_segments.scalars().all()),
             }
 
         resolver = ExternalIdResolver(self.session)
@@ -198,21 +253,15 @@ class CoordinationPortalService:
         """
         scopes = await self.get_coordinator_authorized_scopes(coordinator_id, school_id)
         if scopes["is_global"]:
-            # Do not "simplify" this to `return list(scopes["allowed_classrooms"])`.
             # get_coordinator_authorized_scopes returns allowed_classrooms as a
             # set, and Python randomizes string hashing per process, so its
-            # iteration order is not stable across runs. The local query below
-            # returns a list in SQL order, which is what
-            # test_a_global_coordinator_still_sees_every_classroom asserts
-            # exactly and what build_classroom_items (see call sites around
-            # lines 429 and 486) turns into API response order. Collapsing
-            # this branch to the set would swap that stable order for an
-            # unstable one - breaking the exact-order test and shuffling the
-            # API payload between requests - unless whoever does it also wraps
-            # the result in sorted(...).
-            stmt_c = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
-            res_c = await self.session.execute(stmt_c)
-            return list(res_c.scalars().all()) or ["TURMA_3A", "TURMA_3B"]
+            # iteration order is not stable across runs. sorted() gives a
+            # deterministic order for build_classroom_items (see call sites
+            # around lines 429 and 486) and the API response it feeds -
+            # never re-query TeachingLesson alone here, which would drop the
+            # CLASSROOM-link and real-Class-row sources already unioned into
+            # allowed_classrooms above (and reintroduce the placeholder gap).
+            return sorted(scopes["allowed_classrooms"])
         return list(scopes["allowed_classrooms"])
 
     async def verify_coordinator_access(
@@ -343,7 +392,11 @@ class CoordinationPortalService:
                 "student_id": sid,
                 "name": f"Aluno {sid.replace('student:', '').replace('_', ' ').title()}",
                 "school_id": str(school_id),
-                "classroom_id": classrooms[0] if classrooms else "TURMA_3A",
+                # First of the coordinator's OWN authorized classrooms, as a
+                # display value only - never an invented classroom name when
+                # none is known (matches TeacherPortalService's own
+                # search_students_in_scope convention for the same case).
+                "classroom_id": classrooms[0] if classrooms else "",
                 "average_mastery": round(s_avg, 1),
             })
 
@@ -535,40 +588,115 @@ class CoordinationPortalService:
             academic_year,
         )
 
-        # Build grades hierarchy
-        grades_map: dict[str, list[dict[str, Any]]] = {}
-        for cls in classrooms_data:
-            grd = cls.get("grade_level", "3ª Série")
-            grades_map.setdefault(grd, []).append(cls)
+        # build_classroom_items already resolves each classroom_id's real
+        # Class row when one exists (class_id). Fetch that row's real
+        # GradeLevel/Segment/SchoolUnit in one batched query, instead of
+        # assuming every classroom sits under one fabricated
+        # "MAIN_UNIT"/"MEDIO" pair - a school with no SchoolUnit rows yet
+        # (e.g. Escola ABC today) legitimately has classes with no unit at
+        # all, and that must show up as "no unit", never as an invented one.
+        resolved_class_ids = {
+            cls["classroom_id"]: cls["class_id"]
+            for cls in classrooms_data
+            if cls.get("class_id") is not None
+        }
 
-        grades_list = []
-        for g_name, cls_items in grades_map.items():
-            g_students = sum(c["student_count"] for c in cls_items)
-            g_avg = (sum(c["average_mastery"] for c in cls_items) / len(cls_items)) if cls_items else 0.0
-            grades_list.append({
-                "grade_level": g_name,
-                "student_count": g_students,
-                "average_mastery": round(g_avg, 1),
-                "classrooms": cls_items,
+        academic_by_class_id: dict[uuid.UUID, tuple[SchoolUnit | None, Segment, GradeLevel]] = {}
+        if resolved_class_ids:
+            stmt_academic = (
+                select(AcademicClass, GradeLevel, Segment, SchoolUnit)
+                .join(GradeLevel, AcademicClass.grade_level_id == GradeLevel.id)
+                .join(Segment, GradeLevel.segment_id == Segment.id)
+                .outerjoin(SchoolUnit, AcademicClass.school_unit_id == SchoolUnit.id)
+                .where(AcademicClass.id.in_(resolved_class_ids.values()))
+            )
+            res_academic = await self.session.execute(stmt_academic)
+            for klass, grade, segment, unit in res_academic.all():
+                academic_by_class_id[klass.id] = (unit, segment, grade)
+
+        NO_UNIT_NAME = "Sem unidade cadastrada"
+        NO_SEGMENT_NAME = "Sem segmento cadastrado"
+        NO_GRADE_NAME = "Sem série cadastrada"
+        _NO_UNIT_KEY = "__NO_UNIT__"
+        _NO_SEGMENT_KEY = "__NO_SEGMENT__"
+
+        # unit_key -> {unit_id, unit_name, segments: {segment_key -> {...}}}
+        units_map: dict[str, dict[str, Any]] = {}
+
+        for cls in classrooms_data:
+            class_id = resolved_class_ids.get(cls["classroom_id"])
+            academic = academic_by_class_id.get(class_id) if class_id else None
+
+            if academic is not None:
+                unit, segment, grade = academic
+                unit_key = str(unit.id) if unit is not None else _NO_UNIT_KEY
+                unit_id = str(unit.id) if unit is not None else None
+                unit_name = unit.name if unit is not None else NO_UNIT_NAME
+                segment_key = str(segment.id)
+                segment_id = str(segment.id)
+                segment_name = segment.name
+                grade_name = grade.name
+            else:
+                unit_key = _NO_UNIT_KEY
+                unit_id = None
+                unit_name = NO_UNIT_NAME
+                segment_key = _NO_SEGMENT_KEY
+                segment_id = None
+                segment_name = NO_SEGMENT_NAME
+                grade_name = NO_GRADE_NAME
+
+            # The nested classroom object must agree with the tree it's
+            # embedded in - never keep build_classroom_items' own
+            # placeholder "grade_level"/"segment"/"unit" fields (out of
+            # scope here; they belong to teacher_portal.py) once this
+            # function has real values to report instead.
+            cls_real = dict(cls)
+            cls_real["grade_level"] = grade_name
+            cls_real["segment"] = segment_name
+            cls_real["unit"] = unit_name
+
+            unit_entry = units_map.setdefault(unit_key, {
+                "unit_id": unit_id,
+                "unit_name": unit_name,
+                "segments": {},
+            })
+            segment_entry = unit_entry["segments"].setdefault(segment_key, {
+                "segment_id": segment_id,
+                "segment_name": segment_name,
+                "grades": {},
+            })
+            segment_entry["grades"].setdefault(grade_name, []).append(cls_real)
+
+        units_list = []
+        for unit_entry in units_map.values():
+            segments_list = []
+            for segment_entry in unit_entry["segments"].values():
+                grades_list = []
+                for g_name, cls_items in segment_entry["grades"].items():
+                    g_students = sum(c["student_count"] for c in cls_items)
+                    g_avg = (sum(c["average_mastery"] for c in cls_items) / len(cls_items)) if cls_items else 0.0
+                    grades_list.append({
+                        "grade_level": g_name,
+                        "student_count": g_students,
+                        "average_mastery": round(g_avg, 1),
+                        "classrooms": cls_items,
+                    })
+                segments_list.append({
+                    "segment_id": segment_entry["segment_id"],
+                    "segment_name": segment_entry["segment_name"],
+                    "grades": grades_list,
+                })
+            units_list.append({
+                "unit_id": unit_entry["unit_id"],
+                "unit_name": unit_entry["unit_name"],
+                "segments": segments_list,
             })
 
         return {
             "school_id": str(school_id),
             "school_name": school_name,
             "academic_year": academic_year,
-            "units": [
-                {
-                    "unit_id": "MAIN_UNIT",
-                    "unit_name": "Unidade Principal",
-                    "segments": [
-                        {
-                            "segment_id": "MEDIO",
-                            "segment_name": "Ensino Médio",
-                            "grades": grades_list,
-                        }
-                    ],
-                }
-            ],
+            "units": units_list,
         }
 
     # -------------------------------------------------------------------------
@@ -699,16 +827,9 @@ class CoordinationPortalService:
             teacher_ids.append(tid)
 
         if not teacher_ids:
-            # Fallback for dev/test mode
-            return [{
-                "teacher_id": "user:prof_mendes",
-                "name": "Prof. Mendes",
-                "school_id": str(school_id),
-                "assigned_classrooms": ["TURMA_3A", "TURMA_3B"],
-                "total_students": 25,
-                "classrooms_average_mastery": 64.0,
-                "recent_lessons_count": 2,
-            }]
+            # A school with no TEACHER links has no teachers to show - never
+            # a fabricated one, regardless of how real the rest of its data is.
+            return []
 
         # Every teacher's own active links in one query, instead of one
         # query per teacher inside get_teacher_authorized_classrooms /

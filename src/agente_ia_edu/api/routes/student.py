@@ -11,9 +11,11 @@ from ..schemas.student import (
     StudentDashboardResponse,
     StudentEvolutionResponse,
     StudentLearningPathResponse,
+    StudentModulesResponse,
     StudySearchResponse,
 )
 from ...identity import ExternalIdentityContext
+from ...services.authorization import AuthorizationService
 from ...services.knowledge import KnowledgeService
 from ...services.recommendation import RecommendationEngine
 from ...services.student_dashboard import StudentDashboardService
@@ -169,6 +171,25 @@ async def search_student_content(
             requester_scope_external_id=requester_scope_external_id,
         )
         return StudySearchResponse(**payload)
+
+
+@student_router.get(
+    "/modules",
+    response_model=StudentModulesResponse,
+    summary="Get which platform modules are enabled for the student's own school",
+)
+async def get_student_modules(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> StudentModulesResponse:
+    async with session_factory() as session:
+        authz = AuthorizationService(session)
+        context = await authz.resolve_context(identity)
+        enabled = set(context.modules)
+        return StudentModulesResponse(
+            AGENTE_IA_EDU="AGENTE_IA_EDU" in enabled,
+            REDACAO_IA="REDACAO_IA" in enabled,
+        )
 
 
 # ---------------------------------------------------------------------------

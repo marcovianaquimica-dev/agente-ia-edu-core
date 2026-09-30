@@ -51,6 +51,7 @@ class _StubTextProvider:
         self, *, text="", model="gpt-test", raise_error=None, per_competency_points=None,
         phase2_raise_error=None, phase2_text=None, reject_alert_codes=None,
         alert_review_raise_error=None, alert_review_text=None,
+        input_tokens=None, output_tokens=None,
     ):
         self._text = text
         self.model = model
@@ -60,6 +61,8 @@ class _StubTextProvider:
         self._reject_alert_codes = reject_alert_codes or set()
         self._alert_review_raise_error = alert_review_raise_error
         self._alert_review_text = alert_review_text
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
         self.last_request = None
         # Separate from last_request: phase 2 runs several concurrent calls
         # AFTER phase 1, so plain last_request ends up being whichever one
@@ -107,21 +110,29 @@ class _StubTextProvider:
         if self._raise_error is not None:
             raise self._raise_error
         self.last_phase1_request = request
-        return TextGenerationResult(text=self._text, provider="stub", model=self.model)
+        return TextGenerationResult(
+            text=self._text, provider="stub", model=self.model,
+            input_tokens=self._input_tokens, output_tokens=self._output_tokens,
+        )
 
 
 class _StubImageProvider:
-    def __init__(self, *, text="", model="gpt-vision-test", raise_error=None):
+    def __init__(self, *, text="", model="gpt-vision-test", raise_error=None, input_tokens=None, output_tokens=None):
         self._text = text
         self.model = model
         self._raise_error = raise_error
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
         self.last_request = None
 
     async def correct_from_images(self, request):
         self.last_request = request
         if self._raise_error is not None:
             raise self._raise_error
-        return TextGenerationResult(text=self._text, provider="stub", model=self.model)
+        return TextGenerationResult(
+            text=self._text, provider="stub", model=self.model,
+            input_tokens=self._input_tokens, output_tokens=self._output_tokens,
+        )
 
 
 def _happy_payload(
@@ -301,6 +312,83 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.model_version, "gpt-test")
             self.assertIsNotNone(correction.correction_key)
             self.assertIn("SCORING_MODE: FORMATIVO", provider.last_phase1_request.prompt)
+
+    async def test_text_offset_correction_persists_token_usage(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "1b", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text),
+                input_tokens=3200, output_tokens=450,
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.input_tokens, 3200)
+            self.assertEqual(correction.output_tokens, 450)
+
+    async def test_image_region_correction_persists_token_usage(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "7b", anchor_mode="IMAGE_REGION", correction_mode="FORMATIVO",
+                with_pages=True,
+            )
+            provider = _StubImageProvider(
+                text=_happy_payload(anchor_mode="IMAGE_REGION"),
+                input_tokens=9000, output_tokens=700,
+            )
+            # Phase 2 (competency scoring from evidence + alert review) always
+            # runs on the TEXT provider, regardless of anchor_mode - a real
+            # IMAGE_REGION correction uses build_text_provider() for it too,
+            # a separate instance from the image provider phase 1 uses. Inject
+            # a text stub here so phase 2 gets a usable response instead of
+            # falling back to a real (unconfigured) provider in this test.
+            service = EssayCorrectionService(
+                session, image_provider=provider, text_provider=_StubTextProvider(),
+            )
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.input_tokens, 9000)
+            self.assertEqual(correction.output_tokens, 700)
+
+    async def test_correction_without_usage_data_leaves_tokens_none(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "1c", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text),
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertIsNone(correction.input_tokens)
+            self.assertIsNone(correction.output_tokens)
+
+    async def test_provider_failure_leaves_token_usage_none(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "5b", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(raise_error=ProviderTimeoutError("boom"))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.input_tokens)
+            self.assertIsNone(correction.output_tokens)
+
+    async def test_retry_overwrites_previous_token_usage(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "10b", correction_mode="FORMATIVO")
+            failing = _StubTextProvider(raise_error=ProviderTimeoutError("boom"))
+            service = EssayCorrectionService(session, text_provider=failing)
+            correction = await service.correct(submission.id)
+            self.assertIsNone(correction.input_tokens)
+
+            service._text_provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text),
+                input_tokens=1111, output_tokens=222,
+            )
+            retried = await service.retry(correction.id)
+
+            self.assertEqual(retried.input_tokens, 1111)
+            self.assertEqual(retried.output_tokens, 222)
 
     async def test_real_rubric_signals_reach_the_assembled_prompt(self):
         """End-to-end: rubrics/enem_2025.yaml's controlled signal vocabulary

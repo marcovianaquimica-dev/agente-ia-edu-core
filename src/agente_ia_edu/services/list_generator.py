@@ -166,6 +166,12 @@ class GeneratedListItem:
     statement: str
     options: list[GeneratedOption]
     answer_key: AnswerKeyView | None  # populated only when the presentation includes it
+    # PHASE 33 - propagated verbatim from QuestionBankItem.has_visual_dependency so
+    # the review/preview UI and the PDF/DOCX export can warn the professor that the
+    # statement references an image/chart this system does not store (no asset
+    # repository exists yet - see QuestionBankItem.assets). Never invented, never
+    # dropped silently.
+    has_visual_dependency: bool
 
 
 @dataclass(frozen=True)
@@ -420,6 +426,7 @@ class ListGeneratorService:
                 for o in sorted(bank_item.options, key=lambda x: x.position)
             ],
             answer_key=answer_view,
+            has_visual_dependency=bank_item.has_visual_dependency,
         )
 
 

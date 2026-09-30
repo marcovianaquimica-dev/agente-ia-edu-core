@@ -90,6 +90,18 @@ TRANSCRIPTION_SYSTEM_PROMPT = (
 )
 
 
+def _usage_tokens(response) -> tuple[int | None, int | None]:
+    """The SDK's `response.usage` (prompt_tokens/completion_tokens) can be
+    missing entirely on a hand-built test double, or `None` on a real
+    response in rare cases - both must degrade to (None, None) rather than
+    raising, since this is purely cost-reporting metadata, never something
+    that should fail an otherwise-successful call."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None, None
+    return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+
+
 class OpenAIProvider:
     provider = "openai"
 
@@ -124,7 +136,11 @@ class OpenAIProvider:
             content = response.choices[0].message.content
             if not content:
                 raise ProviderInvalidResponseError("OpenAI returned an empty response")
-            return TextGenerationResult(text=content, provider=self.provider, model=model)
+            input_tokens, output_tokens = _usage_tokens(response)
+            return TextGenerationResult(
+                text=content, provider=self.provider, model=model,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+            )
         except ProviderInvalidResponseError:
             raise
         except Exception as exc:
@@ -177,8 +193,10 @@ class OpenAIProvider:
                     f"OpenAI refused to transcribe the image: {content}"
                 )
             tokens = self._tokens_from_logprobs(content, choice.logprobs)
+            input_tokens, output_tokens = _usage_tokens(response)
             return EssayPageTranscriptionResult(
-                tokens=tokens, provider=self.provider, model=self._vision_model
+                tokens=tokens, provider=self.provider, model=self._vision_model,
+                input_tokens=input_tokens, output_tokens=output_tokens,
             )
         except ProviderInvalidResponseError:
             raise
@@ -223,7 +241,11 @@ class OpenAIProvider:
             text = response.choices[0].message.content
             if not text:
                 raise ProviderInvalidResponseError("OpenAI returned an empty response")
-            return TextGenerationResult(text=text, provider=self.provider, model=model)
+            input_tokens, output_tokens = _usage_tokens(response)
+            return TextGenerationResult(
+                text=text, provider=self.provider, model=model,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+            )
         except ProviderInvalidResponseError:
             raise
         except Exception as exc:

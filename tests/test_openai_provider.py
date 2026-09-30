@@ -94,6 +94,41 @@ class OpenAIProviderTests(unittest.TestCase):
         asyncio.run(provider.generate(TextGenerationRequest(prompt="payload")))
         self.assertNotIn("seed", calls.calls[0])
 
+    def test_generate_captures_token_usage_from_the_sdk_response(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))],
+            usage=SimpleNamespace(prompt_tokens=123, completion_tokens=45, total_tokens=168),
+        )
+        client, _ = client_for(response)
+        provider = OpenAIProvider(api_key="test-key", model="test-model", client=client)
+        result = asyncio.run(provider.generate(TextGenerationRequest(prompt="payload")))
+        self.assertEqual(result.input_tokens, 123)
+        self.assertEqual(result.output_tokens, 45)
+
+    def test_generate_leaves_tokens_none_when_usage_is_none(self):
+        # `.usage` can legitimately come back None on a real SDK response -
+        # must never crash, and must never be confused with an actual 0.
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))],
+            usage=None,
+        )
+        client, _ = client_for(response)
+        provider = OpenAIProvider(api_key="test-key", model="test-model", client=client)
+        result = asyncio.run(provider.generate(TextGenerationRequest(prompt="payload")))
+        self.assertIsNone(result.input_tokens)
+        self.assertIsNone(result.output_tokens)
+
+    def test_generate_leaves_tokens_none_when_usage_attribute_is_absent(self):
+        # Many existing test doubles in this suite build a bare
+        # SimpleNamespace(choices=...) with no `.usage` attribute at all -
+        # must degrade the same way as an explicit usage=None, not raise.
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))])
+        client, _ = client_for(response)
+        provider = OpenAIProvider(api_key="test-key", model="test-model", client=client)
+        result = asyncio.run(provider.generate(TextGenerationRequest(prompt="payload")))
+        self.assertIsNone(result.input_tokens)
+        self.assertIsNone(result.output_tokens)
+
     def test_disables_sdk_retries_for_controlled_pilots(self):
         provider = OpenAIProvider(api_key="test-key", model="test-model")
         with patch("openai.AsyncOpenAI") as client_class:

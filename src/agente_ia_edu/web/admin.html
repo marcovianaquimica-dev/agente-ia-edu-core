@@ -154,6 +154,39 @@
 
         <div id="platform-prompts-list" class="admin-table-wrap"><p class="empty-text">Carregando propostas…</p></div>
       </section>
+
+      <!-- ================= AUDIT LOG ================= -->
+      <section class="card">
+        <div class="card-header">
+          <h3>📋 Auditoria</h3>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Escola:</span>
+          <select id="audit-filter-school" class="select-input">
+            <option value="">Todas as escolas</option>
+          </select>
+          <span class="filter-label">Ação:</span>
+          <select id="audit-filter-action" class="select-input">
+            <option value="">Todas as ações</option>
+            <option value="SCHOOL_CREATED">Escola criada</option>
+            <option value="SCHOOL_UPDATED">Escola atualizada</option>
+            <option value="MODULE_ENABLED">Módulo ativado</option>
+            <option value="MODULE_DISABLED">Módulo desativado</option>
+            <option value="USER_LINKED">Usuário vinculado</option>
+            <option value="USER_UNLINKED">Usuário desvinculado</option>
+          </select>
+          <button class="btn btn-secondary" id="btn-audit-filter" type="button">Filtrar</button>
+        </div>
+
+        <div id="audit-list" class="admin-table-wrap"><p class="empty-text">Carregando registros de auditoria…</p></div>
+
+        <div class="admin-form-actions admin-audit-pagination">
+          <button class="btn btn-secondary" id="btn-audit-prev" type="button">← Anteriores</button>
+          <span id="audit-page-info" class="admin-msg"></span>
+          <button class="btn btn-secondary" id="btn-audit-next" type="button">Próximos →</button>
+        </div>
+      </section>
     </main>
   </div>
 

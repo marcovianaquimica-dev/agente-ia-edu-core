@@ -24,11 +24,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const alertBox = document.getElementById('alert-box');
 
   const filterCoordId = document.getElementById('filter-coord-id');
+  const filterCoordSchool = document.getElementById('filter-coord-school');
   const filterClassroom = document.getElementById('filter-coord-classroom-select');
   const filterPeriod = document.getElementById('filter-coord-period-select');
 
   filterCoordId.addEventListener('change', (e) => {
     state.coordinatorId = e.target.value.trim() || 'user:coord_a';
+    loadCurrentView();
+  });
+
+  filterCoordSchool.addEventListener('change', (e) => {
+    state.schoolId = e.target.value.trim() || '6f26cd3c-63d5-4509-a041-13714f75e53e';
     loadCurrentView();
   });
 
@@ -679,12 +685,25 @@ document.addEventListener('DOMContentLoaded', () => {
             headers: { 'Authorization': `Bearer ${state.coordinatorId}` }
           });
           if (!res.ok) throw new Error('Erro ao gerar relatório');
-          const data = await res.json();
+
+          const blob = await res.blob();
+          const disposition = res.headers.get('Content-Disposition') || '';
+          const match = disposition.match(/filename="?([^";]+)"?/);
+          const filename = match ? match[1] : `relatorio.${fmt}`;
+
+          const downloadUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(downloadUrl);
 
           preview.innerHTML = `
             <div class="alert-banner alert-success">
-              ✅ <strong>${data.title}</strong> gerado com sucesso!
-              <p style="font-size:12px; margin-top:4px;">Arquivo: <code>${data.filename}</code> (${data.content_type})</p>
+              ✅ Relatório gerado e baixado com sucesso!
+              <p style="font-size:12px; margin-top:4px;">Arquivo: <code>${filename}</code></p>
             </div>
           `;
         } catch (err) {

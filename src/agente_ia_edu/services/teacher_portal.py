@@ -31,7 +31,11 @@ from agente_ia_edu.db.models import (
     UserSchoolLink,
 )
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
-from agente_ia_edu.services.external_id_resolution import ExternalIdResolver, ResolutionState
+from agente_ia_edu.services.external_id_resolution import (
+    ExternalIdResolver,
+    ResolutionState,
+    real_classroom_external_ids,
+)
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.recommendation import RecommendationEngine
 from agente_ia_edu.services.teaching_context import (
@@ -190,6 +194,12 @@ class TeacherPortalService:
             ).distinct()
             res_users = await self.session.execute(stmt_users)
             classrooms.update(res_users.scalars().all())
+
+            # The R0 hierarchy's own real Class rows - a school-wide caller
+            # must see a freshly onboarded school's actual classrooms even
+            # before any TeachingLesson or CLASSROOM-scoped link exists for
+            # it, instead of falling through to an invented placeholder name.
+            classrooms.update(await real_classroom_external_ids(self.session, school_id))
             if scope_cache is not None:
                 scope_cache[cache_key] = classrooms
             return classrooms
@@ -201,6 +211,10 @@ class TeacherPortalService:
             stmt = select(TeachingLesson.classroom_id).where(TeachingLesson.school_id == school_id).distinct()
             res = await self.session.execute(stmt)
             classrooms = set(res.scalars().all())
+            # Same real-Class-row completion as _full_classroom_set above -
+            # a SCHOOL-scoped teacher in a school with no lesson history yet
+            # must still see the school's real classrooms, not a placeholder.
+            classrooms.update(await real_classroom_external_ids(self.session, school_id))
             if scope_cache is not None:
                 scope_cache[cache_key] = classrooms
             return classrooms
@@ -210,23 +224,20 @@ class TeacherPortalService:
             if link.role == AdminRole.PLATFORM_ADMIN or (
                 link.role in (AdminRole.DIRECTOR, AdminRole.COORDINATOR) and link.school_id == school_id
             ):
-                # Return all classrooms in school
+                # Return all classrooms in school. Real Class rows (unioned
+                # into _full_classroom_set above) are now the source of truth
+                # for a school with no TeachingLesson/CLASSROOM-link history
+                # yet - a genuinely empty school (no Class rows either)
+                # correctly yields [], never an invented classroom name.
                 classrooms = await _full_classroom_set()
-                # Placeholder classroom id, display purposes only (e.g. search_students
-                # below): a school with no TeachingLesson rows yet still needs a
-                # non-empty value here for callers that render a classroom_id.
-                # verify_student_access does NOT depend on this list being non-empty
-                # any more - see _teacher_is_school_wide_authorized - so this fallback
-                # is safe to remove independently, ahead of the R0 spec's own step 6.
-                return list(classrooms) if classrooms else ["TURMA_3A"]
+                return list(classrooms)
 
             if link.role == AdminRole.TEACHER:
                 if link.school_id and link.school_id != school_id:
                     continue
                 if link.scope_type in (AdminScopeType.PLATFORM, AdminScopeType.SCHOOL):
                     classrooms = await _lesson_classroom_set()
-                    # Same placeholder, same note: display-only now, see above.
-                    return list(classrooms) or ["TURMA_3A"]
+                    return list(classrooms)
                 if link.scope_type == AdminScopeType.CLASSROOM and link.scope_external_id:
                     authorized_classrooms.add(link.scope_external_id)
 
@@ -272,14 +283,14 @@ class TeacherPortalService:
     def _teacher_is_school_wide_authorized(links, school_id: uuid.UUID) -> bool:
         """True exactly when the teacher's own role grants school-wide (not
         classroom-scoped) authorization at school_id - the same condition
-        get_teacher_authorized_classrooms uses to fall back to a placeholder
-        classroom list (["TURMA_3A"]) when the school has no TeachingLesson
-        rows yet. Kept as its own check, over the teacher's real
-        UserSchoolLink role/scope, so verify_student_access's SCHOOL/PLATFORM
-        branch authorizes on real membership - never on whether that
-        placeholder list happened to be non-empty. The R0 spec (§7, step 6)
-        plans to remove the placeholder once authorization hardening is
-        closed; this keeps that removal from being an authorization change.
+        get_teacher_authorized_classrooms uses to decide whether to return
+        every classroom it can find for the school (TeachingLesson history,
+        CLASSROOM-scoped links, and real Class rows - never a placeholder).
+        Kept as its own check, over the teacher's real UserSchoolLink
+        role/scope, so verify_student_access's SCHOOL/PLATFORM branch
+        authorizes on real membership - never on whether that classroom list
+        happened to be non-empty (a genuinely empty school now correctly
+        returns [] from get_teacher_authorized_classrooms).
         """
         for link in links:
             if link.role == AdminRole.PLATFORM_ADMIN:
@@ -829,7 +840,11 @@ class TeacherPortalService:
                 "student_id": sid,
                 "name": f"Aluno {sid.replace('student:', '').replace('_', ' ').title()}",
                 "school_id": str(school_id),
-                "classroom_id": classrooms[0] if classrooms else "TURMA_3A",
+                # First of the caller's OWN authorized classrooms, as a
+                # display value only - never an invented classroom name when
+                # none is known (matches the "" convention already used by
+                # get_student_detail_for_teacher below for the same case).
+                "classroom_id": classrooms[0] if classrooms else "",
                 "average_mastery": round(s_avg, 1),
             })
 

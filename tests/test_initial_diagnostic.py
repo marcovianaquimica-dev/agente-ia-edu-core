@@ -488,6 +488,48 @@ class TestInitialDiagnostic(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["raw_result"]["incorrect"], 0)
             self.assertEqual(diagnostic.metadata_["pedagogical_evidence"][0]["response_kind"], "UNKNOWN")
 
+    async def test_29_overall_confidence_reflects_real_evidence_not_question_count(self):
+        """overall_confidence must be the REAL confidence the stopping decision
+        itself relies on (SimpleProficiencyEstimator.confidence over the actual
+        pedagogical evidence), not a fake questions_answered/max_questions ratio.
+
+        Regression for: a student who answers only 3 questions - all correct,
+        across all 3 difficulty levels - triggers CONTENT_SUFFICIENCY_REACHED
+        (real, evidence-based stop). The confidence shown must reflect that
+        real evidence, not an unrelated proportion of the configured
+        max_questions ceiling.
+        """
+        async with self.session_factory() as session:
+            _, _, content_id, _, _, _, opt_e1, opt_m1, opt_h1 = await self._seed_catalog_and_questions(session)
+            ks = KnowledgeService(session)
+            # max_questions (6) is deliberately different from the estimator's
+            # fixed evidence-count denominator (10), so the old fake formula
+            # (questions_answered / max_questions = 3/6 = 0.5) and the real
+            # evidence-based confidence (min(1, 3/10) = 0.3) diverge, exposing
+            # the bug instead of accidentally matching it.
+            policy = DiagnosticStoppingPolicy(min_questions=3, max_questions=6)
+            service = InitialDiagnosticService(session, ks, stopping_policy=policy)
+
+            diag, q1 = await service.start_diagnostic(student_id="student:real_confidence")
+            diag, _, _, q2 = await service.answer_question(
+                diagnostic_id=diag.id, selection_id=q1.id, selected_option_id=opt_e1
+            )
+            diag, _, _, q3 = await service.answer_question(
+                diagnostic_id=diag.id, selection_id=q2.id, selected_option_id=opt_m1
+            )
+            diag, _, is_complete, q_none = await service.answer_question(
+                diagnostic_id=diag.id, selection_id=q3.id, selected_option_id=opt_h1
+            )
+
+            self.assertTrue(is_complete)
+            self.assertIsNone(q_none)
+            self.assertEqual(diag.status, DiagnosticStatus.COMPLETED)
+            # Confirms this stopped due to real sufficient evidence, not because
+            # it hit the max_questions ceiling.
+            self.assertEqual(diag.metadata_["latest_decision"]["reason"], "CONTENT_SUFFICIENCY_REACHED")
+            self.assertAlmostEqual(float(diag.overall_confidence), 0.3, places=4)
+            self.assertNotAlmostEqual(float(diag.overall_confidence), 0.5, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

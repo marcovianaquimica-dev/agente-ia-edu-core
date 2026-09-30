@@ -85,6 +85,7 @@ class EssayEvolutionServiceTests(unittest.TestCase):
 
     def _add_submission_with_correction(
         self, *, school_id, student_id, assignment_id, published_at, total=None, formativo=False,
+        student_declared_theme=None,
     ):
         async def _add():
             async with self.factory() as session:
@@ -93,7 +94,7 @@ class EssayEvolutionServiceTests(unittest.TestCase):
                     prompt_assignment_id=assignment_id, student_id=student_id,
                     mode="TYPED", anchor_mode="TEXT_OFFSET", status="SUBMITTED",
                     canonical_text="Redacao.", normalized_text_hash="a" * 64,
-                    submitted_at=published_at,
+                    submitted_at=published_at, student_declared_theme=student_declared_theme,
                 )
                 session.add(submission)
                 await session.flush()
@@ -239,6 +240,32 @@ class EssayEvolutionServiceTests(unittest.TestCase):
         result = self.loop.run_until_complete(self._call(school_id, student_id))
         self.assertEqual(len(result["entries"]), 1)
         self.assertEqual(result["entries"][0]["total"], 620)
+
+    def test_free_theme_entries_show_the_students_own_declared_theme(self):
+        """"Tema livre" entries otherwise all share the exact same generic
+        prompt title, making N free-theme essays indistinguishable in the
+        timeline - the student's own declared theme must be folded into the
+        displayed title so each entry stands out."""
+        school_id, student_id, assignment_id = self._seed_school_and_student("10")
+        self._add_submission_with_correction(
+            school_id=school_id, student_id=student_id, assignment_id=assignment_id,
+            published_at=datetime.now(timezone.utc), total=620,
+            student_declared_theme="O impacto das redes sociais na juventude",
+        )
+        result = self.loop.run_until_complete(self._call(school_id, student_id))
+        self.assertEqual(
+            result["entries"][0]["prompt_title"],
+            "Tema 10: O impacto das redes sociais na juventude",
+        )
+
+    def test_normal_prompt_entries_keep_their_plain_title(self):
+        school_id, student_id, assignment_id = self._seed_school_and_student("11")
+        self._add_submission_with_correction(
+            school_id=school_id, student_id=student_id, assignment_id=assignment_id,
+            published_at=datetime.now(timezone.utc), total=620,
+        )
+        result = self.loop.run_until_complete(self._call(school_id, student_id))
+        self.assertEqual(result["entries"][0]["prompt_title"], "Tema 11")
 
 
 if __name__ == "__main__":

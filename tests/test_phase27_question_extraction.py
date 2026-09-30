@@ -41,6 +41,7 @@ from agente_ia_edu.services.question_extraction.structure import (
     PageImage,
     TextLine,
     _normalize_standalone_number_markers,
+    _reading_order,
     detect_two_column_layout,
     extract_structure,
 )
@@ -72,6 +73,38 @@ class StructureTests(unittest.TestCase):
         self.assertEqual(s.page_count, 1)
         lines = [ln.text for ln in s.lines]
         self.assertEqual(lines, ["Título", "Primeira linha.", "Segunda linha."])
+
+    def test_reading_order_same_row_sorts_by_x_despite_tiny_y0_jitter(self):
+        # Real bug found live extracting the real UERJ pilot exam
+        # (uerj_exame_unico_objetiva.pdf, page 28): two option-cell labels
+        # "(A)" and "(B)" sit on the SAME visual row - near-identical,
+        # heavily overlapping vertical extents - but each was drawn as its
+        # OWN independent text span, so PyMuPDF hands back a sub-pixel-
+        # different y0 for each: y0=239.9367... for "(A)" vs
+        # y0=239.9316... for "(B)", a ~0.005pt difference invisible to the
+        # eye. The OLD reading order sorted purely by (y0, x0), so that
+        # hairline-smaller y0 flipped "(B)" before "(A)" even though "(A)"
+        # is the left-most, first-in-reading-order label on the page.
+        # Downstream this is not cosmetic: an option block is only
+        # recognised when its labels form a clean A, B, C... ascending run
+        # (boundary.py's _is_clean_ascending_run) - the B-before-A swap
+        # silently turned a real, answerable multiple-choice question (4
+        # options, each a URL) into a zero-option "discursive" one.
+        left = TextLine(page=1, x0=85.04, y0=239.9367, x1=101.36, y1=253.2247, text="(A)")
+        right = TextLine(page=1, x0=317.04, y0=239.9316, x1=332.75, y1=253.2196, text="(B)")
+        ordered, is_multi = _reading_order([right, left], use_column_detection=False)
+        self.assertEqual([ln.text for ln in ordered], ["(A)", "(B)"])
+        self.assertFalse(is_multi)
+
+    def test_reading_order_still_separates_genuinely_different_rows(self):
+        # Guard against an overly-aggressive row-tolerance fix: two lines
+        # with barely-overlapping vertical extents (a real next physical
+        # line, not a same-row sibling) must still sort by y0, not get
+        # swapped into x0 order.
+        top = TextLine(page=1, x0=200.0, y0=100.0, x1=250.0, y1=113.0, text="topo-direita")
+        bottom = TextLine(page=1, x0=85.0, y0=118.0, x1=150.0, y1=131.0, text="baixo-esquerda")
+        ordered, _ = _reading_order([bottom, top], use_column_detection=False)
+        self.assertEqual([ln.text for ln in ordered], ["topo-direita", "baixo-esquerda"])
 
     def test_two_column_detection_accepts_a_clean_two_column_page(self):
         lines = (
@@ -633,6 +666,38 @@ class BoundaryDetectionTests(unittest.TestCase):
         boundaries = detect_boundaries(text)
         self.assertEqual([b.number for b in boundaries], [1])
 
+    def test_number_is_not_the_only_signal_thousands_separator_excluded(self):
+        # Real bug found live extracting the real UNICAMP 2024 F1 pilot exam
+        # (questions 49 and 52): a statistic written with a Brazilian-style
+        # "." thousands separator ("281.472 pessoas", "50.000 pessoas") wraps
+        # onto its OWN line start when the statement is long. "281." (or
+        # "50.") at a real line start looks exactly like a question marker
+        # to the old guard, which only excluded a decimal/subsection shape
+        # with a SINGLE extra digit before a space+capital ("1.1 Isto..."),
+        # not a multi-digit run glued directly to the punctuation. The
+        # result: detect_boundaries invented a spurious extra boundary
+        # ("281"/"50") mid-question, truncating the REAL question's body
+        # right before that point and losing its entire alternative block -
+        # every question type ended up "discursive" with zero options, same
+        # failure shape as every other false-boundary bug this engine
+        # already guards against.
+        text = (
+            "49.   Nas grandes cidades cresce o número de pessoas em situação "
+            "de rua. Segundo estimativa do instituto, em 2022, existiam\n"
+            "281.472 pessoas em situação de rua no Brasil. O fenômeno descrito "
+            "se constituiu historicamente em razão de\n"
+            "a) primeira alternativa\n"
+            "b) segunda alternativa\n"
+            "c) terceira alternativa\n"
+            "d) quarta alternativa\n"
+        )
+        boundaries = detect_boundaries(text)
+        self.assertEqual([b.number for b in boundaries], [49])
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+        self.assertIn("281.472 pessoas", draft.raw_text)
+
     def test_duplicate_number_prefers_paragraph_break_and_longer_body(self):
         text = (
             "5. Um passo curto\n"
@@ -804,6 +869,188 @@ class BoundaryDetectionTests(unittest.TestCase):
         draft = classify_and_extract(boundaries[0], text)
         self.assertEqual(draft.question_type, "multiple_choice")
         self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+
+    def test_multiple_choice_options_parenthesized_inline_fuvest_style(self):
+        # Real FUVEST 2024 1a fase typesetting (found live: extracting the
+        # real pilot exam produced 0 options on every single one of its 90
+        # questions - every one landed as "discursive"). Short numeric/word
+        # answers are typeset as "(A) ... (B) ... (C) ..." all inline on
+        # ONE physical line, not one option per line like every other
+        # convention this engine already handles - so the line-start anchor
+        # never even starts matching past the leading "(".
+        text = (
+            "1.   Qual a quantidade de Zn metalico, em gramas, que de fato "
+            "reagiu? (A) 0,07 (B) 0,13 (C) 0,26 (D) 0,29 (E) 0,48\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
+        self.assertEqual(draft.options[0].text, "0,07")
+        self.assertEqual(draft.options[3].text, "0,29")
+
+    def test_parenthesized_options_each_on_their_own_line_also_work(self):
+        # The parenthesized form is not exclusively inline in every real
+        # document - confirm it is also recognised when FUVEST-style
+        # markers happen to be one per line (the common case for longer
+        # alternative text, vs. the short-numeric-answer inline case above).
+        text = (
+            "1.   Assinale a alternativa correta.\n"
+            "(A) primeira alternativa\n"
+            "(B) segunda alternativa\n"
+            "(C) terceira alternativa\n"
+            "(D) quarta alternativa\n"
+            "(E) quinta alternativa\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
+        self.assertEqual(draft.options[0].text, "primeira alternativa")
+
+    def test_multiple_choice_options_marker_alone_on_its_own_line_uece_style(self):
+        # Real UECE/CEV 2025.2 (2a fase, grupo 2) typesetting, found live
+        # extracting the real pilot exam: a punctuated marker ("A)", "B)", ...)
+        # sits ALONE on its own line - reconstruction.py's column-merge
+        # leaves nothing after it on that same physical line - and the
+        # option's own text only starts on the NEXT line. Before this fix,
+        # the punctuated marker's "(?=\\S)" lookahead required real content
+        # to follow on the SAME line (only trailing spaces/tabs tolerated,
+        # never a newline), so the marker itself never matched at all - the
+        # whole question fell through to "discursive" with zero options,
+        # same failure shape as the FUVEST inline-parenthesized bug, just a
+        # different institution's convention.
+        text = (
+            "62.  Assinale a alternativa que apresenta e descreve corretamente "
+            "essa estrutura.\n"
+            "A)\n"
+            "Estolho – Caule rastejante que cresce horizontalmente sobre\n"
+            "o solo e origina novas plantas.\n"
+            "B)\n"
+            "Tubérculo – Estrutura de armazenamento formada por um\n"
+            "caule subterrâneo intumescido, que armazena reservas\n"
+            "nutritivas.\n"
+            "C)\n"
+            "Rizoma – Caule subterrâneo modificado que armazena\n"
+            "nutrientes e gera brotos adventícios.\n"
+            "D)\n"
+            "Bulbo – Estrutura de armazenamento composta de um caule\n"
+            "reduzido envolto por folhas modificadas que acumulam\n"
+            "nutrientes.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+        self.assertEqual(
+            draft.options[0].text,
+            "Estolho – Caule rastejante que cresce horizontalmente sobre o solo e "
+            "origina novas plantas.",
+        )
+
+    def test_stray_parenthesized_letter_alone_does_not_fabricate_options(self):
+        # A lone "(A)" (e.g. a cross-reference like "ver item (A) do texto")
+        # with no ascending B-E run after it must never be treated as a
+        # real option block - same >=2-sequential-letters guard that already
+        # protects the bare and punctuated forms.
+        text = (
+            "1.   O gas ideal, conforme descrito em (A) acima, se expande "
+            "livremente no recipiente fechado.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "discursive")
+        self.assertEqual(draft.options, [])
+
+    def test_multiple_choice_options_two_column_grid_unicamp_style(self):
+        # Real UNICAMP 2024 F1 typesetting, found live: short options are
+        # laid out as a 2-column x 2-row grid ("a) 6 cm.   c) 10 cm." on one
+        # row, "b) 8 cm.   d) 12 cm." on the next), each cell its own
+        # physical text line. Column-major layout means the extracted
+        # reading order is A, C, B, D - not the clean ascending A, B, C, D
+        # run the engine otherwise requires - so every question using this
+        # grid landed as "discursive" with zero options before this fix.
+        # The labels are still a complete, non-repeating A..N set, just
+        # interleaved by the 2-column layout - and each match's OWN label is
+        # trustworthy (fully punctuated "x)"), so this is real evidence of
+        # options, not noise. The final option order must still come out
+        # A, B, C, D (matching the label, for correct persisted position),
+        # not the raw interleaved text order.
+        text = (
+            "1.   Considerando que o preco de uma pizza e proporcional a sua "
+            "area, qual precisa ser o valor de d para que quatro pizzas "
+            "individuais custem o mesmo que a pizza mencionada, de quatro "
+            "pedacos?\n"
+            "\n"
+            "a)\t6 cm.\n"
+            "c)\t10 cm.\n"
+            "\n"
+            "b)\t8 cm.\n"
+            "d)\t12 cm.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+        self.assertEqual(draft.options[0].text, "6 cm.")
+        self.assertEqual(draft.options[1].text, "8 cm.")
+        self.assertEqual(draft.options[2].text, "10 cm.")
+        self.assertEqual(draft.options[3].text, "12 cm.")
+
+    def test_multiple_choice_options_empty_checkbox_grid_ita_style(self):
+        # Real ITA 2024 (Fase 1) typesetting, found live: every option is
+        # marked with an empty "(   )" checkbox immediately after its
+        # letter - "A (   ) dishonest." - laid out as a compact 3-column x
+        # 2-row grid (row 1: A, C, E; row 2: B, D) rather than one option
+        # per line. Physical reading order therefore interleaves as
+        # A, C, E, B, D - the same "real 2-column grid" shape the UNICAMP
+        # fix above already handles via the punctuated-only PERMUTATION
+        # check - except the checkbox form ("A" + whitespace + literal
+        # empty parens) only ever matched the AMBIGUOUS bare-letter branch
+        # (plain "A " is also indistinguishable from the Portuguese
+        # article), which never qualifies for that permutation check - only
+        # unambiguous punctuated markers do. Before this fix every single
+        # one of this real exam's ~20 questions using this checkbox-grid
+        # convention landed as "discursive" with zero options.
+        text = (
+            "28.   No trecho do terceiro paragrafo, o termo sublinhado contem "
+            "um prefixo de negacao. Assinale a alternativa que NAO contem "
+            "prefixo de negacao.\n"
+            "\n"
+            "A (   ) dishonest.\n"
+            "C (   ) impact.\n"
+            "E (   ) unlucky.\n"
+            "\n"
+            "B (   ) illogical.\n"
+            "D (   ) irreversible.\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D", "E"])
+        self.assertEqual(draft.options[0].text, "dishonest.")
+        self.assertEqual(draft.options[1].text, "illogical.")
+        self.assertEqual(draft.options[2].text, "impact.")
+        self.assertEqual(draft.options[3].text, "irreversible.")
+        self.assertEqual(draft.options[4].text, "unlucky.")
+
+    def test_multiple_choice_options_empty_checkbox_single_column_ita_style(self):
+        # Same real ITA checkbox convention, but the ordinary case: options
+        # already one per line, in ascending order (no grid at all) - the
+        # checkbox form must still be recognised as a real option marker on
+        # its own, not only when a grid permutation is involved.
+        text = (
+            "41.   Qual das opcoes abaixo e a correta?\n"
+            "A ( ) -17125\n"
+            "B ( ) -1800.\n"
+            "C ( ) -360.\n"
+            "D ( ) -351\n"
+        )
+        boundaries = detect_boundaries(text)
+        draft = classify_and_extract(boundaries[0], text)
+        self.assertEqual(draft.question_type, "multiple_choice")
+        self.assertEqual([o.label for o in draft.options], ["A", "B", "C", "D"])
+        self.assertEqual(draft.options[0].text, "-17125")
 
     def test_stray_leading_letter_before_a_real_bare_option_run_is_dropped(self):
         # Real regression pattern found on the ENEM 2025 exams themselves

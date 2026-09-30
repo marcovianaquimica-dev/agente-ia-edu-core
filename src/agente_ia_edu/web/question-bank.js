@@ -58,6 +58,21 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/"/g, '&quot;');
   }
 
+  // Evidence entries come straight from the classification's metadata "evidence"
+  // list and their shape varies by classification source (e.g. {text, content_code,
+  // reason} vs. {question_term, catalog_term}). Render whatever keys/values are
+  // actually there - never invent or normalize the content.
+  function formatEvidence(e) {
+    if (e == null) return '';
+    if (typeof e === 'string') return esc(e);
+    if (typeof e === 'object') {
+      return Object.entries(e)
+        .map(([k, v]) => `<strong>${esc(k)}:</strong> ${esc(v)}`)
+        .join(' &middot; ');
+    }
+    return esc(String(e));
+  }
+
   // ---------- server query (server-side filters + pagination) ----------
 
   function buildQuery() {
@@ -207,6 +222,17 @@ document.addEventListener('DOMContentLoaded', () => {
         : '';
       classificationBlock = `${provisional}<ul class="qb-class-chain">${chain}</ul><div class="qb-class-meta">${meta}</div>`;
     }
+    // PHASE 33 - evidence backing the classification + the booklet provenance
+    // pointer: already computed by the API, just not shown before this. Lets the
+    // professor actually review a NEEDS_REVIEW/FORCED_CLOSURE classification
+    // instead of trusting it blind.
+    const evidenceBlock = (c && Array.isArray(c.evidence) && c.evidence.length)
+      ? `<div class="qb-evidence"><h5>Evidência da classificação</h5><ul class="qb-evidence-list">${
+          c.evidence.map((e) => `<li>${formatEvidence(e)}</li>`).join('')}</ul></div>`
+      : '';
+    const evidenceUriBlock = q.evidence_uri
+      ? `<div class="qb-evidence-uri"><strong>Origem (caderno oficial):</strong> ${esc(q.evidence_uri)}</div>`
+      : '';
     const visualNote = q.has_visual_dependency
       ? `<div class="qb-visual-note">Esta questão depende de material visual.${
           (q.assets && q.assets.length) ? '' : ' <em>Material visual não disponível.</em>'}</div>`
@@ -223,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <span class="qb-tag">Q${esc(q.official_number)}</span><span class="qb-tag">${esc(q.enem_area || '—')}</span>
         ${q.is_protected ? '<span class="qb-tag qb-tag-muted">protegida</span>' : ''}
       </div>
-      <section class="qb-preview-class">${classificationBlock}</section>
+      <section class="qb-preview-class">${classificationBlock}${evidenceBlock}${evidenceUriBlock}</section>
       ${visualNote}
       <section class="qb-preview-statement"><h4>Enunciado</h4><p>${esc(q.statement || q.canonical_text)}</p></section>
       <section class="qb-preview-options"><h4>Alternativas</h4><ol class="qb-option-list">${options}</ol></section>`;
@@ -253,6 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
         area: src ? src.enem_area : null,
         content: src && src.classification ? src.classification.content_code : null,
         state: src ? src.classification_state : null,
+        visual: src ? !!src.has_visual_dependency : false,
       });
     }
     updateSelectionCount();
@@ -650,7 +677,8 @@ document.addEventListener('DOMContentLoaded', () => {
     list.innerHTML = state.selection.map((row, i) => `
       <li class="qb-selection-item" draggable="true" data-index="${i}">
         <span class="qb-selection-pos">${i + 1}.</span>
-        <span class="qb-selection-label">${esc(row.label)}${row.content ? ` <span class="qb-tag">${esc(row.content)}</span>` : ''}</span>
+        <span class="qb-selection-label">${esc(row.label)}${row.content ? ` <span class="qb-tag">${esc(row.content)}</span>` : ''}${
+          row.visual ? ' <span class="qb-tag qb-tag-visual" title="Depende de material visual">🖼️ visual</span>' : ''}</span>
         <span class="qb-selection-controls">
           <button class="btn btn-secondary qb-rev-up" type="button" data-index="${i}" aria-label="Mover para cima" ${i === 0 ? 'disabled' : ''}>↑</button>
           <button class="btn btn-secondary qb-rev-down" type="button" data-index="${i}" aria-label="Mover para baixo" ${i === state.selection.length - 1 ? 'disabled' : ''}>↓</button>
@@ -687,6 +715,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <h4>${it.position}. ${esc(it.year || '')} — Q${esc(it.official_number)} <span class="qb-tag">${esc(it.enem_area || '—')}</span>
           ${it.content_code ? `<span class="qb-tag">${esc(it.content_code)}</span>` : ''}</h4>
         <p class="qb-preview-statement-text">${esc(it.statement)}</p>
+        ${it.has_visual_dependency
+          ? '<div class="qb-visual-note">Esta questão depende de material visual. <em>Material visual não disponível.</em></div>'
+          : ''}
         ${optionsBlock(it.options)}
       </article>`).join('');
     let keyBlock = '';

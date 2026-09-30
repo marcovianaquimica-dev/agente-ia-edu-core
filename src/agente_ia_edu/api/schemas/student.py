@@ -94,7 +94,9 @@ class StudentEvolutionResponse(BaseModel):
 
 class StudentLearningPathResponse(BaseModel):
     student_id: str
-    content_node_id: UUID
+    # Optional: honest "no content" state (no pending recommendation) has no
+    # real content_node_id - see StudentDashboardService.get_learning_path.
+    content_node_id: Optional[UUID] = None
     content_name: str
     current_mastery_score: float
     recommended_difficulty: str
@@ -102,6 +104,15 @@ class StudentLearningPathResponse(BaseModel):
     reason: str
     steps: list[LearningPathStep] = Field(default_factory=list)
     active_step_index: int = 0
+
+
+class StudentModulesResponse(BaseModel):
+    """Which platform modules are enabled for the caller's own school -
+    reflects AuthorizationService.resolve_context(...).modules exactly,
+    never a fabricated default."""
+
+    AGENTE_IA_EDU: bool
+    REDACAO_IA: bool
 
 
 class StudySearchItem(BaseModel):
@@ -241,7 +252,13 @@ class ActivityResultItemView(BaseModel):
     is_correct: bool
     selected_option_key: str | None = None
     correct_option_key: str | None = None  # released only after correction
-    resolution: str = "em breve"
+    # real QuestionVersion.resolution_text when recorded; otherwise the same
+    # honest fallback list_generator.py's ResolutionView uses - never an
+    # invented resolution, and never the old fixed "em breve" placeholder.
+    resolution: str = (
+        "Não há resolução oficial passo a passo armazenada para esta questão. "
+        "A geração de resolução por IA é uma fase futura e não é usada aqui."
+    )
 
 
 class ActivityResultActivity(BaseModel):

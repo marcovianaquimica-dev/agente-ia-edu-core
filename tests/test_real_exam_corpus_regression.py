@@ -67,7 +67,16 @@ class RealExamCorpusRegressionTests(unittest.TestCase):
         self._check("2025_PV_impresso_D2_CD5.pdf", min_boundaries=98, min_validated=89)
 
     def test_unicamp_2024(self):
-        self._check("unicamp_2024_f1_X.pdf", min_boundaries=73, min_validated=73)
+        # Boundary floor dropped by 1 (was 73) when _MARKER's thousands-
+        # separator guard landed (boundary.py): a large statistic wrapped
+        # onto its own line start ("281.472 pessoas...", question 49; "50.000
+        # pessoas...", question 52) used to be misread as a brand-new
+        # question boundary ("281."/"50."), inflating the real 72-question
+        # count to a spurious 73 and silently truncating the real question's
+        # body (losing its whole alternative block) right before that point.
+        # 72/72 now VALIDATED (was 73, with the 73rd being that same fake
+        # boundary) - a correctness improvement, not a regression.
+        self._check("unicamp_2024_f1_X.pdf", min_boundaries=72, min_validated=72)
 
     def test_uece_cev_2025(self):
         self._check("uece_cev_20252f1g2.pdf", min_boundaries=85, min_validated=77)

@@ -26,6 +26,7 @@ from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import School
+from agente_ia_edu.db.models.academic import AcademicYear, Class, GradeLevel, Segment
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.recommendation import RecommendationEngine
@@ -313,10 +314,31 @@ class AuthorizedClassroomsCrossSchoolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_director_asking_for_their_own_school_still_gets_a_result(self):
         """A legitimately scoped director must keep the behaviour they had -
-        the school-wide query and its TURMA_3A scaffolding fallback - and must
-        still see nothing belonging to the other school."""
+        the school-wide query over their OWN school's real classrooms - and
+        must still see nothing belonging to the other school. Backed by a
+        real Class row now, not the old ["TURMA_3A"] scaffolding fallback:
+        that placeholder invented a classroom name instead of reading the
+        school's actual data, which is exactly the bug this fix removes."""
         async with self.session_factory() as session:
             school_a, _ = await self._two_schools_with_a_classroom_only_in_b(session)
+
+            segment = Segment(id=uuid.uuid4(), school_id=school_a.id, name="segment", external_id="SEG-OWN")
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school_a.id, segment_id=segment.id,
+                name="grade", external_id="GRADE-OWN",
+            )
+            year = AcademicYear(id=uuid.uuid4(), school_id=school_a.id, year=2026, external_id="YEAR-OWN")
+            session.add_all([grade, year])
+            await session.flush()
+            klass = Class(
+                id=uuid.uuid4(), school_id=school_a.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma Própria", external_id="TURMA-PROPRIA-A",
+            )
+            session.add(klass)
+            await session.commit()
+
             admin = PlatformAdminService(session)
             await admin.link_user_to_school(
                 performed_by_external_id="setup",
@@ -330,6 +352,7 @@ class AuthorizedClassroomsCrossSchoolTests(unittest.IsolatedAsyncioTestCase):
                 "director-own", school_a.id
             )
         self.assertTrue(classrooms, "an authorized director must not be emptied by the fix")
+        self.assertEqual(classrooms, ["TURMA-PROPRIA-A"])
         self.assertNotIn(CLASSROOM_ONLY_IN_B, classrooms)
 
     async def test_a_platform_admin_still_enumerates_any_school(self):

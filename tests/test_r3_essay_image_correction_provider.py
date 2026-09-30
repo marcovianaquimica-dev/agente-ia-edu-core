@@ -80,6 +80,48 @@ class OpenAIImageCorrectionTests(unittest.TestCase):
         page2.unlink(missing_ok=True)
 
 
+    def test_captures_token_usage_from_the_sdk_response(self):
+        page = Path("/tmp/r3_usage_test_page.png")
+        page.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))],
+                usage=SimpleNamespace(prompt_tokens=2000, completion_tokens=300, total_tokens=2300),
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayImageCorrectionRequest(
+            image_paths=(page,), mime_type="image/png", prompt="corrija",
+        )
+        result = asyncio.run(provider.correct_from_images(request))
+
+        self.assertEqual(result.input_tokens, 2000)
+        self.assertEqual(result.output_tokens, 300)
+        page.unlink(missing_ok=True)
+
+    def test_leaves_tokens_none_when_usage_is_none(self):
+        page = Path("/tmp/r3_no_usage_test_page.png")
+        page.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+        async def _create(**kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))],
+                usage=None,
+            )
+
+        fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        provider = OpenAIProvider(api_key="sk-test", vision_model="gpt-4o-mini", client=fake_client)
+        request = EssayImageCorrectionRequest(
+            image_paths=(page,), mime_type="image/png", prompt="corrija",
+        )
+        result = asyncio.run(provider.correct_from_images(request))
+
+        self.assertIsNone(result.input_tokens)
+        self.assertIsNone(result.output_tokens)
+        page.unlink(missing_ok=True)
+
     def test_raises_when_vision_model_not_configured_but_key_present(self):
         # Distinct branch from test_raises_when_not_configured: api_key IS
         # set (and request.model is unset), only vision_model is missing.

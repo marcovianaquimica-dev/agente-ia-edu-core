@@ -303,6 +303,58 @@ class TextAndMarkdownTests(unittest.TestCase):
             ["Primeiro paragrafo do documento em texto puro apos o cabecalho."],
         )
 
+    def test_numbered_exercise_in_md_is_detected_as_a_question(self):
+        # regression test for the "questions=[] hardcoded" bug: unlike
+        # parse_authorial_pdf, parse_authorial_text never called
+        # _flush_exercises() at all, so a numbered exercise inside a .md/.txt
+        # authorial file was silently dropped from doc.questions even though
+        # the sibling PDF parser detects the exact same shape.
+        path = _TMP / "exercicios.md"
+        path.write_text(
+            "# Capitulo Estrutura Atomica\n\n"
+            "Texto introdutorio sobre a estrutura do atomo.\n\n"
+            "## Exercicios\n\n"
+            "8. Um atomo neutro de um elemento quimico possui 30 protons e 34 "
+            "neutrons em seu nucleo. Assinale a alternativa que indica "
+            "corretamente o numero de massa desse atomo.\n\n"
+            "a) 30\n"
+            "b) 34\n"
+            "c) 64\n"
+            "d) 4\n",
+            encoding="utf-8",
+        )
+        doc = parse_authorial_text(path)
+        self.assertEqual(len(doc.questions), 1)
+        q = doc.questions[0]
+        self.assertEqual(q.question_number, 8)
+        self.assertIn("30 protons e 34 neutrons", q.statement_text)
+        self.assertEqual(q.alternatives_text, "a) 30\nb) 34\nc) 64\nd) 4")
+
+    def test_numbered_exercise_text_still_present_in_section_content_lines(self):
+        # same dualism parse_authorial_pdf already has: the exercise becomes
+        # a ParsedQuestion AND its text stays in the section's content_lines
+        # (never removed) - the Material Player still renders it as prose.
+        path = _TMP / "exercicios_dual.md"
+        path.write_text(
+            "# Capitulo Estrutura Atomica\n\n"
+            "Texto introdutorio sobre a estrutura do atomo.\n\n"
+            "## Exercicios\n\n"
+            "8. Um atomo neutro de um elemento quimico possui 30 protons e 34 "
+            "neutrons em seu nucleo. Assinale a alternativa que indica "
+            "corretamente o numero de massa desse atomo.\n\n"
+            "a) 30\n"
+            "b) 34\n"
+            "c) 64\n"
+            "d) 4\n",
+            encoding="utf-8",
+        )
+        doc = parse_authorial_text(path)
+        exercise_section = doc.sections[-1]
+        self.assertEqual(exercise_section.title, "Exercicios")
+        joined = " ".join(exercise_section.content_lines)
+        self.assertIn("30 protons e 34 neutrons", joined)
+        self.assertIn("a) 30", joined)
+
     def test_txt_without_any_heading_uses_document_title_as_section_title(self):
         path = _TMP / "no_heading_at_all.txt"
         path.write_text(

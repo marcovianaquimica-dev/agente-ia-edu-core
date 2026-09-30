@@ -48,7 +48,7 @@ async def build_evolution(
 ) -> dict[str, Any]:
     rows = (
         await session.execute(
-            select(EssayCorrection, EssayPrompt.title)
+            select(EssayCorrection, EssayPrompt.title, EssaySubmission.student_declared_theme)
             .join(EssaySubmission, EssaySubmission.id == EssayCorrection.essay_submission_id)
             .join(PromptAssignment, PromptAssignment.id == EssaySubmission.prompt_assignment_id)
             .join(EssayPrompt, EssayPrompt.id == PromptAssignment.essay_prompt_id)
@@ -62,7 +62,13 @@ async def build_evolution(
     ).all()
 
     entries: list[dict[str, Any]] = []
-    for correction, prompt_title in rows:
+    for correction, prompt_title, student_declared_theme in rows:
+        # "Tema livre": every entry otherwise shares the exact same generic
+        # prompt_title ("Tema livre"), making N free-theme essays in this
+        # timeline indistinguishable from one another - fold the student's
+        # own chosen theme into the displayed title instead.
+        if student_declared_theme:
+            prompt_title = f"{prompt_title}: {student_declared_theme}"
         scores = _as_dict(correction.final_scores)
         per_competency_raw = _as_dict(scores.get("per_competency"))
         per_competency = (

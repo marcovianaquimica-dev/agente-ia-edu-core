@@ -86,8 +86,12 @@ test('each question row shows number, status, student answer and correct answer,
   assert.match(map, /UNANSWERED:/);
 });
 
-test('resolution is deferred, never AI-generated here', () => {
-  assert.match(appJs, /Resolução da questão: em breve\./);
+test('resolution comes from the backend result item, never a frontend-hardcoded placeholder', () => {
+  // PHASE 30 fix: the backend now returns the real QuestionVersion.resolution_text
+  // (or an honest "not available" fallback) per item as `resolution` - the
+  // frontend must render that field, not a permanently-fixed "em breve" string.
+  assert.doesNotMatch(appJs, /Resolução da questão: em breve\./);
+  assert.match(appJs, /Resolução da questão: \$\{escActivity\(it\.resolution\)\}/);
   assert.doesNotMatch(RESULT_CODE, /openai|gpt|gerar resolução|explicação automática/i);
 });
 

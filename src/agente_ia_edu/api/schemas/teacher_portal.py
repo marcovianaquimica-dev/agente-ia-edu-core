@@ -147,16 +147,9 @@ class StudentSearchItem(BaseModel):
     average_mastery: float
 
 
-class ReportExportResponse(BaseModel):
-    export_format: str
-    filename: str
-    content_type: str
-    title: str
-    generated_at: datetime
-    summary: dict[str, Any]
-    mastery_distribution: Optional[dict[str, Any]] = None
-    strengths: Optional[list[Any]] = None
-    improvement_areas: Optional[list[Any]] = None
-    recent_contents_taught: Optional[list[Any]] = None
-    action_plan: Optional[list[Any]] = None
-    students_roster: Optional[list[Any]] = None
+# NOTE: the JSON ReportExportResponse schema that used to live here was
+# removed - GET /classrooms/{id}/export and GET /coordination/export now
+# return real binary PDF/XLSX bytes (see services.report_render), not a JSON
+# description of the file. The structured payload it used to wrap is still
+# produced by services.report_export.ReportExportService; it just feeds the
+# binary renderers now instead of being serialized directly.

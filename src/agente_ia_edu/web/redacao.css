@@ -1,0 +1,53 @@
+/* AGENTE IA EDU — Ambiente de Redação (casca leve)
+   Only the header/shell around #essay-root - essay.js itself renders using
+   classes already defined in styles.css (shared with index.html/teacher.html),
+   so nothing essay-specific is duplicated here. */
+
+body {
+  background: var(--bg-app);
+}
+
+.redacao-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  background: var(--bg-sidebar);
+  color: var(--text-white);
+}
+
+.redacao-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-white);
+}
+
+.redacao-brand .brand-logo {
+  font-size: 22px;
+}
+
+.redacao-brand span span {
+  color: var(--accent);
+}
+
+.redacao-switch-link {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.redacao-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+@media (max-width: 640px) {
+  .redacao-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

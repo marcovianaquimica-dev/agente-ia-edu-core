@@ -498,8 +498,18 @@ class ServicePersistenceTests(unittest.TestCase):
                     self.assertIsNone(q.status_history[0]["from_status"])
                     self.assertEqual(q.status_history[0]["to_status"], q.review_status)
 
+                    await svc.update_question(
+                        q.id, reviewed_by="prof_x",
+                        options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                                 {"label": "C", "text": "c"}, {"label": "D", "text": "d"},
+                                 {"label": "E", "text": "e"}],
+                    )
                     approved = await svc.approve_question(q.id, reviewed_by="prof_x")
-                    self.assertEqual(len(approved.status_history), 2)
+                    # +1 vs. the original count: the options edit above
+                    # (needed post-migration-051, since is_correct must be
+                    # set before approval) also appends an OPTIONS_EDIT
+                    # entry to this same audit trail.
+                    self.assertEqual(len(approved.status_history), 3)
                     self.assertEqual(approved.status_history[-1]["from_status"], "VALIDATED")
                     self.assertEqual(approved.status_history[-1]["to_status"], "APPROVED")
                     self.assertEqual(approved.status_history[-1]["actor"], "prof_x")
@@ -509,7 +519,7 @@ class ServicePersistenceTests(unittest.TestCase):
                     self.assertEqual(result["published_count"], 1)
                     published = await svc.get_question(q.id)
                     self.assertEqual(published.review_status, "PUBLISHED")
-                    self.assertEqual(len(published.status_history), 3)
+                    self.assertEqual(len(published.status_history), 4)
                     self.assertEqual(published.status_history[-1]["to_status"], "PUBLISHED")
                     self.assertEqual(published.status_history[-1]["actor"], "prof_y")
             await engine.dispose()

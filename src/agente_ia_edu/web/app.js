@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
     currentPracticeQuestion: null,
     diagnosticPreferredName: '',
     recommendedContentNodeId: null,
+    currentVideo: null,
+    currentVideoProgress: null,
   };
 
   // UI Element References
@@ -125,7 +127,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'material-reader': { title: 'Material', sub: 'Estude o conteúdo, seção por seção' },
       'videos': { title: 'Videoaulas Recomendadas', sub: 'Aulas interativas e personalizadas para seu nível' },
       'evolution': { title: 'Minha Evolução', sub: 'Veja o que você já domina e descubra seu melhor próximo passo' },
-      'essay': { title: 'Módulo Redação IA', sub: 'Treino de redação no padrão ENEM' },
       'profile': { title: 'Meu Perfil', sub: 'Informações da sua conta e escola' },
     };
 
@@ -139,7 +140,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (viewName === 'diagnostic') initDiagnosticView();
     if (viewName === 'learning-path') loadLearningPathData();
     if (viewName === 'evolution') loadEvolutionData();
-    if (viewName === 'essay') window.EssayView.init();
     if (viewName === 'materials') loadMaterialsView();
     if (viewName === 'videos') loadVideosView();
     if (viewName === 'activities') loadActivitiesView();
@@ -330,50 +330,217 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 4. Materials View
+  // 4. Materials View — the real PHASE 23/25 catalog (TheoryMaterial /
+  // TheoryMaterialVersion), the SAME source "📘 Estudar agora" (Trilha) uses.
+  // Never the legacy RecommendationEngine resource pipeline surfaced on the
+  // Dashboard - that one stays for other screens (Dashboard/Vídeos), but it
+  // is not this tab's catalog.
   async function loadMaterialsView() {
     const container = document.getElementById('materials-list-container');
-    if (!state.dashboardData) {
-      await loadDashboardData();
-    }
-    const rec = state.dashboardData?.active_recommendation;
-    if (rec && rec.primary_resource) {
-      const r = rec.primary_resource;
-      container.innerHTML = `
-        <div class="card">
-          <h4>📖 ${r.title}</h4>
-          <p>${r.description || 'Apostila recomendada para revisão.'}</p>
-          <span class="badge badge-primary" style="margin-top:10px; display:inline-block;">${r.resource_type}</span>
+    container.innerHTML = '<p>Carregando materiais teóricos...</p>';
+    try {
+      const res = await studentRequest('/api/v1/student/materials');
+      if (!res.ok) throw new Error('Falha ao carregar materiais');
+      const materials = await res.json();
+      if (!materials.length) {
+        container.innerHTML = '<p class="empty-text">Nenhum material teórico disponível para você no momento.</p>';
+        return;
+      }
+      container.innerHTML = materials.map((m) => `
+        <div class="card material-card">
+          <div class="card-header">
+            <h4>📖 ${escActivity(m.title || 'Material')}</h4>
+            ${m.material_kind ? `<span class="badge badge-primary">${escActivity(m.material_kind)}</span>` : ''}
+          </div>
+          <p>${escActivity(m.description || 'Sem descrição.')}</p>
+          <p class="material-card-meta">
+            ${m.content_code ? `<span>${escActivity(m.content_code)}</span>` : ''}
+            <span>${m.section_count || 0} seç${m.section_count === 1 ? 'ão' : 'ões'}</span>
+            ${m.estimated_minutes ? `<span>~${m.estimated_minutes} min de leitura</span>` : ''}
+          </p>
+          <button class="btn btn-secondary materials-open-btn" type="button"
+            data-material-id="${escActivity(m.material_id)}">📘 Abrir material</button>
         </div>
-      `;
-    } else {
-      container.innerHTML = '<p class="empty-text">Acesse a aba Início para ver os materiais da sua trilha recomendada.</p>';
+      `).join('');
+    } catch (err) {
+      console.warn('Materials API call error:', err);
+      container.innerHTML = '<p class="empty-text">Erro ao carregar materiais teóricos.</p>';
     }
   }
 
+  (function wireMaterialsView() {
+    const container = document.getElementById('materials-list-container');
+    if (!container) return;
+    container.addEventListener('click', (e) => {
+      const btn = e.target.closest('.materials-open-btn');
+      if (btn) openMaterialReader(btn.dataset.materialId, { returnTo: 'materials' });
+    });
+  })();
+
   // 5. Videos View
-  function loadVideosView() {
+  async function loadVideosView() {
     const container = document.getElementById('videos-list-container');
+    container.innerHTML = '<p class="empty-text">Carregando videoaula recomendada...</p>';
+
+    if (!state.dashboardData) {
+      await loadDashboardData();
+    }
+    const contentNodeId = state.dashboardData?.active_recommendation?.content_node_id || state.recommendedContentNodeId;
+
+    if (!contentNodeId) {
+      container.innerHTML = '<p class="empty-text">Nenhum conteúdo recomendado no momento para sugerir uma videoaula.</p>';
+      return;
+    }
+
+    await fetchVideoRecommendation(contentNodeId);
+  }
+
+  async function fetchVideoRecommendation(contentNodeId) {
+    const container = document.getElementById('videos-list-container');
+    try {
+      const res = await studentRequest(`/api/v1/videos/recommendation?content_node_id=${encodeURIComponent(contentNodeId)}`);
+      if (!res.ok) throw new Error('Falha ao carregar recomendação de vídeo');
+      const data = await res.json();
+      await applyVideoRecommendation(data);
+    } catch (err) {
+      console.warn('Video recommendation API call error:', err);
+      container.innerHTML = '<p class="empty-text">Erro ao carregar a videoaula recomendada.</p>';
+    }
+  }
+
+  async function applyVideoRecommendation(data) {
+    state.currentVideo = data;
+    state.currentVideoProgress = null;
+
+    if (data.status === 'OK' && data.video_resource_id) {
+      try {
+        const progRes = await studentRequest(`/api/v1/videos/${data.video_resource_id}/progress`);
+        if (progRes.ok) {
+          state.currentVideoProgress = await progRes.json();
+        }
+      } catch (err) {
+        console.warn('Video progress API call error:', err);
+      }
+    }
+    renderVideoCard();
+  }
+
+  function renderVideoCard() {
+    const container = document.getElementById('videos-list-container');
+    const data = state.currentVideo;
+
+    if (!data || data.status !== 'OK') {
+      container.innerHTML = `<p class="empty-text">${data?.reason || 'Nenhuma videoaula disponível para este conteúdo no momento.'}</p>`;
+      return;
+    }
+
+    const durationLabel = data.duration_seconds
+      ? `Duração: ${Math.round(data.duration_seconds / 60)} min`
+      : 'Duração não informada';
+    const feedback = state.currentVideoProgress?.feedback_type;
+
     container.innerHTML = `
       <div class="video-card card">
         <div class="video-header">
-          <h4>🎥 Videoaula Recomendada: Diluição de Soluções</h4>
-          <span class="badge badge-accent">Duração: 8 min</span>
+          <h4>🎥 Videoaula Recomendada: ${data.title}</h4>
+          <span class="badge badge-accent">${durationLabel}</span>
         </div>
-        <p class="rec-explanation">Vídeo focado na explicação dos conceitos essenciais com exercícios práticos.</p>
+        <p class="rec-explanation">${data.reason || ''}</p>
         <div class="video-controls" style="margin-top:16px; display:flex; gap:10px;">
-          <button class="btn btn-primary" onclick="alert('Iniciando reprodução do vídeo...')">▶ Assistir Vídeo</button>
-          <button class="btn btn-secondary" onclick="alert('Buscando próximo candidato a vídeo...')">🔄 Quero outro</button>
+          <button class="btn btn-primary" id="btn-watch-video" type="button">▶ Assistir Vídeo</button>
+          <button class="btn btn-secondary" id="btn-request-another-video" type="button">🔄 Quero outro</button>
         </div>
         <div class="video-feedback" style="margin-top:16px; border-top:1px solid #eee; padding-top:12px;">
           <span style="font-size:13px; font-weight:600; color:#64748b;">Feedback da aula:</span>
           <div style="display:flex; gap:8px; margin-top:8px;">
-            <button class="btn btn-secondary" onclick="alert('Feedback registrado: Gostei!')">👍 Gostei</button>
-            <button class="btn btn-secondary" onclick="alert('Feedback registrado: Não Gostei')">👎 Não Gostei</button>
+            <button class="btn btn-secondary" id="btn-video-like" type="button" ${feedback === 'LIKED' ? 'disabled' : ''}>👍 ${feedback === 'LIKED' ? 'Você gostou' : 'Gostei'}</button>
+            <button class="btn btn-secondary" id="btn-video-dislike" type="button" ${feedback === 'DISLIKED' ? 'disabled' : ''}>👎 ${feedback === 'DISLIKED' ? 'Você não gostou' : 'Não Gostei'}</button>
           </div>
+          <p class="empty-text" id="video-feedback-status" style="margin-top:8px;"></p>
         </div>
       </div>
     `;
+
+    document.getElementById('btn-watch-video').onclick = watchCurrentVideo;
+    document.getElementById('btn-request-another-video').onclick = requestAnotherVideo;
+    document.getElementById('btn-video-like').onclick = () => sendVideoFeedback('LIKED');
+    document.getElementById('btn-video-dislike').onclick = () => sendVideoFeedback('DISLIKED');
+  }
+
+  async function watchCurrentVideo() {
+    const data = state.currentVideo;
+    if (!data || data.status !== 'OK') return;
+    try {
+      await studentRequest('/api/v1/videos/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource_id: data.video_resource_id,
+          event_type: 'STARTED',
+          content_node_id: data.content_node_id,
+        }),
+      });
+    } catch (err) {
+      console.warn('Video event API call error:', err);
+    }
+    if (data.source_url) {
+      window.open(data.source_url, '_blank', 'noopener');
+    }
+  }
+
+  async function requestAnotherVideo() {
+    const container = document.getElementById('videos-list-container');
+    const data = state.currentVideo;
+    if (!data || !data.video_resource_id) return;
+
+    container.innerHTML = '<p class="empty-text">Buscando outra videoaula...</p>';
+    try {
+      const res = await studentRequest('/api/v1/videos/request-another', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content_node_id: data.content_node_id,
+          current_video_id: data.video_resource_id,
+        }),
+      });
+      if (!res.ok) throw new Error('Falha ao buscar outra videoaula');
+      const next = await res.json();
+      await applyVideoRecommendation(next);
+    } catch (err) {
+      console.warn('Request another video API call error:', err);
+      container.innerHTML = '<p class="empty-text">Erro ao buscar outra videoaula.</p>';
+    }
+  }
+
+  async function sendVideoFeedback(feedbackType) {
+    const data = state.currentVideo;
+    if (!data || data.status !== 'OK') return;
+
+    try {
+      const res = await studentRequest('/api/v1/videos/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource_id: data.video_resource_id,
+          feedback_type: feedbackType,
+          content_node_id: data.content_node_id,
+        }),
+      });
+      if (!res.ok) throw new Error('Falha ao registrar feedback');
+      if (!state.currentVideoProgress) state.currentVideoProgress = {};
+      state.currentVideoProgress.feedback_type = feedbackType;
+      renderVideoCard();
+      const statusEl = document.getElementById('video-feedback-status');
+      if (statusEl) {
+        statusEl.textContent = feedbackType === 'LIKED'
+          ? 'Feedback registrado: você gostou dessa aula.'
+          : 'Feedback registrado: você não gostou dessa aula.';
+      }
+    } catch (err) {
+      console.warn('Video feedback API call error:', err);
+      const statusEl = document.getElementById('video-feedback-status');
+      if (statusEl) statusEl.textContent = 'Erro ao registrar feedback. Tente novamente.';
+    }
   }
 
   // 1B. Diagnostic Interactive View
@@ -1261,7 +1428,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span>Sua resposta: <strong>${escActivity(it.selected_option_key || '—')}</strong></span>
           <span>Resposta correta: <strong>${escActivity(it.correct_option_key || '—')}</strong></span>
         </div>
-        <p class="activity-result-question-res">Resolução da questão: em breve.</p>
+        <p class="activity-result-question-res">Resolução da questão: ${escActivity(it.resolution)}</p>
       </article>`;
     }).join('');
     document.getElementById('result-toggle-questions').textContent = 'Ver questões';
@@ -2356,7 +2523,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (backBtn) backBtn.addEventListener('click', () => {
       const flow = materialReaderFlow || {};
       materialReaderFlow = null;
-      switchView(flow.returnTo === 'study-session' ? 'study-session' : 'study-path');
+      const dest = flow.returnTo === 'study-session' ? 'study-session'
+        : flow.returnTo === 'materials' ? 'materials'
+        : 'study-path';
+      switchView(dest);
     });
     const prevBtn = document.getElementById('mr-prev');
     if (prevBtn) prevBtn.addEventListener('click', () => {

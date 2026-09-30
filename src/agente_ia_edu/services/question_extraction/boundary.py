@@ -23,13 +23,27 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 
 from .structure import STANDALONE_MARKER_SENTINEL
 
 # -- boundary marker: "1." / "01." / "1)" / "01)" at the START of a real
 #    line. [ \t]* (never \s*) so the anchor cannot swallow a blank line -
 #    that blank line is itself a signal (paragraph break), checked below.
-_MARKER = re.compile(r"(?m)^[ \t]*(\d{1,3})[.)][ \t]*(?!\d[ \t]+[A-ZÀ-Ú])(?=\S)")
+# The punctuation is followed by EITHER (a) one-or-more real spaces/tabs
+# then non-space content - a normal marker+body, always accepted no matter
+# what the body starts with (even a digit: "12.  3 kg de sal..." is a real
+# question) - OR (b) zero spaces then a character that is neither a digit
+# nor whitespace - a glued marker+body ("1.Texto", found tolerated on a
+# real UERJ exam's own kerning). Zero spaces immediately followed by
+# ANOTHER digit is never a real marker: it is the same number continuing,
+# either a "chapter.subsection" decimal ("1.1 Isto e uma subsecao...") or -
+# found live on a real UNICAMP exam, questions 49/52 - a Brazilian "."
+# thousands separator wrapped onto its own line start ("281.472 pessoas...",
+# "50.000 pessoas..."), which used to read as a spurious question boundary
+# and silently truncate the real question right before it, losing its
+# entire alternative block.
+_MARKER = re.compile(r"(?m)^[ \t]*(\d{1,3})[.)](?:[ \t]+(?=\S)|(?=[^\d\s]))")
 # "Questão N" / "QUESTÃO N" - a second, independent marker convention.
 # \s* (not \s+): some real PDF text layers reproduce the visual gap before
 # the number via glyph positioning/kerning rather than an actual space
@@ -116,7 +130,67 @@ _ANSWER_KEY_HEADING = re.compile(
 # question (found on a real UECE exam). Every real no-punctuation
 # convention actually observed (INEP, UNICAMP, UECE, ITA) is uppercase, so
 # this loses no real coverage.
-_OPTION = re.compile(r"(?m)^[ \t]*(?:([A-Ea-e])[.)\-:][ \t]*|([A-E])[ \t]+)(?=\S)")
+#
+# Third form - group 3 - "(A)" (real FUVEST 1a fase typesetting): found
+# live extracting the real FUVEST 2024 pilot exam, where EVERY SINGLE ONE
+# of its 90 questions landed as "discursive" (zero options). Short
+# numeric/word answers are typeset "(A) 0,07 (B) 0,13 (C) 0,26 ..." all
+# INLINE on one physical line, not one marker per line like every other
+# convention above - so the "^[ \t]*" line-start anchor never even begins
+# matching past the leading "(" of the first option, let alone the rest.
+# Unlike the bare form, a parenthesized letter is unambiguous enough (as
+# distinctive as the punctuated form - a stray "(A)" cross-reference is
+# rare, and the same required clean ascending-run check below still guards
+# against it) that it does not need line-start anchoring or an uppercase-
+# only restriction to stay safe - it is folded into the SAME confidence
+# tier as the punctuated form wherever `_extract_options` reads group 1.
+#
+# The punctuated form's trailing "[ \t]*(?=\S)" originally required real
+# content to follow on the SAME physical line (only spaces/tabs tolerated
+# before it, never a newline). Real UECE/CEV typesetting (found live
+# extracting the real 2025.2 pilot exam) sometimes leaves the marker ALONE
+# on its own line - "A)\n" - with the option's own text starting only on
+# the NEXT line, a byproduct of the source column layout. The optional
+# "\n?[ \t]*" below tolerates exactly ONE such line break before the
+# lookahead's required non-whitespace content - not two (a genuine blank
+# line after a stray marker still fails to match, same protection the
+# bare and parenthesized forms already rely on) - so a real wrapped option
+# marker is recognised while an unrelated stray letter followed by a
+# paragraph break still is not.
+#
+# Fourth form - named group "bubble" - "A (   )" (real ITA Fase 1
+# typesetting): found live extracting the real ITA 2024 pilot exam. Every
+# option is marked with an empty checkbox immediately after its letter -
+# "A (   ) dishonest." - and, unlike every other real institution in this
+# corpus, ITA typesets its (usually short) options as a compact multi-
+# column GRID (e.g. a 3-col x 2-row block: row 1 "A ... C ... E ...", row
+# 2 "B ... D ..."), never strictly one option per physical line. Read in
+# ordinary top-to-bottom/left-to-right order this interleaves as
+# A, C, E, B, D - the exact same "real grid, not a clean ascending run"
+# shape the UNICAMP fix above already recovers via the punctuated-only
+# PERMUTATION check (``_is_clean_permutation_run``) - but only because that
+# check trusts UNAMBIGUOUS markers. Before this form existed, "A (   )"
+# only ever matched the AMBIGUOUS bare branch above (bare "A" followed by
+# plain whitespace - indistinguishable, on its own, from the Portuguese
+# article), which the permutation check deliberately never trusts. The
+# literal empty parens right after the letter are themselves as
+# distinctive and unambiguous as "A)"/"(A)" (an ordinary sentence or
+# cross-reference never happens to place a bare, empty "(   )" immediately
+# after a line-initial capital letter), so - like the FUVEST/UECE forms
+# above - this is folded into the SAME "punctuated"/unambiguous confidence
+# tier `_extract_options` already gives group 1 and "paren".
+#
+# Alternation in Python's ``re`` is tried LEFT TO RIGHT and stops at the
+# FIRST branch that matches at a given position - never the longest one -
+# so "bubble" MUST be listed before the bare branch inside the same
+# anchored group: at "A (   ) dishonest.", the bare branch's own
+# "[ \t]+(?=\S)" is perfectly satisfied by "A " + the lookahead seeing "("
+# and would otherwise win first, leaving "(   ) dishonest." unconsumed as
+# if it were the bare form's own option text.
+_OPTION = re.compile(
+    r"(?m)^[ \t]*(?:([A-Ea-e])[.)\-:][ \t]*\n?[ \t]*|(?P<bubble>[A-E])[ \t]*\([ \t]*\)[ \t]*|([A-E])[ \t]+)(?=\S)"
+    r"|\((?P<paren>[A-Ea-e])\)[ \t]*(?=\S)"
+)
 
 MIN_QUESTION_BODY_CHARS = 12
 _TRUE_FALSE_HINT = re.compile(r"(?i)\b(verdadeiro|falso|\(V\)|\(F\)|V ou F)\b")
@@ -319,13 +393,15 @@ def _is_clean_ascending_run(marks: list[re.Match]) -> bool:
     same rule."""
     if len(marks) < 2:
         return False
-    letters = [(m.group(1) or m.group(2)).upper() for m in marks]
+    letters = [(m.group(1) or m.group("bubble") or m.group(3) or m.group("paren")).upper() for m in marks]
     if len(letters) != len(set(letters)):
         return False
     return letters == [chr(ord("A") + i) for i in range(len(letters))]
 
 
-def _longest_clean_suffix(marks: list[re.Match]) -> list[re.Match]:
+def _longest_clean_suffix(
+    marks: list[re.Match], *, is_clean: Callable[[list[re.Match]], bool] = _is_clean_ascending_run,
+) -> list[re.Match]:
     """The longest TRAILING run of ``marks`` that is, on its own, a clean
     A, B, C... sequence - i.e. drop leading noise (an unrelated match
     before the real option block) without ever accepting a run that
@@ -334,9 +410,28 @@ def _longest_clean_suffix(marks: list[re.Match]) -> list[re.Match]:
     valid ascending run ending at the last mark, so no ambiguity."""
     for start in range(len(marks)):
         candidate = marks[start:]
-        if _is_clean_ascending_run(candidate):
+        if is_clean(candidate):
             return candidate
     return []
+
+
+def _is_clean_permutation_run(marks: list[re.Match]) -> bool:
+    """True when ``marks`` covers each of A, B, C... exactly once, in ANY
+    order - no repeated letter, no gap, starts at A, same rule as
+    ``_is_clean_ascending_run`` minus the in-text ordering requirement.
+    This is the signature of a real 2-column option grid (found live on a
+    UNICAMP exam: "a) 6 cm.  c) 10 cm.\\n\\nb) 8 cm.  d) 12 cm." - a 2x2
+    grid read top-to-bottom, left-to-right yields A, C, B, D in the text,
+    not a clean ascending A, B, C, D run) - never trusted for the
+    ambiguous bare-letter form (see ``_extract_options``), only for
+    unambiguous PUNCTUATED markers, where a complete non-repeating A..N
+    set appearing anywhere is already strong evidence of real options."""
+    if len(marks) < 2:
+        return False
+    letters = [(m.group(1) or m.group("paren") or m.group("bubble")).upper() for m in marks]
+    if len(letters) != len(set(letters)):
+        return False
+    return sorted(letters) == [chr(ord("A") + i) for i in range(len(letters))]
 
 
 def _extract_options(body: str) -> tuple[str, list[OptionDraft]]:
@@ -358,8 +453,24 @@ def _extract_options(body: str) -> tuple[str, list[OptionDraft]]:
     # stray sentence-initial "A" preceded the real bare A..E block. Always
     # the run ending at the FINAL candidate for that source - a real
     # option block is never followed by more unrelated single-letter noise.
-    punctuated_only = [m for m in all_marks if m.group(1) is not None]
-    marks = _longest_clean_suffix(punctuated_only) or _longest_clean_suffix(all_marks)
+    # "bubble" (real ITA form - see ``_OPTION``) is unambiguous the same
+    # way "paren" is, so it joins the punctuated tier too.
+    punctuated_only = [
+        m for m in all_marks
+        if m.group(1) is not None or m.group("paren") is not None or m.group("bubble") is not None
+    ]
+    # (3) a complete, non-repeating A..N PERMUTATION within the punctuated
+    # matches alone - the signature of a real 2-column option grid (found
+    # live on a UNICAMP exam: physical reading order interleaves as
+    # A, C, B, D rather than a clean ascending run). Only tried once both
+    # ascending options are exhausted, and only for punctuated marks - the
+    # bare form stays ascending-only (spec: bare "A" is also the ordinary
+    # Portuguese article, too ambiguous to trust out of order).
+    marks = (
+        _longest_clean_suffix(punctuated_only)
+        or _longest_clean_suffix(all_marks)
+        or _longest_clean_suffix(punctuated_only, is_clean=_is_clean_permutation_run)
+    )
     if not marks:
         return body, []
     statement = body[: marks[0].start()].strip()
@@ -368,9 +479,19 @@ def _extract_options(body: str) -> tuple[str, list[OptionDraft]]:
         end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
         opt_text = " ".join(body[m.end():end].split())
         if opt_text:
-            options.append(OptionDraft(label=(m.group(1) or m.group(2)).upper(), text=opt_text))
+            options.append(OptionDraft(
+                label=(m.group(1) or m.group("bubble") or m.group(3) or m.group("paren")).upper(),
+                text=opt_text,
+            ))
     if len(options) != len(marks):
         return body, []
+    # marks (and therefore options) are in TEXT ORDER, which for a 2-column
+    # grid interleaves as A, C, B, D - re-sort by label so persistence
+    # position (assigned from this list's order, see
+    # question_extraction_service.py) always matches the real A, B, C, D...
+    # option order. A no-op for every other convention, which already
+    # extracts in ascending order.
+    options.sort(key=lambda o: o.label)
     return statement, options
 
 

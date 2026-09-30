@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from agente_ia_edu.api.dependencies import (
     get_current_authenticated_context,
@@ -24,6 +24,8 @@ from agente_ia_edu.services.authorization import AuthorizationService
 from agente_ia_edu.services.initial_diagnostic import InitialDiagnosticService
 from agente_ia_edu.services.knowledge import KnowledgeService
 from agente_ia_edu.services.reception import ReceptionService
+from agente_ia_edu.services.report_export import ReportExportService
+from agente_ia_edu.services.report_render import pdf_available, render_pdf
 
 
 reception_router = APIRouter(prefix="/api/v1/reception", tags=["reception"])
@@ -42,6 +44,19 @@ _INVITATION_STATUS_LABELS = {
     "cancelled": "cancelado",
     "pending": "pendente",
     "accepted": "aceito",
+}
+
+# ReceptionCandidateResponse.status values, translated the same way
+# reception.js's own `statusLabel()` map does - used only for the PDF
+# export below, since ReportExportService.export_candidate_report is kept
+# agnostic of reception's status vocabulary.
+_STATUS_LABELS = {
+    "PRE_REGISTRATION": "Pré-cadastro",
+    "DIAGNOSTIC_RELEASED": "Diagnóstico liberado",
+    "DIAGNOSTIC_IN_PROGRESS": "Diagnóstico em andamento",
+    "DIAGNOSTIC_COMPLETED": "Diagnóstico concluído",
+    "FEEDBACK_AVAILABLE": "Devolutiva disponível",
+    "CONVERTED": "Matrícula / conversão",
 }
 
 
@@ -220,6 +235,37 @@ async def get_reception_candidate(
             raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
         await _require_reception_access(session, context, candidate.school_id, candidate)
         return await _candidate_response(session, service, candidate, include_result=True)
+
+
+@reception_router.get(
+    "/candidates/{candidate_id}/export",
+    summary="Export the candidate's ficha (identity + diagnostic result, when available) as PDF",
+)
+async def export_reception_candidate(
+    candidate_id: UUID,
+    context: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    async with session_factory() as session:
+        service = ReceptionService(session)
+        candidate = await service.get_candidate(candidate_id)
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="Atendimento não encontrado.")
+        await _require_reception_access(session, context, candidate.school_id, candidate)
+        response = await _candidate_response(session, service, candidate, include_result=True)
+
+    candidate_data = response.model_dump(mode="json")
+    candidate_data["status_label"] = _STATUS_LABELS.get(candidate_data.get("status"), candidate_data.get("status"))
+    payload = ReportExportService.export_candidate_report(candidate_data)
+
+    if not pdf_available():
+        raise HTTPException(status_code=503, detail="PDF export requires the 'pymupdf' package")
+    content = render_pdf(payload)
+    return Response(
+        content=content,
+        media_type=payload["content_type"],
+        headers={"Content-Disposition": f'attachment; filename="{payload["filename"]}"'},
+    )
 
 
 @reception_router.post(

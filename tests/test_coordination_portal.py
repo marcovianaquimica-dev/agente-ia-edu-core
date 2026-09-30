@@ -20,6 +20,7 @@ from agente_ia_edu.db.models import (
     TeachingLesson,
     UserSchoolLink,
 )
+from agente_ia_edu.db.models.academic import AcademicYear, Class, GradeLevel, Segment
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.coordination_portal import CoordinationPortalService
 from agente_ia_edu.services.knowledge import KnowledgeService
@@ -161,6 +162,60 @@ class TestCoordinationPortal(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(dash["overall_mastery_average"], 38.0)
             self.assertEqual(dash["students_struggling_count"], 1)
 
+    async def test_01b_global_coordinator_scopes_use_real_classrooms_not_placeholder(self):
+        """Reproduces the reported bug via get_coordinator_authorized_scopes:
+        a SCHOOL-wide (is_global) coordinator in a school with real Class
+        rows but no TeachingLesson history yet must see those real
+        classrooms - never the ["TURMA_3A", "TURMA_3B"] demo placeholder."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school = await admin_service.create_school(
+                performed_by_external_id="admin:master", code="SCH_COORDREAL", name="Escola Coord Real",
+            )
+            segment = Segment(id=uuid4(), school_id=school.id, name="segment", external_id="SEG-CR")
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid4(), school_id=school.id, segment_id=segment.id,
+                name="grade", external_id="GRADE-CR",
+            )
+            year = AcademicYear(id=uuid4(), school_id=school.id, year=2026, external_id="YEAR-CR")
+            session.add_all([grade, year])
+            await session.flush()
+            turma_a = Class(
+                id=uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma A", external_id="1EM_A",
+            )
+            turma_b = Class(
+                id=uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma B", external_id="1EM_B",
+            )
+            session.add_all([turma_a, turma_b])
+            await session.commit()
+
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="user:coord_real",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            t_portal = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+            coord_svc = CoordinationPortalService(session, ks, t_svc, t_portal, rec_eng)
+
+            scopes = await coord_svc.get_coordinator_authorized_scopes(
+                "user:coord_real", school.id,
+            )
+            self.assertEqual(scopes["allowed_classrooms"], {"1EM_A", "1EM_B"})
+            self.assertNotIn("TURMA_3A", scopes["allowed_classrooms"])
+            self.assertNotIn("TURMA_3B", scopes["allowed_classrooms"])
+
     async def test_02_03_filters_and_chained_filters(self):
         """2, 3, 21. Filtros e filtros encadeados por período e turma."""
         async with self.session_factory() as session:
@@ -197,7 +252,12 @@ class TestCoordinationPortal(unittest.IsolatedAsyncioTestCase):
                 school_id=sa_id,
             )
             self.assertIn("units", hierarchy)
-            self.assertEqual(hierarchy["units"][0]["unit_name"], "Unidade Principal")
+            # _seed_data links classrooms via the OLD flat UserSchoolLink
+            # convention only - no real SchoolUnit/Segment/GradeLevel/Class
+            # rows exist for School A. The tree must say so honestly (never
+            # fabricate "Unidade Principal" as if it were a real row).
+            self.assertIsNone(hierarchy["units"][0]["unit_id"])
+            self.assertEqual(hierarchy["units"][0]["unit_name"], "Sem unidade cadastrada")
 
     async def test_05_classroom_comparison(self):
         """5. Comparativo entre turmas no escopo."""
@@ -259,6 +319,37 @@ class TestCoordinationPortal(unittest.IsolatedAsyncioTestCase):
             )
             self.assertGreater(len(teachers), 0)
             self.assertEqual(teachers[0]["teacher_id"], "user:prof_mendes")
+
+    async def test_08b_teachers_oversight_with_zero_teachers_returns_empty_not_a_fake_teacher(self):
+        """A school with zero TEACHER links must return an empty list - never
+        the hardcoded fictitious "Prof. Mendes" dev/test fallback record with
+        invented classrooms, student counts, and mastery averages."""
+        async with self.session_factory() as session:
+            admin_service = PlatformAdminService(session)
+            school = await admin_service.create_school(
+                performed_by_external_id="admin:master", code="SCH_NOTEACH", name="Escola Sem Professores",
+            )
+            await admin_service.link_user_to_school(
+                performed_by_external_id="admin:master",
+                external_user_id="user:coord_noteach",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+            await session.commit()
+
+            ks = KnowledgeService(session)
+            t_svc = TeachingContextService(session)
+            rec_eng = RecommendationEngine(session, ks)
+            vid_eng = VideoRecommendationEngine(session, ks)
+            t_portal = TeacherPortalService(session, ks, t_svc, rec_eng, vid_eng)
+            coord_svc = CoordinationPortalService(session, ks, t_svc, t_portal, rec_eng)
+
+            teachers = await coord_svc.list_coordination_teachers(
+                coordinator_id="user:coord_noteach",
+                school_id=school.id,
+            )
+            self.assertEqual(teachers, [])
 
     async def test_09_10_11_12_pedagogical_contexts_and_strengths_improvements(self):
         """9, 10, 11, 12, 22. Contexto pedagógico, pontos fortes/melhoria e prioridade TEACHER > COORDINATION > SCHOOL_PLAN > AUTONOMOUS."""

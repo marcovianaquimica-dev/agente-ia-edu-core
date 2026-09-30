@@ -73,13 +73,19 @@ class CoordinationHierarchyGradeItem(BaseModel):
 
 
 class CoordinationHierarchySegmentItem(BaseModel):
-    segment_id: str
+    # None when the classrooms in this bucket have no real Segment row yet
+    # (get_coordination_hierarchy groups them under an explicit "no segment
+    # registered" bucket instead of fabricating one) - never a placeholder
+    # string standing in for a real id.
+    segment_id: str | None = None
     segment_name: str
     grades: list[CoordinationHierarchyGradeItem] = Field(default_factory=list)
 
 
 class CoordinationHierarchyUnitItem(BaseModel):
-    unit_id: str
+    # Same as segment_id above: None for classrooms with no real SchoolUnit
+    # row (e.g. a school whose R0 hierarchy has no unit registered yet).
+    unit_id: str | None = None
     unit_name: str
     segments: list[CoordinationHierarchySegmentItem] = Field(default_factory=list)
 

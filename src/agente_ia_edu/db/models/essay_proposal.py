@@ -279,5 +279,12 @@ class EssaySubmissionPage(Base):
     height: Mapped[float | None] = mapped_column(Float)
     ocr_tokens: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONBCompatible)
     reviewed_text: Mapped[str | None] = mapped_column(Text)
+    # Real LLM token usage summed across every transcribe_page call this page
+    # actually triggered (retries and low-confidence re-attempts included -
+    # see _ocr_page in services/essay_submission.py). Nullable: never set for
+    # a digitally-typed PDF page that skipped OCR entirely, and never
+    # fabricated when the provider doesn't report usage.
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
 
     submission: Mapped["EssaySubmission"] = relationship(back_populates="pages")

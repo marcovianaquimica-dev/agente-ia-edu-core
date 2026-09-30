@@ -31,12 +31,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const sidebarBackdrop = document.getElementById('teacher-sidebar-backdrop');
 
   const filterTeacherId = document.getElementById('filter-teacher-id');
+  const filterTeacherSchool = document.getElementById('filter-teacher-school');
   const filterClassroom = document.getElementById('filter-classroom-select');
   const filterPeriod = document.getElementById('filter-period-select');
 
   // Event Listeners for Filters
   filterTeacherId.addEventListener('change', (e) => {
     state.teacherId = e.target.value.trim() || 'user:prof_mendes';
+    loadCurrentView();
+  });
+
+  filterTeacherSchool.addEventListener('change', (e) => {
+    state.schoolId = e.target.value.trim() || '6f26cd3c-63d5-4509-a041-13714f75e53e';
     loadCurrentView();
   });
 
@@ -916,12 +922,25 @@ document.addEventListener('DOMContentLoaded', () => {
             headers: { 'Authorization': `Bearer ${state.teacherId}` }
           });
           if (!res.ok) throw new Error('Erro ao gerar relatório');
-          const data = await res.json();
+
+          const blob = await res.blob();
+          const disposition = res.headers.get('Content-Disposition') || '';
+          const match = disposition.match(/filename="?([^";]+)"?/);
+          const filename = match ? match[1] : `relatorio.${fmt}`;
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
 
           preview.innerHTML = `
             <div class="alert-banner alert-success">
-              ✅ <strong>${data.title}</strong> gerado com sucesso!
-              <p style="font-size:12px; margin-top:4px;">Arquivo: <code>${data.filename}</code> (${data.content_type})</p>
+              ✅ Relatório gerado e baixado com sucesso!
+              <p style="font-size:12px; margin-top:4px;">Arquivo: <code>${filename}</code></p>
             </div>
           `;
         } catch (err) {
@@ -1575,7 +1594,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderReviewPanel(q) {
     rv.question = q;
-    rv.options = (q.options || []).map((o) => ({ label: o.label, text: o.text }));
+    rv.options = (q.options || []).map((o) => ({ label: o.label, text: o.text, is_correct: !!o.is_correct }));
     rv.currentPage = q.source_page_start || 1;
     document.getElementById('rv-panel').hidden = false;
     document.getElementById('rv-question-number').textContent = q.question_number;
@@ -1608,6 +1627,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderOptions() {
     document.getElementById('rv-options').innerHTML = rv.options.map((o, i) => `
       <div class="rv-option-row" data-idx="${i}">
+        <label class="rv-option-correct-label" title="Marcar como alternativa correta">
+          <input type="radio" name="rv-option-correct" class="rv-option-correct" data-field="is_correct" ${o.is_correct ? 'checked' : ''}>
+          <span class="empty-text">correta</span>
+        </label>
         <input type="text" class="text-input rv-option-label" data-field="label" value="${tmEsc(o.label)}" maxlength="2">
         <input type="text" class="text-input rv-option-text" data-field="text" value="${tmEsc(o.text)}">
         <button class="btn btn-link" type="button" data-rv-remove-option="${i}">Remover</button>
@@ -1619,6 +1642,7 @@ document.addEventListener('DOMContentLoaded', () => {
     rv.options = Array.from(rows).map((row) => ({
       label: row.querySelector('[data-field="label"]').value.trim(),
       text: row.querySelector('[data-field="text"]').value.trim(),
+      is_correct: row.querySelector('[data-field="is_correct"]').checked,
     }));
     return rv.options;
   }
@@ -1727,7 +1751,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addOptionBtn = document.getElementById('rv-add-option');
     if (addOptionBtn) addOptionBtn.addEventListener('click', () => {
       readOptionsFromDom();
-      rv.options.push({ label: '', text: '' });
+      rv.options.push({ label: '', text: '', is_correct: false });
       renderOptions();
     });
     const optionsWrap = document.getElementById('rv-options');

@@ -128,8 +128,40 @@ class VideoDiscoveryServiceCoverageTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(candidates), 1)
             self.assertEqual(candidates[0].status, CandidateStatus.PENDING_REVIEW)
-            # never a fabricated confidence for a classification that failed
-            self.assertEqual(candidates[0].classification_confidence, 0)
+            # Never a fabricated confidence for a classification that failed.
+            # This used to assert `== 0`, which was itself a fabricated
+            # stand-in value (Decimal("0.0000") looks like a real computed
+            # low-confidence score, not "classification never completed").
+            # The honest value is None: no classification result exists for
+            # this candidate at all.
+            self.assertIsNone(candidates[0].classification_confidence)
+            self.assertIsNone(candidates[0].recommended_difficulty)
+
+    # -- lines 238-239, 260-261: discover_candidates() called WITHOUT a
+    #    classifier (this is what the real discovery route does today - it
+    #    never passes `classifier`) must not fabricate a
+    #    classification_confidence of 0.0000 / a recommended_difficulty of
+    #    "EASY" that looks like a real computed classification. No
+    #    classification ran at all, so both fields must honestly reflect
+    #    "not classified" (None - the column is nullable for exactly this
+    #    reason, see ExternalVideoCandidate.classification_confidence /
+    #    .recommended_difficulty in db/models/discovery.py). status staying
+    #    PENDING_REVIEW is correct and unchanged: an unclassified candidate
+    #    genuinely needs human review.
+    async def test_discover_candidates_without_classifier_leaves_classification_fields_honestly_empty(self):
+        async with self.session_factory() as session:
+            content_id = await self.seed_catalog(session)
+            service = VideoDiscoveryService(session)
+            provider = MockVideoDiscoveryProvider(candidates=[
+                {"source": "YOUTUBE", "external_id": "no_classifier_1", "title": "T", "url": "https://yt/no_classifier_1"},
+            ])
+            candidates = await service.discover_candidates(
+                content_node_id=content_id, providers=[provider],
+            )
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0].status, CandidateStatus.PENDING_REVIEW)
+            self.assertIsNone(candidates[0].classification_confidence)
+            self.assertIsNone(candidates[0].recommended_difficulty)
 
     # -- line 324: review_candidate rejects an action that is neither
     #    APPROVE nor REJECT.

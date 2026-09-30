@@ -62,6 +62,93 @@ def _reconstruct_text_from_tokens(tokens: tuple) -> str:
     return "".join(buf)
 
 
+def _prepare_reconciliation_precheck(tokens: tuple, threshold: float) -> tuple | None:
+    """Runs on the FIRST reading alone (no second call needed yet) to decide
+    whether reconciliation is worth attempting at all - returns None to skip
+    it entirely (no word spans, or no word actually below `threshold`).
+    Split out from `_apply_reconciliation` so `_ocr_page`'s hot path never
+    calls the transcriber a second time only to discover there was nothing
+    to check."""
+    if not any(t.confidence < threshold for t in tokens):
+        return None
+    text1 = _reconstruct_text_from_tokens(tokens)
+    word_spans1 = [m.span() for m in re.finditer(r"\S+", text1)]
+    if not word_spans1:
+        return None
+
+    def _is_low_confidence(span: tuple[int, int]) -> bool:
+        start, end = span
+        return any(
+            t.confidence < threshold and t.start < end and t.end > start for t in tokens
+        )
+
+    low_confidence_word_indices = {
+        i for i, span in enumerate(word_spans1) if _is_low_confidence(span)
+    }
+    if not low_confidence_word_indices:
+        return None
+    return text1, word_spans1, low_confidence_word_indices
+
+
+def _apply_reconciliation(
+    tokens: tuple, precheck: tuple, second_tokens: tuple, reconciled_confidence: float
+) -> tuple:
+    """Pure CPU work (word alignment + rebuild), run off the event loop via
+    asyncio.to_thread by the caller - see essay_submission.py's own
+    _measure_page_image/_split_pdf_pages for the established pattern this
+    follows.
+
+    Comparison happens at WORD granularity, not raw token, because `tokens`
+    are raw model generation tokens (sub-word BPE pieces from OpenAI's own
+    tokenizer - see adapters/openai.py::_tokens_from_logprobs), which can
+    split differently between two calls even for the same word; text-level
+    word alignment via difflib is robust to that, where token-index
+    alignment would not be.
+
+    A word only counts as confirmed when it sits inside a matching block of
+    at least 2 consecutive words, never a single isolated word matching in
+    both readings alone - confirmed live 2026-09-27: two genuinely
+    UNRELATED readings agree on short/common words (articles, prepositions)
+    often enough by pure chance that a single-word match is weak evidence,
+    while a real independent re-read reproducing two or more words in a row
+    is not. Where the two reads disagree (or never get a long-enough
+    matching block), that word's original confidence is left untouched -
+    the explicit product decision (see OCR_DUVIDOSO in essay_prompts) is
+    that a genuine ambiguity is surfaced to a human, never silently
+    resolved by picking whichever reading "sounds more correct"."""
+    text1, word_spans1, low_confidence_word_indices = precheck
+    text2 = _reconstruct_text_from_tokens(second_tokens)
+    words1 = [text1[s:e] for s, e in word_spans1]
+    words2 = [m.group(0) for m in re.finditer(r"\S+", text2)]
+
+    agreeing_word_indices: set[int] = set()
+    matcher = difflib.SequenceMatcher(None, words1, words2, autojunk=False)
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        if tag == "equal" and (i2 - i1) >= 2:
+            agreeing_word_indices.update(range(i1, i2))
+
+    reconciled_confirmed_spans = [
+        word_spans1[i] for i in (low_confidence_word_indices & agreeing_word_indices)
+    ]
+    if not reconciled_confirmed_spans:
+        return tokens
+
+    def _in_confirmed_span(t: EssayOcrToken) -> bool:
+        return any(t.start < end and t.end > start for start, end in reconciled_confirmed_spans)
+
+    return tuple(
+        EssayOcrToken(
+            text=t.text,
+            # max(): a token that was already above the reconciled floor
+            # (e.g. a confident token sharing a word with a low-confidence
+            # neighbor) must never be pulled DOWN by this - only ever up.
+            confidence=max(t.confidence, reconciled_confidence) if _in_confirmed_span(t) else t.confidence,
+            start=t.start, end=t.end,
+        )
+        for t in tokens
+    )
+
+
 class EssayResubmissionBlockedError(RuntimeError):
     """AVALIATIVO: a SUBMITTED essay is definitive and cannot be resubmitted
     (spec §5.4). Mapped to 409 in the route, not 422 - this is a conflict
@@ -260,6 +347,8 @@ class EssaySubmissionService:
             existing.height = height
             existing.ocr_tokens = None
             existing.reviewed_text = None
+            existing.input_tokens = None
+            existing.output_tokens = None
             page = existing
         else:
             page = EssaySubmissionPage(
@@ -358,6 +447,13 @@ class EssaySubmissionService:
         last_error: ProviderError | None = None
         best_tokens: tuple | None = None
         best_average_confidence = -1.0
+        # Summed across every actual OpenAI call this page triggers - a
+        # retried or low-confidence-reattempted page really did cost the sum
+        # of all those attempts, not just whichever one is finally kept.
+        # None until at least one attempt reports real usage, so a provider
+        # that never reports usage never masquerades as a real zero-cost page.
+        total_input_tokens: int | None = None
+        total_output_tokens: int | None = None
         for attempt in range(1, self._OCR_ATTEMPTS + 1):
             try:
                 result = await self._get_transcriber().transcribe_page(
@@ -365,6 +461,10 @@ class EssaySubmissionService:
                         image_path=image_path, mime_type=_guess_mime(image_path)
                     )
                 )
+                if result.input_tokens is not None:
+                    total_input_tokens = (total_input_tokens or 0) + result.input_tokens
+                if result.output_tokens is not None:
+                    total_output_tokens = (total_output_tokens or 0) + result.output_tokens
                 tokens = result.tokens
                 average_confidence = (
                     sum(t.confidence for t in tokens) / len(tokens) if tokens else 0.0
@@ -373,7 +473,10 @@ class EssaySubmissionService:
                     best_tokens = tokens
                     best_average_confidence = average_confidence
                 if average_confidence >= self._MIN_AVERAGE_CONFIDENCE:
-                    await self._finalize_page_tokens(page, tokens, image_path)
+                    await self._finalize_page_tokens(
+                        page, tokens, image_path, total_input_tokens, total_output_tokens,
+                        allow_reconciliation=True,
+                    )
                     return
                 logger.warning(
                     "transcription attempt %d/%d for page %s scored low average "
@@ -389,64 +492,85 @@ class EssaySubmissionService:
         # Every attempt scored below the floor (or errored): the explicit
         # product decision is to always transcribe regardless of quality, so
         # a low-confidence result still beats no result at all - use
-        # whichever attempt scored best rather than whichever ran last.
+        # whichever attempt scored best rather than whichever ran last. The
+        # token totals still reflect EVERY attempt made, not just the kept one.
+        # Reconciliation is skipped here (allow_reconciliation=False): every
+        # attempt already failed the page-average floor, so the whole page
+        # is already headed for the student's hand-review screen regardless
+        # - paying a 4th vision call to fix one or two words on an
+        # already-unreliable page is not worth the extra cost/latency
+        # (confirmed live 2026-09-27: this path can already mean 3 calls for
+        # ONE page; a 20-page PDF hitting it repeatedly risks the whole
+        # upload_document request timing out).
         if best_tokens is not None:
-            await self._finalize_page_tokens(page, best_tokens, image_path)
+            await self._finalize_page_tokens(
+                page, best_tokens, image_path, total_input_tokens, total_output_tokens,
+                allow_reconciliation=False,
+            )
             return
         raise last_error
 
     async def _finalize_page_tokens(
-        self, page: EssaySubmissionPage, tokens: tuple, image_path: Path
+        self, page: EssaySubmissionPage, tokens: tuple, image_path: Path,
+        total_input_tokens: int | None, total_output_tokens: int | None,
+        *, allow_reconciliation: bool,
     ) -> None:
-        reconciled = await self._reconcile_low_confidence_tokens(tokens, image_path)
+        # Persisted from the FIRST reading immediately, before attempting
+        # reconciliation - if reconciliation raises anything unexpected
+        # (only ProviderError is caught below; a genuine bug or a
+        # cancellation is not), a perfectly good, already-paid-for reading
+        # is never lost along with it.
         page.ocr_tokens = [
             {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
-            for t in reconciled
+            for t in tokens
         ]
+        page.input_tokens = total_input_tokens
+        page.output_tokens = total_output_tokens
+        if not allow_reconciliation:
+            return
+
+        reconciled, extra_input_tokens, extra_output_tokens = (
+            await self._reconcile_low_confidence_tokens(tokens, image_path)
+        )
+        if extra_input_tokens is not None:
+            page.input_tokens = (page.input_tokens or 0) + extra_input_tokens
+        if extra_output_tokens is not None:
+            page.output_tokens = (page.output_tokens or 0) + extra_output_tokens
+        if reconciled is not tokens:
+            page.ocr_tokens = [
+                {"text": t.text, "confidence": t.confidence, "start": t.start, "end": t.end}
+                for t in reconciled
+            ]
 
     async def _reconcile_low_confidence_tokens(
         self, tokens: tuple, image_path: Path
-    ) -> tuple:
+    ) -> tuple[tuple, int | None, int | None]:
         """A second, fully independent transcription of the SAME page,
         requested ONLY when `tokens` has at least one low-confidence entry -
         every other page never pays this extra call. The second reading is
         never shown the first one's text (no anchoring: it is exactly the
         same request `_ocr_page` already makes), so an agreement between the
         two is real independent evidence, not the second model just
-        confirming what it was told. Comparison happens at WORD granularity
-        because `tokens` are raw model generation tokens (sub-word BPE
-        pieces from OpenAI's own tokenizer - see
-        adapters/openai.py::_tokens_from_logprobs), which can split
-        differently between two calls even for the same word; text-level
-        word alignment via difflib is robust to that, where token-index
-        alignment would not be.
+        confirming what it was told.
 
-        Where the two reads disagree on a word, that word's original
-        confidence is left untouched - the explicit product decision (see
-        OCR_DUVIDOSO in essay_prompts) is that a genuine ambiguity is
-        surfaced to a human, never silently resolved by picking whichever
-        reading "sounds more correct"."""
+        Returns (tokens, input_tokens, output_tokens): the last two are the
+        SECOND call's own usage (None when no second call was made, e.g. no
+        low-confidence tokens at all) - the caller adds this to the page's
+        running total, since a reconciliation attempt costs real tokens
+        whether or not it ends up confirming anything."""
         if not any(t.confidence < self._LOW_CONFIDENCE_TOKEN_THRESHOLD for t in tokens):
-            return tokens
+            return tokens, None, None
 
-        text1 = _reconstruct_text_from_tokens(tokens)
-        word_spans1 = [m.span() for m in re.finditer(r"\S+", text1)]
-        if not word_spans1:
-            return tokens
-
-        def _is_low_confidence(span: tuple[int, int]) -> bool:
-            start, end = span
-            return any(
-                t.confidence < self._LOW_CONFIDENCE_TOKEN_THRESHOLD
-                and t.start < end and t.end > start
-                for t in tokens
-            )
-
-        low_confidence_word_indices = {
-            i for i, span in enumerate(word_spans1) if _is_low_confidence(span)
-        }
-        if not low_confidence_word_indices:
-            return tokens
+        # The word-splitting/diff/rebuild below is pure CPU work (confirmed
+        # live 2026-09-27: 126-510ms for a dense handwritten page) - run off
+        # the event loop, matching _measure_page_image/_split_pdf_pages'
+        # existing asyncio.to_thread pattern, so one slow page never stalls
+        # every other concurrent request this server is handling.
+        precheck = await asyncio.to_thread(
+            _prepare_reconciliation_precheck, tokens, self._LOW_CONFIDENCE_TOKEN_THRESHOLD
+        )
+        if precheck is None:
+            return tokens, None, None
 
         try:
             second_result = await self._get_transcriber().transcribe_page(
@@ -459,39 +583,13 @@ class EssaySubmissionService:
                 "low-confidence reconciliation read failed for %s, keeping "
                 "original tokens: %s", image_path, exc,
             )
-            return tokens
+            return tokens, None, None
 
-        text2 = _reconstruct_text_from_tokens(second_result.tokens)
-        words1 = [text1[s:e] for s, e in word_spans1]
-        words2 = [m.group(0) for m in re.finditer(r"\S+", text2)]
-
-        agreeing_word_indices: set[int] = set()
-        matcher = difflib.SequenceMatcher(None, words1, words2, autojunk=False)
-        for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
-            if tag == "equal":
-                agreeing_word_indices.update(range(i1, i2))
-
-        reconciled_confirmed_spans = [
-            word_spans1[i] for i in (low_confidence_word_indices & agreeing_word_indices)
-        ]
-        if not reconciled_confirmed_spans:
-            return tokens
-
-        def _in_confirmed_span(t: EssayOcrToken) -> bool:
-            return any(t.start < end and t.end > start for start, end in reconciled_confirmed_spans)
-
-        return tuple(
-            EssayOcrToken(
-                text=t.text,
-                # max(): a token that was already above the reconciled floor
-                # (e.g. a confident token sharing a word with a low-confidence
-                # neighbor) must never be pulled DOWN by this - only ever up.
-                confidence=max(t.confidence, self._RECONCILED_TOKEN_CONFIDENCE)
-                if _in_confirmed_span(t) else t.confidence,
-                start=t.start, end=t.end,
-            )
-            for t in tokens
+        reconciled = await asyncio.to_thread(
+            _apply_reconciliation, tokens, precheck, second_result.tokens,
+            self._RECONCILED_TOKEN_CONFIDENCE,
         )
+        return reconciled, second_result.input_tokens, second_result.output_tokens
 
     def _get_transcriber(self) -> EssayTranscriptionProvider:
         if self._transcriber is None:

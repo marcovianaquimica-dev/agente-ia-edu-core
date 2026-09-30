@@ -325,9 +325,20 @@ def parse_authorial_text(filepath: Path) -> ParsedDocument:
             )
             sections.append(current)
 
+    # exercises: same technique as parse_authorial_pdf's _make_section - join
+    # each section's own content_lines back into one text blob and scan the
+    # WHOLE thing for numbered items. This ADDS a ParsedQuestion per item
+    # found; it never removes the exercise's text from content_lines (the
+    # exercise stays visible as ordinary prose too - the same dualism
+    # parse_authorial_pdf already has).
+    questions: list[ParsedQuestion] = []
+    for section in sections:
+        body = re.sub(r"\s+", " ", " ".join(section.content_lines))
+        _flush_exercises(body, section.position, questions)
+
     return ParsedDocument(
         filename=filepath.name, document_hash=document_hash, title=title, author=None,
-        page_count=None, sections=sections, questions=[], total_images=0, total_tables=0, assets=[],
+        page_count=None, sections=sections, questions=questions, total_images=0, total_tables=0, assets=[],
     )
 
 

@@ -43,6 +43,23 @@ _COLUMN_GAP_THRESHOLD = 30.0
 _MIN_LINES_PER_COLUMN = 3
 _MIN_Y_OVERLAP_RATIO = 0.3
 
+# Minimum fraction (of the SHORTER line's own height) that two lines' y
+# extents must overlap by to be treated as the same visual row when
+# breaking reading-order ties. Real PDFs routinely draw two side-by-side
+# fragments (e.g. two answer-option labels) as independently-positioned
+# text spans that are visually on the exact same baseline but whose y0
+# differs by a sub-pixel amount (found live on a real UERJ exam page:
+# "(A)" at y0=239.9367 vs "(B)" at y0=239.9316, both ~13pt tall - a
+# ~0.005pt difference, invisible to the eye, but enough to flip a naive
+# (y0, x0) sort and swap the two labels' order). A plain numeric y0
+# tolerance would need re-tuning per document (font size varies), so this
+# compares actual bounding-box OVERLAP instead, which scales with each
+# line's own height. 0.5 safely covers same-row jitter (near-total
+# overlap, as in the UERJ case) while never merging two genuinely
+# different physical lines, whose y-extents normally do not overlap at
+# all once separated by real line spacing.
+_ROW_OVERLAP_RATIO = 0.5
+
 # A genuine column gutter is a vertical strip no line of running text ever
 # crosses - real prose wraps within its own column, never past the gutter.
 # How much a genuine gutter's own lines overshoot past its midpoint varies
@@ -658,6 +675,34 @@ def detect_repeated_page_artifacts(
     return {text for text, pages_seen in margin_hits.items() if len(pages_seen) >= _MIN_ARTIFACT_PAGES}
 
 
+def _row_sorted(lines: list[TextLine]) -> list[TextLine]:
+    """Top-to-bottom, x as tie-break - but the tie-break is ROW-aware, not
+    a raw y0 comparison: lines whose vertical extents overlap by at least
+    ``_ROW_OVERLAP_RATIO`` of the shorter one's height are the same visual
+    row and are ordered by x0 amongst themselves, even when their exact
+    y0 values differ by a sub-pixel jitter (see ``_ROW_OVERLAP_RATIO``)."""
+    by_y0 = sorted(lines, key=lambda ln: (ln.y0, ln.x0))
+    rows: list[list[TextLine]] = []
+    for ln in by_y0:
+        height = ln.y1 - ln.y0
+        placed = False
+        if rows:
+            row = rows[-1]
+            row_top = min(other.y0 for other in row)
+            row_bottom = max(other.y1 for other in row)
+            overlap = min(ln.y1, row_bottom) - max(ln.y0, row_top)
+            shortest = min(height, min(other.y1 - other.y0 for other in row))
+            if shortest > 0 and overlap / shortest >= _ROW_OVERLAP_RATIO:
+                row.append(ln)
+                placed = True
+        if not placed:
+            rows.append([ln])
+    ordered: list[TextLine] = []
+    for row in rows:
+        ordered.extend(sorted(row, key=lambda ln: ln.x0))
+    return ordered
+
+
 def _reading_order(page_lines: list[TextLine], *, use_column_detection: bool,
                    page_width: float | None = None) -> tuple[list[TextLine], bool]:
     """Default: top-to-bottom, x as tie-break - safe for both single-column
@@ -667,10 +712,10 @@ def _reading_order(page_lines: list[TextLine], *, use_column_detection: bool,
     if use_column_detection:
         split_x = detect_two_column_layout(page_lines, page_width=page_width)
         if split_x is not None:
-            left = sorted((ln for ln in page_lines if ln.x0 < split_x), key=lambda ln: (ln.y0, ln.x0))
-            right = sorted((ln for ln in page_lines if ln.x0 >= split_x), key=lambda ln: (ln.y0, ln.x0))
+            left = _row_sorted([ln for ln in page_lines if ln.x0 < split_x])
+            right = _row_sorted([ln for ln in page_lines if ln.x0 >= split_x])
             return left + right, True
-    return sorted(page_lines, key=lambda ln: (ln.y0, ln.x0)), False
+    return _row_sorted(page_lines), False
 
 
 def extract_structure(pdf_path: Path, *, use_column_detection: bool = False) -> DocumentStructure:

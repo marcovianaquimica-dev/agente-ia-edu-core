@@ -137,6 +137,20 @@ test('visual dependency messaging matches the required copy and never fabricates
   assert.doesNotMatch(js, /placeholder-image|reconstruct|inferFigure|generateImage/i);
 });
 
+test('PHASE 33 - classification evidence and evidence_uri are rendered in the preview, not just fetched', () => {
+  const bankPreview = js.match(/function renderPreview\(q\)[\s\S]*?\n  \}\n/);
+  assert.ok(bankPreview, 'renderPreview not found');
+  const body = bankPreview[0];
+  // evidence is an array of arbitrary-shaped objects computed server-side -
+  // render whatever keys/values exist, never a hardcoded/synthetic string
+  assert.match(body, /c\.evidence/);
+  assert.match(body, /formatEvidence/);
+  assert.match(js, /function formatEvidence\(e\)/);
+  // the booklet provenance pointer (QuestionBankItem.evidence_uri) is shown too
+  assert.match(body, /q\.evidence_uri/);
+  assert.doesNotMatch(body, /evidence_uri\s*\?\s*['"`]s3:\/\//); // never a hardcoded fixture value
+});
+
 test('selection is client-side only, counter is persistent, and clearing works', () => {
   assert.match(html, /id="qb-selection-count"/);
   assert.match(js, /Questões selecionadas: \$\{n\}/);

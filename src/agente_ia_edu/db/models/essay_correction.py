@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -92,6 +93,18 @@ class EssayCorrection(Base):
     final_feedback: Mapped[dict[str, Any] | None] = mapped_column(JSONBCompatible)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING_REVIEW")
     failure_reason: Mapped[str | None] = mapped_column(Text)
+    # Real LLM token usage for the AI call that produced this row's
+    # ai_output. Nullable, and NULL in more cases than just "no call was
+    # ever made": the adapter only returns usage alongside a successful
+    # result object (see providers/adapters/openai.py), so any call that
+    # raises - a timeout, a refusal, malformed JSON, a rejected
+    # essay_engine_contract shape - loses its usage at that exception
+    # boundary even though the provider may have already been billed for
+    # it. This column is a lower bound on real cost, not an exact one.
+    # Never fabricated when a provider doesn't report usage at all (see
+    # TextGenerationResult's docstring in providers/models.py).
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
     reviewed_by_external_identity: Mapped[str | None] = mapped_column(String(255))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

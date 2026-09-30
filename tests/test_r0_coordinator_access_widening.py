@@ -12,12 +12,14 @@ denies everything specific.
 
 import unittest
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import School
+from agente_ia_edu.db.models import School, TeachingLesson
+from agente_ia_edu.db.models.academic import AcademicYear, Class, GradeLevel, Segment
 from agente_ia_edu.services.admin import AdminRole, AdminScopeType, PlatformAdminService
 from agente_ia_edu.services.coordination_portal import CoordinationPortalService
 from agente_ia_edu.services.teaching_context import ScopeAuthorizationError
@@ -208,8 +210,9 @@ class CoordinatorAccessWideningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(classrooms, [])
 
     async def test_a_global_coordinator_still_sees_every_classroom(self):
-        """is_global must keep reaching the TeachingLesson query and its
-        TURMA_3A/3B fallback - that half of the function is correct and stays."""
+        """is_global must keep reaching the TeachingLesson query - that half
+        of the function is correct and stays. It must return the classroom
+        actually taught (from TeachingLesson), not an invented name."""
         async with self.session_factory() as session:
             school = await self._school(session, "6")
             admin = PlatformAdminService(session)
@@ -220,12 +223,89 @@ class CoordinatorAccessWideningTests(unittest.IsolatedAsyncioTestCase):
                 scope_type=AdminScopeType.SCHOOL,
                 school_id=school.id,
             )
+            session.add(TeachingLesson(
+                id=uuid.uuid4(),
+                school_id=school.id,
+                classroom_id="TAUGHT-REAL",
+                teacher_id="teacher-x",
+                content_node_id=uuid.uuid4(),
+                lesson_date=datetime.now(timezone.utc),
+            ))
+            await session.commit()
 
             portal = CoordinationPortalService(session, None, None, None, None)
             classrooms = await portal._resolve_scope_classrooms(
                 "coord-global-2", school.id
             )
-        self.assertEqual(classrooms, ["TURMA_3A", "TURMA_3B"])
+        self.assertEqual(classrooms, ["TAUGHT-REAL"])
+        self.assertNotIn("TURMA_3A", classrooms)
+        self.assertNotIn("TURMA_3B", classrooms)
+
+    async def test_a_global_coordinator_sees_the_schools_real_class_rows(self):
+        """The exact reported production bug: a coordinator with SCHOOL-wide
+        access, no TeachingLesson history yet, and no CLASSROOM-scoped
+        UserSchoolLink either - but the school DOES have real Class rows
+        (the R0 academic hierarchy). The coordinator must see those real
+        classrooms, never the ["TURMA_3A", "TURMA_3B"] demo placeholder."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "9")
+            segment = Segment(id=uuid.uuid4(), school_id=school.id, name="segment", external_id="SEG-9")
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                name="grade", external_id="GRADE-9",
+            )
+            year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-9")
+            session.add_all([grade, year])
+            await session.flush()
+            turma_a = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma A", external_id="1EM_A",
+            )
+            turma_b = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="Turma B", external_id="1EM_B",
+            )
+            session.add_all([turma_a, turma_b])
+            await session.commit()
+
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-real-classes",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            classrooms = await portal._resolve_scope_classrooms(
+                "coord-real-classes", school.id
+            )
+        self.assertEqual(set(classrooms), {"1EM_A", "1EM_B"})
+        self.assertNotIn("TURMA_3A", classrooms)
+        self.assertNotIn("TURMA_3B", classrooms)
+
+    async def test_a_global_coordinator_in_a_genuinely_empty_school_sees_no_classrooms(self):
+        """No TeachingLesson, no CLASSROOM-scoped link, no real Class row at
+        all: the honest answer is an empty list, never a fabricated one."""
+        async with self.session_factory() as session:
+            school = await self._school(session, "10")
+            admin = PlatformAdminService(session)
+            await admin.link_user_to_school(
+                performed_by_external_id="setup",
+                external_user_id="coord-empty-school",
+                role=AdminRole.COORDINATOR,
+                scope_type=AdminScopeType.SCHOOL,
+                school_id=school.id,
+            )
+
+            portal = CoordinationPortalService(session, None, None, None, None)
+            classrooms = await portal._resolve_scope_classrooms(
+                "coord-empty-school", school.id
+            )
+        self.assertEqual(classrooms, [])
 
 
 if __name__ == "__main__":

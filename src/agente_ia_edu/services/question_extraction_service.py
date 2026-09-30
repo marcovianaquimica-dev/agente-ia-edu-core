@@ -433,6 +433,7 @@ class QuestionExtractionService:
                 self._session.add(ExtractedQuestionOption(
                     question_id=question.id, label=str(opt["label"]).upper(),
                     text=str(opt["text"]), position=i,
+                    is_correct=bool(opt.get("is_correct", False)),
                 ))
             record_review_event(question, event="OPTIONS_EDIT", actor=reviewed_by,
                           detail={"option_count": len(options)})
@@ -483,6 +484,15 @@ class QuestionExtractionService:
                 errors.append("Alternativas duplicadas.")
             if any(not (o.text or "").strip() for o in options):
                 errors.append("Existe alternativa com texto vazio.")
+            # migration 051 bugfix: without this, publish_run had nothing to
+            # copy into the official QuestionOption.is_valid_option, and
+            # that column's default (True) silently marked every option of
+            # every published question "correct" instead of exactly one.
+            correct_count = sum(1 for o in options if o.is_correct)
+            if correct_count == 0:
+                errors.append("Nenhuma alternativa marcada como correta.")
+            elif correct_count > 1:
+                errors.append("Mais de uma alternativa marcada como correta.")
         return errors
 
     async def approve_question(self, question_id: UUID, *, reviewed_by: str) -> ExtractedQuestion:

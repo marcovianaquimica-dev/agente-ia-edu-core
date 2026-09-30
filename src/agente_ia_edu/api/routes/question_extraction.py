@@ -45,6 +45,7 @@ class RunExtractionRequest(BaseModel):
 class OptionInput(BaseModel):
     label: str = Field(max_length=2)
     text: str = Field(max_length=4000)
+    is_correct: bool = False
 
 
 class UpdateQuestionRequest(BaseModel):
@@ -161,7 +162,8 @@ def _question_to_dict(q: ExtractedQuestion, *, with_options: bool = False, with_
         "published_version_id": str(q.published_version_id) if q.published_version_id else None,
     }
     if with_options:
-        out["options"] = [{"label": o.label, "text": o.text} for o in sorted(q.options, key=lambda o: o.position)]
+        out["options"] = [{"label": o.label, "text": o.text, "is_correct": o.is_correct}
+                          for o in sorted(q.options, key=lambda o: o.position)]
     if with_assets:
         out["assets"] = [
             {"id": str(a.id), "asset_type": a.asset_type, "source_page": a.source_page,

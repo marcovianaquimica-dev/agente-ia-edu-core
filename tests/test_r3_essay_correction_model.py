@@ -145,6 +145,44 @@ class EssayCorrectionModelTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.correction_key)
             self.assertIsNone(correction.model_version)
 
+    async def test_token_usage_columns_round_trip(self):
+        """input_tokens/output_tokens default to NULL (a failure before any
+        model responded) and accept plain integers (a successful AI call) -
+        see _run_ai in services/essay_correction.py."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "6")
+            correction = EssayCorrection(
+                id=uuid.uuid4(), school_id=submission.school_id,
+                essay_submission_id=submission.id, correction_key="k" * 64,
+                rubric_version="ENEM_2025", model_version="gpt-4o-mini",
+                prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                ai_output={"scores": None}, status="PENDING_REVIEW",
+                input_tokens=5000, output_tokens=650,
+            )
+            session.add(correction)
+            await session.commit()
+
+            fetched = await session.get(EssayCorrection, correction.id)
+            self.assertEqual(fetched.input_tokens, 5000)
+            self.assertEqual(fetched.output_tokens, 650)
+
+    async def test_token_usage_columns_default_to_null(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "7")
+            correction = EssayCorrection(
+                id=uuid.uuid4(), school_id=submission.school_id,
+                essay_submission_id=submission.id, correction_key=None,
+                rubric_version="ENEM_2025", model_version=None,
+                prompt_version="essay_correction_v1", engine_version="r3_correction_engine_v1",
+                ai_output=None, status="NEEDS_REVIEW", failure_reason="provider timeout",
+            )
+            session.add(correction)
+            await session.commit()
+
+            fetched = await session.get(EssayCorrection, correction.id)
+            self.assertIsNone(fetched.input_tokens)
+            self.assertIsNone(fetched.output_tokens)
+
     async def test_one_correction_per_submission(self):
         async with self.session_factory() as session:
             submission = await self._submission(session, "4")

@@ -23,6 +23,11 @@ document.addEventListener('DOMContentLoaded', () => {
     schoolUniverse: null,       // this school's SCHOOL-owned PedagogicalUniverse, or null
     schoolUniverseScopes: [],   // that universe's current catalog scopes
     platformPrompts: [],        // propostas de redacao da plataforma (cross-escola)
+    auditLogs: [],
+    auditLimit: 20,
+    auditOffset: 0,
+    auditSchoolFilter: '',
+    auditActionFilter: '',
   };
 
   const $ = (id) => document.getElementById(id);
@@ -81,6 +86,11 @@ document.addEventListener('DOMContentLoaded', () => {
     SCHOOL: 'Escola (toda)', UNIT: 'Unidade', SEGMENT: 'Segmento',
     GRADE_LEVEL: 'Série', CLASSROOM: 'Turma', PLATFORM: 'Plataforma',
   };
+  const AUDIT_ACTION_LABELS = {
+    SCHOOL_CREATED: 'Escola criada', SCHOOL_UPDATED: 'Escola atualizada',
+    MODULE_ENABLED: 'Módulo ativado', MODULE_DISABLED: 'Módulo desativado',
+    USER_LINKED: 'Usuário vinculado', USER_UNLINKED: 'Usuário desvinculado',
+  };
 
   // ---------- Schools list ----------
 
@@ -95,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(await errorDetail(res));
       state.schools = await res.json();
       renderSchools();
+      populateAuditSchoolFilter();
     } catch (err) {
       container.innerHTML = '<p class="empty-text">Não foi possível carregar as escolas.</p>';
     }
@@ -607,6 +618,86 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // ---------- Audit log (AdminAuditLog trail: GET /api/v1/admin/audit) ----------
+
+  function populateAuditSchoolFilter() {
+    const select = $('audit-filter-school');
+    const current = select.value;
+    select.innerHTML = '<option value="">Todas as escolas</option>' +
+      state.schools.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    select.value = current;
+  }
+
+  async function loadAuditLogs() {
+    const container = $('audit-list');
+    container.innerHTML = '<p class="empty-text">Carregando registros de auditoria…</p>';
+    const params = new URLSearchParams();
+    if (state.auditSchoolFilter) params.set('school_id', state.auditSchoolFilter);
+    if (state.auditActionFilter) params.set('action', state.auditActionFilter);
+    params.set('limit', state.auditLimit);
+    params.set('offset', state.auditOffset);
+    try {
+      const res = await fetch(`${API}/audit?${params.toString()}`, { headers: authHeaders() });
+      if (res.status === 403) {
+        container.innerHTML = '<p class="empty-text">Acesso negado — este usuário não tem papel de Administrador da Plataforma.</p>';
+        return;
+      }
+      if (!res.ok) throw new Error(await errorDetail(res));
+      state.auditLogs = await res.json();
+      renderAuditLogs();
+    } catch (err) {
+      container.innerHTML = '<p class="empty-text">Não foi possível carregar os registros de auditoria.</p>';
+    }
+  }
+
+  function renderAuditLogs() {
+    const container = $('audit-list');
+    const logs = state.auditLogs;
+    if (!logs.length) {
+      container.innerHTML = '<p class="empty-text">Nenhum registro de auditoria encontrado.</p>';
+    } else {
+      container.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>Data/Hora</th><th>Ação</th><th>Ator</th><th>Escola</th><th>Detalhes</th></tr></thead>
+          <tbody>
+            ${logs.map((l) => {
+              const school = state.schools.find((s) => s.id === l.school_id);
+              const schoolLabel = school ? esc(school.name) : (l.school_id ? esc(l.school_id) : '<span class="empty-text">—</span>');
+              const hasDetails = l.metadata && Object.keys(l.metadata).length;
+              const details = hasDetails ? esc(JSON.stringify(l.metadata)) : '<span class="empty-text">—</span>';
+              return `
+              <tr>
+                <td>${formatDate(l.created_at)}</td>
+                <td>${esc(AUDIT_ACTION_LABELS[l.action] || l.action)}</td>
+                <td>${esc(l.performed_by_external_id)}</td>
+                <td>${schoolLabel}</td>
+                <td class="admin-audit-details">${details}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    }
+    $('audit-page-info').textContent = `Página ${Math.floor(state.auditOffset / state.auditLimit) + 1}`;
+    $('btn-audit-prev').disabled = state.auditOffset === 0;
+    $('btn-audit-next').disabled = logs.length < state.auditLimit;
+  }
+
+  $('btn-audit-filter').addEventListener('click', () => {
+    state.auditSchoolFilter = $('audit-filter-school').value;
+    state.auditActionFilter = $('audit-filter-action').value;
+    state.auditOffset = 0;
+    loadAuditLogs();
+  });
+  $('btn-audit-prev').addEventListener('click', () => {
+    if (state.auditOffset === 0) return;
+    state.auditOffset = Math.max(0, state.auditOffset - state.auditLimit);
+    loadAuditLogs();
+  });
+  $('btn-audit-next').addEventListener('click', () => {
+    state.auditOffset += state.auditLimit;
+    loadAuditLogs();
+  });
+
   // ---------- Identity ----------
 
   $('admin-identity-id').addEventListener('change', (e) => {
@@ -615,10 +706,13 @@ document.addEventListener('DOMContentLoaded', () => {
     state.selectedSchool = null;
     state.schoolUniverse = null;
     state.schoolUniverseScopes = [];
+    state.auditOffset = 0;
     loadSchools();
     loadPlatformPrompts();
+    loadAuditLogs();
   });
 
   loadSchools();
   loadPlatformPrompts();
+  loadAuditLogs();
 });

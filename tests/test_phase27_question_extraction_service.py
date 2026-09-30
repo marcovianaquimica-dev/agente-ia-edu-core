@@ -175,7 +175,10 @@ class Phase27ServiceTests(unittest.TestCase):
                 q = questions[0]
                 # force through VALIDATED via an edit even if flagged REVIEW_REQUIRED
                 edited = await svc.update_question(
-                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 approved = await svc.approve_question(q.id, reviewed_by="prof_a")
                 approved_status = approved.review_status  # ORM object is mutated in place below
                 result1 = await pub.publish_run(run1.id, published_by="prof_a", school_id=_SCHOOL_A)
@@ -237,7 +240,10 @@ class Phase27ServiceTests(unittest.TestCase):
                 questions = await svc.list_questions(run1.id)
                 for q in questions:
                     await svc.update_question(
-                        q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                        q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                        options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                                 {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                    )
                     await svc.approve_question(q.id, reviewed_by="prof_a")
                 result = await pub.publish_run(run1.id, published_by="prof_a", school_id=_SCHOOL_A)
 
@@ -447,7 +453,10 @@ class Phase27ServiceTests(unittest.TestCase):
                 svc = QuestionExtractionService(s)
                 q = await svc.get_question(question_id)
                 edited = await svc.update_question(
-                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a")
+                    q.id, reviewed_text=(q.reconstructed_text or q.normalized_text), reviewed_by="prof_a",
+                    options=[{"label": "A", "text": "a", "is_correct": True}, {"label": "B", "text": "b"},
+                             {"label": "C", "text": "c"}, {"label": "D", "text": "d"}],
+                )
                 approved = await svc.approve_question(q.id, reviewed_by="prof_a")
                 return approved
         approved = self.loop.run_until_complete(run())

@@ -32,7 +32,14 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.api.dependencies import get_current_identity, get_session_factory
 from agente_ia_edu.api.routes.diagnostic import diagnostic_router
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import InitialDiagnostic
+from agente_ia_edu.db.models import (
+    CatalogNode,
+    ContentQuestionLink,
+    InitialDiagnostic,
+    Question,
+    QuestionOption,
+    QuestionVersion,
+)
 from agente_ia_edu.identity import ExternalIdentityContext
 from agente_ia_edu.services.admin import PlatformAdminService
 from agente_ia_edu.services.pedagogical_universe import PedagogicalUniverseService
@@ -81,6 +88,57 @@ class DiagnosticHttpGapsTests(unittest.TestCase):
             session.add(diagnostic)
             await session.commit()
             return diagnostic.id
+
+    # -- POST /diagnostic/start's next_question.options must show every real --
+    # option, not only the correct one (found live 2026-09-28: is_valid_option
+    # marks the CORRECT answer - set by QuestionPublicationService.publish_run
+    # as is_valid_option=opt.is_correct - not "safe to show the student"; a
+    # naive `if opt.is_valid_option` filter on the options list therefore
+    # strips every wrong answer and leaves the diagnostic showing the correct
+    # one as if it were the question's only alternative) -------------------
+
+    def test_start_diagnostic_next_question_includes_every_option_not_only_the_correct_one(self):
+        async def seed():
+            async with self.session_factory() as session:
+                root = CatalogNode(parent_id=None, root_id=None, node_type="DISCIPLINE", name="Química", active=True)
+                session.add(root)
+                await session.flush()
+                root.root_id = root.id
+                content = CatalogNode(parent_id=root.id, root_id=root.id, node_type="CONTENT", name="Soluções", active=True)
+                session.add(content)
+                await session.flush()
+
+                question = Question(validation_status="approved", status="PUBLISHED", visibility_scope="PUBLIC")
+                session.add(question)
+                await session.flush()
+                version = QuestionVersion(
+                    question_id=question.id, version_kind="official_original",
+                    canonical_text="Questão de teste", content_hash="gap-multi-option",
+                    recommended_difficulty="EASY",
+                )
+                session.add(version)
+                await session.flush()
+                session.add_all([
+                    QuestionOption(question_version_id=version.id, option_key="A", position=1, text="Errada 1", is_valid_option=False),
+                    QuestionOption(question_version_id=version.id, option_key="B", position=2, text="Errada 2", is_valid_option=False),
+                    QuestionOption(question_version_id=version.id, option_key="C", position=3, text="Correta", is_valid_option=True),
+                    ContentQuestionLink(content_node_id=content.id, question_version_id=version.id),
+                ])
+                await session.commit()
+
+        asyncio.run(seed())
+        response = self.client.post(
+            "/api/v1/student/diagnostic/start",
+            json={"classroom_id": "CLASS_A", "discipline": "Química"},
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        options = response.json()["next_question"]["options"]
+        option_keys = {opt["option_key"] for opt in options}
+        self.assertEqual(
+            option_keys, {"A", "B", "C"},
+            "next_question.options must include every real option (right and "
+            "wrong), not only the one marked is_valid_option=True",
+        )
 
     # -- POST /diagnostic/start with requested_universe_id (never hit via ----
     # this endpoint before - only /entry/start's identical code was tested) --

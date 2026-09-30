@@ -132,6 +132,52 @@ class EssayProposalModelTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Exception):
                 await session.flush()
 
+    async def test_essay_submission_page_token_usage_columns_round_trip(self):
+        """input_tokens/output_tokens default to NULL (a page that never
+        called the transcriber, e.g. a digitally-typed PDF) and accept plain
+        integers (a page that did) - see _ocr_page in
+        services/essay_submission.py."""
+        async with self.session_factory() as session:
+            school, klass, student = await self._class_and_student(session, "3")
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="T", statement="S", year=2026,
+                created_by_external_identity="teacher:p",
+            )
+            session.add(prompt)
+            await session.flush()
+            assignment = PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                class_id=klass.id, assigned_by_external_identity="teacher:p",
+            )
+            session.add(assignment)
+            await session.flush()
+            submission = EssaySubmission(
+                id=uuid.uuid4(), essay_id=uuid.uuid4(), school_id=school.id,
+                prompt_assignment_id=assignment.id, student_id=student.id,
+                mode="PHOTO", anchor_mode="IMAGE_REGION", status="PENDING_TRANSCRIPTION",
+            )
+            session.add(submission)
+            await session.flush()
+
+            page_no_usage = EssaySubmissionPage(
+                id=uuid.uuid4(), essay_submission_id=submission.id,
+                page_number=1, storage_uri="var/no_usage.png",
+            )
+            page_with_usage = EssaySubmissionPage(
+                id=uuid.uuid4(), essay_submission_id=submission.id,
+                page_number=2, storage_uri="var/with_usage.png",
+                input_tokens=4200, output_tokens=310,
+            )
+            session.add_all([page_no_usage, page_with_usage])
+            await session.commit()
+
+            fetched_no_usage = await session.get(EssaySubmissionPage, page_no_usage.id)
+            fetched_with_usage = await session.get(EssaySubmissionPage, page_with_usage.id)
+            self.assertIsNone(fetched_no_usage.input_tokens)
+            self.assertIsNone(fetched_no_usage.output_tokens)
+            self.assertEqual(fetched_with_usage.input_tokens, 4200)
+            self.assertEqual(fetched_with_usage.output_tokens, 310)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -246,6 +246,35 @@ class ExternalIdResolver:
         return result.scalar_one_or_none() is not None
 
 
+async def real_classroom_external_ids(
+    session: AsyncSession, school_id: uuid.UUID | str | None
+) -> list[str]:
+    """Every real ``Class`` row's ``external_id`` for one school, sorted for a
+    stable, deterministic order.
+
+    This is the R0 hierarchy's own source of truth for "what classrooms does
+    this school actually have". teacher_portal.py and coordination_portal.py
+    both used to fall back to a hardcoded ``["TURMA_3A", "TURMA_3B"]`` demo
+    placeholder whenever neither TeachingLesson history nor a CLASSROOM-scoped
+    UserSchoolLink existed yet for a school-wide teacher/coordinator - which
+    fired for any real school before its first lesson or scope link was
+    recorded, inventing classroom names that do not exist (reported live
+    against a real school whose actual classrooms are named "1EM_A"/"1EM_B").
+    This function replaces that placeholder: it is unioned into the same
+    classroom-resolution queries so a school-wide caller sees the school's
+    real classrooms instead. A school with zero Class rows yields ``[]`` -
+    this function must never return anything but real rows.
+    """
+    stmt = (
+        select(Class.external_id)
+        .where(Class.school_id == school_id, Class.external_id.isnot(None))
+        .distinct()
+        .order_by(Class.external_id)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
 __all__ = [
     "AcademicScopeEntity",
     "ExternalIdResolver",
@@ -253,4 +282,5 @@ __all__ = [
     "SCOPE_BRIDGE_COLUMNS",
     "ScopeResolution",
     "bridge_column",
+    "real_classroom_external_ids",
 ]

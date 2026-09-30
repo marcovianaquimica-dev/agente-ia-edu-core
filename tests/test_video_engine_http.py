@@ -164,6 +164,34 @@ class VideoEngineHTTP(unittest.TestCase):
         progress = self.client.get(f"/api/v1/videos/{self.video_id}/progress")
         self.assertEqual(progress.json()["feedback_type"], "DISLIKED")
 
+    # -- get_video_recommendation (GET /recommendation) ------------------------
+
+    def test_get_video_recommendation_returns_ok_with_video(self):
+        response = self.client.get(
+            "/api/v1/videos/recommendation",
+            params={"content_node_id": str(self.content_node_id)},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["status"], "OK")
+        self.assertEqual(body["video_resource_id"], str(self.video_id))
+        self.assertEqual(body["title"], "Diluicao - Conceito Basico")
+        self.assertNotIn("video_object", body)
+
+    def test_get_video_recommendation_no_candidates_returns_no_video_available(self):
+        response = self.client.get(
+            "/api/v1/videos/recommendation",
+            params={"content_node_id": str(self.empty_content_node_id)},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["status"], "NO_VIDEO_AVAILABLE")
+        self.assertIsNone(body["video"])
+
+    def test_get_video_recommendation_missing_content_node_id_returns_422(self):
+        response = self.client.get("/api/v1/videos/recommendation")
+        self.assertEqual(response.status_code, 422)
+
     # -- get_video_progress (GET /{video_id}/progress) -------------------------
 
     def test_get_video_progress_unwatched_returns_200(self):
