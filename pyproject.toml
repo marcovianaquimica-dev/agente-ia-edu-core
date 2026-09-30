@@ -20,12 +20,24 @@ dependencies = [
 	"PyYAML>=6.0,<7.0",
 	"PyJWT>=2.9,<3.0",
 	"openpyxl>=3.1,<4.0",
+	# Imported unconditionally by services/ingestion_parser.py, pulled in
+	# transitively by api/app.py's own router wiring - installed ad hoc in
+	# the dev venv but never declared, so even importing the app (let alone
+	# running it) failed on a clean install ("No module named 'docx'").
+	"python-docx>=1.1,<2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
 	"alembic>=1.13,<2.0",
 	"httpx2>=2.0.0",
+	# Test runner + the async SQLite driver every test's in-memory engine uses
+	# (sqlite+aiosqlite:///:memory:) - both were installed ad hoc in the dev
+	# venv but never declared here, so a clean `pip install -e ".[dev]"` (e.g.
+	# in CI) couldn't run the suite at all ("No module named pytest").
+	"pytest>=8.0,<10.0",
+	"pytest-asyncio>=0.24,<2.0",
+	"aiosqlite>=0.20,<1.0",
 ]
 # Optional PDF text-recovery backend (PHASE 10.6). Used only by
 # agente_ia_edu.services.text_recovery to rescue booklets whose embedded text
