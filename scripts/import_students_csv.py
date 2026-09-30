@@ -55,7 +55,10 @@ async def _get_or_create_grade_level(
     session: AsyncSession, *, school_id: uuid.UUID, segment_id: uuid.UUID, name: str,
 ) -> GradeLevel:
     existing = (await session.execute(
-        select(GradeLevel).where(GradeLevel.school_id == school_id, GradeLevel.name == name)
+        select(GradeLevel).where(
+            GradeLevel.school_id == school_id, GradeLevel.segment_id == segment_id,
+            GradeLevel.name == name,
+        )
     )).scalar_one_or_none()
     if existing is not None:
         return existing

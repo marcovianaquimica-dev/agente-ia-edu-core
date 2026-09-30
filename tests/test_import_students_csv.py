@@ -72,6 +72,30 @@ class ImportStudentsCsvTests(unittest.IsolatedAsyncioTestCase):
             persons = (await session.execute(select(Person))).scalars().all()
             self.assertEqual(len(persons), 3)
 
+    async def test_same_grade_name_in_different_segments_creates_two_grade_levels(self):
+        rows = [
+            {"nome": "Diego Alves", "documento": "11111111111", "segmento": "Fundamental II",
+             "serie": "9º Ano", "turma": "9A", "ano_letivo": "2026"},
+            {"nome": "Elisa Gomes", "documento": "22222222222", "segmento": "EJA",
+             "serie": "9º Ano", "turma": "EJA-A", "ano_letivo": "2026"},
+        ]
+        csv_path = Path(tempfile.mktemp(suffix=".csv"))
+        with csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["nome", "documento", "segmento", "serie", "turma", "ano_letivo"])
+            writer.writeheader()
+            writer.writerows(rows)
+        try:
+            async with self.session_factory() as session:
+                await import_students_from_csv(session, csv_path, school_id=self.school.id)
+
+            async with self.session_factory() as session:
+                grade_levels = (await session.execute(select(GradeLevel))).scalars().all()
+                self.assertEqual(len(grade_levels), 2)
+                self.assertEqual({gl.name for gl in grade_levels}, {"9º Ano"})
+                self.assertEqual(len({gl.segment_id for gl in grade_levels}), 2)
+        finally:
+            csv_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
