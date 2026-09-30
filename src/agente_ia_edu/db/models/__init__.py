@@ -70,6 +70,14 @@ from .catalog import (
     MaterialBlock,
     MaterialExercise,
 )
+from .knowledge_engine import (
+    KnowledgeChunk,
+    KnowledgeChunkEmbedding,
+    KnowledgeChunkTerm,
+    KnowledgeDocument,
+    KnowledgeEmbeddingSpace,
+    KnowledgeSource,
+)
 from .ingestion import (
     IngestionDocument,
     IngestionRun,
@@ -238,4 +246,11 @@ __all__ = [
     "Student",
     "StudentEnrollment",
     "EnrollmentTransition",
+    # CEREBRO / Knowledge Engine (Fase 1)
+    "KnowledgeSource",
+    "KnowledgeDocument",
+    "KnowledgeChunk",
+    "KnowledgeChunkTerm",
+    "KnowledgeEmbeddingSpace",
+    "KnowledgeChunkEmbedding",
 ]

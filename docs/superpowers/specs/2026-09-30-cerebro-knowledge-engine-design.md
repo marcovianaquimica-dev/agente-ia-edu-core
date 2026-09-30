@@ -285,8 +285,9 @@ partial unique INDEX ON (status) WHERE status = 'ACTIVE'   -- no máximo um espa
 Consequências:
 
 - `knowledge_chunk_embeddings.embedding` é declarado **sem dimensão fixa**:
-  `VectorCompatible()` emite `vector` (não-dimensionado) no Postgres e `JSON`
-  no SQLite. **Nenhum número aparece no schema.**
+  `VectorCompatible()` emite `vector` (não-dimensionado) no Postgres e `TEXT`
+  no SQLite. **Nenhum número aparece no schema.** (`TEXT`, e não `JSON` como
+  esta seção dizia antes da Fase 1 — ver 19.1.)
 - A dimensão real é validada pelo serviço contra
   `knowledge_embedding_spaces.dimensions` na escrita, não pelo banco.
 - O índice ANN, que pgvector exige dimensionado, é criado **por espaço** como
@@ -1213,3 +1214,71 @@ decidido: tabela de vínculo própria, `metadata_` do `CatalogNode`, ou adiament
 Isto **não bloqueia as Fases 1 a 3**. Enquanto não existir, `topic.bncc[]` no
 Pack vem vazio — resultado honesto, não falha. Decisão necessária antes da
 Fase 4.
+
+---
+
+## 19. Desvios encontrados na Fase 1
+
+Cinco coisas que só apareceram ao escrever o código. Registradas aqui porque
+três delas mudam o que a spec dizia, e duas são conhecimento que a Fase 7 vai
+precisar.
+
+### 19.1 `VectorCompatible.impl` é `Text`, não `JSON`
+
+A seção 5.4 dizia "`JSON` no SQLite", espelhando `JSONBCompatible`. **Não
+funciona, e o modo como falha é silencioso e destrutivo.**
+
+`TypeDecorator` roda o bind processor do `impl` **depois** de
+`process_bind_param`. Com `impl = JSON`, o literal do pgvector (`[0.5,-1.25]`)
+seria serializado de novo para `"[0.5,-1.25]"` — com aspas — e toda escrita de
+vetor no PostgreSQL entraria corrompida. Nenhum erro seria levantado.
+
+Com `impl = Text`, que não tem bind processor, o valor passa intacto. O efeito
+colateral vale mais do que a coluna JSON valeria: a representação armazenada
+passa a ser byte-idêntica nos dois dialetos, então há **uma** forma
+serializada para raciocinar, não duas. Nada consulta o vetor pelas funções JSON
+do SQLite, então nada se perde.
+
+Coberto por `test_impl_is_not_json_so_the_literal_is_never_double_encoded`.
+
+### 19.2 `_PgVector` é escrito à mão, sem o pacote `pgvector`
+
+O pacote traria numpy como dependência transitiva. O que o projeto precisa dele
+são duas linhas (`get_col_spec` devolvendo `"vector"`). Mesma lógica que já
+levou o `JSONBCompatible` a existir em vez de uma dependência.
+
+### 19.3 SQL cru precisa de cast explícito — o ORM não
+
+`psycopg` tipa um parâmetro `str` como `VARCHAR`, e o PostgreSQL **não** faz
+cast implícito de `VARCHAR` para `vector` nem para `uuid`. Pelo ORM o problema
+não existe, porque o tipo da coluna viaja junto com o bind.
+
+Isto mordeu duas vezes na Fase 1: no seed da migração 058 (resolvido com
+`sa.bindparam(..., type_=sa.Uuid())`) e num teste. A Fase 7 escreverá a
+consulta de recuperação com `<=>` em SQL cru e vai encontrar o mesmo problema,
+então ficou fixado como teste executável:
+`test_raw_sql_must_cast_a_bound_parameter_to_vector`.
+
+### 19.4 A cadeia de migrações não roda de `base` num banco vazio
+
+`024_chemistry_kinetics` é uma migração de **dados** que aborta com
+`RuntimeError: Required taxonomy parent is missing: CHEMISTRY-PHYSICAL` se a
+taxonomia não estiver semeada. É pré-existente e não tem relação com o CÉREBRO,
+mas significa que `alembic upgrade head` a partir de `base` não é um caminho de
+verificação disponível neste projeto.
+
+As migrações 057 e 058 foram verificadas isoladamente: banco descartável, os
+pré-requisitos (`educational_resources`, `catalog_nodes`) criados por
+`create_all`, `alembic stamp 055`, depois `upgrade head` e `downgrade 055`.
+Ambas as direções passam.
+
+### 19.5 O banco de desenvolvimento está carimbado em `059`, de outro fluxo
+
+`alembic_version` no banco de dev é `059_mass_correction_runs`, revisão que não
+existe neste branch. As migrações 057 e 058 **não foram aplicadas ao banco de
+desenvolvimento** — fazê-lo exigiria resolver antes a divergência de heads, que
+por decisão do usuário fica para o momento da integração dos branches, via
+merge revision.
+
+A extensão `vector` **foi** criada no banco de dev (autorizada, aditiva,
+verificada operacional). É independente das tabelas e é pré-requisito delas.
