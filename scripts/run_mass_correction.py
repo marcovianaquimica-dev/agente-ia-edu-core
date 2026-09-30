@@ -105,29 +105,55 @@ TERMINAL_STATUSES = {"completed", "failed", "expired", "cancelled"}
 _MAX_REQUESTS_PER_BATCH = 10_000
 _MAX_BATCH_FILE_BYTES = 90 * 1024 * 1024  # 90MB
 
+# Teto de PAGINAS lidas/recortadas/codificadas em UMA chamada de
+# _collect_ocr_pending_lines - bem acima do que cabe num lote so (ver
+# _MAX_BATCH_FILE_BYTES), mas categoricamente abaixo de "todas as pendentes":
+# limita a memoria transitoria a algumas centenas de MB a poucos GB de
+# imagem, nunca aos ~150-250GB que resultariam de ler as 50.000 paginas de
+# uma rede estadual inteira de uma vez so.
+_MAX_OCR_PAGES_PER_COLLECTION = 200
+
 
 def _chunk_pending_lines(
     lines: list[dict], *,
     max_requests: int = _MAX_REQUESTS_PER_BATCH, max_bytes: int = _MAX_BATCH_FILE_BYTES,
+    group_size: int = 1,
 ) -> list[list[dict]]:
     """Divide ``lines`` em fracoes que cabem nos dois tetos ao mesmo tempo -
     contagem de requisicoes E tamanho total serializado (o mesmo formato que
     openai_batch_client.upload_batch_file usa de verdade: uma linha de JSON
-    por requisicao, separadas por \\n). Sempre devolve pelo menos uma fracao
-    quando ``lines`` nao esta vazia, mesmo que uma unica linha ja estoure
-    ``max_bytes`` sozinha (nesse caso ela vai sozinha na sua propria fracao -
-    nunca descartamos uma linha por ela ser grande demais)."""
+    por requisicao, separadas por \\n).
+
+    ``group_size``: cada ``group_size`` linhas CONSECUTIVAS sao tratadas como
+    uma unidade indivisivel - uma fracao nunca corta um grupo ao meio. Pressupoe
+    que ``lines`` ja vem agrupada em blocos consecutivos de ``group_size`` (e o
+    caso real: as 2 linhas cabecalho+corpo de uma pagina de OCR sempre saem
+    juntas de _collect_ocr_pending_lines; as 6 linhas de pontuacao de uma
+    correcao sempre saem juntas de _collect_scoring_pending_lines). Sem isso,
+    um grupo partido entre duas fracoes pode travar permanentemente (ver
+    achado 3 do fix round 2 da Task 12 - especifico do SCORING, onde uma
+    fracao incompleta vira falha real, nao so ineficiencia).
+
+    Sempre devolve pelo menos uma fracao quando ``lines`` nao esta vazia,
+    mesmo que um unico grupo ja estoure ``max_bytes``/``max_requests``
+    sozinho (nesse caso ele vai sozinho na sua propria fracao - nunca
+    descartamos um grupo por ele ser grande demais)."""
+    groups = [lines[i:i + group_size] for i in range(0, len(lines), group_size)]
     chunks: list[list[dict]] = []
     current: list[dict] = []
     current_bytes = 0
-    for line in lines:
-        line_bytes = len(json.dumps(line, ensure_ascii=False).encode("utf-8")) + 1
-        if current and (len(current) >= max_requests or current_bytes + line_bytes > max_bytes):
+    for group in groups:
+        group_bytes = sum(
+            len(json.dumps(line, ensure_ascii=False).encode("utf-8")) + 1 for line in group
+        )
+        if current and (
+            len(current) + len(group) > max_requests or current_bytes + group_bytes > max_bytes
+        ):
             chunks.append(current)
             current = []
             current_bytes = 0
-        current.append(line)
-        current_bytes += line_bytes
+        current.extend(group)
+        current_bytes += group_bytes
     if current:
         chunks.append(current)
     return chunks
@@ -165,6 +191,8 @@ async def _collect_ocr_pending_lines(session, *, school_id: uuid.UUID) -> list[d
                 EssayBatchUpload.school_id == school_id,
                 EssayBatchPage.ocr_body_text.is_(None),
             )
+            .order_by(EssayBatchPage.created_at)
+            .limit(_MAX_OCR_PAGES_PER_COLLECTION)
         )
     ).scalars().all()
     lines = []
@@ -205,10 +233,16 @@ async def _apply_ocr_results(session, result_lines: list[dict]) -> None:
     (EssayBatchService.process_batch/_process_page): parsear o cabecalho,
     casar o aluno pelo roster da turma e agrupar corridas de paginas
     consecutivas do mesmo aluno em EssaySubmission (materialize_batch),
-    reaproveitados sem reescrita. Uma pagina so e aplicada quando os dois
-    resultados (header E body) chegaram nesta passada - se so um chegou (por
-    exemplo por causa de fracionamento de lote, Task 12, ainda nao
-    implementada), a pagina fica pendente para a proxima aplicacao."""
+    reaproveitados sem reescrita. Uma pagina so e aplicada quando o resultado
+    de CORPO chegou nesta passada - o header e opcional: sem ele
+    (`regions.get("header", "")`), `parse_header_text("")` devolve
+    `(None, None)` e a pagina ainda e aplicada, so sem nome/CPF reconhecidos
+    (vai para NEEDS_REVIEW por falta de match, nao por falta de header). Se
+    so o resultado de header chegou nesta passada e o de corpo nao (por
+    exemplo por causa de fracionamento de lote entre duas fracoes), a pagina
+    fica pendente para a proxima aplicacao - ver `_GROUP_SIZES["OCR"] = 2` em
+    `run_stage`/`_chunk_pending_lines`, que evita esse cenario mantendo as 2
+    linhas de cada pagina sempre na mesma fracao."""
     texts_by_page: dict[uuid.UUID, dict[str, str]] = defaultdict(dict)
     for result_line in result_lines:
         custom_id = result_line.get("custom_id", "")
@@ -487,6 +521,7 @@ _APPLIERS = {
     "CORRECTION": _apply_correction_results,
     "SCORING": _apply_scoring_results,
 }
+_GROUP_SIZES = {"OCR": 2, "CORRECTION": 1, "SCORING": 6}
 
 
 async def run_stage(session, *, school_id: uuid.UUID, stage: str, api_key: str) -> None:
@@ -504,8 +539,13 @@ async def run_stage(session, *, school_id: uuid.UUID, stage: str, api_key: str) 
         if not pending_lines:
             print(f"[{stage}] run {run.id} estava PENDING sem trabalho pendente para submeter")
             return
-        run = await advance_run(session, run.id, api_key=api_key, pending_lines=pending_lines)
-        print(f"[{stage}] run {run.id} retomada e submetida: lote {run.openai_batch_id}, status={run.status!r}")
+        chunk = _chunk_pending_lines(pending_lines, group_size=_GROUP_SIZES[stage])[0]
+        run.request_count = len(chunk)
+        run = await advance_run(session, run.id, api_key=api_key, pending_lines=chunk)
+        print(
+            f"[{stage}] run {run.id} retomada e submetida: lote {run.openai_batch_id}, "
+            f"{len(chunk)} linhas, status={run.status!r}"
+        )
         return
 
     if run is not None and run.status == "completed" and run.output_file_id is not None:
@@ -518,7 +558,7 @@ async def run_stage(session, *, school_id: uuid.UUID, stage: str, api_key: str) 
         print(f"[{stage}] nada pendente para a escola {school_id}")
         return
 
-    chunks = _chunk_pending_lines(pending_lines)
+    chunks = _chunk_pending_lines(pending_lines, group_size=_GROUP_SIZES[stage])
     chunk = chunks[0]
     if len(chunks) > 1:
         print(

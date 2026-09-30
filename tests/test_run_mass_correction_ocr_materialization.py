@@ -231,6 +231,49 @@ class RunMassCorrectionOcrMaterializationTests(unittest.IsolatedAsyncioTestCase)
             submissions = (await session.execute(select(EssaySubmission))).scalars().all()
             self.assertEqual(submissions, [])
 
+    async def test_collect_ocr_pending_lines_caps_pages_read_per_call(self):
+        """Fix round 2, achado 1: a coleta de OCR precisa ter um teto de
+        PAGINAS lidas por chamada (_MAX_OCR_PAGES_PER_COLLECTION) - sem isso,
+        a 50.000 paginas ela materializaria ~150-250GB de imagem em base64 na
+        memoria antes de qualquer fracionamento/submissao acontecer. Reduz a
+        constante para 2 via mock (em vez de gerar centenas de imagens reais)
+        e semeia 5 paginas pendentes - confirma que so 2 delas (4 linhas)
+        saem da coleta, nunca as 5."""
+        async with self.session_factory() as session:
+            school, batch, first_page, _student = await self._seed(session)
+
+            extra_pages = []
+            for page_number in range(2, 6):  # +4 paginas pendentes (total 5)
+                page_path = _write_stamped_page(
+                    self.tmp_dir / f"p{page_number}.png",
+                    header_text="stub", body_text="stub",
+                )
+                page = EssayBatchPage(
+                    id=uuid.uuid4(), batch_id=batch.id, page_number=page_number,
+                    storage_uri=str(page_path), status="NEEDS_REVIEW",
+                )
+                session.add(page)
+                extra_pages.append(page)
+            await session.flush()
+            await session.commit()
+
+            all_pending_ids = {first_page.id, *(p.id for p in extra_pages)}
+            self.assertEqual(len(all_pending_ids), 5)
+
+            with (
+                patch.dict("os.environ", {"OPENAI_VISION_MODEL": "gpt-vision-test"}),
+                patch("scripts.run_mass_correction._MAX_OCR_PAGES_PER_COLLECTION", 2),
+            ):
+                lines = await _collect_ocr_pending_lines(session, school_id=school.id)
+
+            # 2 paginas * 2 linhas (header + body) cada = 4, nunca 5*2=10
+            self.assertEqual(len(lines), 4)
+            page_ids_in_result = {
+                uuid.UUID(line["custom_id"].rpartition(":")[0]) for line in lines
+            }
+            self.assertEqual(len(page_ids_in_result), 2)
+            self.assertTrue(page_ids_in_result.issubset(all_pending_ids))
+
     async def test_an_unreadable_page_is_skipped_without_aborting_the_whole_collection(self):
         async with self.session_factory() as session:
             school, batch, good_page, _student = await self._seed(session)

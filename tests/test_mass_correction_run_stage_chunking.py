@@ -89,6 +89,49 @@ class RunStageChunkingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(run.request_count, _MAX_REQUESTS_PER_BATCH)
             self.assertIsNotNone(run.openai_batch_id)
 
+    async def test_run_stage_never_splits_a_scoring_correction_group_across_the_submitted_fraction(self):
+        """Fix round 2, achado 3: as 6 linhas de pontuacao de uma correcao
+        SCORING nunca podem ser cortadas entre duas fracoes - uma fracao
+        incompleta faz apply_scoring_batch_results levantar ValueError
+        (falta linha), o que trava a correcao para sempre com um erro
+        enganoso. Semeia corretas o bastante (1667 correcoes de 6 linhas =
+        10002 linhas) para que o teto de _MAX_REQUESTS_PER_BATCH (10_000)
+        caia NO MEIO da correcao 1667 quando cortado por linha crua (cortaria
+        em 10_000 linhas, isto e, no meio das 6 linhas da correcao 1667) -
+        confirma que request_count da run criada e sempre multiplo de 6."""
+        n_corrections = _MAX_REQUESTS_PER_BATCH // 6 + 1  # 1667 correcoes
+        fake_lines = [
+            {"custom_id": f"correction-{c}:line-{i}"}
+            for c in range(n_corrections)
+            for i in range(6)
+        ]
+        self.assertGreater(len(fake_lines), _MAX_REQUESTS_PER_BATCH)
+
+        async with self.session_factory() as session:
+            school_id = await self._seed_school(session)
+
+            with (
+                patch.dict(
+                    "scripts.run_mass_correction._COLLECTORS",
+                    {"SCORING": AsyncMock(return_value=fake_lines)},
+                ),
+                patch("scripts.run_mass_correction.advance_run", new=_fake_advance_run),
+            ):
+                await run_stage(session, school_id=school_id, stage="SCORING", api_key="sk-test")
+
+            runs = (
+                await session.execute(
+                    select(MassCorrectionRun).where(
+                        MassCorrectionRun.school_id == school_id, MassCorrectionRun.stage == "SCORING"
+                    )
+                )
+            ).scalars().all()
+            self.assertEqual(len(runs), 1)
+            run = runs[0]
+            self.assertEqual(run.request_count % 6, 0)
+            self.assertLessEqual(run.request_count, _MAX_REQUESTS_PER_BATCH)
+            self.assertIsNotNone(run.openai_batch_id)
+
     async def test_a_second_call_while_the_first_fraction_is_still_in_flight_does_not_create_another_run(self):
         total_pending = _MAX_REQUESTS_PER_BATCH + 1
         fake_lines = [{"custom_id": f"id-{i}"} for i in range(total_pending)]
