@@ -48,12 +48,14 @@ class ApplyCorrectionBatchResultTests(unittest.TestCase):
         result = apply_correction_batch_result(result_line, rubric_view=RUBRIC_VIEW, text="Um texto qualquer.")
         self.assertIsNone(result["ai_output"])
         self.assertIsNotNone(result["failure_reason"])
+        self.assertEqual(result["rubric_version"], "ENEM_2025")
 
     def test_a_provider_level_error_also_returns_the_failure_shape(self):
         result_line = {"custom_id": str(uuid.uuid4()), "response": None, "error": {"message": "boom"}}
         result = apply_correction_batch_result(result_line, rubric_view=RUBRIC_VIEW, text="Um texto qualquer.")
         self.assertIsNone(result["ai_output"])
         self.assertIn("boom", result["failure_reason"])
+        self.assertEqual(result["rubric_version"], "ENEM_2025")
 
 
 if __name__ == "__main__":

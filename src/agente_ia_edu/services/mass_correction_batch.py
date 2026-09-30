@@ -96,7 +96,8 @@ def apply_correction_batch_result(result_line: dict, *, rubric_view, text: str) 
     """
     custom_id = result_line["custom_id"]
     failure_fields = {
-        "correction_key": None, "model_version": None, "prompt_version": _PROMPT_VERSION,
+        "correction_key": None, "rubric_version": rubric_view.rubric_version,
+        "model_version": None, "prompt_version": _PROMPT_VERSION,
         "engine_version": _ENGINE_VERSION, "ai_output": None, "final_feedback": None,
         "failure_reason": None,
     }
