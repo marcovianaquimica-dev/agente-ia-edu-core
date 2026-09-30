@@ -316,7 +316,13 @@ async def _apply_scoring_results(session, result_lines: list[dict]) -> None:
         correction.final_scores = result["final_scores"]
         submission = await session.get(EssaySubmission, correction.essay_submission_id)
         await service._apply_review_policy(correction, submission)
-        scored_for_sampling.append(_sampling_entry(correction))
+        if correction.status != "APPROVED":
+            # A politica institucional (FORMATIVO / tema livre /
+            # validation_enabled=False) ja publicou esta correcao sozinha -
+            # a amostragem so decide o destino de quem AINDA esta pendente
+            # (PENDING_REVIEW) ou falhou (NEEDS_REVIEW), nunca reabre o que
+            # a politica ja fechou.
+            scored_for_sampling.append(_sampling_entry(correction))
 
     # Amostragem para revisao humana (Task 9, spec "Amostragem e revisao"):
     # entre as correcoes recem-pontuadas neste lote, quem tem alerta ou
@@ -328,14 +334,15 @@ async def _apply_scoring_results(session, result_lines: list[dict]) -> None:
     # que so aprova quem ainda esta PENDING_REVIEW (best-effort, ignora
     # silenciosamente qualquer id que ja tenha saido desse estado).
     sample_ids, auto_approve_ids = select_sample_for_review(scored_for_sampling)
+    approved_corrections: list = []
     if auto_approve_ids:
-        await service.bulk_approve(
+        approved_corrections, _failures = await service.bulk_approve(
             auto_approve_ids, reviewed_by_external_identity="mass-correction-driver",
         )
     if scored_for_sampling:
         print(
             f"[SCORING] amostragem: {len(sample_ids)} para revisao humana, "
-            f"{len(auto_approve_ids)} aprovadas automaticamente"
+            f"{len(approved_corrections)} aprovadas automaticamente"
         )
     await session.commit()
 

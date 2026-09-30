@@ -61,12 +61,15 @@ class ApplyScoringResultsSamplingTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.engine.dispose()
 
-    async def _seed_correction(self, session, code: str, *, alerts=None) -> EssayCorrection:
+    async def _seed_correction(
+        self, session, code: str, *, alerts=None,
+        correction_mode: str = "AVALIATIVO", validation_enabled: bool = True,
+    ) -> EssayCorrection:
         school = School(id=uuid.uuid4(), code=f"SAMP-{code}", name=f"school-{code}")
         session.add(school)
         await session.flush()
         await InstitutionSettingsService(session).configure(
-            school.id, performed_by_external_id="test", correction_mode="AVALIATIVO",
+            school.id, performed_by_external_id="test", correction_mode=correction_mode,
         )
         segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEG-{code}")
         session.add(segment)
@@ -100,7 +103,7 @@ class ApplyScoringResultsSamplingTests(unittest.IsolatedAsyncioTestCase):
             # Garante PENDING_REVIEW apos _apply_review_policy (spec Sec 5),
             # independente do total - assim o teste exercita o caminho real
             # que a amostragem precisa decidir (aprovar ou deixar na fila).
-            validation_enabled=True,
+            validation_enabled=validation_enabled,
         )
         session.add(assignment)
         await session.flush()
@@ -215,6 +218,29 @@ class ApplyScoringResultsSamplingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.status, "NEEDS_REVIEW")
             self.assertIsNotNone(correction.failure_reason)
             self.assertIsNone(correction.reviewed_by_external_identity)
+
+    async def test_a_formativo_correction_is_never_sent_to_sampling_or_reapproved(self):
+        """FORMATIVO publica sozinho dentro de _apply_review_policy, antes da
+        amostragem rodar - a correcao tem que ficar de fora de
+        scored_for_sampling (senao select_sample_for_review e chamado com
+        uma correcao ja APPROVED, que bulk_approve tentaria reaprovar a toa,
+        e o print de resumo contaria errado)."""
+        async with self.session_factory() as session:
+            correction = await self._seed_correction(session, "5", correction_mode="FORMATIVO")
+            result_lines = _healthy_result_lines(str(correction.id))
+
+            with patch(
+                "scripts.run_mass_correction.select_sample_for_review"
+            ) as mock_select:
+                mock_select.return_value = ([], [])
+                await _apply_scoring_results(session, result_lines)
+
+            mock_select.assert_called_once_with([])
+
+            await session.refresh(correction)
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIsNone(correction.reviewed_by_external_identity)
+            self.assertIsNotNone(correction.final_scores)
 
 
 if __name__ == "__main__":
