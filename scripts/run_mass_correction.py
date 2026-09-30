@@ -21,6 +21,15 @@ Tres estagios (Tasks 3-5), cada um com sua propria nocao de "pendente":
   - SCORING: EssayCorrection com ai_output mas sem final_scores ainda
     (fase 1 da correcao ja rodou, fase 2 - pontuacao - ainda nao).
 
+Task 9 (amostragem para revisao humana): apos aplicar final_scores de cada
+correcao recem-pontuada do estagio SCORING e rodar
+EssayCorrectionService._apply_review_policy (a mesma politica do caminho
+sincrono), select_sample_for_review decide, entre as que ficaram
+PENDING_REVIEW, quem entra na amostra de revisao humana (garantido para
+quem tem alerta ou falhou sem nota; sorteado a 5% pro resto) e quem e
+aprovado automaticamente via EssayCorrectionService.bulk_approve - ver
+_apply_scoring_results.
+
 Achado corrigido aqui (nao nas Tasks 3-5, que ja estao aprovadas e
 commitadas): apply_correction_batch_result nunca preenche model_version/
 correction_key no caminho de sucesso (fica None nos dois, herdado do
@@ -75,6 +84,7 @@ from agente_ia_edu.services.mass_correction_batch import (
     build_scoring_batch_requests,
 )
 from agente_ia_edu.services.mass_correction_driver import advance_run
+from agente_ia_edu.services.mass_correction_sampling import select_sample_for_review
 from agente_ia_edu.providers.openai_batch_client import download_file_lines
 
 IN_FLIGHT_STATUSES = {"PENDING", "validating", "in_progress", "finalizing"}
@@ -261,6 +271,17 @@ async def _collect_scoring_pending_lines(session, *, school_id: uuid.UUID) -> li
     return lines
 
 
+def _sampling_entry(correction: EssayCorrection) -> dict:
+    """Monta a entrada que select_sample_for_review espera para UMA
+    correcao recem-pontuada (Task 9, spec "Amostragem e revisao"):
+    alerts vem do ai_output da fase 1 (a mesma lista que
+    _apply_deterministic_scoring_rules olha, confirmada ou nao pela fase 2 -
+    qualquer alerta reportado pelo modelo e motivo suficiente para exigir
+    revisao humana, nao so os confirmados como ANULA_REDACAO)."""
+    alerts = [alert["code"] for alert in (correction.ai_output or {}).get("alerts") or []]
+    return {"id": correction.id, "alerts": alerts, "has_scores": correction.final_scores is not None}
+
+
 async def _apply_scoring_results(session, result_lines: list[dict]) -> None:
     by_correction: dict[str, dict[str, dict]] = defaultdict(dict)
     for result_line in result_lines:
@@ -271,6 +292,7 @@ async def _apply_scoring_results(session, result_lines: list[dict]) -> None:
     rubric_file = load_rubric_file(_RUBRIC_FILE_NAME)
     service = EssayCorrectionService(session)
 
+    scored_for_sampling: list[dict] = []
     for correction_id_str, results_by_custom_id in by_correction.items():
         correction = await session.get(EssayCorrection, uuid.UUID(correction_id_str))
         if correction is None:
@@ -288,11 +310,33 @@ async def _apply_scoring_results(session, result_lines: list[dict]) -> None:
             print(f"[SCORING] falha em {correction_id_str!r}: {exc}")
             correction.status = "NEEDS_REVIEW"
             correction.failure_reason = f"BatchScoringFailed: {exc}"
+            scored_for_sampling.append(_sampling_entry(correction))
             continue
 
         correction.final_scores = result["final_scores"]
         submission = await session.get(EssaySubmission, correction.essay_submission_id)
         await service._apply_review_policy(correction, submission)
+        scored_for_sampling.append(_sampling_entry(correction))
+
+    # Amostragem para revisao humana (Task 9, spec "Amostragem e revisao"):
+    # entre as correcoes recem-pontuadas neste lote, quem tem alerta ou
+    # falhou (sem nota) sempre fica pendente de revisao (PENDING_REVIEW/
+    # NEEDS_REVIEW, como _apply_review_policy/o bloco except ja deixaram);
+    # o resto e sorteado a uma taxa configuravel (padrao 5%, ver
+    # select_sample_for_review) e quem nao cai na amostra e aprovado
+    # automaticamente - bulk_approve ja existente (services/essay_correction.py),
+    # que so aprova quem ainda esta PENDING_REVIEW (best-effort, ignora
+    # silenciosamente qualquer id que ja tenha saido desse estado).
+    sample_ids, auto_approve_ids = select_sample_for_review(scored_for_sampling)
+    if auto_approve_ids:
+        await service.bulk_approve(
+            auto_approve_ids, reviewed_by_external_identity="mass-correction-driver",
+        )
+    if scored_for_sampling:
+        print(
+            f"[SCORING] amostragem: {len(sample_ids)} para revisao humana, "
+            f"{len(auto_approve_ids)} aprovadas automaticamente"
+        )
     await session.commit()
 
 
