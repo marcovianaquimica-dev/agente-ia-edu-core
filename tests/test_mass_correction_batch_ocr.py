@@ -61,6 +61,42 @@ class ApplyOcrBatchResultTests(unittest.TestCase):
             apply_ocr_batch_result(result_line)
         self.assertIn("500", str(caught.exception))
 
+    def test_raises_when_model_populates_the_refusal_field(self):
+        result_line = {
+            "custom_id": "page-123",
+            "response": {
+                "status_code": 200,
+                "body": {"choices": [{"message": {"content": None, "refusal": "I cannot view images of people."}}]},
+            },
+            "error": None,
+        }
+        with self.assertRaises(ValueError) as caught:
+            apply_ocr_batch_result(result_line)
+        self.assertIn("recusado", str(caught.exception))
+
+    def test_raises_on_empty_or_null_content(self):
+        result_line = {
+            "custom_id": "page-123",
+            "response": {"status_code": 200, "body": {"choices": [{"message": {"content": None}}]}},
+            "error": None,
+        }
+        with self.assertRaises(ValueError) as caught:
+            apply_ocr_batch_result(result_line)
+        self.assertIn("vazio", str(caught.exception))
+
+    def test_raises_when_content_looks_like_a_text_refusal(self):
+        result_line = {
+            "custom_id": "page-123",
+            "response": {
+                "status_code": 200,
+                "body": {"choices": [{"message": {"content": "Desculpe, nao posso transcrever esta imagem."}}]},
+            },
+            "error": None,
+        }
+        with self.assertRaises(ValueError) as caught:
+            apply_ocr_batch_result(result_line)
+        self.assertIn("recusa", str(caught.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

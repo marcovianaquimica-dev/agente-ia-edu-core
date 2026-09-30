@@ -378,6 +378,35 @@ class ApplyScoringBatchResultsTests(unittest.TestCase):
                 output_dict=output_dict, rubric_file=RUBRIC_FILE,
             )
 
+    def test_null_content_raises_value_error_not_type_error(self):
+        """Mesmo achado C4 do relatorio final, agora no estagio SCORING:
+        content=None (recusa ou resposta vazia do modelo) tem que virar
+        ValueError logo em _scoring_result_content (via
+        _extract_message_content), nunca um TypeError sem tratamento em
+        json.loads(None)."""
+        correction_id = str(uuid.uuid4())
+        output_dict = _output_dict()
+        result_lines_by_custom_id = {
+            f"{correction_id}:{code}": _competency_result_line(correction_id, code, points=160)
+            for code in ("C1", "C2", "C4", "C5")
+        }
+        result_lines_by_custom_id[f"{correction_id}:C3"] = {
+            "custom_id": f"{correction_id}:C3",
+            "response": {
+                "status_code": 200,
+                "body": {"choices": [{"message": {"content": None}}]},
+            },
+        }
+        result_lines_by_custom_id[f"{correction_id}:alert"] = _alert_result_line(
+            correction_id, confirmed_alert_codes=[]
+        )
+
+        with self.assertRaises(ValueError):
+            apply_scoring_batch_results(
+                correction_id, result_lines_by_custom_id,
+                output_dict=output_dict, rubric_file=RUBRIC_FILE,
+            )
+
     def test_alert_payload_missing_confirmed_alert_codes_key_raises_value_error_not_key_error(self):
         correction_id = str(uuid.uuid4())
         output_dict = _output_dict()

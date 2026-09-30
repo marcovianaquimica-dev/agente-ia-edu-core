@@ -219,6 +219,35 @@ class ApplyScoringResultsSamplingTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(correction.failure_reason)
             self.assertIsNone(correction.reviewed_by_external_identity)
 
+    async def test_a_null_content_scoring_result_stays_needs_review_and_does_not_abort_the_batch(self):
+        """Achado C4 do relatorio final: uma linha de resultado com
+        content=None (recusa ou resposta vazia do modelo) tem que virar
+        NEEDS_REVIEW como qualquer outra falha de pontuacao ja tratada -
+        nunca propagar e derrubar o resto da passada."""
+        async with self.session_factory() as session:
+            correction = await self._seed_correction(session, "8")
+            result_lines = [
+                _competency_result_line(str(correction.id), code, points=p)
+                for code, p in _HEALTHY_POINTS.items()
+                if code != "C1"
+            ]
+            result_lines.append({
+                "custom_id": f"{correction.id}:C1",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": None}}]},
+                },
+            })
+            result_lines.append(_alert_result_line(str(correction.id), confirmed_alert_codes=[]))
+
+            await _apply_scoring_results(session, result_lines)
+
+            await session.refresh(correction)
+            self.assertIsNone(correction.final_scores)
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNotNone(correction.failure_reason)
+            self.assertIsNone(correction.reviewed_by_external_identity)
+
     async def test_a_correction_missing_a_result_line_stays_needs_review_and_does_not_abort_the_batch(self):
         """C3 do relatorio final: quando falta uma das 6 linhas esperadas
         (ex: a requisicao individual daquele custom_id falhou na API e caiu

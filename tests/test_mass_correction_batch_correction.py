@@ -57,6 +57,18 @@ class ApplyCorrectionBatchResultTests(unittest.TestCase):
         self.assertIn("boom", result["failure_reason"])
         self.assertEqual(result["rubric_version"], "ENEM_2025")
 
+    def test_empty_or_null_content_returns_the_failure_shape_instead_of_raising(self):
+        result_line = {
+            "custom_id": str(uuid.uuid4()),
+            "response": {"status_code": 200, "body": {"choices": [{"message": {"content": None}}]}},
+            "error": None,
+        }
+        result = apply_correction_batch_result(result_line, rubric_view=RUBRIC_VIEW, text="Um texto qualquer.")
+        self.assertIsNone(result["ai_output"])
+        self.assertIsNotNone(result["failure_reason"])
+        self.assertIn("vazio", result["failure_reason"])
+        self.assertEqual(result["rubric_version"], "ENEM_2025")
+
 
 if __name__ == "__main__":
     unittest.main()

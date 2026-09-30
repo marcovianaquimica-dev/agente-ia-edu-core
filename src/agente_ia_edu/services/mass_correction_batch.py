@@ -19,7 +19,7 @@ from ..essay_engine_contract.v5 import (
     EssayEngineOutput,
 )
 from ..essay_prompts import alert_review_v1, competency_scoring_v1, get_essay_prompt
-from ..providers.adapters.openai import TRANSCRIPTION_SYSTEM_PROMPT
+from ..providers.adapters.openai import TRANSCRIPTION_SYSTEM_PROMPT, _looks_like_a_refusal
 from ..rubrics.loader import RubricFile
 from .essay_correction import (
     _ANULA_REDACAO_ALERT_CODES,
@@ -32,6 +32,31 @@ OCR_SYSTEM_PROMPT = TRANSCRIPTION_SYSTEM_PROMPT
 
 _PROMPT_VERSION = "essay_correction_v15"
 _ENGINE_VERSION = "r3_correction_engine_v2"
+
+
+def _extract_message_content(response: dict, *, custom_id: str, context: str) -> str:
+    """Extrai o content de uma resposta de chat completions da Batch API,
+    com as MESMAS 3 travas que o caminho sincrono ja usa e confirmou em
+    producao (providers/adapters/openai.py, "Confirmed live 2026-09-25"):
+    recusa explicita no campo `refusal`, conteudo vazio/None, e recusa
+    disfarcada de texto comum (_looks_like_a_refusal - nunca reimplementada
+    aqui, sempre importada). Sem isso, uma recusa em texto seria gravada
+    como se fosse conteudo real (transcricao, JSON de correcao, JSON de
+    pontuacao) e seguiria pro resto do pipeline sem ninguem perceber.
+
+    Levanta ValueError nos 3 casos - quem chama decide se isso vira uma
+    falha "dura" (propaga, degrada o item no chamador) ou um dict de falha
+    "suave" (ver apply_correction_batch_result, que converte em
+    failure_fields em vez de deixar propagar)."""
+    message = response["body"]["choices"][0]["message"]
+    if message.get("refusal"):
+        raise ValueError(f"{context} recusado pelo modelo ({custom_id}): {message['refusal']}")
+    content = message.get("content")
+    if not content:
+        raise ValueError(f"{context} devolveu conteudo vazio ({custom_id})")
+    if _looks_like_a_refusal(content):
+        raise ValueError(f"{context} parece uma recusa em texto ({custom_id}): {content}")
+    return content
 
 
 def _guess_mime(path: Path) -> str:
@@ -73,7 +98,7 @@ def apply_ocr_batch_result(result_line: dict) -> tuple[str, str]:
         raise ValueError(
             f"OCR em lote devolveu status {response['status_code']} para {custom_id}: {response['body']}"
         )
-    text = response["body"]["choices"][0]["message"]["content"]
+    text = _extract_message_content(response, custom_id=custom_id, context="OCR em lote")
     return custom_id, text
 
 
@@ -120,7 +145,10 @@ def apply_correction_batch_result(result_line: dict, *, rubric_view, text: str) 
             **failure_fields,
             "failure_reason": f"BatchHTTPError: status {response['status_code']}: {response['body']}",
         }
-    raw_content = response["body"]["choices"][0]["message"]["content"]
+    try:
+        raw_content = _extract_message_content(response, custom_id=custom_id, context="Correcao em lote")
+    except ValueError as exc:
+        return {**failure_fields, "failure_reason": str(exc)}
     try:
         raw_payload = json.loads(raw_content)
     except json.JSONDecodeError as exc:
@@ -248,7 +276,7 @@ def _scoring_result_content(result_line: dict, custom_id: str) -> str:
             f"Pontuacao em lote devolveu status {response['status_code']} para "
             f"{custom_id}: {response['body']}"
         )
-    return response["body"]["choices"][0]["message"]["content"]
+    return _extract_message_content(response, custom_id=custom_id, context="Pontuacao em lote")
 
 
 def apply_scoring_batch_results(

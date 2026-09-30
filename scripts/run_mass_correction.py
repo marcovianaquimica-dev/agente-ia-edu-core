@@ -350,48 +350,52 @@ async def _apply_correction_results(session, result_lines: list[dict]) -> None:
 
     for result_line in result_lines:
         submission_id = result_line["custom_id"]
-        existing = await session.scalar(
-            select(EssayCorrection).where(
-                EssayCorrection.essay_submission_id == uuid.UUID(submission_id)
+        try:
+            existing = await session.scalar(
+                select(EssayCorrection).where(
+                    EssayCorrection.essay_submission_id == uuid.UUID(submission_id)
+                )
             )
-        )
-        if existing is not None:
-            continue  # ja aplicado (chamada repetida) - mesma idempotencia de EssayCorrectionService.correct()
+            if existing is not None:
+                continue  # ja aplicado (chamada repetida) - mesma idempotencia de EssayCorrectionService.correct()
 
-        submission = await session.get(EssaySubmission, uuid.UUID(submission_id))
-        if submission is None:
-            print(f"[CORRECTION] EssaySubmission nao encontrada para custom_id={submission_id!r}")
+            submission = await session.get(EssaySubmission, uuid.UUID(submission_id))
+            if submission is None:
+                print(f"[CORRECTION] EssaySubmission nao encontrada para custom_id={submission_id!r}")
+                continue
+
+            fields = apply_correction_batch_result(
+                result_line, rubric_view=rubric_view, text=submission.canonical_text,
+            )
+            if fields["ai_output"] is not None:
+                # Ver docstring do modulo: apply_correction_batch_result nao preenche
+                # model_version/correction_key no sucesso - completa aqui com a mesma
+                # logica do caminho sincrono (essay_correction_key.correction_key),
+                # usando o "model" que a propria resposta em lote ja trouxe.
+                response_body = result_line["response"]["body"]
+                model_version = response_body.get("model")
+                fields["model_version"] = model_version
+                assignment = await session.get(PromptAssignment, submission.prompt_assignment_id)
+                fields["correction_key"] = compute_correction_key(
+                    normalized_text_hash=submission.normalized_text_hash,
+                    essay_prompt_id=str(assignment.essay_prompt_id),
+                    rubric_version=fields["rubric_version"],
+                    model_version=model_version,
+                    prompt_version=fields["prompt_version"],
+                    engine_version=fields["engine_version"],
+                )
+                status = "PENDING_REVIEW"  # final_scores so fecha na fase 2 (estagio SCORING)
+            else:
+                status = "NEEDS_REVIEW"
+
+            correction = EssayCorrection(
+                id=uuid.uuid4(), school_id=submission.school_id,
+                essay_submission_id=submission.id, status=status, **fields,
+            )
+            session.add(correction)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            print(f"[CORRECTION] falha inesperada em custom_id={submission_id!r}: {exc}")
             continue
-
-        fields = apply_correction_batch_result(
-            result_line, rubric_view=rubric_view, text=submission.canonical_text,
-        )
-        if fields["ai_output"] is not None:
-            # Ver docstring do modulo: apply_correction_batch_result nao preenche
-            # model_version/correction_key no sucesso - completa aqui com a mesma
-            # logica do caminho sincrono (essay_correction_key.correction_key),
-            # usando o "model" que a propria resposta em lote ja trouxe.
-            response_body = result_line["response"]["body"]
-            model_version = response_body.get("model")
-            fields["model_version"] = model_version
-            assignment = await session.get(PromptAssignment, submission.prompt_assignment_id)
-            fields["correction_key"] = compute_correction_key(
-                normalized_text_hash=submission.normalized_text_hash,
-                essay_prompt_id=str(assignment.essay_prompt_id),
-                rubric_version=fields["rubric_version"],
-                model_version=model_version,
-                prompt_version=fields["prompt_version"],
-                engine_version=fields["engine_version"],
-            )
-            status = "PENDING_REVIEW"  # final_scores so fecha na fase 2 (estagio SCORING)
-        else:
-            status = "NEEDS_REVIEW"
-
-        correction = EssayCorrection(
-            id=uuid.uuid4(), school_id=submission.school_id,
-            essay_submission_id=submission.id, status=status, **fields,
-        )
-        session.add(correction)
     await session.commit()
 
 
