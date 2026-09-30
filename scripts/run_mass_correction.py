@@ -45,7 +45,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import shutil
 import sys
+import tempfile
 import uuid
 from collections import defaultdict
 from pathlib import Path
@@ -66,6 +68,7 @@ from agente_ia_edu.db.models import (
     PromptAssignment,
 )
 from agente_ia_edu.rubrics.loader import load_rubric_file
+from agente_ia_edu.services.essay_batch import EssayBatchService, match_student, parse_header_text
 from agente_ia_edu.services.essay_correction import (
     _RUBRIC_FILE_NAME,
     EssayCorrectionService,
@@ -106,6 +109,14 @@ async def _latest_run(session, *, school_id: uuid.UUID, stage: str) -> MassCorre
 # --------------------------------------------------------------------------
 
 async def _collect_ocr_pending_lines(session, *, school_id: uuid.UUID) -> list[dict]:
+    """Recorta cada pagina pendente em (cabecalho, corpo) e gera 2 linhas de
+    JSONL por pagina - a mesma separacao POSICIONAL que
+    EssayBatchService.read_page_regions faz no caminho sincrono
+    (services/essay_batch.py), reaproveitando _crop_regions em vez de
+    reimplementa-la. Sem o recorte, o OCR le a folha inteira (cabecalho +
+    corpo colados) e parse_header_text nunca encontra um nome limpo o
+    suficiente para casar com o roster - e por isso nenhuma pagina virava
+    MATCHED_AUTO antes desta correcao."""
     vision_model = os.environ["OPENAI_VISION_MODEL"]
     pages = (
         await session.execute(
@@ -119,27 +130,89 @@ async def _collect_ocr_pending_lines(session, *, school_id: uuid.UUID) -> list[d
     ).scalars().all()
     lines = []
     for page in pages:
-        line = build_ocr_batch_request(str(page.id), Path(page.storage_uri))
-        line["body"]["model"] = vision_model
-        lines.append(line)
+        scratch_dir = Path(tempfile.mkdtemp(prefix="mass_ocr_regions_"))
+        try:
+            header_path, body_path = await asyncio.to_thread(
+                EssayBatchService._crop_regions, Path(page.storage_uri), scratch_dir
+            )
+            header_line = build_ocr_batch_request(f"{page.id}:header", header_path)
+            body_line = build_ocr_batch_request(f"{page.id}:body", body_path)
+            header_line["body"]["model"] = vision_model
+            body_line["body"]["model"] = vision_model
+            lines.append(header_line)
+            lines.append(body_line)
+        finally:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
     return lines
 
 
 async def _apply_ocr_results(session, result_lines: list[dict]) -> None:
+    """Aplica os resultados de OCR em lote e materializa as submissoes
+    prontas - a metade que faltava do caminho sincrono
+    (EssayBatchService.process_batch/_process_page): parsear o cabecalho,
+    casar o aluno pelo roster da turma e agrupar corridas de paginas
+    consecutivas do mesmo aluno em EssaySubmission (materialize_batch),
+    reaproveitados sem reescrita. Uma pagina so e aplicada quando os dois
+    resultados (header E body) chegaram nesta passada - se so um chegou (por
+    exemplo por causa de fracionamento de lote, Task 12, ainda nao
+    implementada), a pagina fica pendente para a proxima aplicacao."""
+    texts_by_page: dict[uuid.UUID, dict[str, str]] = defaultdict(dict)
     for result_line in result_lines:
-        try:
-            custom_id, text = apply_ocr_batch_result(result_line)
-        except ValueError as exc:
-            print(f"[OCR] falha em {result_line.get('custom_id')!r}: {exc}")
+        custom_id = result_line.get("custom_id", "")
+        page_id_str, _, region = custom_id.rpartition(":")
+        if region not in ("header", "body") or not page_id_str:
+            print(f"[OCR] custom_id inesperado: {custom_id!r}")
             continue
-        page = await session.get(EssayBatchPage, uuid.UUID(custom_id))
+        try:
+            _, text = apply_ocr_batch_result(result_line)
+        except ValueError as exc:
+            print(f"[OCR] falha em {custom_id!r}: {exc}")
+            continue
+        texts_by_page[uuid.UUID(page_id_str)][region] = text
+
+    roster_cache: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+    touched_batch_ids: set[uuid.UUID] = set()
+    for page_id, regions in texts_by_page.items():
+        if "body" not in regions:
+            print(f"[OCR] pagina {page_id} sem resultado de corpo - deixada pendente")
+            continue
+        page = await session.get(EssayBatchPage, page_id)
         if page is None:
-            print(f"[OCR] EssayBatchPage nao encontrada para custom_id={custom_id!r}")
+            print(f"[OCR] EssayBatchPage nao encontrada para {page_id}")
             continue
         if page.ocr_body_text is not None:
             continue  # ja aplicado (chamada repetida sobre o mesmo lote) - idempotente
-        page.ocr_body_text = text
+
+        name, cpf = parse_header_text(regions.get("header", ""))
+        page.ocr_name_raw = name
+        page.ocr_cpf_raw = cpf
+        page.ocr_body_text = regions["body"].strip()
+
+        if page.batch_id not in roster_cache:
+            batch = await session.get(EssayBatchUpload, page.batch_id)
+            rows = await EssayBatchService(session).class_roster(
+                school_id=batch.school_id, class_id=batch.class_id
+            )
+            roster_cache[page.batch_id] = [(student_id, full_name) for student_id, full_name, _doc in rows]
+        page.matched_student_id = match_student(name, roster_cache[page.batch_id])
+        if page.status != "RESOLVED_MANUAL":
+            page.status = "MATCHED_AUTO" if page.matched_student_id else "NEEDS_REVIEW"
+        touched_batch_ids.add(page.batch_id)
+
     await session.commit()
+
+    batch_service = EssayBatchService(session)
+    for batch_id in touched_batch_ids:
+        await batch_service.materialize_batch(batch_id)
+        remaining = await session.execute(
+            select(EssayBatchPage.id).where(
+                EssayBatchPage.batch_id == batch_id, EssayBatchPage.ocr_body_text.is_(None),
+            )
+        )
+        if remaining.first() is None:
+            batch = await session.get(EssayBatchUpload, batch_id)
+            batch.status = "DONE"
+            await session.commit()
 
 
 # --------------------------------------------------------------------------
