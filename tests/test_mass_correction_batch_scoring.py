@@ -315,6 +315,90 @@ class ApplyScoringBatchResultsTests(unittest.TestCase):
                 output_dict=output_dict, rubric_file=RUBRIC_FILE,
             )
 
+    def test_missing_competency_result_line_raises_value_error_not_key_error(self):
+        """C3 do relatorio final: um custom_id que nao veio no arquivo de
+        resultado (ex: a requisicao individual falhou na API e caiu no
+        arquivo de erro, nao no de resultado) levantava KeyError sem
+        tratamento - deve virar ValueError, como o docstring de
+        apply_scoring_batch_results ja promete."""
+        correction_id = str(uuid.uuid4())
+        output_dict = _output_dict()
+        result_lines_by_custom_id = {
+            f"{correction_id}:{code}": _competency_result_line(correction_id, code, points=160)
+            for code in ("C1", "C2", "C4", "C5")  # falta C3 de proposito
+        }
+        result_lines_by_custom_id[f"{correction_id}:alert"] = _alert_result_line(
+            correction_id, confirmed_alert_codes=[]
+        )
+
+        with self.assertRaises(ValueError):
+            apply_scoring_batch_results(
+                correction_id, result_lines_by_custom_id,
+                output_dict=output_dict, rubric_file=RUBRIC_FILE,
+            )
+
+    def test_missing_alert_result_line_raises_value_error_not_key_error(self):
+        correction_id = str(uuid.uuid4())
+        output_dict = _output_dict()
+        result_lines_by_custom_id = {
+            f"{correction_id}:{code}": _competency_result_line(correction_id, code, points=160)
+            for code in ("C1", "C2", "C3", "C4", "C5")
+        }
+        # falta de proposito a entrada f"{correction_id}:alert"
+
+        with self.assertRaises(ValueError):
+            apply_scoring_batch_results(
+                correction_id, result_lines_by_custom_id,
+                output_dict=output_dict, rubric_file=RUBRIC_FILE,
+            )
+
+    def test_competency_payload_missing_points_key_raises_value_error_not_key_error(self):
+        correction_id = str(uuid.uuid4())
+        output_dict = _output_dict()
+        result_lines_by_custom_id = {
+            f"{correction_id}:{code}": _competency_result_line(correction_id, code, points=160)
+            for code in ("C1", "C2", "C4", "C5")
+        }
+        # C3 vem no arquivo de resultado, mas o JSON devolvido pelo modelo
+        # nao tem a chave "points" (ex: o modelo so devolveu "reasoning").
+        result_lines_by_custom_id[f"{correction_id}:C3"] = {
+            "custom_id": f"{correction_id}:C3",
+            "response": {
+                "status_code": 200,
+                "body": {"choices": [{"message": {"content": json.dumps({"reasoning": "stub"})}}]},
+            },
+        }
+        result_lines_by_custom_id[f"{correction_id}:alert"] = _alert_result_line(
+            correction_id, confirmed_alert_codes=[]
+        )
+
+        with self.assertRaises(ValueError):
+            apply_scoring_batch_results(
+                correction_id, result_lines_by_custom_id,
+                output_dict=output_dict, rubric_file=RUBRIC_FILE,
+            )
+
+    def test_alert_payload_missing_confirmed_alert_codes_key_raises_value_error_not_key_error(self):
+        correction_id = str(uuid.uuid4())
+        output_dict = _output_dict()
+        result_lines_by_custom_id = {
+            f"{correction_id}:{code}": _competency_result_line(correction_id, code, points=160)
+            for code in ("C1", "C2", "C3", "C4", "C5")
+        }
+        result_lines_by_custom_id[f"{correction_id}:alert"] = {
+            "custom_id": f"{correction_id}:alert",
+            "response": {
+                "status_code": 200,
+                "body": {"choices": [{"message": {"content": json.dumps({"reasoning": "stub"})}}]},
+            },
+        }
+
+        with self.assertRaises(ValueError):
+            apply_scoring_batch_results(
+                correction_id, result_lines_by_custom_id,
+                output_dict=output_dict, rubric_file=RUBRIC_FILE,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -285,8 +285,17 @@ def apply_scoring_batch_results(
     phase2_points: dict[str, int] = {}
     for code in COMPETENCY_CODES:
         custom_id = f"{correction_id}:{code}"
+        if custom_id not in result_lines_by_custom_id:
+            raise ValueError(
+                f"pontuacao em lote nao tem resultado para {custom_id!r} - "
+                "a requisicao pode ter falhado na API e caido no arquivo de erro"
+            )
         content = _scoring_result_content(result_lines_by_custom_id[custom_id], custom_id)
         payload = json.loads(content)
+        if "points" not in payload:
+            raise ValueError(
+                f"competency scoring em lote para {code} nao devolveu a chave 'points': {payload!r}"
+            )
         points = int(payload["points"])
         if points not in OFFICIAL_LEVEL_POINTS:
             raise ValueError(
@@ -296,10 +305,19 @@ def apply_scoring_batch_results(
         phase2_points[code] = points
 
     alert_custom_id = f"{correction_id}:alert"
+    if alert_custom_id not in result_lines_by_custom_id:
+        raise ValueError(
+            f"pontuacao em lote nao tem resultado para {alert_custom_id!r} - "
+            "a requisicao pode ter falhado na API e caido no arquivo de erro"
+        )
     alert_content = _scoring_result_content(
         result_lines_by_custom_id[alert_custom_id], alert_custom_id
     )
     alert_payload = json.loads(alert_content)
+    if "confirmed_alert_codes" not in alert_payload:
+        raise ValueError(
+            f"alert review em lote nao devolveu a chave 'confirmed_alert_codes': {alert_payload!r}"
+        )
     raw_confirmed = alert_payload["confirmed_alert_codes"]
     if not isinstance(raw_confirmed, list) or not all(isinstance(c, str) for c in raw_confirmed):
         raise ValueError(

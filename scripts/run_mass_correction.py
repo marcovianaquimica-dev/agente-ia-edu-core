@@ -306,7 +306,7 @@ async def _apply_scoring_results(session, result_lines: list[dict]) -> None:
                 correction_id_str, results_by_custom_id,
                 output_dict=correction.ai_output, rubric_file=rubric_file,
             )
-        except ValueError as exc:
+        except (ValueError, KeyError) as exc:
             print(f"[SCORING] falha em {correction_id_str!r}: {exc}")
             correction.status = "NEEDS_REVIEW"
             correction.failure_reason = f"BatchScoringFailed: {exc}"

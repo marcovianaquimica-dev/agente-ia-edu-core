@@ -219,6 +219,48 @@ class ApplyScoringResultsSamplingTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(correction.failure_reason)
             self.assertIsNone(correction.reviewed_by_external_identity)
 
+    async def test_a_correction_missing_a_result_line_stays_needs_review_and_does_not_abort_the_batch(self):
+        """C3 do relatorio final: quando falta uma das 6 linhas esperadas
+        (ex: a requisicao individual daquele custom_id falhou na API e caiu
+        no arquivo de erro, nao no de resultado), apply_scoring_batch_results
+        agora levanta ValueError (nao mais KeyError sem tratamento) - essa
+        correcao cai em NEEDS_REVIEW como qualquer outra falha de pontuacao
+        ja tratada, e o loop continua para a proxima correcao do MESMO lote,
+        que deve ser processada e comitada normalmente junto."""
+        async with self.session_factory() as session:
+            broken = await self._seed_correction(session, "6")
+            healthy = await self._seed_correction(session, "7")
+
+            # "broken" perde a linha de C3 de proposito.
+            broken_lines = [
+                _competency_result_line(str(broken.id), code, points=p)
+                for code, p in _HEALTHY_POINTS.items()
+                if code != "C3"
+            ]
+            broken_lines.append(_alert_result_line(str(broken.id), confirmed_alert_codes=[]))
+
+            result_lines = broken_lines + _healthy_result_lines(str(healthy.id))
+
+            with patch(
+                "scripts.run_mass_correction.select_sample_for_review"
+            ) as mock_select:
+                mock_select.return_value = ([], [healthy.id])
+                await _apply_scoring_results(session, result_lines)
+
+            await session.refresh(broken)
+            await session.refresh(healthy)
+
+            self.assertIsNone(broken.final_scores)
+            self.assertEqual(broken.status, "NEEDS_REVIEW")
+            self.assertIsNotNone(broken.failure_reason)
+            self.assertIsNone(broken.reviewed_by_external_identity)
+
+            # A correcao "saudavel" no mesmo lote continua sendo processada
+            # e comitada normalmente, mesmo com a outra falhando ao lado.
+            self.assertIsNotNone(healthy.final_scores)
+            self.assertEqual(healthy.status, "APPROVED")
+            self.assertEqual(healthy.reviewed_by_external_identity, "mass-correction-driver")
+
     async def test_a_formativo_correction_is_never_sent_to_sampling_or_reapproved(self):
         """FORMATIVO publica sozinho dentro de _apply_review_policy, antes da
         amostragem rodar - a correcao tem que ficar de fora de
