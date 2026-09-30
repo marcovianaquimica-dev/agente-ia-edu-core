@@ -1,8 +1,13 @@
 # CÉREBRO / Knowledge Engine — Design
 
 Data: 2026-09-30
-Status: aprovado (design); implementação não iniciada além da Fase 0
-Escopo: piloto com ~5 livros didáticos de Química + BNCC
+Status: aprovado (design); Fase 0 executada; Fase 1 não iniciada
+Escopo: piloto com livros didáticos de Química + BNCC do Ensino Médio (CNT)
+
+> **Revisão pós-Fase 0 (2026-09-30).** A Fase 0 foi executada e cinco decisões
+> foram tomadas a partir dos seus resultados. Elas estão incorporadas ao corpo
+> deste documento e registradas na **seção 18**, junto com as matrizes de
+> cobertura. Leia a seção 18 antes de implementar.
 
 ---
 
@@ -33,6 +38,8 @@ Pack inclusive.
 | Entrada | Texto livre, resolvido **obrigatoriamente** para `CatalogNode` |
 | Texto literal de fonte comercial | Interno e restrito |
 | Modo de recuperação | `STRICT_CORPUS` |
+| BNCC no piloto | Ensino Médio, Ciências da Natureza e suas Tecnologias |
+| OCR por visão | **fora da primeira versão** (ver 18.4) |
 
 ### 1.2 O que o sistema não faz
 
@@ -430,12 +437,103 @@ múltiplos assuntos.
 
 ### 6.2 BNCC (`CurriculumFrameworkChunker`)
 
-A BNCC não é prosa; é uma lista de habilidades codificadas. Chunker dedicado:
+**Arquivo do piloto:** `BNCC_EnsinoMedio_embaixa_site_110518.pdf` (154 páginas,
+1,1 MB), lido sem problema por `pypdf`. O arquivo `BNCC_EI_EF_110518` é a versão
+de Educação Infantil + Ensino Fundamental, **não cobre nenhum tópico do piloto**
+e não é fonte do Cérebro de Química.
 
-- um chunk por habilidade (`EM13CNT301`, …), `chunk_type = CURRICULUM_ITEM`;
-- casa diretamente com o `TaxonomyNode` de `Taxonomy(code="bncc")` **que já
-  existe no banco** — nenhuma taxonomia nova é criada;
-- `heading_path` = competência → habilidade.
+**Recorte:** área **Ciências da Natureza e suas Tecnologias (CNT)**, páginas
+113–122 do PDF.
+
+#### 6.2.1 A BNCC não é texto para RAG — é estrutura normativa
+
+A BNCC entra no sistema pela sua **hierarquia normativa**, não como prosa
+recuperável:
+
+```
+área (CNT) → competência específica (1..3) → habilidade → código (EM13CNT###)
+```
+
+Extrator dedicado `BnccFrameworkExtractor`, determinístico, **verificado na
+Fase 0 contra o arquivo real**:
+
+| Elemento | Regra de extração | Resultado verificado |
+|---|---|---|
+| Área | cabeçalho `5.3.1. CIÊNCIAS DA NATUREZA…` | p.116 |
+| Competência específica | `COMPETÊNCIA ESPECÍFICA (\d)` + primeira frase seguinte | **3/3** (p.116, 118, 120) |
+| Habilidade | `\((EM13CNT\d{3})\)\s*<enunciado>` | **23/23** (p.117, 119, 121) |
+| Vínculo habilidade → competência | **primeiro dígito do código**: `EM13CNT`**1**`01` → CE1 | 6 + 7 + 10 = 23 ✓ |
+
+O vínculo habilidade→competência é derivável do próprio código, e confirmado
+independentemente pela paginação. Não há heurística envolvida.
+
+Passo obrigatório de normalização: o PDF hifeniza quebras de linha
+(`pro- cessos`, `desen- volvimento` — 40 ocorrências na seção CNT). O extrator
+desfaz a hifenização antes de persistir; do contrário o código do enunciado
+entra corrompido no corpus.
+
+#### 6.2.2 Persistência: `Taxonomy` / `TaxonomyNode`
+
+A estrutura vira dado relacional consultável, não só embedding:
+
+| BNCC | Modelo | `node_type` |
+|---|---|---|
+| A norma | `Taxonomy(code="bncc", version="EM-2018")` | — |
+| Competência específica 1..3 | `TaxonomyNode` | `competency` |
+| Habilidade `EM13CNT###` | `TaxonomyNode`, `parent_id` = a competência | `skill` |
+
+`TaxonomyNode.node_type` já aceita `'competency'` e `'skill'` pelo
+`CheckConstraint` existente, e `TaxonomyNode` já é auto-referente via
+`parent_id`. **Nenhum modelo novo, nenhuma migração de taxonomia.**
+
+Achado da Fase 0: `taxonomies` e `taxonomy_nodes` estão **vazias**.
+`Taxonomy(code="bncc")` é consultado pelo código (`repositories/questions.py`,
+`services/questions.py`) mas nunca foi populado. A semeadura é, portanto, uma
+**mudança explícita de taxonomia**, com script próprio e revisão humana, feita
+**fora** do Knowledge Engine — mesma disciplina da decisão sobre Reagente
+Limitante (18.1).
+
+Consequência para o chunker: cada chunk BNCC (`chunk_type = CURRICULUM_ITEM`,
+um por habilidade) carrega uma FK direta para o `TaxonomyNode` da habilidade,
+e não apenas um código solto. O `CurriculumFrameworkChunker` **nunca cria nó de
+taxonomia**: não casou é `TAXONOMY_GAP`, como no currículo v2.
+
+#### 6.2.3 A relação BNCC ↔ `CatalogNode` de Química é curada, nunca inferida
+
+Testado na Fase 0 contra o texto real da seção CNT: **"estequiometria",
+"reagente limitante" e "diluição" não aparecem uma única vez**. "Soluções"
+aparece, mas no sentido de *"propor soluções"* — um falso positivo que
+demonstra o problema.
+
+As habilidades de CNT são enunciados de competência ("Analisar e representar as
+transformações e conservações em sistemas que envolvam quantidade de
+matéria…"), não rótulos de conteúdo. Casar `CatalogNode` com habilidade por
+similaridade de texto produziria ruído com aparência de rigor.
+
+Portanto: **a relação é curada explicitamente**, por decisão pedagógica humana,
+e é uma mudança de currículo — não uma inferência do Knowledge Engine. O
+mecanismo de persistência dessa curadoria está em aberto (18.6) e **não bloqueia
+as Fases 1–3**: até que exista, `topic.bncc[]` no Pack vem vazio, o que é um
+resultado honesto, não uma falha.
+
+#### 6.2.4 Classificação da fonte
+
+A BNCC é tratada conceitualmente como **fonte oficial curricular**, categoria
+distinta de livro comercial:
+
+| Campo | Valor |
+|---|---|
+| `source_kind` | `CURRICULUM_FRAMEWORK` |
+| `rights_class` | `OFFICIAL_PUBLIC` |
+| `authority_level` | `OFFICIAL` |
+| `educational_resource_id` | permitido (não é fonte comercial) |
+| `quotable` nas evidências | `true` |
+
+Consequências práticas: o texto da BNCC **pode** ser citado literalmente no Pack
+(dentro do limite de 300 caracteres), ao contrário do livro comercial; e, pela
+regra de `STRONGLY_CORROBORATED` (10.2), a presença da BNCC entre as fontes de
+uma afirmação é o que permite que ela alcance a faixa mais alta sem depender só
+de livros comerciais.
 
 ### 6.3 Casamento com currículo
 
@@ -615,6 +713,7 @@ prerequisites[]    { content_node_code, name }            ← de CatalogNodePrer
 linked_questions[] { question_version_id, summary }       ← de ContentQuestionLink já classificadas
 
 divergences[]      { id, divergence_kind, topic_label, readings[{statement, evidence_ids[]}] }
+gaps[]             { id, aspect, reason }                 ← ver 10.2.1
 
 evidence[]         { id, source{title,authors,edition,year,isbn},
                      pages, heading_path[],
@@ -660,6 +759,42 @@ contrato.
 A regra sobre `authority_level` na faixa `STRONGLY_CORROBORATED` é a **única**
 influência de autoridade no MVP, e é uma regra de contagem, não de ranking —
 coerente com "não sofisticar o ranking no MVP".
+
+### 10.2.1 `gaps[]` — a lacuna é um resultado, não uma falha
+
+Em `STRICT_CORPUS`, uma afirmação sem lastro é rejeitada (10.4). Isso impede o
+modelo de inventar, mas sozinho produz um Pack **silenciosamente incompleto**:
+quem lê não distingue "o corpus não trata disso" de "ninguém perguntou".
+
+`gaps[]` fecha essa lacuna. O destilador é instruído a declarar, para o tópico
+pedido, que aspectos ele **esperava encontrar e não encontrou** no contexto
+recuperado:
+
+```json
+{ "id": "g1",
+  "aspect": "Cálculo de rendimento percentual a partir do reagente limitante",
+  "reason": "NOT_IN_CORPUS" }
+```
+
+`reason` é um vocabulário fechado: `NOT_IN_CORPUS` (nada recuperado trata do
+aspecto), `INSUFFICIENT_DETAIL` (mencionado, sem substância para sustentar
+afirmação), `OUT_OF_RETRIEVAL` (fora do top-k, detectável quando a perna lexical
+acusou o termo mas o chunk não sobreviveu ao corte).
+
+Regras:
+
+- uma entrada de `gaps[]` **nunca** carrega `evidence_ids` — ela afirma ausência;
+- declarar uma lacuna **não** é motivo para rejeitar o Pack. É o resultado
+  correto quando o corpus não cobre o pedido;
+- um Pack cujo `concepts`, `definitions`, `relations` e `procedures` estão todos
+  vazios **e** `gaps[]` também está vazio é rejeitado: o destilador não pode
+  devolver nada sem dizer por quê;
+- `coverage.warnings` continua reportando problemas de *recuperação* (poucas
+  fontes distintas); `gaps[]` reporta problemas de *conteúdo*. São eixos
+  diferentes e ambos aparecem.
+
+Isto é o que a decisão 5 pede: diante de informação necessária e não sustentada,
+o Pack **sinaliza a lacuna** em vez de completar com conhecimento do modelo.
 
 ### 10.3 Divergências são preservadas, nunca resolvidas
 
@@ -751,6 +886,69 @@ texto livre
   → calcular força de evidência
   → persistir e devolver o Pack
 ```
+
+### 11.3 Extração: fallback determinístico de leitura de PDF
+
+A Fase 0 encontrou um PDF (a BNCC) que `pypdf` **não consegue abrir**
+(`PdfReadError: Cannot find Root object in pdf`, mesmo com `strict=False`)
+mas que `pymupdf` lê sem esforço — 600 páginas, texto limpo. O arquivo não está
+corrompido; é o parser de container do `pypdf` que falha.
+
+Hoje esse caso é indistinguível, no código, de um PDF sem camada de texto: as
+duas situações terminam em exceção. São problemas diferentes e exigem respostas
+diferentes:
+
+| Situação | Hoje | Resposta correta |
+|---|---|---|
+| `pypdf` não abre o container | erro | tentar `pymupdf` |
+| Páginas genuinamente sem texto (Usberco) | erro | OCR por visão |
+
+**A menor alteração possível**, sem redesenhar o pipeline:
+
+1. Extrair as oito linhas de leitura de `parse_authorial_pdf`
+   (`authorial_material_parser.py:132-142`) para uma função pública no mesmo
+   módulo:
+
+   ```python
+   @dataclass(frozen=True)
+   class PdfTextLayer:
+       page_texts: list[str]
+       method: str            # PDF_TEXT_LAYER | PDF_TEXT_LAYER_PYMUPDF
+
+   def read_pdf_page_texts(filepath: Path) -> PdfTextLayer: ...
+   ```
+
+2. O fallback dispara **apenas** nos dois caminhos de falha já codificados:
+   `pypdf` levantou exceção, ou devolveu zero texto em todas as páginas. Se
+   `pymupdf` também não achar texto, a mensagem passa a ser a de hoje
+   (`"PDF has no extractable text layer; OCR review is required"`) — o caso
+   Usberco continua indo para OCR, como deve.
+
+3. `pymupdf` permanece **importado sob `try`**. Ausente, o comportamento é
+   exatamente o de hoje, linha por linha.
+
+4. `parse_authorial_pdf` ganha um parâmetro opcional
+   `page_texts: list[str] | None = None`, seguindo o idioma `parsed_override`
+   que `IngestionService.ingest_document` já usa. O CÉREBRO lê uma vez com
+   `read_pdf_page_texts()` (para registrar o método) e repassa as páginas,
+   sem ler o arquivo duas vezes.
+
+**Garantia de não-regressão:** quando `pypdf` funciona — que é todo o corpus
+atual da PHASE 26 — a saída é idêntica byte a byte, porque o caminho é o mesmo
+código movido de lugar. A suíte PHASE 26 existente roda sem alteração e é o
+portão de regressão.
+
+**Risco registrado:** `pymupdf` e `pypdf` quebram linhas de maneira diferente,
+então um documento lido pelo fallback pode seccionar de forma ligeiramente
+diferente. Por isso o método fica gravado em
+`knowledge_documents.extraction_method` como um valor **distinto**
+(`PDF_TEXT_LAYER_PYMUPDF`), nunca confundido com o caminho padrão. A
+proveniência de extração é sempre visível, jamais silenciosa.
+
+`pymupdf` já está instalado no `.venv` e declarado no `pyproject.toml` como
+extra `recovery`. Esta é a segunda utilização legítima do extra; o comentário
+do `pyproject.toml` que diz *"NOT wired into the ingestion pipeline"* precisa
+ser atualizado junto com a mudança.
 
 ---
 
@@ -857,11 +1055,13 @@ TDD, RED confirmado antes de GREEN, conforme a disciplina do projeto.
 5. **Currículo de Química possivelmente incompleto** — se não houver nó
    correspondente, o piloto trava em `TAXONOMY_GAP` **por design**. Verificado na
    Fase 0.
-6. **Custo e prazo do OCR por visão** — se os PDFs forem imagem, são milhares de
-   páginas de chamada de visão: ordem de dezenas de dólares e várias horas. É o
-   único custo material do projeto. Medido na Fase 0.
-7. **`ANTHROPIC_API_KEY` nunca configurada** em nenhum ambiente — bloqueia hoje o
-   caminho de OCR.
+6. ~~**Custo e prazo do OCR por visão**~~ — **rebaixado na Fase 0.** Medido em
+   ~US$ 31 / 1,2 h para os 3 volumes Usberco, e retirado da primeira versão
+   (18.4). Os documentos com camada de texto cobrem os quatro tópicos com 5 a 9
+   fontes distintas cada. Deixa de ser caminho crítico.
+7. ~~**`ANTHROPIC_API_KEY` nunca configurada**~~ — **irrelevante para a primeira
+   versão** pela mesma razão. Volta a importar quando o OCR do Usberco for
+   retomado.
 8. **Vetor não-dimensionado no DDL** — o banco não rejeita vetor de tamanho
    errado; a validação vive no serviço, coberta por
    `test_knowledge_embedding_spaces.py`. Trade-off deliberado, aceito em troca de
@@ -873,11 +1073,11 @@ TDD, RED confirmado antes de GREEN, conforme a disciplina do projeto.
 
 | Fase | Entrega | Custo de LLM |
 |---|---|---|
-| **0** | Sonda + **matriz de cobertura** (seção 17.1) | nenhum |
+| **0** | Sonda + **matriz de cobertura** (seção 17.1) — **CONCLUÍDA**, ver seção 18 | nenhum |
 | 1 | `VectorCompatible` + migração 057 + modelos + teste de tipo | nenhum |
 | 2 | Registro de fontes, direitos, autoridade, CheckConstraints, storage, `POST /sources` | nenhum |
-| 3 | Extração + `ProseChunker` | nenhum |
-| 4 | `CurriculumFrameworkChunker` (BNCC) + casamento com `TaxonomyNode`/`CatalogNode` | nenhum |
+| 3 | Extração (incl. fallback PyMuPDF, 11.3) + `ProseChunker` | nenhum |
+| 4 | Semeadura BNCC EM/CNT em `Taxonomy`/`TaxonomyNode` + `BnccFrameworkExtractor` + `CurriculumFrameworkChunker` | nenhum |
 | 5 | Índice lexical + BM25 | nenhum |
 | 6 | Adapter de embedding real + `knowledge_embedding_spaces` + migração 058 | ~US$ 0,02 |
 | 7 | Recuperação híbrida + política v1 + `POST /retrieval/preview` | mínimo |
@@ -912,3 +1112,104 @@ desenvolvimento.
 
 Ao final, os resultados são apresentados para revisão. A Fase 1 não começa antes
 disso.
+
+---
+
+## 18. Resultados da Fase 0 e decisões
+
+Fase 0 executada em 2026-09-30. Sonda read-only: nenhum código de produção
+escrito, nenhum arquivo do acervo modificado, nenhuma DDL executada. Relatório
+completo em `var/knowledge_engine_phase0_report.md`.
+
+### 18.0 Matrizes
+
+**Matriz A — currículo (`catalog_nodes`).** Química tem 1 DISCIPLINE, 4 AREA,
+9 CONTENT, 2 SUBCONTENT.
+
+| Tópico | Nó | `code` | Tipo |
+|---|---|---|---|
+| Estequiometria | existe | `CHEMISTRY-PHYSICAL-STOICHIOMETRY` | CONTENT |
+| Reagente Limitante | **não existia** | — | `TAXONOMY_GAP` → decisão 18.1 |
+| Soluções | existe | `CHEMISTRY-SOLUTIONS` | CONTENT |
+| Diluição | existe | `CHEMISTRY-SOLUTIONS-DILUTION` | SUBCONTENT |
+
+**Matriz B — camada de texto.** 2.286 páginas com texto extraível contra 1.116
+que exigem OCR.
+
+| Arquivo | Págs | Veredito |
+|---|---:|---|
+| `INQUI_P26_LM_001-544_DIVULGACAO_com-codigo.pdf` | 546 | `PDF_TEXT_LAYER` |
+| `Moderna-Plus-Quimica-na-abordagem-do-cotidiano-1.pdf` | 548 | `PDF_TEXT_LAYER` |
+| `Moderna-SuperAcao-Quimica-2.pdf` | 548 | `PDF_TEXT_LAYER` |
+| `quimica 1.pdf` … `Quimica 6.pdf` | 644 | `PDF_TEXT_LAYER` |
+| `BNCC_EnsinoMedio_embaixa_site_110518.pdf` | 154 | `PDF_TEXT_LAYER` |
+| `Química Usberco Volume 1/2/3.pdf` | 1.116 | `VISION_OCR` |
+| `BNCC_EI_EF_110518_versaofinal_site.pdf` | 600 | `pypdf` falha; fora do escopo |
+| `usberco e salvador pdf.pdf` | — | arquivo vazio (0 bytes) |
+
+**Matriz A × B — páginas por tópico** (só arquivos com camada de texto):
+Estequiometria 38p / **5 fontes**; Reagente Limitante 19p / **5 fontes**;
+Soluções 340p / **9 fontes**; Diluição 37p / **6 fontes**. Todos acima de
+`min_distinct_sources = 2`, **sem depender do Usberco**.
+
+**Ambiente.** Extensão `vector` disponível 0.8.6, não instalada; usuário do
+banco é superuser, logo `CREATE EXTENSION` funcionará. `OPENAI_API_KEY`
+definida; `ANTHROPIC_API_KEY` vazia. `pymupdf` instalado no `.venv`.
+
+### 18.1 Decisão — Reagente Limitante
+
+Criar o `SUBCONTENT` `CHEMISTRY-PHYSICAL-STOICHIOMETRY-LIMITING-REAGENT` como
+filho de `CHEMISTRY-PHYSICAL-STOICHIOMETRY`.
+
+Condições:
+
+- é uma **alteração explícita da taxonomia curricular**, feita por script de
+  currículo com revisão, **nunca** criação automática pelo Knowledge Engine;
+- **não** expandir agora o resto da árvore de Estequiometria — só este gap;
+- é **pré-requisito da Fase 7** (primeira fase em que um pedido resolve para um
+  nó), não da Fase 1.
+
+Isto não relaxa a regra de 1.2: o Knowledge Engine continua proibido de criar
+nó. A criação acontece fora dele, por decisão humana registrada.
+
+### 18.2 Decisão — BNCC
+
+Mantida no piloto. Fonte: `BNCC_EnsinoMedio_embaixa_site_110518.pdf`,
+área CNT, páginas 113–122. Tratada como **estrutura normativa**, não texto para
+RAG — ver 6.2, verificado contra o arquivo real: 3/3 competências específicas e
+23/23 habilidades extraídas deterministicamente.
+
+Classificação: `source_kind=CURRICULUM_FRAMEWORK`,
+`rights_class=OFFICIAL_PUBLIC`, `authority_level=OFFICIAL`.
+
+### 18.3 Decisão — Extração
+
+Fallback PyMuPDF quando a extração padrão falhar, pela menor alteração possível:
+ver 11.3. Sem redesenho do pipeline; quando `pypdf` funciona a saída é idêntica.
+
+### 18.4 Decisão — OCR
+
+O OCR dos três volumes Usberco **sai da primeira versão**. Não gastar os ~US$ 31
+nem bloquear a Fase 1. Os documentos com camada de texto bastam para validar o
+piloto (Matriz A × B). Os Usberco permanecem **fontes candidatas** para uma etapa
+posterior de expansão e validação do corpus.
+
+Consequência: o caminho `VISION_OCR` continua existindo no design
+(`knowledge_documents.extraction_method`) e continua sendo o destino correto de
+um PDF genuinamente sem texto — apenas não é exercido na primeira versão.
+
+### 18.5 Decisão — `STRICT_CORPUS`
+
+Mantido. Reforçado com `gaps[]` (10.2.1): diante de informação necessária e não
+sustentada pelo corpus efetivamente ingerido, o Pack **sinaliza a lacuna** em vez
+de completar silenciosamente com conhecimento do modelo.
+
+### 18.6 Em aberto — relação `CatalogNode` ↔ BNCC
+
+A Fase 0 estabeleceu que essa relação **não é inferível do texto** (6.2.3). Ela
+exige curadoria pedagógica explícita, e o mecanismo de persistência ainda não foi
+decidido: tabela de vínculo própria, `metadata_` do `CatalogNode`, ou adiamento.
+
+Isto **não bloqueia as Fases 1 a 3**. Enquanto não existir, `topic.bncc[]` no
+Pack vem vazio — resultado honesto, não falha. Decisão necessária antes da
+Fase 4.
