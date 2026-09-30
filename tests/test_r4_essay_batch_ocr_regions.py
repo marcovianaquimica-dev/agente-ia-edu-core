@@ -92,6 +92,32 @@ class CropRegionsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             EssayBatchService._crop_regions(broken, self.tmp_dir)
 
+    def test_crop_regions_accepts_a_custom_header_fraction(self):
+        """O recorte aceita uma fracao de cabecalho customizada."""
+        import pymupdf
+
+        source = _write_page_image(
+            self.tmp_dir / "page_2.png", header_text="NOME", body_text="corpo"
+        )
+        full = pymupdf.Pixmap(str(source))
+
+        # Com a fracao padrao, o header ocupa HEADER_REGION_FRACTION da altura
+        header_default, _ = EssayBatchService._crop_regions(source, self.tmp_dir)
+        header_default_img = pymupdf.Pixmap(str(header_default))
+
+        # Com uma fracao maior (0.5), o header deve ser maior
+        half_dir = self.tmp_dir / "half"
+        half_dir.mkdir(exist_ok=True)
+        header_half, _ = EssayBatchService._crop_regions(
+            source, half_dir, header_fraction=0.5
+        )
+        header_half_img = pymupdf.Pixmap(str(header_half))
+
+        # O header com 0.5 deve ser maior que o header com a fracao padrao
+        self.assertGreater(header_half_img.height, header_default_img.height)
+        # E deve ser aproximadamente metade da altura da imagem original
+        self.assertAlmostEqual(header_half_img.height, full.height * 0.5, delta=2)
+
 
 class ReadPageRegionsTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

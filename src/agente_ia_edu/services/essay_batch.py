@@ -283,7 +283,9 @@ class EssayBatchService:
         return EssaySubmissionService(self.session, transcriber=self._transcriber)
 
     @staticmethod
-    def _crop_regions(image_path: Path, dest_dir: Path) -> tuple[Path, Path]:
+    def _crop_regions(
+        image_path: Path, dest_dir: Path, *, header_fraction: float = HEADER_REGION_FRACTION,
+    ) -> tuple[Path, Path]:
         """Separa uma imagem de pagina em (cabecalho, corpo) pela fracao fixa de
         altura que a folha gerada por services/essay_answer_sheet.py usa.
 
@@ -309,7 +311,7 @@ class EssayBatchService:
             rect = page.rect
             scale = full.width / rect.width
             matrix = _mu.Matrix(scale, scale)
-            split_y = rect.y0 + rect.height * HEADER_REGION_FRACTION
+            split_y = rect.y0 + rect.height * header_fraction
             header_path = dest_dir / f"{image_path.stem}_header.png"
             body_path = dest_dir / f"{image_path.stem}_body.png"
             page.get_pixmap(
