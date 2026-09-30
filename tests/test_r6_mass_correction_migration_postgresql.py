@@ -152,6 +152,60 @@ class TestMassCorrectionRunsMigrationPostgreSQL(unittest.TestCase):
         finally:
             engine.dispose()
 
+    def _insert_run_with_status(self, connection, status: str) -> None:
+        connection.execute(
+            text(
+                "INSERT INTO mass_correction_runs "
+                "(id, school_id, stage, sequence_number, request_count, status, "
+                "created_at, updated_at) "
+                "VALUES (:id, :school_id, 'OCR', 1, 0, :status, now(), now())"
+            ),
+            {"id": uuid.uuid4(), "school_id": uuid.uuid4(), "status": status},
+        )
+
+    def test_upgrade_060_widens_the_status_constraint(self):
+        config = self._alembic_config()
+        command.upgrade(config, "023_curriculum_taxonomy")
+
+        engine = create_engine(self.database_url)
+        try:
+            with engine.begin() as connection:
+                self._seed_catalog(connection)
+        finally:
+            engine.dispose()
+
+        command.upgrade(config, "060_mass_correction_cancelling")
+
+        engine = create_engine(self.database_url)
+        try:
+            with engine.begin() as connection:
+                self._insert_run_with_status(connection, "cancelling")
+        finally:
+            engine.dispose()
+
+    def test_downgrade_060_restores_the_old_constraint(self):
+        config = self._alembic_config()
+        command.upgrade(config, "023_curriculum_taxonomy")
+
+        engine = create_engine(self.database_url)
+        try:
+            with engine.begin() as connection:
+                self._seed_catalog(connection)
+        finally:
+            engine.dispose()
+
+        command.upgrade(config, "060_mass_correction_cancelling")
+        command.downgrade(config, "059_mass_correction_runs")
+
+        engine = create_engine(self.database_url)
+        try:
+            with engine.connect() as connection:
+                with self.assertRaises(Exception):
+                    with connection.begin():
+                        self._insert_run_with_status(connection, "cancelling")
+        finally:
+            engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,7 +33,7 @@ class MassCorrectionRun(Base):
         ),
         CheckConstraint(
             "status IN ('PENDING', 'validating', 'in_progress', 'finalizing', "
-            "'completed', 'failed', 'expired', 'cancelled')",
+            "'completed', 'failed', 'expired', 'cancelling', 'cancelled')",
             name="ck_mass_correction_runs_status",
         ),
         CheckConstraint("request_count >= 0", name="ck_mass_correction_runs_request_count_non_negative"),

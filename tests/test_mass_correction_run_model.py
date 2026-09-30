@@ -65,6 +65,23 @@ class MassCorrectionRunModelTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Exception):
                 await session.commit()
 
+    async def test_accepts_cancelling_status(self):
+        async with self.session_factory() as session:
+            school = School(id=uuid.uuid4(), code="EST-4", name="Rede Estadual")
+            session.add(school)
+            await session.flush()
+            run = MassCorrectionRun(
+                id=uuid.uuid4(), school_id=school.id, stage="OCR",
+                sequence_number=1, request_count=1, status="cancelling",
+            )
+            session.add(run)
+            await session.commit()
+
+            fetched = (await session.execute(
+                select(MassCorrectionRun).where(MassCorrectionRun.id == run.id)
+            )).scalar_one()
+            self.assertEqual(fetched.status, "cancelling")
+
 
 if __name__ == "__main__":
     unittest.main()
