@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -92,6 +93,44 @@ from agente_ia_edu.providers.openai_batch_client import download_file_lines
 
 IN_FLIGHT_STATUSES = {"PENDING", "validating", "in_progress", "finalizing"}
 TERMINAL_STATUSES = {"completed", "failed", "expired", "cancelled"}
+
+# Tetos conservadores para o tamanho de cada lote submetido a Batch API. O
+# teto real de REQUISICOES por lote documentado pela OpenAI e 50.000 - usamos
+# uma fracao bem menor de proposito, com folga de sobra. O teto de BYTES do
+# arquivo de entrada NAO foi confirmado contra a documentacao atual da OpenAI
+# nesta leva (risco aberto, ver riscos conhecidos do projeto) - o valor abaixo
+# e uma estimativa conservadora, deliberadamente pequena; confirme o limite
+# real antes de usar este driver contra o volume completo de producao e ajuste
+# se necessario.
+_MAX_REQUESTS_PER_BATCH = 10_000
+_MAX_BATCH_FILE_BYTES = 90 * 1024 * 1024  # 90MB
+
+
+def _chunk_pending_lines(
+    lines: list[dict], *,
+    max_requests: int = _MAX_REQUESTS_PER_BATCH, max_bytes: int = _MAX_BATCH_FILE_BYTES,
+) -> list[list[dict]]:
+    """Divide ``lines`` em fracoes que cabem nos dois tetos ao mesmo tempo -
+    contagem de requisicoes E tamanho total serializado (o mesmo formato que
+    openai_batch_client.upload_batch_file usa de verdade: uma linha de JSON
+    por requisicao, separadas por \\n). Sempre devolve pelo menos uma fracao
+    quando ``lines`` nao esta vazia, mesmo que uma unica linha ja estoure
+    ``max_bytes`` sozinha (nesse caso ela vai sozinha na sua propria fracao -
+    nunca descartamos uma linha por ela ser grande demais)."""
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    current_bytes = 0
+    for line in lines:
+        line_bytes = len(json.dumps(line, ensure_ascii=False).encode("utf-8")) + 1
+        if current and (len(current) >= max_requests or current_bytes + line_bytes > max_bytes):
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append(line)
+        current_bytes += line_bytes
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 async def _latest_run(session, *, school_id: uuid.UUID, stage: str) -> MassCorrectionRun | None:
@@ -479,17 +518,27 @@ async def run_stage(session, *, school_id: uuid.UUID, stage: str, api_key: str) 
         print(f"[{stage}] nada pendente para a escola {school_id}")
         return
 
+    chunks = _chunk_pending_lines(pending_lines)
+    chunk = chunks[0]
+    if len(chunks) > 1:
+        print(
+            f"[{stage}] {len(pending_lines)} linhas pendentes excedem o teto de um lote so - "
+            f"submetendo a primeira fracao agora ({len(chunk)} linhas); o restante "
+            f"({len(pending_lines) - len(chunk)} linhas, em mais {len(chunks) - 1} fracao(oes)) "
+            f"fica pendente para a proxima execucao deste script"
+        )
+
     next_sequence = 1 if run is None else run.sequence_number + 1
     new_run = MassCorrectionRun(
         id=uuid.uuid4(), school_id=school_id, stage=stage,
-        sequence_number=next_sequence, request_count=len(pending_lines), status="PENDING",
+        sequence_number=next_sequence, request_count=len(chunk), status="PENDING",
     )
     session.add(new_run)
     await session.flush()
-    new_run = await advance_run(session, new_run.id, api_key=api_key, pending_lines=pending_lines)
+    new_run = await advance_run(session, new_run.id, api_key=api_key, pending_lines=chunk)
     print(
         f"[{stage}] novo lote submetido: run {new_run.id}, batch {new_run.openai_batch_id}, "
-        f"{len(pending_lines)} linhas, status={new_run.status!r}"
+        f"{len(chunk)} linhas, status={new_run.status!r}"
     )
 
 
