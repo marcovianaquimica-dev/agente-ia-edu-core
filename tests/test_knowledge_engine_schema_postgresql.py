@@ -60,8 +60,9 @@ class KnowledgeEngineSchemaPostgreSQLTests(unittest.TestCase):
         cls._admin_execute(f"DROP DATABASE IF EXISTS {cls.database_name}")
         cls._admin_execute(f"CREATE DATABASE {cls.database_name}")
         cls.engine = create_engine(cls.database_url)
-        with cls.engine.begin() as connection:
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        # NAO criamos a extensao aqui de proposito: o listener em
+        # db/models/knowledge_engine.py tem de faze-lo sozinho. Ver
+        # test_create_all_installs_the_extension_without_being_asked.
         Base.metadata.create_all(cls.engine)
 
     @classmethod
@@ -70,6 +71,22 @@ class KnowledgeEngineSchemaPostgreSQLTests(unittest.TestCase):
         cls._admin_execute(f"DROP DATABASE IF EXISTS {cls.database_name}")
 
     # -- 1. a extensao e o tipo da coluna --------------------------------
+
+    def test_create_all_installs_the_extension_without_being_asked(self):
+        """Regressao: a coluna ``vector`` fez ``create_all`` quebrar em TODO
+        teste ``*_postgresql`` do projeto que cria um banco descartavel -
+        dezenas deles, nenhum relacionado ao Knowledge Engine, todos com
+        ``type "vector" does not exist``.
+
+        O ``setUpClass`` desta classe nao executa ``CREATE EXTENSION``. Se este
+        teste passa, o listener declarativo fez o trabalho, e nenhum teste
+        futuro precisa saber que a extensao existe.
+        """
+        with self.engine.connect() as connection:
+            installed = connection.execute(
+                text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+            ).scalar_one()
+        self.assertEqual(installed, 1)
 
     def test_pgvector_extension_is_installed(self):
         with self.engine.connect() as connection:

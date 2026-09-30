@@ -1282,3 +1282,58 @@ merge revision.
 
 A extensão `vector` **foi** criada no banco de dev (autorizada, aditiva,
 verificada operacional). É independente das tabelas e é pré-requisito delas.
+
+### 19.6 A coluna `vector` quebrou `create_all` em todo teste PostgreSQL do projeto
+
+Encontrado só pela suíte completa, depois que 42 testes novos e 442 de
+regressão dirigida passavam.
+
+`Base.metadata.create_all` contra um PostgreSQL sem a extensão pgvector falha
+com `type "vector" does not exist`. Isso atingiu **cinco arquivos de teste
+`*_postgresql` existentes**, nenhum relacionado ao Knowledge Engine, todos eles
+criando o seu próprio banco descartável — que naturalmente não tem a extensão.
+
+Corrigido de forma declarativa, em `db/models/knowledge_engine.py`:
+
+```python
+event.listen(
+    Base.metadata, "before_create",
+    DDL("CREATE EXTENSION IF NOT EXISTS vector").execute_if(dialect="postgresql"),
+)
+```
+
+Editar os cinco arquivos estaria errado duas vezes: não consertaria os testes
+ainda por escrever, e espalharia uma preocupação do Knowledge Engine por
+arquivos que não deveriam conhecê-la. O listener vive no único lugar que sabe
+que a extensão é necessária, e é o equivalente, no caminho `create_all`, do
+que a migração 058 faz no caminho Alembic.
+
+O `setUpClass` de `test_knowledge_engine_schema_postgresql.py` **deixou** de
+criar a extensão à mão, de propósito, para que o listener seja de fato
+exercitado —
+`test_create_all_installs_the_extension_without_being_asked` falharia se
+alguém o removesse.
+
+Consequência operacional a registrar: `create_all` contra PostgreSQL passa a
+exigir privilégio para criar extensão. Em produção o caminho é Alembic, não
+`create_all`, e `IF NOT EXISTS` torna a operação no-op onde já está instalada.
+
+### 19.7 `token_estimate` e o guarda de credenciais
+
+`knowledge_chunks.token_estimate` foi rejeitado por
+`test_no_table_anywhere_has_a_credential_column`, o guarda que proíbe qualquer
+coluna com fragmento `password`/`senha`/`credential`/`secret`/`token` em
+qualquer tabela do schema.
+
+É falso positivo — é uma estimativa de tamanho em tokens de LLM, usada para
+orçar quanto contexto um Pack pode carregar, não um segredo. O guarda tem
+mecanismo de exceção **nomeada e justificada** exatamente para essa classe,
+com precedentes já registrados (`essay_corrections.input_tokens`,
+`pedagogical_classifications.*_tokens`). A exceção foi registrada.
+
+Não foi afrouxada a varredura nem renomeada a coluna: o próprio teste diz que
+a varredura "must never be narrowed to dodge a specific hit", e o mecanismo de
+exceção é o caminho previsto. Uma terceira asserção do guarda garante que a
+lista não apodreça — exceção apontando para coluna inexistente é erro — de
+modo que as colunas `*_tokens` que a Fase 9 vai criar em `knowledge_packs`
+só poderão ser registradas quando existirem.

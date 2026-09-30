@@ -101,6 +101,13 @@ CREDENTIAL_COLUMN_EXCEPTIONS = {
         "'token' fragment, same class as the "
         "pedagogical_classifications.*_tokens entries above."
     ),
+    ("knowledge_chunks", "token_estimate"): (
+        "CEREBRO / Knowledge Engine: estimated LLM token length of this "
+        "corpus chunk, used to budget how much context a Knowledge Pack can "
+        "carry. A size measurement, not a secret - false positive of the "
+        "'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
 }
 
 

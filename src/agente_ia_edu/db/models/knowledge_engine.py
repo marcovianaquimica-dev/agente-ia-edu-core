@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
+    DDL,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -37,12 +38,35 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    event,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base
 from ..types import JSONBCompatible, VectorCompatible
+
+# ``knowledge_chunk_embeddings.embedding`` compila para o tipo ``vector``, que
+# nao existe num banco PostgreSQL sem a extensao pgvector. Sem isto, TODO
+# ``Base.metadata.create_all`` contra um Postgres novo passa a falhar com
+# ``type "vector" does not exist`` - inclusive o de dezenas de testes
+# ``*_postgresql`` que nada tem a ver com o Knowledge Engine e que criam um
+# banco descartavel proprio.
+#
+# Resolver isso editando cada teste seria errado duas vezes: nao conserta os
+# testes que ainda serao escritos, e espalha uma preocupacao do Knowledge
+# Engine por arquivos que nao deveriam conhece-la. O listener abaixo faz a
+# extensao ser garantida uma vez, no lugar unico que sabe que ela e
+# necessaria - a mesma coisa que a migracao 058 faz para o caminho Alembic.
+#
+# ``IF NOT EXISTS`` torna a operacao idempotente e no-op onde ja esta
+# instalada. Exige privilegio para criar extensao; em producao o caminho e
+# Alembic, nao ``create_all``.
+event.listen(
+    Base.metadata,
+    "before_create",
+    DDL("CREATE EXTENSION IF NOT EXISTS vector").execute_if(dialect="postgresql"),
+)
 
 
 def _now() -> datetime:
