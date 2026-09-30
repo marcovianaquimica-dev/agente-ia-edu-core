@@ -129,12 +129,24 @@ async def _collect_ocr_pending_lines(session, *, school_id: uuid.UUID) -> list[d
         )
     ).scalars().all()
     lines = []
+    had_failures = False
     for page in pages:
         scratch_dir = Path(tempfile.mkdtemp(prefix="mass_ocr_regions_"))
         try:
             header_path, body_path = await asyncio.to_thread(
                 EssayBatchService._crop_regions, Path(page.storage_uri), scratch_dir
             )
+        except ValueError as exc:
+            print(
+                f"[OCR] pagina {page.id} ilegivel/corrompida/ausente, vai para "
+                f"revisao manual: {exc}"
+            )
+            page.status = "NEEDS_REVIEW"
+            page.ocr_body_text = ""
+            had_failures = True
+            shutil.rmtree(scratch_dir, ignore_errors=True)
+            continue
+        try:
             header_line = build_ocr_batch_request(f"{page.id}:header", header_path)
             body_line = build_ocr_batch_request(f"{page.id}:body", body_path)
             header_line["body"]["model"] = vision_model
@@ -143,6 +155,8 @@ async def _collect_ocr_pending_lines(session, *, school_id: uuid.UUID) -> list[d
             lines.append(body_line)
         finally:
             shutil.rmtree(scratch_dir, ignore_errors=True)
+    if had_failures:
+        await session.commit()
     return lines
 
 

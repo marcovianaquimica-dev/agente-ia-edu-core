@@ -231,6 +231,38 @@ class RunMassCorrectionOcrMaterializationTests(unittest.IsolatedAsyncioTestCase)
             submissions = (await session.execute(select(EssaySubmission))).scalars().all()
             self.assertEqual(submissions, [])
 
+    async def test_an_unreadable_page_is_skipped_without_aborting_the_whole_collection(self):
+        async with self.session_factory() as session:
+            school, batch, good_page, _student = await self._seed(session)
+
+            bad_page = EssayBatchPage(
+                id=uuid.uuid4(), batch_id=batch.id, page_number=2,
+                storage_uri="/tmp/nao-existe-de-verdade.png", status="NEEDS_REVIEW",
+            )
+            session.add(bad_page)
+            await session.flush()
+            await session.commit()
+
+            with patch.dict("os.environ", {"OPENAI_VISION_MODEL": "gpt-vision-test"}):
+                lines = await _collect_ocr_pending_lines(session, school_id=school.id)
+
+            # (a) nao levanta excecao (chegamos aqui) - (b) so a pagina legivel aparece
+            self.assertEqual(len(lines), 2)
+            custom_ids = {line["custom_id"] for line in lines}
+            self.assertEqual(custom_ids, {f"{good_page.id}:header", f"{good_page.id}:body"})
+
+            # (c) a pagina ruim foi degradada, nao derrubou a coleta
+            refreshed_bad_page = await session.get(EssayBatchPage, bad_page.id)
+            self.assertEqual(refreshed_bad_page.status, "NEEDS_REVIEW")
+            self.assertEqual(refreshed_bad_page.ocr_body_text, "")
+
+            # (d) chamando de novo, a pagina ruim nao aparece mais (sem loop de retry
+            # infinito) - a boa continua pendente e continua aparecendo normalmente
+            with patch.dict("os.environ", {"OPENAI_VISION_MODEL": "gpt-vision-test"}):
+                lines_again = await _collect_ocr_pending_lines(session, school_id=school.id)
+            custom_ids_again = {line["custom_id"] for line in lines_again}
+            self.assertEqual(custom_ids_again, {f"{good_page.id}:header", f"{good_page.id}:body"})
+
 
 if __name__ == "__main__":
     unittest.main()
