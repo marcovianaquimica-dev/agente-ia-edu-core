@@ -23,27 +23,38 @@ jobs:
       - name: Install package + test dependencies
         run: python -m pip install -e ".[dev,recovery]"
 
-      # Two families of test excluded here, neither fixable by CI config -
+      # Three families of test excluded here, none fixable by CI config -
       # confirmed by actually running the full suite against a genuinely
-      # fresh checkout (no .env, no var/, no ambient Postgres) before this
-      # workflow was written:
+      # fresh checkout (no .env, no var/, no ambient Postgres, no local
+      # docker-compose) before this workflow was written. None of these are
+      # bugs introduced by this PR - all three predate it and only ever ran
+      # on a developer's machine with extra local setup already in place:
       #
       # 1. Real INEP exam corpus (var/inep-pilot/*.pdf) - gitignored on
       #    purpose (real proprietary exam booklets, several MB each), so it
-      #    only exists on a machine that fetched it out-of-band. These are
-      #    already documented "local only" in their own docstrings.
+      #    only exists on a machine that fetched it out-of-band. Several of
+      #    these already document themselves as "local only"; two more
+      #    (test_kinetics_taxonomy_migration.py,
+      #    test_phase9u2h4_review_packet.py) reach for the same corpus (or a
+      #    manual-script fixture derived from it) mid-test, not in
+      #    setUpClass, so they're in the same bucket even though their
+      #    names don't say "corpus".
       # 2. Direct `TestClient(app)` hits with no injected session - these
       #    need a real, reachable, already-migrated Postgres via
       #    DATABASE_URL (the shared dev database these tests were written
       #    against), which no GitHub-hosted runner has. Every other test in
       #    the suite builds its own in-memory SQLite session instead.
-      #
-      # Neither is a bug introduced by this PR - both predate it and only
-      # ever ran on a developer's machine with the extra local setup
-      # already in place. Postgres-backed *migration* tests are NOT in this
-      # list: each of those creates and tears down its own throwaway
-      # database and already skips gracefully (unittest.SkipTest) when no
-      # Postgres is reachable at all, which is exactly this runner's case.
+      # 3. test_fase16_migration.py explicitly requires a local
+      #    docker-compose Postgres and raises RuntimeError (not
+      #    unittest.SkipTest) in setUpClass when it can't connect - by
+      #    design, per its own module docstring, not an oversight to patch
+      #    here. This is the ONE Postgres-named test file in this list -
+      #    every other Postgres migration test (test_r4_essay_batch_
+      #    migration_postgresql.py, test_r6_mass_correction_migration_
+      #    postgresql.py, etc.) creates and tears down its own throwaway
+      #    database and already skips gracefully when no Postgres is
+      #    reachable, which is exactly this runner's case, so none of
+      #    those needed to be added here.
       - name: Run test suite
         run: >
           python -m pytest tests -q
@@ -55,7 +66,9 @@ jobs:
           --ignore=tests/test_phase9q_coverage_matrix.py
           --ignore=tests/test_phase9t2_controlled_vocabulary.py
           --ignore=tests/test_phase9u2h4_review_packet.py
+          --ignore=tests/test_kinetics_taxonomy_migration.py
           --ignore=tests/test_api_questions.py
           --ignore=tests/test_get_current_identity_error_handling.py
           --ignore=tests/test_question_bank_advanced_search.py
           --ignore=tests/test_student_study_search.py
+          --ignore=tests/test_fase16_migration.py
