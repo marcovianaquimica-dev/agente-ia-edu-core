@@ -25,6 +25,7 @@ from .routes.question_extraction import qe_router
 from .routes.question_classification import qc_router
 from .routes.video_engine import video_router
 from .routes.discovery import discovery_router
+from .routes.knowledge_engine import knowledge_engine_router
 from .routes.student import student_router
 from .routes.admin import admin_router
 from .routes.teaching_context import (
@@ -70,6 +71,9 @@ def create_app() -> FastAPI:
     app.include_router(qc_router, dependencies=reception_only_guard)
     app.include_router(video_router, dependencies=reception_only_guard)
     app.include_router(discovery_router, dependencies=reception_only_guard)
+    # CEREBRO / Knowledge Engine: corpus interno, platform admin por rota e
+    # sob o mesmo guard de recepcao de todo router nao-publico.
+    app.include_router(knowledge_engine_router, dependencies=reception_only_guard)
     app.include_router(student_router, dependencies=reception_only_guard)
     app.include_router(admin_router, dependencies=reception_only_guard)
     app.include_router(teacher_router, dependencies=reception_only_guard)

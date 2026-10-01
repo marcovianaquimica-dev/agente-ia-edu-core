@@ -1,0 +1,194 @@
+"""Rotas do CEREBRO / Knowledge Engine (Fase 2).
+
+Superficie da fase: cadastrar fonte, registrar documento, ler, arquivar.
+Nenhum endpoint de ingestao, recuperacao ou Knowledge Pack - essas fases nao
+chegaram, e a infraestrutura delas existir nao e motivo para antecipa-las.
+
+Toda rota exige PLATFORM_ADMIN. O router tambem entra em ``app.py`` sob
+``reception_only_guard``, como todo router nao-publico do projeto, para que o
+papel so-recepcao nunca alcance o corpus.
+"""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ...identity import ExternalIdentityContext
+from ...services.knowledge_engine.document_ingress import (
+    DocumentIngressError,
+    configured_document_root,
+    resolve_local_path,
+)
+from ...services.knowledge_engine.rights import KnowledgeRightsViolation
+from ...services.knowledge_engine.sources import (
+    KnowledgeSourceNotFound,
+    KnowledgeSourceService,
+)
+from ..dependencies import get_session_factory
+from ..schemas.knowledge_engine import (
+    KnowledgeDocumentRegisterRequest,
+    KnowledgeDocumentRegistrationResponse,
+    KnowledgeDocumentResponse,
+    KnowledgeSourceCreateRequest,
+    KnowledgeSourceListResponse,
+    KnowledgeSourceResponse,
+)
+from .admin import require_platform_admin
+
+knowledge_engine_router = APIRouter(
+    prefix="/api/v1/knowledge-engine",
+    tags=["knowledge-engine"],
+)
+
+
+@knowledge_engine_router.post("/sources", response_model=KnowledgeSourceResponse, status_code=201)
+async def register_source(
+    payload: KnowledgeSourceCreateRequest,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeSourceResponse:
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        try:
+            snapshot = await service.register(
+                **payload.model_dump(),
+                created_by_external_identity=identity.external_user_id,
+            )
+        except KnowledgeRightsViolation as exc:
+            # 409: a requisicao esta bem formada, mas descreve uma fonte que a
+            # politica de direitos nao admite. Nunca deixar virar um 500 de
+            # IntegrityError - o chamador precisa do motivo nomeado.
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return KnowledgeSourceResponse(**vars(snapshot))
+
+
+@knowledge_engine_router.get("/sources", response_model=KnowledgeSourceListResponse)
+async def list_sources(
+    rights_class: str | None = Query(None),
+    status: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeSourceListResponse:
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        snapshots = await service.list_sources(
+            rights_class=rights_class, status=status, limit=limit, offset=offset
+        )
+    sources = [KnowledgeSourceResponse(**vars(snapshot)) for snapshot in snapshots]
+    return KnowledgeSourceListResponse(sources=sources, count=len(sources))
+
+
+@knowledge_engine_router.get("/sources/{source_id}", response_model=KnowledgeSourceResponse)
+async def get_source(
+    source_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeSourceResponse:
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        try:
+            snapshot = await service.get(source_id)
+        except KnowledgeSourceNotFound as exc:
+            raise HTTPException(status_code=404, detail="fonte de conhecimento nao encontrada") from exc
+    return KnowledgeSourceResponse(**vars(snapshot))
+
+
+@knowledge_engine_router.get(
+    "/sources/{source_id}/documents", response_model=list[KnowledgeDocumentResponse]
+)
+async def list_documents(
+    source_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> list[KnowledgeDocumentResponse]:
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        try:
+            snapshots = await service.list_documents(source_id)
+        except KnowledgeSourceNotFound as exc:
+            raise HTTPException(status_code=404, detail="fonte de conhecimento nao encontrada") from exc
+    return [_document_response(snapshot) for snapshot in snapshots]
+
+
+@knowledge_engine_router.post(
+    "/sources/{source_id}/documents",
+    response_model=KnowledgeDocumentRegistrationResponse,
+)
+async def register_document(
+    source_id: UUID,
+    payload: KnowledgeDocumentRegisterRequest,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeDocumentRegistrationResponse:
+    """Registra um documento por caminho local, confinado a raiz autorizada.
+
+    Upload multipart fica explicitamente fora da Fase 2. Quando entrar,
+    constroi o mesmo ``ResolvedDocumentFile`` e chama o mesmo service: nem o
+    modelo ``KnowledgeDocument`` nem a idempotencia por hash mudam.
+    """
+    root = configured_document_root()
+    if root is None:
+        # Falha fechada: sem raiz configurada nenhum caminho e aceito. Cair
+        # num default como o cwd transformaria a maquina em raiz autorizada.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "KNOWLEDGE_ENGINE_DOCUMENT_ROOT nao esta configurada; "
+                "nenhum caminho de documento pode ser aceito"
+            ),
+        )
+
+    try:
+        resolved = resolve_local_path(payload.local_path, root=root)
+    except DocumentIngressError as exc:
+        status_code = 404 if exc.code == "FILE_NOT_FOUND" else 400
+        raise HTTPException(status_code=status_code, detail=f"{exc.code}: {exc}") from exc
+
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        try:
+            registration = await service.register_document(
+                source_id, resolved, page_offset=payload.page_offset
+            )
+        except KnowledgeSourceNotFound as exc:
+            raise HTTPException(status_code=404, detail="fonte de conhecimento nao encontrada") from exc
+
+    return KnowledgeDocumentRegistrationResponse(
+        document=_document_response(registration.document),
+        created=registration.created,
+    )
+
+
+@knowledge_engine_router.delete("/sources/{source_id}", response_model=KnowledgeSourceResponse)
+async def archive_source(
+    source_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeSourceResponse:
+    """ARQUIVA a fonte. Nunca apaga.
+
+    Um Knowledge Pack cita evidencia por chunk, e toda FK do subsistema e
+    RESTRICT: apagar uma fonte invalidaria retroativamente a procedencia de
+    trabalho ja entregue.
+    """
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        try:
+            snapshot = await service.archive(source_id)
+        except KnowledgeSourceNotFound as exc:
+            raise HTTPException(status_code=404, detail="fonte de conhecimento nao encontrada") from exc
+    return KnowledgeSourceResponse(**vars(snapshot))
+
+
+def _document_response(snapshot) -> KnowledgeDocumentResponse:
+    """Projeta o snapshot omitindo ``storage_uri``.
+
+    A omissao e deliberada: e um caminho do sistema de arquivos do servidor.
+    """
+    fields = vars(snapshot).copy()
+    fields.pop("storage_uri", None)
+    return KnowledgeDocumentResponse(**fields)
