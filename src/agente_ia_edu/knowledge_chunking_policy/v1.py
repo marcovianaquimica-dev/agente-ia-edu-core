@@ -58,6 +58,10 @@ OVERLAP_TOKENS = 120
 #: resolvido ao meio produz dois chunks que nao sustentam afirmacao nenhuma.
 INDIVISIBLE_CHUNK_TYPES: tuple[str, ...] = (
     "EXERCISE",
+    # Gabarito/resolucao (Fase 3.1): cortar uma resolucao ao meio produz dois
+    # chunks que nao mostram o procedimento, que e exatamente o que faz este
+    # tipo valer a pena.
+    "SOLUTION",
     "TABLE",
     "FORMULA",
     "WORKED_EXAMPLE",

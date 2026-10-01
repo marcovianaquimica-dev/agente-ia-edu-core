@@ -46,7 +46,12 @@ from ...knowledge_chunking_policy.v1 import (
     source_text_hash,
 )
 from ..ingestion_parser import ParsedDocument, ParsedQuestion, ParsedSection
-from .structure import classify_block, describe_block, split_at_structural_markers
+from .structure import (
+    classify_block,
+    describe_block,
+    judge_exercise_candidate,
+    split_at_structural_markers,
+)
 
 _PARAGRAPH_SPLIT = re.compile(r"\n\s*\n+|\f")
 _WHITESPACE = re.compile(r"[ \t]+")
@@ -209,10 +214,39 @@ class ProseChunker:
                     body = f"{statement}\n{question.alternatives_text.strip()}"
                 page_start = (question.page_start or first_page) + page_offset
                 page_end = (question.page_end or question.page_start or first_page) + page_offset
+
+                # PORTAO DE PROMOCAO (Fase 3.1, spec 21). O parser entrega
+                # candidatos pela heuristica numerada, cuja precisao medida no
+                # livro real foi de ~25%. Promover exige evidencia positiva;
+                # veto prevalece; gabarito vira SOLUTION; e o que nao passa e
+                # RECLASSIFICADO, nunca descartado.
+                verdict = judge_exercise_candidate(body)
+                chunk_type = verdict.chunk_type or classify_block(body).chunk_type
+                if chunk_type == "EXERCISE" and verdict.chunk_type is None:
+                    # Defesa contra reentrada: o classificador normal nunca
+                    # decide EXERCISE, mas se um dia decidir, o portao nao
+                    # pode ser contornado por ele.
+                    chunk_type = "PROSE"
+
+                structure = {
+                    "classified_as": chunk_type,
+                    "signals": (
+                        ["parser_detected"]
+                        if verdict.chunk_type == "EXERCISE"
+                        else ["parser_detected", "gated"]
+                    ),
+                    "exercise_evidence": list(verdict.evidence),
+                    "exercise_vetoes": list(verdict.vetoes),
+                    "decision_reason": verdict.decision_reason,
+                    **describe_block(body),
+                }
+                if verdict.demoted_from:
+                    structure["demoted_from"] = verdict.demoted_from
+
                 drafts.append(
                     _draft(
                         ordinal=ordinal,
-                        chunk_type="EXERCISE",
+                        chunk_type=chunk_type,
                         heading_path=heading_base,
                         page_start=page_start,
                         page_end=page_end,
@@ -221,11 +255,7 @@ class ProseChunker:
                             "boundary_approximate": approximate,
                             "question_number": question.question_number,
                             "requires_review": question.requires_review,
-                            "structure": {
-                                "classified_as": "EXERCISE",
-                                "signals": ["parser_detected"],
-                                **describe_block(body),
-                            },
+                            "structure": structure,
                         },
                     )
                 )

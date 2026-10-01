@@ -58,7 +58,8 @@ class PolicyShapeTests(unittest.TestCase):
     def test_the_pedagogically_indivisible_types_are_named(self):
         self.assertEqual(
             set(INDIVISIBLE_CHUNK_TYPES),
-            {"EXERCISE", "TABLE", "FORMULA", "WORKED_EXAMPLE", "CURRICULUM_ITEM"},
+            {"EXERCISE", "SOLUTION", "TABLE", "FORMULA", "WORKED_EXAMPLE",
+             "CURRICULUM_ITEM"},
         )
 
 

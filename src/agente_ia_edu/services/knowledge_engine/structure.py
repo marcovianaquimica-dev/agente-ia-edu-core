@@ -207,3 +207,150 @@ def describe_block(text: str) -> dict[str, bool]:
         "has_figure_caption": has_figure_caption(text),
         "references_table": references_table(text),
     }
+
+
+# ----------------------------------------------------------------------
+# Portao de promocao de EXERCISE (Fase 3.1, spec 21)
+# ----------------------------------------------------------------------
+#
+# A auditoria do livro real mediu precisao de ~25% na classe EXERCISE: dos
+# 1.535 chunks rotulados, ~1.150 eram falso positivo. A causa esta na
+# heuristica numerada do parser, que casa item de lista, numeracao de figura e
+# referencia bibliografica.
+#
+# ``authorial_material_parser.py`` NAO e alterado. O parser continua
+# entregando candidatos como sempre, e a PHASE 26 nao muda de comportamento -
+# o Knowledge Engine passa a DECIDIR se promove cada candidato.
+#
+# Candidato nao promovido e RECLASSIFICADO, nunca descartado: o texto volta ao
+# fluxo e recebe o tipo que o classificador normal lhe der. A contagem total
+# de chunks e invariante ao portao.
+
+#: Alternativas de multipla escolha. Aceita ``a)``, ``a.`` e ``a -``: o livro
+#: real usa a forma com ponto em varios exercicios, e exigir ")" perdia
+#: exercicio verdadeiro - achado da auditoria.
+_ALTERNATIVES = re.compile(
+    r"(?:^|\s)a\s*[).\-]\s*\S.{0,400}?(?:^|\s)b\s*[).\-]\s*\S.{0,400}?(?:^|\s)c\s*[).\-]\s*\S",
+    re.DOTALL | re.IGNORECASE | re.MULTILINE,
+)
+
+#: Atribuicao de vestibular entre parenteses.
+_EXAM_SOURCE = re.compile(
+    r"\((?:ENEM|UF[A-Z]{0,3}|U[A-Z]{2,4}|FUVEST|UNICAMP|UNESP|ITA|IME|"
+    r"PUC[-\s]?[A-Z]{0,3}|CEFET|Vunesp|Mackenzie|FGV|[A-Z][a-zá-ú]+-[A-Z]{2})"
+    r"[^)]{0,40}\)"
+)
+
+#: Imperativo NO INICIO. Ancorar importa: a primeira versao da auditoria
+#: procurava em todo o texto e classificava "os algoritmos DETERMINAM o
+#: trabalho" - prosa - como exercicio.
+_COMMAND = re.compile(
+    r"^\s*(?:\([^)]{0,40}\)\s*)?"
+    r"(calcule|calculem|determine|determinem|explique|expliquem|justifique|"
+    r"justifiquem|indique|indiquem|escreva|escrevam|assinale|assinalem|"
+    r"classifique|classifiquem|descreva|descrevam|identifique|identifiquem|"
+    r"compare|comparem|interprete|interpretem|represente|representem|"
+    r"esboce|esbocem|complete|completem|relacione|relacionem|analise|"
+    r"analisem|discuta|discutam|proponha|proponham|verifique|verifiquem|"
+    r"mostre|mostrem|pesquise|pesquisem|responda|respondam|cite|citem|"
+    r"d[eê]|fa[çc]a|fa[çc]am|qual|quais|por\s+que|quantos|quantas|quanto)\b",
+    re.IGNORECASE,
+)
+
+#: Acima disso, um "?" no texto e mencao, nao pergunta de exercicio.
+_SHORT_QUESTION_MAX_CHARS = 1200
+
+#: GABARITO / RESOLUCAO. Este livro e edicao do professor: traz as respostas.
+#: 261 chunks no livro real. Nao e rebaixado para PROSE - recebe o tipo
+#: SOLUTION, porque resolucao comentada mostra o PROCEDIMENTO e e o material
+#: mais util que um livro didatico oferece ao Knowledge Pack.
+_ANSWER_OPENER = re.compile(
+    r"^\s*(alternativa\s+[a-e]\b|resposta\s*(pessoal|correta|esperada)?\s*[:.]|"
+    r"resolu[çc][aã]o\s*[:.]|gabarito|coment[áa]rio\s*[:.])",
+    re.IGNORECASE,
+)
+_CAPTION_OPENER = re.compile(
+    r"^\s*(figura|fig\.|gr[áa]fico|tabela|quadro|esquema)\s*\d+", re.IGNORECASE
+)
+_BOX_OPENER = re.compile(r"^\s*\((?:cole[çc][aã]o|s[eé]rie|col\.)", re.IGNORECASE)
+
+#: O tipo que um gabarito recebe. NAO e WORKED_EXAMPLE: exemplo resolvido e
+#: material de ensino DENTRO do capitulo, gabarito e a resposta de um
+#: exercicio especifico, e colapsa-los perderia a distincao.
+SOLUTION_CHUNK_TYPE = "SOLUTION"
+
+
+@dataclass(frozen=True)
+class ExerciseVerdict:
+    """O que fazer com um candidato a exercicio, e POR QUE.
+
+    ``chunk_type`` e ``None`` quando o candidato nao foi promovido nem
+    identificado como gabarito: nesse caso quem chama reclassifica o texto
+    pelo classificador normal. Nunca significa "descartar".
+    """
+
+    chunk_type: str | None
+    evidence: tuple[str, ...]
+    vetoes: tuple[str, ...]
+    demoted_from: str | None
+    decision_reason: str  # PROMOTED | ANSWER_KEY | VETOED | NO_EVIDENCE
+
+
+def judge_exercise_candidate(text: str) -> ExerciseVerdict:
+    """Decide se um candidato do parser merece o rotulo ``EXERCISE``.
+
+    Vetos PREVALECEM sobre evidencia, e a ordem nao e arbitraria: um gabarito
+    frequentemente CITA as alternativas e o comando do enunciado que resolve,
+    entao avaliar evidencia primeiro promoveria justamente o pior caso.
+    """
+    body = (text or "").strip()
+
+    vetoes: list[str] = []
+    if _ANSWER_OPENER.match(body):
+        vetoes.append("answer_opener")
+    if _CAPTION_OPENER.match(body):
+        vetoes.append("caption_opener")
+    if _BOX_OPENER.match(body):
+        vetoes.append("box_opener")
+
+    evidence: list[str] = []
+    if _ALTERNATIVES.search(body):
+        evidence.append("alternatives")
+    if _EXAM_SOURCE.search(body):
+        evidence.append("exam_source")
+    if _COMMAND.match(body):
+        evidence.append("command")
+    if "?" in body and len(body) <= _SHORT_QUESTION_MAX_CHARS:
+        evidence.append("short_question")
+
+    if "answer_opener" in vetoes:
+        return ExerciseVerdict(
+            chunk_type=SOLUTION_CHUNK_TYPE,
+            evidence=tuple(evidence),
+            vetoes=tuple(vetoes),
+            demoted_from="EXERCISE",
+            decision_reason="ANSWER_KEY",
+        )
+    if vetoes:
+        return ExerciseVerdict(
+            chunk_type=None,
+            evidence=tuple(evidence),
+            vetoes=tuple(vetoes),
+            demoted_from="EXERCISE",
+            decision_reason="VETOED",
+        )
+    if evidence:
+        return ExerciseVerdict(
+            chunk_type="EXERCISE",
+            evidence=tuple(evidence),
+            vetoes=(),
+            demoted_from=None,
+            decision_reason="PROMOTED",
+        )
+    return ExerciseVerdict(
+        chunk_type=None,
+        evidence=(),
+        vetoes=(),
+        demoted_from="EXERCISE",
+        decision_reason="NO_EVIDENCE",
+    )

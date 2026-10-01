@@ -1511,3 +1511,140 @@ normalização de fórmula; OCR de imagem; promoção de exercício para o banco
 de questões; e `content_node_id` dos chunks, que fica `NULL` nesta fase -
 casar chunk com currículo é trabalho do matcher, e misturá-lo com chunking
 tornaria as duas coisas mais difíceis de testar.
+
+---
+
+## 21. Fase 3.1 — portão de promoção de `EXERCISE` e o tipo `SOLUTION`
+
+Aprovado em 2026-10-01, a partir da auditoria em
+`var/knowledge_engine_exercise_audit.md`. Correção **restrita ao Knowledge
+Engine**: `authorial_material_parser.py` não é alterado e a PHASE 26 não muda
+de comportamento.
+
+### 21.1 O problema medido
+
+No livro real, 57,5% dos chunks saíam como `EXERCISE`. Auditoria de 100
+chunks, com validação manual de 20: **precisão real de ~25%**. Dos 1.535
+rotulados, ~1.150 eram falso positivo, assim distribuídos:
+
+| Motivo | n |
+|---|---:|
+| Sem nenhuma evidência de exercício | 711 |
+| Abre com gabarito (`Alternativa X`, `Resposta:`, `Resolução:`) | **261** |
+| Abre com legenda (`Figura N`, `Tabela N`) | 52 |
+| Caixa de indicação bibliográfica | 2 |
+
+A causa está na heurística numerada do parser, que casa item de lista,
+numeração de figura e referência. O parser não é alterado; o Knowledge Engine
+passa a **decidir** se promove o candidato que ele entrega.
+
+### 21.2 O portão
+
+Um candidato só vira `EXERCISE` com **evidência positiva** e **nenhum veto**.
+
+**Evidência positiva** (qualquer uma basta):
+
+| Sinal | O que é |
+|---|---|
+| `alternatives` | `a) b) c)` — aceita também `a.` e `a -` |
+| `exam_source` | atribuição de vestibular entre parênteses |
+| `command` | verbo no imperativo **no início** do texto |
+| `short_question` | contém `?` e no máximo 1.200 caracteres |
+
+`command` é ancorado no início de propósito: a primeira versão da auditoria
+procurava em todo o texto e classificava "os algoritmos **determinam** o
+trabalho" como exercício.
+
+**Vetos**, que **prevalecem** sobre qualquer evidência:
+
+| Veto | Destino |
+|---|---|
+| `answer_opener` | **`SOLUTION`** (21.3) |
+| `caption_opener` | reclassificado |
+| `box_opener` | reclassificado |
+
+O veto vem antes da evidência porque um gabarito frequentemente **cita**
+alternativas e comando do enunciado que resolve.
+
+### 21.3 `SOLUTION` como tipo próprio
+
+Gabarito e resolução **não** são rebaixados genericamente para `PROSE`: têm
+valor pedagógico próprio e precisam ser distinguíveis de `EXERCISE`.
+
+Razão de fundo: resolução comentada é o material mais útil que um livro
+didático oferece ao Knowledge Pack, porque mostra o **procedimento**, não só
+o resultado. Um Pack sobre Estequiometria ganha `procedures` sustentados por
+resolução de exemplo.
+
+`SOLUTION` **não** é `WORKED_EXAMPLE`. Exemplo resolvido é material de ensino
+*dentro* do capítulo; gabarito é a resposta de um exercício específico.
+Colapsá-los perderia a distinção que motiva o tipo novo.
+
+`chunk_type` é string livre — **nenhuma migração**.
+
+### 21.4 Rebaixa, nunca descarta
+
+Candidato rebaixado volta ao fluxo e é reclassificado pelo classificador
+normal. Nada de texto se perde e nenhuma página fica descoberta. A contagem
+total de chunks é **invariante** ao portão, e há teste para isso.
+
+`metadata.structure` registra a decisão:
+
+```
+demoted_from      "EXERCISE" quando o candidato nao foi promovido
+exercise_evidence sinais positivos encontrados
+exercise_vetoes   vetos encontrados
+decision_reason   PROMOTED | ANSWER_KEY | VETOED | NO_EVIDENCE
+```
+
+Assim o efeito do portão é auditável sem reprocessar o corpus.
+
+### 21.5 Impacto medido
+
+Simulado sobre os 2.668 chunks reais antes de implementar:
+
+| Tipo | antes | depois |
+|---|---:|---:|
+| `EXERCISE` | 1.535 (57,5%) | 509 (19,1%) |
+| `SOLUTION` | — | 261 (9,8%) |
+| `PROSE` | 1.079 (40,4%) | ~1.838 (68,9%) |
+| total | 2.668 | 2.668 |
+
+O portão fica ligeiramente permissivo — 33% dos candidatos promovidos contra
+~25% de precisão real estimada. Deliberado: na dúvida, errar para o lado de
+não perder exercício verdadeiro.
+
+### 21.6 Evolução futura — vínculo `SOLUTION` para `EXERCISE`
+
+**Não implementado nesta fase, e registrado aqui como evolução.**
+
+Cada `SOLUTION` resolve um `EXERCISE` específico, e hoje essa relação não é
+representada. Vincular automaticamente exigiria casar `question_number`,
+página e proximidade — e o `question_number` do parser é justamente o campo
+cuja confiabilidade esta auditoria pôs em dúvida. Fazer o vínculo agora
+produziria pares plausíveis e errados.
+
+Quando entrar, o vínculo provavelmente é uma coluna nullable
+`resolves_chunk_id` em `knowledge_chunks` (aditiva) ou uma tabela de relação
+própria, e precisa de validação contra livro real como qualquer mudança de
+representação.
+
+### 21.7 Regra futura de recuperação — `SOLUTION` por contexto
+
+**Não implementado nesta fase** (a recuperação é a Fase 7), e normativo para
+quando ela chegar.
+
+`SOLUTION` **não** é recuperado por padrão em contexto `PRACTICE` nem
+`ASSESS`: devolver a resolução junto do enunciado destrói o valor do
+exercício para quem está praticando ou sendo avaliado. Em `LEARN` e `AUTHOR`
+pode ser usado conforme a política.
+
+| Contexto | `SOLUTION` por padrão |
+|---|---|
+| `PRACTICE` | **não** |
+| `ASSESS` | **não** |
+| `LEARN` | sim, conforme política |
+| `AUTHOR` | sim, conforme política |
+
+Isso entra em `knowledge_retrieval_policy/v1.py` como filtro por contexto, e
+o default fecha: contexto desconhecido não recupera `SOLUTION`.

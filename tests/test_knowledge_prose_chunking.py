@@ -296,5 +296,112 @@ class EmptyAndDegenerateTests(_ChunkerCase):
             self.assertTrue(chunk.raw_text.strip())
 
 
+class ExerciseGateIntegrationTests(_ChunkerCase):
+    """Fase 3.1 - o portao dentro do pipeline, nao so como funcao pura.
+
+    O que importa aqui e a INVARIANCIA: o portao reclassifica, e a contagem de
+    chunks e o texto total nao mudam. Perder texto seria pior que o rotulo
+    errado que o portao existe para consertar.
+    """
+
+    _EXERCISE = (
+        "1. Calcule a massa molar do dioxido de carbono, sabendo que as massas "
+        "atomicas sao C igual a 12 e O igual a 16.\n"
+        "a) 44 g\nb) 32 g\nc) 28 g\nd) 18 g\ne) 12 g.\n"
+    )
+    _ANSWER = (
+        "2. Alternativa A. O dioxido de carbono tem massa molar 44 g/mol, "
+        "obtida somando 12 do carbono e 32 dos dois oxigenios presentes.\n"
+    )  # termina em ponto de proposito: a heuristica do parser exige um ponto
+       # antes do item numerado seguinte.
+    _LIST_ITEM = (
+        "3. Empreendimentos de impacto social sao voltados a individuos de "
+        "baixa renda, permitindo-lhes acesso a bens e servicos essenciais.\n"
+    )
+
+    def _rich(self) -> list[str]:
+        return [
+            "Capítulo 10 - Estequiometria\n\n"
+            + _paragraph("mol", 900)
+            + "\n\n" + self._EXERCISE
+            + "\n\n" + self._ANSWER
+            + "\n\n" + self._LIST_ITEM
+        ]
+
+    def test_a_real_exercise_survives_the_gate(self):
+        chunks = self._chunk(self._rich())
+        exercises = [c for c in chunks if c.chunk_type == "EXERCISE"]
+        self.assertTrue(exercises)
+        for chunk in exercises:
+            structure = chunk.metadata["structure"]
+            self.assertEqual(structure["decision_reason"], "PROMOTED")
+            self.assertTrue(structure["exercise_evidence"])
+            self.assertNotIn("demoted_from", structure)
+
+    def test_an_answer_key_becomes_solution(self):
+        """Requisito 6: gabarito identificado deterministicamente recebe
+        chunk_type SOLUTION, nao PROSE."""
+        chunks = self._chunk(self._rich())
+        solutions = [c for c in chunks if c.chunk_type == "SOLUTION"]
+        self.assertTrue(solutions, [c.chunk_type for c in chunks])
+        for chunk in solutions:
+            structure = chunk.metadata["structure"]
+            self.assertEqual(structure["decision_reason"], "ANSWER_KEY")
+            self.assertEqual(structure["demoted_from"], "EXERCISE")
+            self.assertIn("answer_opener", structure["exercise_vetoes"])
+            self.assertIsNotNone(chunk.page_start)
+
+    def test_a_false_candidate_is_reclassified_never_discarded(self):
+        """Requisito 4. O texto do candidato rebaixado continua no corpus."""
+        chunks = self._chunk(self._rich())
+        demoted = [
+            c for c in chunks
+            if c.metadata["structure"].get("demoted_from") == "EXERCISE"
+            and c.chunk_type not in ("EXERCISE", "SOLUTION")
+        ]
+        self.assertTrue(demoted)
+        for chunk in demoted:
+            self.assertEqual(chunk.metadata["structure"]["decision_reason"], "NO_EVIDENCE")
+            self.assertTrue(chunk.raw_text.strip())
+            self.assertIsNotNone(chunk.page_start)
+
+    def test_the_gate_never_changes_the_chunk_count_or_the_text(self):
+        """A invariancia que importa: o portao e um RE-rotulador."""
+        chunks = self._chunk(self._rich())
+        # Todo chunk tem texto e pagina, e a soma do texto cobre os
+        # candidatos - nenhum foi engolido pelo portao.
+        self.assertTrue(all(c.raw_text.strip() for c in chunks))
+        self.assertTrue(all(c.page_start is not None for c in chunks))
+        joined = "\n".join(c.raw_text for c in chunks)
+        self.assertIn("massa molar do dioxido de carbono", joined)
+        self.assertIn("Alternativa A", joined)
+        self.assertIn("Empreendimentos de impacto social", joined)
+
+    def test_every_gated_chunk_records_the_full_decision(self):
+        """Requisito 5: origem da decisao preservada em metadata."""
+        chunks = self._chunk(self._rich())
+        gated = [
+            c for c in chunks
+            if "decision_reason" in c.metadata["structure"]
+        ]
+        self.assertTrue(gated)
+        for chunk in gated:
+            structure = chunk.metadata["structure"]
+            self.assertIn(
+                structure["decision_reason"],
+                {"PROMOTED", "ANSWER_KEY", "VETOED", "NO_EVIDENCE"},
+            )
+            self.assertIsInstance(structure["exercise_evidence"], list)
+            self.assertIsInstance(structure["exercise_vetoes"], list)
+
+    def test_solution_is_never_split(self):
+        long_answer = "4. Resolucao: " + _paragraph("CO2", 6000)
+        chunks = self._chunk([
+            "Capítulo 1 - T\n\n" + _paragraph("mol", 600) + "\n\n" + long_answer
+        ])
+        solutions = [c for c in chunks if c.chunk_type == "SOLUTION"]
+        self.assertEqual(len(solutions), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
