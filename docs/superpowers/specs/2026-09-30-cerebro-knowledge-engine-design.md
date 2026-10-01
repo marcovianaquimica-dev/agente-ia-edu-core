@@ -1263,9 +1263,14 @@ então ficou fixado como teste executável:
 
 `024_chemistry_kinetics` é uma migração de **dados** que aborta com
 `RuntimeError: Required taxonomy parent is missing: CHEMISTRY-PHYSICAL` se a
-taxonomia não estiver semeada. É pré-existente e não tem relação com o CÉREBRO,
-mas significa que `alembic upgrade head` a partir de `base` não é um caminho de
-verificação disponível neste projeto.
+taxonomia não estiver semeada. É pré-existente e não tem relação com o CÉREBRO.
+
+**Correção a esta seção (2026-10-01):** a primeira versão dizia que
+`alembic upgrade head` a partir de `base` "não é um caminho de verificação
+disponível". Isso está errado — é uma precondição de **dados**, não um bloqueio
+estrutural. Chamar `CurriculumTaxonomyService.seed_reference_fixture()` depois
+de `023` deixa a cadeia correr até o head (já verificado por execução em
+2026-09-14, alcançando `044`). O caminho existe; a Fase 1 apenas não o usou.
 
 As migrações 057 e 058 foram verificadas isoladamente: banco descartável, os
 pré-requisitos (`educational_resources`, `catalog_nodes`) criados por
