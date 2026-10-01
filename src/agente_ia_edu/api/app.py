@@ -27,6 +27,7 @@ from .routes.video_engine import video_router
 from .routes.discovery import discovery_router
 from .routes.curriculum_bncc import curriculum_bncc_router
 from .routes.knowledge_engine import knowledge_engine_router
+from .routes.knowledge_lexical import knowledge_lexical_router
 from .routes.student import student_router
 from .routes.admin import admin_router
 from .routes.teaching_context import (
@@ -75,6 +76,10 @@ def create_app() -> FastAPI:
     # CEREBRO / Knowledge Engine: corpus interno, platform admin por rota e
     # sob o mesmo guard de recepcao de todo router nao-publico.
     app.include_router(knowledge_engine_router, dependencies=reception_only_guard)
+    # Diagnostico da busca lexical (Fase 5). Router separado porque o seu
+    # proposito e MEDIR o motor, nao operar o corpus - e porque ele nao
+    # resolve texto livre para CatalogNode, ao contrario do caminho do Pack.
+    app.include_router(knowledge_lexical_router, dependencies=reception_only_guard)
     # Curadoria curriculo <-> BNCC: dominio de CURRICULO, router separado
     # do engine de proposito - ver o docstring de routes/curriculum_bncc.py.
     app.include_router(curriculum_bncc_router, dependencies=reception_only_guard)

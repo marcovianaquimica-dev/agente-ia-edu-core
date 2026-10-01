@@ -79,6 +79,16 @@ class KnowledgeChunkingPostgreSQL(unittest.IsolatedAsyncioTestCase):
         self.tmp = Path(self._tmp.name)
         self.storage = MaterialStorage(root=self.tmp / "storage")
         async with self.factory() as session:
+            # A ORDEM importa, e e a propria topologia do subsistema: as FKs
+            # sao RESTRICT, e desde a Fase 5 a ingestao escreve o indice
+            # lexical na mesma transacao que os chunks. Apagar chunk antes dos
+            # seus postings e recusado pelo banco - exatamente o que
+            # ``test_knowledge_lexical_postgresql`` assere como comportamento
+            # correto, e exatamente por que ``documents.py`` purga o indice
+            # antes de re-chunkar com ``force``.
+            await session.execute(text("DELETE FROM knowledge_chunk_terms"))
+            await session.execute(text("DELETE FROM knowledge_chunk_lexical_index"))
+            await session.execute(text("DELETE FROM knowledge_lexical_index_state"))
             await session.execute(text("DELETE FROM knowledge_chunks"))
             await session.execute(text("DELETE FROM knowledge_documents"))
             await session.execute(text("DELETE FROM knowledge_sources"))

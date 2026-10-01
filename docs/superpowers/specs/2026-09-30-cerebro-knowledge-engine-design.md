@@ -48,6 +48,30 @@ Pack inclusive.
 - Não resolve divergência entre fontes silenciosamente.
 - Não usa autoconfiança do LLM como medida de certeza.
 
+### 1.3 Princípio permanente — quem valida conhecimento curricular
+
+> **IA pode sugerir conhecimento curricular; validação normativa/pedagógica
+> permanece humana.**
+
+Fixado ao aprovar a Fase 4 (2026-10-01). **Não é decisão de fase**: vale para
+toda fase futura que proponha inferir, sugerir ou derivar conhecimento
+curricular, e não apenas para a BNCC.
+
+A razão é consequência, não cerimônia: a BNCC é norma, e uma relação
+currículo↔habilidade errada propaga-se silenciosamente para todo material
+gerado depois — ninguém revisa o que já parece validado. A Fase 0 mediu que
+similaridade textual não serve como evidência pedagógica: "estequiometria",
+"reagente limitante" e "diluição" não aparecem **uma única vez** na seção de
+Ciências da Natureza, e "soluções" aparece só em *"propor soluções"*. Um
+inferidor automático produziria relações plausíveis e erradas.
+
+Como se materializa, hoje: `origin = AI_SUGGESTION` entra sempre como
+`status = PROPOSED`, nunca `VALIDATED`; `VALIDATED` exige identidade humana
+**e** justificativa, por CheckConstraint no banco e não por `if` em service; a
+trilha append-only recusa ator `AI` registrando `VALIDATE`; e
+`topic.bncc[] = []` é resultado correto na ausência de curadoria — ausência é
+preferível a associação inferida (§22.7, §22.8).
+
 ---
 
 ## 2. Fronteira do subsistema — o Knowledge Pack é a interface canônica
@@ -1871,3 +1895,319 @@ IA (nem sugeridor nem prompt); LGG/MAT/CHS; Ensino Fundamental; vínculo
 `SOLUTION`↔`EXERCISE` (§21.6); filtro de recuperação por contexto (§21.7);
 `content_node_id` dos chunks, que segue `NULL` — casar chunk com nó de
 currículo é trabalho do matcher, e é outra relação.
+
+---
+
+## 23. Fase 5 — busca lexical
+
+Entregar a perna lexical **isolada**, para que a qualidade da recuperação seja
+mensurável antes de existir vetor. Se as duas pernas nascessem juntas, nunca
+saberíamos qual delas acertou, e a fusão RRF seria uma caixa que "parece
+funcionar".
+
+Fora da Fase 5, explicitamente: embeddings (`knowledge_chunk_embeddings` e
+`knowledge_embedding_spaces` ficam intocados), qualquer chamada a provider,
+RRF, reranking estrutural, Knowledge Pack, geração. **Zero token de LLM.**
+
+### 23.1 Contrato estável, backend substituível
+
+**O índice invertido próprio não é parte permanente da arquitetura.**
+
+O contrato público é `LexicalSearcher.search()` devolvendo
+`(chunk_id, rank, score, explanation)` — exatamente o que o RRF da Fase 7 e o
+Knowledge Pack consomem. O mecanismo por baixo foi escolhido para o piloto
+por três razões concretas, e **nenhuma delas é eterna**:
+
+1. roda idêntico em SQLite e PostgreSQL, logo uma implementação só;
+2. a normalização fica versionada em código legível, não em DDL de
+   `TEXT SEARCH CONFIGURATION`;
+3. cada parcela do score é calculada por código nosso, logo explicável.
+
+PostgreSQL FTS, OpenSearch ou outro mecanismo poderão substituí-lo **sem
+alterar consumidor algum** — nem RRF, nem Pack, nem rota. Acima de ~10⁶ chunks
+o desenho deixa de servir e a troca é esperada, não excepcional.
+
+Por isso `POLICY.lexical_backend` existe e sai em **toda** resposta: a troca
+precisa ser um dado observável, para que ninguém compare duas medições
+produzidas por mecanismos diferentes sem perceber.
+
+### 23.2 Por que não o stemmer do PostgreSQL
+
+Sonda real do PostgreSQL 16.15, configuração `portuguese`:
+
+| escrito | lexema |
+|---|---|
+| `concentração` | `concentr` |
+| `concentracao` | `concentraca` |
+| `solucao` / `solucoes` | `soluca` / `soluco` |
+| `mol` / `mols` / `moles` / `molar` | `mol` / `mols` / `mol` / `mol` |
+| `diluicao` / `diluir` | `diluica` / `dilu` |
+
+Três consequências medidas: **quem digita sem acento não encontra nada**
+(lexemas divergentes para a mesma palavra); singular e plural se separam sem
+acento; e `molar` colapsa em `mol` enquanto `molaridade` vira `molar`. A
+extensão `unaccent` está disponível mas não instalada, e corrigir isso exigiria
+construir a normalização dentro do banco, em DDL, invisível ao código.
+
+A regra própria (`lexical_tokenizer`, `normalizer_version = "v1"`) unifica a
+variação **dominante** do vocabulário técnico — número gramatical — e não
+unifica derivação: `diluição` e `diluir` permanecem distintos. O Snowball
+também não entrega essa derivação de forma consistente para entrada sem
+acento, então pagaríamos a caixa-preta sem receber o benefício.
+
+**A regra `es → ∅` do `_morphology_key` de `curriculum_classification` fica
+fora**, e isso é medição, não gosto: ela quebra toda palavra cujo singular
+termina em `-e` — classe enorme em química (reagente, solvente, oxidante,
+constante). No livro real, sob ela `reagente` tem `df` 149; sem ela, 347.
+Metade das ocorrências ficava inalcançável por uma consulta no singular.
+Observação registrada sobre o código existente; `curriculum_classification`
+**não** foi alterado nesta fase.
+
+### 23.3 Posições íntegras (ajuste 2)
+
+A posição conta **todo** token do fluxo normalizado, inclusive stopword e
+token curto. A stopword não gera posting, mas **ocupa** posição:
+
+```
+"concentração das soluções"  →  concentracao@0 , solucao@2     (nunca @0/@1)
+```
+
+Comprimir destruiria **no índice** a diferença entre "a de b" e "a b", e
+nenhuma política de frase posterior poderia recuperá-la. O índice preserva a
+lacuna; a política decide como tratá-la (`phrase_slack`).
+
+Consequência de desenho: a consulta diz quantas palavras de função esperar,
+porque as posições dela também são íntegras. `"concentração das soluções"` tem
+delta 2 entre os postings; com `phrase_slack = 1`, o documento casa com delta
+1, 2 ou 3.
+
+**Corpo e contexto vivem em espaços de coordenadas separados**, com o contexto
+deslocado por `HEADING_POSITION_BASE = 1 000 000`. Isto corrige um defeito
+encontrado durante a implementação: com os dois campos começando em 0, uma
+expressão casava usando um termo do corpo e outro do título — frase que não
+existe em lugar nenhum. Com o deslocamento, qualquer par cruzando os campos
+fica a ~10⁶ posições de distância, muito além de `phrase_slack` e de
+`proximity_window`.
+
+### 23.4 Dois campos, nunca o `retrieval_text` montado
+
+| origem | coluna | significado |
+|---|---|---|
+| `raw_text` | `term_frequency` | texto da obra |
+| `heading_path` + `bncc_node_codes` | `heading_frequency` | contexto que o **sistema** acrescentou |
+
+Indexar a concatenação que `build_retrieval_text` produz tornaria impossível
+pesar título, explicar score e diagnosticar o `Chapter N` que é 70,5% dos
+headings reais. A distinção das três representações (§20.2) é preservada:
+`retrieval_text` segue derivado, nunca persistido, e segue sendo o que
+alimenta `text_hash` — que é o que detecta índice obsoleto.
+
+**Os códigos BNCC entram no campo de contexto**, e não no corpo.
+`CurriculumFrameworkChunker` grava `raw_text = skill.statement`, e o enunciado
+não contém o próprio código: sem isto, buscar `EM13CNT301` — que o chunker
+chama, com razão, de "a única chave útil" — não devolveria nada, e a norma
+ficaria imbuscável pelo seu identificador. Acrescentar o código ao `raw_text`
+está fora de questão: mudaria o texto da fonte e o `text_hash` da Fase 4. O
+campo de contexto é o lugar correto porque é exatamente o que ele significa.
+
+### 23.5 `heading_weight` começa neutro
+
+Medição no livro real: **1.882 dos 2.668 chunks (70,5%) têm `heading_path`
+igual a apenas `Chapter N`**, e o token `chapter` aparece em 2.662 dos 2.668
+headings. Pesar título sem remover esse boilerplate amplificaria texto que o
+**parser** gerou, não a obra.
+
+Daí duas decisões: uma `HEADING_STOPWORDS` estrutural própria (`chapter`,
+`capitulo`, `objetivos`, número nu), separada da stoplist de corpo — no corpo,
+"capítulo" é vocabulário da obra; e `heading_weight = 1.0`, que só sobe se o
+A/B do Calibration Set mostrar ganho.
+
+### 23.6 Estatística global, score estável
+
+`df`, `N` e `avgdl` vêm do índice **inteiro**, nunca do conjunto filtrado.
+Propriedade que isso garante, e que é testada: *o score de um chunk não muda
+porque outro foi filtrado*. Sem ela, o mesmo chunk teria score diferente em
+`LEARN` e em `AUTHOR`, e nenhuma comparação entre execuções valeria.
+
+Os filtros são aplicados em Python, não em SQL, porque filtrar em SQL
+devolveria o conjunto certo e **perderia a atribuição**: quantos `SOLUTION` o
+propósito `PRACTICE` excluiu deixaria de existir como número, e "nada
+encontrado" não poderia nomear o filtro responsável. O conjunto candidato é
+limitado por `df`, e portanto pequeno. Acima de ~10⁶ chunks isso deixa de
+valer, e o filtro volta para o SQL junto da troca de backend.
+
+O candidato **não** carrega `raw_text`. Medido: a consulta "concentração das
+soluções" tem 1.493 candidatos, e carregar a entidade ORM inteira para
+devolver 10 resultados levava a p95 a 138 ms. Além do custo, há a razão que
+pesa mais: o literal de fonte comercial é conteúdo interno restrito, e
+trazê-lo à memória de 1.493 candidatos quando nenhum deles é citável é
+manusear material restrito sem necessidade. O `excerpt` é buscado depois, só
+para a página devolvida e só para fonte que admite citação. Com isso o p95
+dessa consulta caiu para **74,8 ms**.
+
+### 23.7 `index_generation` (ajuste 3)
+
+`knowledge_lexical_index_state.generation` move a cada escrita no índice, na
+mesma transação. A geração entra no `query_fingerprint`, junto de consulta
+normalizada, filtros, versão da política e versão do normalizador.
+
+Se os postings mudarem entre a página 1 e a página 2 da mesma consulta, os
+fingerprints divergem e isso **aparece**. Não é snapshot pagination — é tornar
+a incoerência detectável em vez de silenciosa.
+
+`scope = 'GLOBAL'` no piloto. A coluna existe para que um acervo por escola
+entre depois como linha nova, não como migração de chave primária.
+
+A estatística **por chunk** (`knowledge_chunk_lexical_index`: `token_count`,
+`text_hash` indexado, `normalizer_version`, geração) é escrita na mesma
+transação dos postings. A estatística **global** continua saindo de agregação
+na hora da busca, como a Fase 1 previu: o que poderia derivar não foi
+materializado.
+
+### 23.8 Indexação transacional
+
+O índice é escrito na mesma transação que persiste os chunks, nos **dois**
+caminhos de ingestão — prosa e `CURRICULUM_FRAMEWORK`. Não existe janela em
+que um chunk esteja no corpus e fora do índice: um corpus parcialmente
+indexado produz busca que parece funcionar e esconde material, que é o pior
+modo de falha possível aqui, porque nada no resultado denuncia o que faltou.
+
+Custo medido: 0,3 s de tokenização sobre 22,4 s de extração num livro de 548
+páginas — 1,3%.
+
+As FKs do subsistema são `RESTRICT`, logo re-chunkar com `force` purga o índice
+**antes** de apagar os chunks. Há teste PostgreSQL que confirma que o `DELETE`
+é recusado sem a purga.
+
+### 23.9 `SOLUTION` e `retrieval_purpose`
+
+O princípio da §21.7, agora executável. Na Fase 5 o **único** efeito do
+propósito é o portão de `SOLUTION`; boosts por tipo e composição do Pack são
+Fase 7.
+
+| `retrieval_purpose` | `SOLUTION` |
+|---|---|
+| `PRACTICE` | fechado |
+| `ASSESS` | fechado |
+| `LEARN` | permitido |
+| `AUTHOR` | permitido |
+| ausente / desconhecido | **fechado** |
+
+Implementado como `.get(purpose or UNKNOWN, False)`: **o default do dicionário
+é o fechamento**. Valor fora do enum é 422; ausência é `UNKNOWN`, que fecha.
+Pedir `chunk_types=("SOLUTION",)` não destrava o portão — direitos e propósito
+são política, não preferência de consulta.
+
+### 23.10 `STRICT_CORPUS` e falha honesta
+
+1. O snapshot íntegro da política, incluindo `retrieval_mode`, vai em toda
+   resposta; um validador recusa qualquer valor diferente de `STRICT_CORPUS`.
+2. **Zero resultado é resposta legítima**, e sempre vem com razão nomeada:
+   `EMPTY_QUERY`, `ALL_TERMS_BELOW_MIN_LENGTH`, `NO_LEXICAL_MATCH`,
+   `EMPTY_INDEX`, `FILTERED_OUT_BY_{RIGHTS,PURPOSE,CHUNK_TYPE,SOURCE_KIND,CONTENT_NODE,PHRASE}`.
+   O buscador nunca relaxa filtro para "achar alguma coisa".
+
+Fronteira que precisa ser dita: a §1.1 exige que texto livre seja
+**obrigatoriamente** resolvido para um `CatalogNode`. Os endpoints de
+diagnóstico da Fase 5 **não** fazem essa resolução, de propósito — se
+fizessem, `mol` seria irrespondível e a qualidade lexical, imensurável. São
+platform-admin, não produzem Pack e não são caminho de produto. A obrigação
+continua intacta no caminho do Pack.
+
+### 23.11 Direitos por tipo, não por filtro
+
+São **dois** schemas de resultado, e a escolha é pela `rights_class`:
+`LexicalHitResponse` (sem campo de texto algum) e `QuotableLexicalHitResponse`
+(com `excerpt`, limitado a 300 caracteres). Para fonte comercial o campo
+**não existe** no tipo devolvido — não é `excerpt: null`.
+
+Buscar e expor são coisas diferentes: a §9.3 autoriza o indexador a ler o
+literal restrito em processo, e fontes comerciais **são** indexadas e buscadas.
+Só a exposição é proibida.
+
+`heading_path` **é** exposto, inclusive de fonte comercial: um título de seção
+é **localizador**, da mesma natureza que o número de página, não reprodução de
+expressão substancial. Com uma salvaguarda que a Fase 3 tornou necessária —
+ela produziu headings contaminados com parágrafo inteiro, e cada nível sai
+truncado em `heading_level_max_chars = 120` para que o texto não escape pelo
+campo de título.
+
+### 23.12 Calibration Set × Evaluation Set (ajuste 4)
+
+`EVALUATION_SET_V1` é **congelado** e contém as cinco consultas aprovadas:
+`estequiometria`, `reagente limitante`, `mol`, `diluição`,
+`concentração das soluções`. Será reusado, sem ajuste dirigido, quando
+compararmos Lexical v1 × Vector v1 × Hybrid v1 — uma comparação só vale se a
+régua não mudar entre as medições.
+
+`CALIBRATION_SET_V1` existe para os A/B de constante e cobre os mesmos
+**formatos** (termo único, expressão de duas palavras, expressão com palavra
+de função, termo muito comum, termo raro) sem repetir conceito algum.
+
+Os dois conjuntos são disjuntos **após normalização**, não apenas como texto —
+`diluição` e `diluições` são a mesma consulta para o índice —, e um teste
+verifica isso. Alterar `EVALUATION_SET_V1` quebra o teste de propósito: um
+conjunto de avaliação que pode ser editado em silêncio não é conjunto de
+avaliação.
+
+### 23.13 Diversidade medida, não limitada
+
+`max_chunks_per_source = None`: nenhum teto automático. Limitar antes de medir
+esconderia a medição que a fase existe para produzir. Toda resposta carrega
+`source_distribution`, `distinct_sources` e `coverage_warning`, e há um
+parâmetro `max_per_source` desligado por default, para medir o antes-e-depois.
+
+### 23.14 Migração 061 e precondição verificada
+
+Aditiva. `knowledge_chunk_terms` nasceu na 057 e **nunca teve escritor** — a
+Fase 5 é o primeiro. A migração confere `count(*) = 0` antes de alterar a
+tabela e falha em voz alta se houver linha, em vez de reinterpretar dados
+existentes com um significado novo de `term_frequency`.
+
+O CHECK `term_frequency > 0` **teve** de sair: ele proibia indexar um termo que
+aparece só no título, que é justamente o caso que `heading_frequency` existe
+para tratar. Substituído por
+`term_frequency >= 0 AND heading_frequency >= 0 AND term_frequency + heading_frequency > 0`.
+
+### 23.15 O que a avaliação real encontrou, e que nenhum teste encontraria
+
+Acervo: 3 livros didáticos + BNCC, 1.796 páginas, 5.819 chunks, 717.623
+postings, 32.520 termos distintos, 156,8 MB de índice.
+
+**Material de fim de livro domina as consultas largas.** Medido no top-10:
+
+| consulta | frente (≤3%) | corpo | fim (≥88%) |
+|---|---:|---:|---:|
+| `mol` | 0 | 2 | **8** |
+| `estequiometria` | 1 | 8* | 1 |
+| `diluição` | 0 | 8 | 2 |
+| `reagente limitante` | 0 | 9 | 1 |
+| `concentração das soluções` | 0 | 9 | 1 |
+
+\* dos 8 "corpo" de `estequiometria`, **7 são a mesma página 452**, com sete
+títulos de capítulo diferentes — estruturalmente impossível para uma página
+real, e portanto índice/bibliografia do livro. Um dos headings é
+`Chapter 24 - GOMES, A`, entrada de referência bibliográfica.
+
+A causa não é o ranking: é que **sumário, índice remissivo, gabarito e
+bibliografia foram chunkados como se fossem conteúdo**, e são densos em termo
+tópico e curtos — exatamente o que o BM25 premia. É falha de representação
+(Fase 3), exposta pela recuperação.
+
+Registrado para uma fase própria, **não** corrigido aqui: detecção de
+front/back matter com um `chunk_type` próprio que a recuperação exclui por
+default. É a intervenção de maior alavancagem para a qualidade do corpus, e
+muda chunking — portanto exige autorização e validação com livro real.
+
+Segundo achado, de menor alcance: a BNCC apareceu como candidata para
+"concentração das soluções" (3 chunks, via *"propor soluções"*, como a Fase 0
+previu), mas **0 no top-10** — o `idf` e a proximidade a mantiveram fora.
+
+### 23.16 Fora da Fase 5
+
+Embeddings e qualquer provider; RRF e reranking estrutural; Knowledge Pack;
+geração; detecção de front/back matter (§23.15); vínculo `SOLUTION`↔`EXERCISE`
+(§21.6); `content_node_id` dos chunks, que segue `NULL`, o que torna o filtro
+por nó de currículo **correto e inerte** no corpus real — dito em voz alta, não
+escondido; correção do `_morphology_key` de `curriculum_classification`
+(§23.2); teto de diversidade por fonte (§23.13).

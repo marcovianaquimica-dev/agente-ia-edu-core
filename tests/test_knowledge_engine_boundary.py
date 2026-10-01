@@ -40,6 +40,12 @@ INTERNAL_MODELS = frozenset(
         "KnowledgeChunkTerm",
         "KnowledgeEmbeddingSpace",
         "KnowledgeChunkEmbedding",
+        # Fase 5: o estado do indice lexical e tao interno quanto os postings.
+        # Um consumidor que lesse "esta indexado?" passaria a depender do
+        # mecanismo de busca, que e justamente o que a fronteira protege -
+        # o backend lexical e substituivel (spec 23.1).
+        "KnowledgeChunkLexicalIndex",
+        "KnowledgeLexicalIndexState",
     }
 )
 

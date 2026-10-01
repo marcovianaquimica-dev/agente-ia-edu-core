@@ -38,6 +38,7 @@ from ..authorial_material_parser import parse_authorial_pdf, parse_authorial_tex
 from ..ingestion_parser import DocxParser
 from .bncc_extraction import BnccExtractionError, extract_bncc_cnt
 from .chunking import ChunkDraft, CurriculumFrameworkChunker, ProseChunker
+from .lexical_index import LexicalIndexService
 from .rights import max_excerpt_chars, may_expose_literal_text
 from .extraction import DocumentExtractionError, extract_document
 
@@ -146,6 +147,10 @@ class KnowledgeDocumentService:
                     "apaga-los destruiria a procedencia de qualquer Knowledge Pack "
                     "que os tenha citado",
                 )
+            # As FKs do subsistema sao RESTRICT: os postings do indice
+            # lexical referenciam os chunks, logo apaga-los vem ANTES. Sem
+            # isso o DELETE abaixo levanta IntegrityError.
+            await LexicalIndexService(self.session).purge_document(document_id)
             await self.session.execute(
                 delete(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id)
             )
@@ -174,8 +179,15 @@ class KnowledgeDocumentService:
             page_texts=extraction.page_texts, parsed=parsed, page_offset=page_offset
         )
 
-        for draft in drafts:
-            self.session.add(_row(document, draft))
+        rows = [_row(document, draft) for draft in drafts]
+        self.session.add_all(rows)
+        # Flush ANTES de indexar: os postings precisam do ``id`` dos chunks.
+        await self.session.flush()
+        # MESMA TRANSACAO que os chunks, de proposito: nao existe janela em
+        # que um chunk esteja no corpus e fora do indice. Um corpus
+        # parcialmente indexado produz busca que parece funcionar e esconde
+        # material. Custo medido: 1,3% do tempo de extracao.
+        await LexicalIndexService(self.session).index_chunks(rows)
 
         document.page_count = extraction.page_count
         document.extraction_method = extraction.method
@@ -246,6 +258,7 @@ class KnowledgeDocumentService:
                     "EMBEDDINGS_PRESENT",
                     f"{embedded} embeddings referenciam os chunks deste documento",
                 )
+            await LexicalIndexService(self.session).purge_document(document_id)
             await self.session.execute(
                 delete(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id)
             )
@@ -273,12 +286,18 @@ class KnowledgeDocumentService:
         drafts = CurriculumFrameworkChunker().chunk(
             framework=framework, page_offset=document.page_offset
         )
+        rows = []
         for draft in drafts:
             row = _row(document, draft)
             # A coluna existe desde a Fase 1 e e o filtro rapido de
             # recuperacao; a tripla normativa completa vive em metadata.
             row.bncc_node_codes = draft.metadata.get("bncc_node_codes")
-            self.session.add(row)
+            rows.append(row)
+        self.session.add_all(rows)
+        await self.session.flush()
+        # A norma tambem e indexada: sem isto a BNCC ficaria inbuscavel, e o
+        # codigo da habilidade e a sua unica chave util.
+        await LexicalIndexService(self.session).index_chunks(rows)
 
         document.page_count = extraction.page_count
         document.extraction_method = extraction.method

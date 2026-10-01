@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlalchemy import (
     DDL,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -271,22 +272,123 @@ class KnowledgeChunkTerm(Base):
 
     Existe como tabela, em vez de depender de ``tsvector``, porque assim a
     mesma consulta BM25 roda identica em PostgreSQL e SQLite: uma
-    implementacao so, testavel sem Postgres. O document frequency sai de uma
-    CTE no momento da busca - nao ha tabela de estatisticas para sair de
-    sincronia.
+    implementacao so, testavel sem Postgres. O document frequency sai de
+    agregacao no momento da busca - nao ha tabela de estatistica GLOBAL para
+    sair de sincronia.
+
+    O backend NAO e permanente (spec 23.1). PostgreSQL FTS ou OpenSearch
+    poderao substitui-lo sem alterar consumidor algum, porque o contrato
+    publico e ``LexicalSearcher.search()``, nao esta tabela.
+
+    CORPO E TITULO SAO CAMPOS SEPARADOS. ``term_frequency`` conta o
+    ``raw_text`` da obra; ``heading_frequency`` conta o ``heading_path``, que o
+    SISTEMA acrescentou. Indexar a concatenacao (``retrieval_text``) tornaria
+    impossivel pesar titulo, explicar score e diagnosticar o ``Chapter N`` que
+    e 70,5% dos headings reais.
+
+    ``positions`` guarda a posicao no fluxo normalizado INTEGRO: stopword nao
+    gera posting, mas ocupa posicao. "concentracao das solucoes" grava
+    ``concentracao@0`` e ``solucao@2``, nunca @0/@1. O indice preserva a
+    lacuna; a politica (``phrase_slack``) decide como trata-la.
     """
 
     __tablename__ = "knowledge_chunk_terms"
     __table_args__ = (
-        CheckConstraint("term_frequency > 0", name="ck_knowledge_chunk_terms_frequency_positive"),
+        # Um termo que aparece SO no titulo precisa ser indexavel - era isso
+        # que o antigo ``term_frequency > 0`` proibia.
+        CheckConstraint(
+            "term_frequency >= 0 AND heading_frequency >= 0 "
+            "AND term_frequency + heading_frequency > 0",
+            name="ck_knowledge_chunk_terms_any_frequency",
+        ),
         Index("ix_knowledge_chunk_terms_term", "term"),
+        # (term, chunk_id) permite index-only scan no PostgreSQL para a
+        # consulta que importa: "quais chunks tem estes termos".
+        Index("ix_knowledge_chunk_terms_term_chunk", "term", "chunk_id"),
     )
 
     chunk_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("knowledge_chunks.id", ondelete="RESTRICT"), primary_key=True
     )
     term: Mapped[str] = mapped_column(String(80), primary_key=True)
-    term_frequency: Mapped[int] = mapped_column(Integer, nullable=False)
+    term_frequency: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    heading_frequency: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    positions: Mapped[list[int] | None] = mapped_column(JSONBCompatible)
+
+
+class KnowledgeChunkLexicalIndex(Base):
+    """Estado da indexacao lexical de UM chunk.
+
+    Guarda o que a busca precisa saber sobre o documento (``token_count``, o
+    ``dl`` do BM25) e o que a OPERACAO precisa saber sobre o indice:
+
+    - ``text_hash`` - o texto que foi indexado. Divergir do
+      ``KnowledgeChunk.text_hash`` significa indice OBSOLETO, e isso passa a
+      ser respondivel por SQL em vez de por fe.
+    - ``normalizer_version`` - as regras que produziram os termos. Trocar a
+      normalizacao sem reindexar deixa um indice misto, e isso fica visivel.
+    - ``generation`` - em que geracao este chunk foi indexado.
+
+    Isto e estatistica POR CHUNK, escrita na mesma transacao dos postings.
+    A estatistica GLOBAL (``df``, ``N``, ``avgdl``) continua saindo de
+    agregacao na hora da busca, exatamente como a Fase 1 previu: o que
+    poderia derivar nao foi materializado.
+    """
+
+    __tablename__ = "knowledge_chunk_lexical_index"
+    __table_args__ = (
+        CheckConstraint(
+            "token_count >= 0 AND heading_token_count >= 0",
+            name="ck_knowledge_chunk_lexical_index_counts_not_negative",
+        ),
+        Index("ix_knowledge_chunk_lexical_index_generation", "generation"),
+    )
+
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("knowledge_chunks.id", ondelete="RESTRICT"), primary_key=True
+    )
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    heading_token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalizer_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    indexed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+
+
+class KnowledgeLexicalIndexState(Base):
+    """A GERACAO do indice lexical.
+
+    Existe para que "os postings mudaram entre a pagina 1 e a pagina 2 da
+    mesma consulta?" seja uma pergunta respondivel. ``generation`` entra no
+    ``query_fingerprint``, junto de consulta, filtros, versao da politica e
+    versao do normalizador: duas paginas com fingerprints diferentes nao
+    pertencem a mesma foto do corpus, e isso aparece em vez de produzir uma
+    paginacao silenciosamente incoerente.
+
+    Toda escrita no indice incrementa a geracao, na MESMA transacao.
+
+    ``scope`` e ``'GLOBAL'`` no piloto - acervo global, sem ``school_id``.
+    A coluna existe para que um acervo por escola entre depois como linha
+    nova, nao como migracao de chave primaria.
+    """
+
+    __tablename__ = "knowledge_lexical_index_state"
+    __table_args__ = (
+        CheckConstraint("generation > 0", name="ck_knowledge_lexical_index_state_generation"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(40), primary_key=True, default="GLOBAL")
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    normalizer_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: Ultima operacao que moveu a geracao: INDEX_DOCUMENT | REINDEX_DOCUMENT |
+    #: PURGE_DOCUMENT. Diagnostico, nao controle de fluxo.
+    last_operation: Mapped[str | None] = mapped_column(String(40))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now, onupdate=_now
+    )
 
 
 class KnowledgeEmbeddingSpace(Base):

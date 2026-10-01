@@ -335,6 +335,15 @@ class ReceptionGuardTests(unittest.TestCase):
                 "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}/extract-framework",
                 "/api/v1/knowledge-engine/sources/{source_id}/chunks/stats",
                 "/api/v1/knowledge-engine/frameworks/bncc/{taxonomy_version}/skills",
+                # Fase 5 - DIAGNOSTICO da busca lexical. A lista e exaustiva de
+                # proposito: superficie nova tem de ser declarada aqui, nunca
+                # aparecer por acidente. Estes quatro existem para MEDIR o
+                # motor, nao para operar o corpus, e nenhum produz Knowledge
+                # Pack.
+                "/api/v1/knowledge-engine/lexical/search",
+                "/api/v1/knowledge-engine/lexical/explain-query",
+                "/api/v1/knowledge-engine/lexical/index-status",
+                "/api/v1/knowledge-engine/lexical/reindex/{document_id}",
             },
         )
 
