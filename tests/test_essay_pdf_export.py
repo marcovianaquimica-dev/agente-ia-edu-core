@@ -475,6 +475,28 @@ class StructuredC2C3PdfTests(unittest.TestCase):
         self.assertIn("C2 — Tipologia, tema e repertório", html)
         self.assertIn("C3 — Projeto argumentativo e autoria", html)
 
+    def test_level_1_splits_como_melhorar_into_its_own_column(self):
+        """The last aspect of both C2 and C3 (_COMPETENCY_ASPECTS) is
+        always "Como melhorar" - same meaning as growth_area for C1/C4/C5,
+        so it renders in its own "Onde pode avançar" cell instead of being
+        listed alongside the three diagnostic aspects."""
+        model = build_render_model(_view(["C1", "C4", "C5"], **STRUCTURED_C2_C3))
+        html = _competency_table_html(model)
+        row = self._row(model, "C2")
+        self.assertEqual(len(row["aspects"]), 4)
+        self.assertNotIn("colspan", html.split("C2 —")[1].split("</tr>")[0])
+        self.assertIn(
+            "<td>Traga um repertório pertinente ao tema.</td>",
+            html.split("C2 —")[1].split("</tr>")[0],
+        )
+        # "Como melhorar" itself never appears as a <li> label anymore -
+        # only the 3 diagnostic aspects do.
+        c2_row_html = html.split("C2 —")[1].split("</tr>")[0]
+        self.assertNotIn("Como melhorar:", c2_row_html)
+        self.assertIn("Tipologia textual:", c2_row_html)
+        self.assertIn("Tema:", c2_row_html)
+        self.assertIn("Repertório sociocultural:", c2_row_html)
+
     def test_level_2_when_the_structured_fields_are_absent(self):
         model = build_render_model(_view(["C1", "C2", "C3", "C4", "C5"]))
         row = self._row(model, "C2")
