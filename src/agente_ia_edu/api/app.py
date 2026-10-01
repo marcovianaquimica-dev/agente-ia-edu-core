@@ -25,6 +25,7 @@ from .routes.question_extraction import qe_router
 from .routes.question_classification import qc_router
 from .routes.video_engine import video_router
 from .routes.discovery import discovery_router
+from .routes.curriculum_bncc import curriculum_bncc_router
 from .routes.knowledge_engine import knowledge_engine_router
 from .routes.student import student_router
 from .routes.admin import admin_router
@@ -74,6 +75,9 @@ def create_app() -> FastAPI:
     # CEREBRO / Knowledge Engine: corpus interno, platform admin por rota e
     # sob o mesmo guard de recepcao de todo router nao-publico.
     app.include_router(knowledge_engine_router, dependencies=reception_only_guard)
+    # Curadoria curriculo <-> BNCC: dominio de CURRICULO, router separado
+    # do engine de proposito - ver o docstring de routes/curriculum_bncc.py.
+    app.include_router(curriculum_bncc_router, dependencies=reception_only_guard)
     app.include_router(student_router, dependencies=reception_only_guard)
     app.include_router(admin_router, dependencies=reception_only_guard)
     app.include_router(teacher_router, dependencies=reception_only_guard)

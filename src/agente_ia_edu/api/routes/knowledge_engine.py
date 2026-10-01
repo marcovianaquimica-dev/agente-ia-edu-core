@@ -15,7 +15,11 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.orm import aliased
 
+from ...bncc_contract.v1 import BNCC_TAXONOMY_CODE, BNCC_VERSION_EM_2018
+from ...db.models import Taxonomy, TaxonomyNode
 from ...identity import ExternalIdentityContext
 from ...services.knowledge_engine.document_ingress import (
     DocumentIngressError,
@@ -34,7 +38,9 @@ from ...services.knowledge_engine.sources import (
 )
 from ..dependencies import get_session_factory
 from ..schemas.knowledge_engine import (
+    BnccSkillResponse,
     KnowledgeChunkResponse,
+    KnowledgeFrameworkResponse,
     KnowledgeChunkStatsResponse,
     KnowledgeDocumentRegisterRequest,
     KnowledgeExtractionResponse,
@@ -288,6 +294,113 @@ async def chunk_stats(
             raise HTTPException(status_code=404, detail="fonte nao encontrada") from exc
         stats = await KnowledgeDocumentService(session).chunk_stats(source_id)
     return KnowledgeChunkStatsResponse(**stats)
+
+
+@knowledge_engine_router.post(
+    "/sources/{source_id}/documents/{document_id}/extract-framework",
+    response_model=KnowledgeFrameworkResponse,
+)
+async def extract_framework_route(
+    source_id: UUID,
+    document_id: UUID,
+    taxonomy_version: str = Query(
+        BNCC_VERSION_EM_2018, description="versao da BNCC, ex. EM-2018"
+    ),
+    force: bool = Query(False),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeFrameworkResponse:
+    """Ingere um documento NORMATIVO: extrai a estrutura e cria um chunk por
+    habilidade.
+
+    NAO semeia taxonomia. Semear e mudanca de CURRICULO, feita por script
+    proprio com revisao - nunca efeito colateral de uma chamada de API de
+    ingestao (spec 22.1).
+    """
+    async with session_factory() as session:
+        service = KnowledgeDocumentService(session)
+        try:
+            snapshot = await service.extract_framework(
+                source_id, document_id, taxonomy_version=taxonomy_version, force=force
+            )
+        except KnowledgeDocumentNotFound as exc:
+            raise HTTPException(status_code=404, detail="documento nao encontrado") from exc
+        except KnowledgeDocumentProcessingError as exc:
+            status_code = 422 if exc.code == "NOT_A_CURRICULUM_FRAMEWORK" else 409
+            raise HTTPException(status_code=status_code, detail=f"{exc.code}: {exc}") from exc
+
+    framework = snapshot.framework or {}
+
+    return KnowledgeFrameworkResponse(
+        document_id=snapshot.document_id,
+        source_id=snapshot.source_id,
+        extraction_status=snapshot.extraction_status,
+        extraction_method=snapshot.extraction_method,
+        extraction_error=snapshot.extraction_error,
+        page_count=snapshot.page_count,
+        chunks_created=snapshot.chunks_created,
+        taxonomy_code=framework.get("taxonomy_code"),
+        taxonomy_version=framework.get("taxonomy_version"),
+        area_code=framework.get("area_code"),
+        competencies=framework.get("competencies"),
+        skills=framework.get("skills"),
+        skills_per_competency=framework.get("skills_per_competency"),
+        duration_seconds=snapshot.duration_seconds,
+    )
+
+
+@knowledge_engine_router.get(
+    "/frameworks/bncc/{taxonomy_version}/skills",
+    response_model=list[BnccSkillResponse],
+)
+async def list_bncc_skills(
+    taxonomy_version: str,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> list[BnccSkillResponse]:
+    """As habilidades de uma versao da BNCC, como norma semeada.
+
+    A BNCC e OFFICIAL_PUBLIC, entao o enunciado pode ser exposto - ao
+    contrario do texto de livro comercial.
+    """
+    async with session_factory() as session:
+        competency = aliased(TaxonomyNode)
+        rows = await session.execute(
+            select(
+                TaxonomyNode.code,
+                TaxonomyNode.description,
+                competency.code,
+                Taxonomy.code,
+                Taxonomy.version,
+                TaxonomyNode.metadata_,
+            )
+            .join(Taxonomy, Taxonomy.id == TaxonomyNode.taxonomy_id)
+            .outerjoin(competency, competency.id == TaxonomyNode.parent_id)
+            .where(
+                Taxonomy.code == BNCC_TAXONOMY_CODE,
+                Taxonomy.version == taxonomy_version,
+                TaxonomyNode.node_type == "skill",
+            )
+            .order_by(TaxonomyNode.code)
+        )
+        skills = rows.all()
+    if not skills:
+        raise HTTPException(
+            status_code=404,
+            detail=f"nenhuma habilidade semeada para a versao {taxonomy_version!r}",
+        )
+    return [
+        BnccSkillResponse(
+            code=code,
+            statement=statement or "",
+            competency_code=competency_code or "",
+            taxonomy_code=taxonomy_code,
+            taxonomy_version=version,
+            urn=f"{taxonomy_code}:{version}:{code}",
+            page=((metadata or {}).get("source") or {}).get("page"),
+        )
+        for code, statement, competency_code, taxonomy_code, version, metadata in skills
+    ]
 
 
 def _document_response(snapshot) -> KnowledgeDocumentResponse:

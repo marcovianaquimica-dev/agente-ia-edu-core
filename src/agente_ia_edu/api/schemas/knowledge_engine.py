@@ -157,3 +157,72 @@ class KnowledgeChunkStatsResponse(BaseModel):
     chunks_without_page: int
     page_start_min: int | None
     page_end_max: int | None
+
+
+# -- Fase 4: BNCC / CURRICULUM_FRAMEWORK --------------------------------
+
+
+class KnowledgeFrameworkResponse(BaseModel):
+    """Resultado da ingestao de um documento normativo."""
+
+    document_id: UUID
+    source_id: UUID
+    extraction_status: str
+    extraction_method: str | None
+    extraction_error: str | None
+    page_count: int | None
+    chunks_created: int
+    taxonomy_code: str | None
+    taxonomy_version: str | None
+    area_code: str | None
+    competencies: int | None
+    skills: int | None
+    skills_per_competency: list[int] | None
+    duration_seconds: float
+
+
+class BnccSkillResponse(BaseModel):
+    """Uma habilidade, como o Knowledge Engine a conhece.
+
+    A BNCC e ``OFFICIAL_PUBLIC``, entao o enunciado pode ser exposto - ao
+    contrario do texto de livro comercial.
+    """
+
+    code: str
+    statement: str
+    competency_code: str
+    taxonomy_code: str
+    taxonomy_version: str
+    urn: str
+    page: int | None
+
+
+class BnccLinkProposeRequest(BaseModel):
+    taxonomy_node_id: UUID
+    relation_type: str = Field(..., description="PRIMARY | SUPPORTING")
+    rationale: str | None = None
+    origin: str = Field("MANUAL", description="MANUAL | AI_SUGGESTION | IMPORT")
+    confidence: float | None = Field(None, ge=0, le=1)
+    actor_type: str = Field("PLATFORM_ADMIN")
+    suggester_version: str | None = None
+
+
+class BnccLinkDecisionRequest(BaseModel):
+    #: Obrigatoria para validar: um vinculo sem razao registrada nao e
+    #: auditavel depois.
+    rationale: str = Field(..., min_length=1)
+    actor_type: str = Field("PLATFORM_ADMIN")
+
+
+class BnccLinkResponse(BaseModel):
+    id: UUID
+    content_node_id: UUID
+    node_code: str
+    taxonomy_version: str
+    relation_type: str
+    status: str
+    origin: str
+    confidence: float | None
+    rationale: str | None
+    validated_by_external_identity: str | None
+    validated_at: datetime | None

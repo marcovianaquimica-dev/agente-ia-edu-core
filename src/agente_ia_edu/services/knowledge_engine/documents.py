@@ -36,7 +36,8 @@ from ...db.models import (
 )
 from ..authorial_material_parser import parse_authorial_pdf, parse_authorial_text
 from ..ingestion_parser import DocxParser
-from .chunking import ChunkDraft, ProseChunker
+from .bncc_extraction import BnccExtractionError, extract_bncc_cnt
+from .chunking import ChunkDraft, CurriculumFrameworkChunker, ProseChunker
 from .rights import max_excerpt_chars, may_expose_literal_text
 from .extraction import DocumentExtractionError, extract_document
 
@@ -98,6 +99,11 @@ class ExtractionSnapshot:
     pages_without_text: tuple[int, ...]
     duration_seconds: float
     updated_at: datetime
+    #: Resumo da estrutura normativa, so na ingestao de CURRICULUM_FRAMEWORK.
+    #: Existe para que a ROTA nao precise ler KnowledgeDocument - a fronteira
+    #: do spec 2 proibe modulo de fora do subsistema tocar o modelo do corpus,
+    #: e o teste de fronteira pegou essa violacao quando ela foi introduzida.
+    framework: dict[str, Any] | None = None
 
 
 class KnowledgeDocumentService:
@@ -195,6 +201,118 @@ class KnowledgeDocumentService:
             partial_reasons=extraction.reasons,
             pages_without_text=tuple(extraction.pages_without_text),
             started=started,
+        )
+        await self.session.commit()
+        return snapshot
+
+    async def extract_framework(
+        self, source_id: UUID, document_id: UUID, *, taxonomy_version: str, force: bool = False
+    ) -> ExtractionSnapshot:
+        """Ingestao de documento NORMATIVO (Fase 4, spec 22.1).
+
+        Caminho separado do ``extract_and_chunk`` de proposito: a BNCC nao e
+        prosa, e tratar as duas pelo mesmo metodo com um `if` dentro
+        esconderia justamente a diferenca que importa.
+
+        NAO semeia taxonomia. Semear e mudanca de CURRICULO, feita por
+        ``services/bncc_taxonomy_seed.py`` com script e revisao proprios -
+        nunca efeito colateral de uma ingestao de documento.
+        """
+        started = datetime.now()
+        source, document = await self._load(source_id, document_id)
+
+        if source.source_kind != "CURRICULUM_FRAMEWORK":
+            raise KnowledgeDocumentProcessingError(
+                "NOT_A_CURRICULUM_FRAMEWORK",
+                f"source_kind {source.source_kind!r} nao e documento normativo; "
+                "use o caminho de prosa",
+            )
+
+        existing = await self._chunk_count(document_id)
+        if existing and not force:
+            raise KnowledgeDocumentProcessingError(
+                "ALREADY_CHUNKED",
+                f"o documento ja tem {existing} chunks; use force para reprocessar",
+            )
+        if existing and force:
+            embedded = await self.session.scalar(
+                select(func.count())
+                .select_from(KnowledgeChunkEmbedding)
+                .join(KnowledgeChunk, KnowledgeChunk.id == KnowledgeChunkEmbedding.chunk_id)
+                .where(KnowledgeChunk.document_id == document_id)
+            )
+            if embedded:
+                raise KnowledgeDocumentProcessingError(
+                    "EMBEDDINGS_PRESENT",
+                    f"{embedded} embeddings referenciam os chunks deste documento",
+                )
+            await self.session.execute(
+                delete(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id)
+            )
+
+        path = Path(document.storage_uri)
+        try:
+            extraction = extract_document(path)
+            framework = extract_bncc_cnt(
+                extraction.page_texts, taxonomy_version=taxonomy_version
+            )
+        except (DocumentExtractionError, BnccExtractionError) as exc:
+            document.extraction_status = "FAILED"
+            document.extraction_error = f"{getattr(exc, 'code', 'ERROR')}: {exc}"
+            document.extraction_method = None
+            snapshot = _snapshot(
+                document,
+                chunks_created=0,
+                partial_reasons=(getattr(exc, "code", "ERROR"),),
+                pages_without_text=(),
+                started=started,
+            )
+            await self.session.commit()
+            return snapshot
+
+        drafts = CurriculumFrameworkChunker().chunk(
+            framework=framework, page_offset=document.page_offset
+        )
+        for draft in drafts:
+            row = _row(document, draft)
+            # A coluna existe desde a Fase 1 e e o filtro rapido de
+            # recuperacao; a tripla normativa completa vive em metadata.
+            row.bncc_node_codes = draft.metadata.get("bncc_node_codes")
+            self.session.add(row)
+
+        document.page_count = extraction.page_count
+        document.extraction_method = extraction.method
+        document.extraction_status = extraction.status
+        document.extraction_error = None
+        document.metadata_ = {
+            **(document.metadata_ or {}),
+            "extraction": {
+                "method": extraction.method,
+                "page_count": extraction.page_count,
+                "pages_without_text": extraction.pages_without_text,
+                "partial_reasons": list(extraction.reasons),
+                "chunks_created": len(drafts),
+            },
+            "framework": {
+                "taxonomy_code": framework.taxonomy_code,
+                "taxonomy_version": framework.taxonomy_version,
+                "area_code": framework.area_code,
+                "competencies": len(framework.competencies),
+                "skills": len(framework.skills),
+                "skills_per_competency": [
+                    len(c.skills) for c in framework.competencies
+                ],
+                "extractor_version": framework.extractor_version,
+            },
+        }
+        await self.session.flush()
+        snapshot = _snapshot(
+            document,
+            chunks_created=len(drafts),
+            partial_reasons=extraction.reasons,
+            pages_without_text=tuple(extraction.pages_without_text),
+            started=started,
+            framework=document.metadata_["framework"],
         )
         await self.session.commit()
         return snapshot
@@ -335,6 +453,7 @@ def _snapshot(
     partial_reasons: tuple[str, ...],
     pages_without_text: tuple[int, ...],
     started: datetime,
+    framework: dict[str, Any] | None = None,
 ) -> ExtractionSnapshot:
     return ExtractionSnapshot(
         document_id=document.id,
@@ -348,4 +467,5 @@ def _snapshot(
         pages_without_text=pages_without_text,
         duration_seconds=round((datetime.now() - started).total_seconds(), 3),
         updated_at=document.updated_at,
+        framework=framework,
     )

@@ -587,3 +587,68 @@ def _draft(
         token_estimate=estimate_tokens(char_count),
         metadata=metadata,
     )
+
+
+class CurriculumFrameworkChunker:
+    """Chunker de documento NORMATIVO - a BNCC.
+
+    NAO e o ``ProseChunker``, e a diferenca nao e de parametro, e de tipo
+    (spec 22.1). Um livro didatico e prosa continua que precisa de janelamento
+    por tamanho; a BNCC e lista normativa codificada, cuja unidade natural e
+    UMA HABILIDADE. Janelar habilidades por tamanho cortaria habilidade ao
+    meio e perderia o codigo, que e a unica chave util.
+
+    Uma habilidade = um chunk ``CURRICULUM_ITEM``, nunca dividido, nunca
+    fundido, nunca com overlap. ``CURRICULUM_ITEM`` ja esta em
+    ``INDIVISIBLE_CHUNK_TYPES`` desde a Fase 1.
+
+    ``bncc_node_codes`` guarda so o codigo, porque sua funcao e recuperacao.
+    ``metadata.bncc`` guarda a TRIPLA normativa completa (spec 22.3): o codigo
+    isolado nao e identidade eterna.
+    """
+
+    def chunk(self, *, framework, page_offset: int = 0) -> list[ChunkDraft]:
+        drafts: list[ChunkDraft] = []
+        ordinal = 1
+        for competency in framework.competencies:
+            heading_path = (
+                framework.area_name,
+                f"Competência específica {competency.number}",
+            )
+            for skill in competency.skills:
+                page = skill.page + page_offset
+                drafts.append(
+                    _draft(
+                        ordinal=ordinal,
+                        chunk_type="CURRICULUM_ITEM",
+                        heading_path=heading_path,
+                        page_start=page,
+                        page_end=page,
+                        raw_text=skill.statement,
+                        extra={
+                            "boundary_approximate": False,
+                            "bncc_node_codes": [skill.code],
+                            "bncc": {
+                                "taxonomy_code": framework.taxonomy_code,
+                                "taxonomy_version": framework.taxonomy_version,
+                                "node_code": skill.code,
+                                "urn": (
+                                    f"{framework.taxonomy_code}:"
+                                    f"{framework.taxonomy_version}:{skill.code}"
+                                ),
+                                "competency_code": competency.code,
+                                "area_code": framework.area_code,
+                                "page": skill.page,
+                            },
+                            "extractor_version": framework.extractor_version,
+                            "dehyphenations": skill.dehyphenations,
+                            "structure": {
+                                "classified_as": "CURRICULUM_ITEM",
+                                "signals": ["bncc_skill_code"],
+                                **describe_block(skill.statement),
+                            },
+                        },
+                    )
+                )
+                ordinal += 1
+        return drafts

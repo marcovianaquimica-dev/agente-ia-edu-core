@@ -1648,3 +1648,226 @@ pode ser usado conforme a política.
 
 Isso entra em `knowledge_retrieval_policy/v1.py` como filtro por contexto, e
 o default fecha: contexto desconhecido não recupera `SOLUTION`.
+
+---
+
+## 22. Fase 4 — BNCC / `CURRICULUM_FRAMEWORK`
+
+Aprovado em 2026-10-01 com oito ajustes. Esta seção é normativa para a Fase 4
+e substitui o que a seção 6.2 antecipava sobre a BNCC.
+
+### 22.1 Uma ingestão, duas saídas
+
+| Saída | Onde | Papel |
+|---|---|---|
+| **Nós normativos** | `Taxonomy` / `TaxonomyNode` | a norma: área → competência → habilidade |
+| **Chunks** | `knowledge_chunks`, `chunk_type=CURRICULUM_ITEM` | texto recuperável, citável |
+
+O nó normativo é referência estável que questões, conteúdos e Packs citam. O
+chunk é texto recuperável. Confundi-los faria a norma depender do ciclo de
+vida do corpus.
+
+Um extrator, dois consumidores:
+
+```
+PDF  ->  bncc_extraction.py  ->  BnccFramework (frozen, zero I/O de banco)
+                                      |
+                                      +-> bncc_taxonomy_seed.py  (CURRÍCULO)
+                                      +-> CurriculumFrameworkChunker (ENGINE)
+```
+
+A semeadura fica **fora** de `services/knowledge_engine/`, seguindo
+`essay_rubric_seed.py`: mudança de taxonomia é mudança de currículo, com
+script e revisão próprios, nunca efeito colateral de ingestão.
+
+### 22.2 Identidade e escopo
+
+| Decisão | Valor |
+|---|---|
+| `taxonomy.code` | `"bncc"` |
+| `taxonomy.version` | `"EM-2018"` |
+| Escopo desta fase | **somente CNT** — 3 competências + 23 habilidades |
+
+**CNT é um RAMO da taxonomia BNCC EM-2018, não uma taxonomia independente.**
+LGG, MAT e CHS entram depois como ramos irmãos da **mesma versão**.
+
+Mapeamento para `node_type`, que já tem CheckConstraint
+(`competency|skill|subject|subsubject`):
+
+| BNCC | `node_type` | Por quê |
+|---|---|---|
+| Área (CNT) | **`subject`** | área de conhecimento; evita migração, e o vocabulário existente já cobre |
+| Competência específica (1..3) | `competency` | |
+| Habilidade (`EM13CNT###`) | `skill` | |
+
+Hierarquia: `subject(CNT)` → `competency(1..3)` → `skill(23)`, por
+`parent_id`.
+
+### 22.3 Identidade normativa é COMPOSTA
+
+**`EM13CNT301` isolado não é identidade normativa eterna.** O mesmo código
+pode existir com enunciado diferente em versões diferentes da BNCC.
+
+> A identidade conceitual de uma referência BNCC é
+> **`taxonomy_code` + `taxonomy_version` + `node_code`**.
+
+`bncc_contract/v1.py` fixa o tipo:
+
+```python
+@dataclass(frozen=True)
+class BnccNodeRef:
+    taxonomy_code: str      # "bncc"
+    taxonomy_version: str   # "EM-2018"
+    node_code: str          # "EM13CNT301"
+    def as_urn(self) -> str  # "bncc:EM-2018:EM13CNT301"
+```
+
+`knowledge_chunks.bncc_node_codes` continua guardando **só o código**, porque
+sua função é recuperação (filtro rápido, estável entre versões). Toda
+referência **normativa ou auditável** carrega a tripla explícita:
+
+- `knowledge_chunks.metadata.bncc` → tripla + `node_id` + página;
+- `curriculum_bncc_links` → FK para `taxonomy_id` **e** `taxonomy_node_id`;
+- `BnccReference` (o que o Pack vê) → `taxonomy_code`, `taxonomy_version`,
+  `code`.
+
+Nenhuma camada auditável se contenta com o código solto.
+
+### 22.4 Ingestão não é ativação curricular
+
+**Ingerir uma versão nova NUNCA desativa a anterior.** Os dois conceitos são
+separados:
+
+| Operação | O que faz |
+|---|---|
+| `seed_bncc_version(...)` | cria `Taxonomy` com **`active=False`** e seus nós. Não toca nenhuma outra versão. |
+| `promote_bncc_version(...)` | marca uma versão como vigente (`active=True`) e rebaixa a anterior, numa transação, com trilha |
+
+Consequência deliberada: **a primeira versão também nasce inativa**. Promover
+é sempre explícito. Um caso especial para "a primeira" seria onde o bug
+moraria.
+
+Isso permite processar, comparar e curar uma versão nova antes de promovê-la.
+
+Três comportamentos de reingestão, nenhum sobrescreve:
+
+| Caso | Comportamento |
+|---|---|
+| Mesma versão, mesmos nós | **no-op**, `0 criados` |
+| Mesma versão, **texto diferente** | **`TAXONOMY_VERSION_CONFLICT`**, diff por código, **zero escrita** |
+| Versão nova | `Taxonomy` nova inativa; a anterior **intacta e ainda vigente** |
+
+O segundo é o requisito central: mudar o enunciado de uma habilidade dentro
+da mesma versão significa que a extração ou o arquivo mudou, e as duas coisas
+exigem decisão humana, não um `UPDATE`.
+
+As constraints que sustentam isso **já existem**: `Taxonomy UNIQUE(code,
+version)` e `TaxonomyNode UNIQUE(taxonomy_id, code)`.
+
+### 22.5 Hifenização
+
+O PDF hifeniza quebra de linha (40 ocorrências na CNT: `pro- cessos`,
+`desen- volvimento`). Regra determinística:
+
+> Junta `(\w)-\s+(\w)` → `\1\2`. **Exige whitespace após o hífen.**
+
+Isso distingue quebra de linha de hífen legítimo: composto real aparece sem
+espaço (`sócio-econômico`). Risco residual registrado: um composto legítimo
+quebrado na linha seria juntado errado — raro, e a contagem de junções fica
+em `metadata` para auditoria.
+
+### 22.6 Páginas e evidência
+
+Todo `TaxonomyNode` registra em `metadata_`:
+
+```json
+{"source": {"document_id": "...", "page": 121,
+            "source_text_sha256": "...", "extractor_version": "v1",
+            "dehyphenations": 3}}
+```
+
+Critério de aceite: **nenhum nó sem página de origem**.
+
+### 22.7 `CatalogNode` ↔ `TaxonomyNode(skill)` — curadoria
+
+A Fase 0 provou que **similaridade textual não serve**: "estequiometria",
+"reagente limitante" e "diluição" não aparecem uma única vez no texto da CNT;
+"soluções" aparece em *"propor soluções"*.
+
+Migração **`060_curriculum_bncc_links`**, duas tabelas.
+
+**`curriculum_bncc_links`**
+
+```
+content_node_id   FK catalog_nodes.id    RESTRICT  not null
+taxonomy_node_id  FK taxonomy_nodes.id   RESTRICT  not null
+taxonomy_id       FK taxonomies.id       RESTRICT  not null
+relation_type     str(20)   PRIMARY | SUPPORTING
+status            str(20)   PROPOSED | VALIDATED | REJECTED | SUPERSEDED
+origin            str(20)   MANUAL | AI_SUGGESTION | IMPORT
+confidence        numeric(4,3)
+rationale         text
+validated_by_external_identity, validated_at
+supersedes_id     FK self
+```
+
+`relation_type` é **apenas `PRIMARY | SUPPORTING`** nesta versão.
+`PREREQUISITE` fica fora: pré-requisito já pertence ao grafo curricular
+(`CatalogNodePrerequisite`), e um tipo novo de relação BNCC só entra com
+necessidade pedagógica concreta.
+
+**As travas, no banco:**
+
+```sql
+CHECK (status <> 'VALIDATED' OR validated_by_external_identity IS NOT NULL)
+CHECK (status <> 'VALIDATED' OR rationale IS NOT NULL)
+CHECK (origin <> 'AI_SUGGESTION' OR confidence IS NOT NULL)
+```
+
+**Uma sugestão de IA não pode virar relação validada**, porque validar exige
+identidade humana registrada — e isso é CheckConstraint, não um `if` num
+service. Mesmo padrão topológico que protege `COMMERCIAL_REFERENCE`.
+
+Índice **parcial** `UNIQUE(content_node_id, taxonomy_node_id, taxonomy_id)
+WHERE status='VALIDATED'`: várias propostas por par, um só vínculo validado
+por versão.
+
+**`curriculum_bncc_link_reviews`** — trilha append-only espelhando
+`PedagogicalClassificationReview`: `action` (`PROPOSE|VALIDATE|REJECT|
+SUPERSEDE`), `actor`, `actor_type` (`AI|TEACHER|COORDINATOR|DIRECTOR|
+PLATFORM_ADMIN|SYSTEM`), `previous_value`, `new_value`, `reason`,
+`suggester_version`. Nunca sobrescrita.
+
+**Versão nova da BNCC:** vínculos antigos apontam para os nós da versão
+antiga e permanecem válidos. Para a versão nova, a curadoria é refeita — um
+utilitário pode propor carregamento por código igual, sempre como
+`PROPOSED`.
+
+### 22.8 Como chega ao Knowledge Pack
+
+O Pack **não** consulta `curriculum_bncc_links`. Entre eles há um port:
+
+```python
+# services/knowledge_engine/curriculum_ports.py
+async def validated_bncc_for_node(session, content_node_id,
+                                  taxonomy_version=None) -> list[BnccReference]
+```
+
+`BnccReference` (em `bncc_contract/v1.py`) carrega código, enunciado,
+competência-pai, **versão** e `relation_type`. O contrato do Pack declara a
+forma de `topic.bncc[]`; o port entrega os dados; `curriculum_bncc_links` é
+detalhe que nenhum dos dois nomeia.
+
+Dois defaults:
+
+- **só `status='VALIDATED'`** — proposta de IA nunca aparece num Pack;
+- **lista vazia sem curadoria**. `topic.bncc[] = []` é o resultado correto, e
+  preferível a associação inferida sem validação.
+
+### 22.9 Fora da Fase 4
+
+Curadoria de dados (a fase entrega o mecanismo, não vínculos); sugestão por
+IA (nem sugeridor nem prompt); LGG/MAT/CHS; Ensino Fundamental; vínculo
+`SOLUTION`↔`EXERCISE` (§21.6); filtro de recuperação por contexto (§21.7);
+`content_node_id` dos chunks, que segue `NULL` — casar chunk com nó de
+currículo é trabalho do matcher, e é outra relação.

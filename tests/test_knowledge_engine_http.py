@@ -330,13 +330,25 @@ class ReceptionGuardTests(unittest.TestCase):
                 "/api/v1/knowledge-engine/sources",
                 "/api/v1/knowledge-engine/sources/{source_id}",
                 "/api/v1/knowledge-engine/sources/{source_id}/documents",
-                "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}",
                 "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}/chunks",
                 "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}/extract",
+                "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}/extract-framework",
                 "/api/v1/knowledge-engine/sources/{source_id}/chunks/stats",
-            }
-            - {"/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}"},
+                "/api/v1/knowledge-engine/frameworks/bncc/{taxonomy_version}/skills",
+            },
         )
+
+    def test_the_curation_surface_is_a_separate_router(self):
+        """Quem decide que "Estequiometria" se relaciona a EM13CNT101 esta
+        fazendo escolha PEDAGOGICA, nao recuperacao. Juntar as superficies
+        convidaria o engine a criar vinculo por conta propria."""
+        from agente_ia_edu.api.app import app
+
+        curation = {path for path in app.openapi()["paths"] if "bncc-links" in path}
+        self.assertTrue(curation)
+        for path in curation:
+            self.assertTrue(path.startswith("/api/v1/catalog/"), path)
+            self.assertNotIn("knowledge-engine", path)
 
     def test_the_real_app_applies_the_reception_guard_to_the_router(self):
         import inspect

@@ -70,6 +70,7 @@ from .catalog import (
     MaterialBlock,
     MaterialExercise,
 )
+from .curriculum_bncc import CurriculumBnccLink, CurriculumBnccLinkReview
 from .knowledge_engine import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
@@ -253,4 +254,7 @@ __all__ = [
     "KnowledgeChunkTerm",
     "KnowledgeEmbeddingSpace",
     "KnowledgeChunkEmbedding",
+    # CEREBRO / Fase 4 - curadoria do vinculo curriculo <-> BNCC
+    "CurriculumBnccLink",
+    "CurriculumBnccLinkReview",
 ]
