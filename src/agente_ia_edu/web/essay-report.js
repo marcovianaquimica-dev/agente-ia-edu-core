@@ -76,10 +76,17 @@
       let cells;
       if (aspects) {
         anyStructured = true;
-        const items = aspects
+        // The spec's last aspect for both C2 and C3 is always "Como
+        // melhorar" (COMPETENCY_ASPECTS above) - that one is the growth
+        // direction, same meaning as rationale.growth_area for C1/C4/C5, so
+        // it gets its own "Onde pode avançar" column instead of being
+        // listed alongside the three diagnostic aspects.
+        const growthAspect = aspects[aspects.length - 1];
+        const strengthAspects = aspects.slice(0, -1);
+        const items = strengthAspects
           .map(([label, text]) => `<li><strong>${esc(label)}:</strong> ${esc(text)}</li>`)
           .join('');
-        cells = `<td colspan="2"><ul class="essay-competency-aspects">${items}</ul></td>`;
+        cells = `<td data-label="Você já faz bem"><ul class="essay-competency-aspects">${items}</ul></td><td data-label="Onde pode avançar">${esc(growthAspect[1])}</td>`;
       } else if (rationale.strengths && rationale.growth_area) {
         cells = `<td data-label="Você já faz bem">${esc(rationale.strengths)}</td><td data-label="Onde pode avançar">${esc(rationale.growth_area)}</td>`;
       } else {

@@ -234,11 +234,20 @@ def _competency_table_html(model: dict) -> str:
         fg = _COMPETENCY_SOLID_COLORS[code]
         header = f'{_esc(code)} — {_esc(row["label"])}'
         if row.get("aspects"):
+            # The spec's last aspect for both C2 and C3 is always "Como
+            # melhorar" (_COMPETENCY_ASPECTS above) - that one is the growth
+            # direction, same meaning as strengths/growth_area's growth_area
+            # for C1/C4/C5, so it gets its own "Onde pode avançar" column
+            # instead of being listed alongside the three diagnostic aspects.
+            *strength_aspects, growth_aspect = row["aspects"]
             items = "".join(
                 f'<li><b>{_esc(a["label"])}:</b> {_esc(a["text"])}</li>'
-                for a in row["aspects"]
+                for a in strength_aspects
             )
-            cells = f'<td colspan="2"><ul style="margin:0;padding-left:16px;">{items}</ul></td>'
+            cells = (
+                f'<td><ul style="margin:0;padding-left:16px;">{items}</ul></td>'
+                f'<td>{_esc(growth_aspect["text"])}</td>'
+            )
         elif row["has_split"]:
             cells = f'<td>{_esc(row["strengths"])}</td><td>{_esc(row["growth_area"])}</td>'
         else:

@@ -42,13 +42,15 @@ const RATIONALES_V4 = ['C1', 'C2', 'C3', 'C4', 'C5'].map(rationale);
 
 // --- nível 1: campos estruturados ---
 
-test('nível 1: C2 renderiza os quatro aspectos rotulados, na ordem da spec', () => {
+test('nível 1: C2 renderiza os três aspectos diagnósticos rotulados, na ordem da spec, com "Como melhorar" em coluna própria', () => {
   const html = EssayReport.renderCompetencyChecklist(RATIONALES_V5, [], esc, STRUCTURED);
   assert.match(html, /Tipologia textual:/);
   assert.match(html, /Tema:/);
   assert.match(html, /Repertório sociocultural:/);
-  assert.match(html, /Como melhorar:/);
-  const ordem = ['Tipologia textual', 'Tema:', 'Repertório sociocultural', 'Como melhorar'];
+  // "Como melhorar" não é mais um rótulo dentro da lista - o próprio
+  // conteúdo (não o rótulo) vai na célula "Onde pode avançar".
+  assert.doesNotMatch(html, /Como melhorar:/);
+  const ordem = ['Tipologia textual', 'Tema:', 'Repertório sociocultural'];
   let cursor = 0;
   ordem.forEach((label) => {
     const at = html.indexOf(label, cursor);
@@ -56,13 +58,15 @@ test('nível 1: C2 renderiza os quatro aspectos rotulados, na ordem da spec', ()
     cursor = at;
   });
   assert.match(html, /Não foi identificado repertório sociocultural no texto\./);
+  assert.match(
+    html,
+    /data-label="Onde pode avançar">Traga um repertório pertinente ao tema\.</,
+  );
 });
 
-test('nível 1: C3 renderiza os quatro aspectos rotulados, na ordem da spec', () => {
+test('nível 1: C3 renderiza os três aspectos diagnósticos rotulados, na ordem da spec, com "Como melhorar" em coluna própria', () => {
   const html = EssayReport.renderCompetencyChecklist(RATIONALES_V5, [], esc, STRUCTURED);
-  const ordem = [
-    'Projeto argumentativo', 'Informações, fatos e opiniões', 'Autoria:', 'Como melhorar',
-  ];
+  const ordem = ['Projeto argumentativo', 'Informações, fatos e opiniões', 'Autoria:'];
   let cursor = html.indexOf('C3 —');
   assert.ok(cursor > -1, 'linha de C3 ausente');
   ordem.forEach((label) => {
@@ -70,7 +74,13 @@ test('nível 1: C3 renderiza os quatro aspectos rotulados, na ordem da spec', ()
     assert.ok(at > -1, `rótulo ausente ou fora de ordem: ${label}`);
     cursor = at;
   });
+  const c3RowHtml = html.slice(cursor, html.indexOf('</tr>', cursor));
+  assert.doesNotMatch(c3RowHtml, /Como melhorar:/);
   assert.match(html, /Usa dados do IBGE no segundo parágrafo\./);
+  assert.match(
+    c3RowHtml,
+    /data-label="Onde pode avançar">Desenvolva o segundo argumento com um exemplo\.</,
+  );
 });
 
 test('nível 1: C2 e C3 aparecem mesmo sem nenhum rationale para eles', () => {
