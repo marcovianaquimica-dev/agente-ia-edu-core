@@ -1,8 +1,9 @@
-"""Rotas do CEREBRO / Knowledge Engine (Fase 2).
+"""Rotas do CEREBRO / Knowledge Engine (Fases 2 e 3).
 
-Superficie da fase: cadastrar fonte, registrar documento, ler, arquivar.
-Nenhum endpoint de ingestao, recuperacao ou Knowledge Pack - essas fases nao
-chegaram, e a infraestrutura delas existir nao e motivo para antecipa-las.
+Superficie ate aqui: cadastrar fonte, registrar documento, EXTRAIR e
+CHUNKAR, ler e arquivar. Nenhum endpoint de indice lexical, embedding,
+recuperacao ou Knowledge Pack - essas fases nao chegaram, e a infraestrutura
+delas existir nao e motivo para antecipa-las.
 
 Toda rota exige PLATFORM_ADMIN. O router tambem entra em ``app.py`` sob
 ``reception_only_guard``, como todo router nao-publico do projeto, para que o
@@ -21,6 +22,11 @@ from ...services.knowledge_engine.document_ingress import (
     configured_document_root,
     resolve_local_path,
 )
+from ...services.knowledge_engine.documents import (
+    KnowledgeDocumentNotFound,
+    KnowledgeDocumentProcessingError,
+    KnowledgeDocumentService,
+)
 from ...services.knowledge_engine.rights import KnowledgeRightsViolation
 from ...services.knowledge_engine.sources import (
     KnowledgeSourceNotFound,
@@ -28,7 +34,10 @@ from ...services.knowledge_engine.sources import (
 )
 from ..dependencies import get_session_factory
 from ..schemas.knowledge_engine import (
+    KnowledgeChunkResponse,
+    KnowledgeChunkStatsResponse,
     KnowledgeDocumentRegisterRequest,
+    KnowledgeExtractionResponse,
     KnowledgeDocumentRegistrationResponse,
     KnowledgeDocumentResponse,
     KnowledgeSourceCreateRequest,
@@ -182,6 +191,103 @@ async def archive_source(
         except KnowledgeSourceNotFound as exc:
             raise HTTPException(status_code=404, detail="fonte de conhecimento nao encontrada") from exc
     return KnowledgeSourceResponse(**vars(snapshot))
+
+
+@knowledge_engine_router.post(
+    "/sources/{source_id}/documents/{document_id}/extract",
+    response_model=KnowledgeExtractionResponse,
+)
+async def extract_document_route(
+    source_id: UUID,
+    document_id: UUID,
+    force: bool = Query(False, description="re-chunka um documento ja processado"),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeExtractionResponse:
+    """Extrai o texto do documento e o transforma em chunks.
+
+    Reentrante: um documento ja processado responde 409 ALREADY_CHUNKED, e
+    ``force`` e recusado quando ha embedding referenciando os chunks.
+
+    Um PDF sem camada de texto em nenhum leitor NAO levanta erro HTTP: o
+    documento vai para FAILED com ``extraction_error`` comecando por
+    ``OCR_REQUIRED``. Isso e um resultado, nao uma falha da requisicao - e e
+    um estado consultavel, que permite listar o que espera OCR.
+    """
+    async with session_factory() as session:
+        service = KnowledgeDocumentService(session)
+        try:
+            snapshot = await service.extract_and_chunk(source_id, document_id, force=force)
+        except KnowledgeDocumentNotFound as exc:
+            raise HTTPException(status_code=404, detail="documento nao encontrado") from exc
+        except KnowledgeDocumentProcessingError as exc:
+            status_code = 422 if exc.code == "UNSUPPORTED_SOURCE_KIND_FOR_PHASE" else 409
+            raise HTTPException(status_code=status_code, detail=f"{exc.code}: {exc}") from exc
+
+    return KnowledgeExtractionResponse(
+        document_id=snapshot.document_id,
+        source_id=snapshot.source_id,
+        extraction_status=snapshot.extraction_status,
+        extraction_method=snapshot.extraction_method,
+        extraction_error=snapshot.extraction_error,
+        page_count=snapshot.page_count,
+        chunks_created=snapshot.chunks_created,
+        partial_reasons=list(snapshot.partial_reasons),
+        pages_without_text=list(snapshot.pages_without_text),
+        duration_seconds=snapshot.duration_seconds,
+    )
+
+
+@knowledge_engine_router.get(
+    "/sources/{source_id}/documents/{document_id}/chunks",
+    response_model=list[KnowledgeChunkResponse],
+)
+async def list_chunks(
+    source_id: UUID,
+    document_id: UUID,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> list[KnowledgeChunkResponse]:
+    """Metadados dos chunks. NUNCA o texto literal de fonte comercial.
+
+    ``excerpt`` e governado pela politica de direitos: para
+    COMMERCIAL_REFERENCE vem sempre ``None``, e nao ha campo ``raw_text`` em
+    schema algum.
+    """
+    async with session_factory() as session:
+        service = KnowledgeDocumentService(session)
+        try:
+            snapshots = await service.list_chunks(
+                source_id, document_id, limit=limit, offset=offset
+            )
+        except KnowledgeDocumentNotFound as exc:
+            raise HTTPException(status_code=404, detail="documento nao encontrado") from exc
+    return [KnowledgeChunkResponse(**vars(snapshot)) for snapshot in snapshots]
+
+
+@knowledge_engine_router.get(
+    "/sources/{source_id}/chunks/stats", response_model=KnowledgeChunkStatsResponse
+)
+async def chunk_stats(
+    source_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> KnowledgeChunkStatsResponse:
+    """Distribuicao por tipo e cobertura de paginas.
+
+    Existe para que falso positivo estrutural seja OBSERVAVEL: sem numero,
+    "o chunker as vezes erra" vira folclore.
+    """
+    async with session_factory() as session:
+        service = KnowledgeSourceService(session)
+        try:
+            await service.get(source_id)
+        except KnowledgeSourceNotFound as exc:
+            raise HTTPException(status_code=404, detail="fonte nao encontrada") from exc
+        stats = await KnowledgeDocumentService(session).chunk_stats(source_id)
+    return KnowledgeChunkStatsResponse(**stats)
 
 
 def _document_response(snapshot) -> KnowledgeDocumentResponse:

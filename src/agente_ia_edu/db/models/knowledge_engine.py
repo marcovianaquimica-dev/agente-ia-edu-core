@@ -163,8 +163,15 @@ class KnowledgeDocument(Base):
             "('PDF_TEXT_LAYER', 'PDF_TEXT_LAYER_PYMUPDF', 'VISION_OCR', 'DOCX', 'MARKDOWN')",
             name="ck_knowledge_documents_extraction_method",
         ),
+        # PARTIAL (migracao 059) e um estado proprio, nao um EXTRACTED
+        # otimista nem um FAILED pessimista: significa que houve perda
+        # POTENCIALMENTE RELEVANTE de conteudo na extracao, por criterios
+        # deterministas descritos na secao 20.3 da spec. Pagina vazia nao e,
+        # por si, perda - paginas podem ser intencionalmente vazias ou
+        # predominantemente visuais.
         CheckConstraint(
-            "extraction_status IN ('PENDING', 'EXTRACTING', 'EXTRACTED', 'FAILED')",
+            "extraction_status IN ('PENDING', 'EXTRACTING', 'EXTRACTED', "
+            "'PARTIAL', 'FAILED')",
             name="ck_knowledge_documents_extraction_status",
         ),
         Index("ix_knowledge_documents_source_id", "source_id"),

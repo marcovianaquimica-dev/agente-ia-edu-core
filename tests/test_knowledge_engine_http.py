@@ -283,8 +283,16 @@ class SchemaSurfaceTests(unittest.TestCase):
     """O texto literal nao e filtrado em runtime: o campo nao existe."""
 
     def test_no_response_schema_declares_a_literal_text_field(self):
-        """Critério de aceite 8."""
-        forbidden = {"raw_text", "text", "content", "body", "excerpt"}
+        """Critério de aceite 8.
+
+        ``excerpt`` NAO esta na lista proibida desde a Fase 3, e a distincao
+        importa: ``raw_text`` nunca pode existir como campo, enquanto
+        ``excerpt`` existe por desenho e e governado pela politica de
+        direitos - para COMMERCIAL_REFERENCE vem sempre ``None``, verificado
+        em ``test_knowledge_extraction_http.py``. O contrato do Knowledge
+        Pack tambem preve ``excerpt`` com a mesma regra.
+        """
+        forbidden = {"raw_text", "text", "content", "body"}
         offenders = []
         for name in dir(knowledge_schemas):
             candidate = getattr(knowledge_schemas, name)
@@ -322,7 +330,12 @@ class ReceptionGuardTests(unittest.TestCase):
                 "/api/v1/knowledge-engine/sources",
                 "/api/v1/knowledge-engine/sources/{source_id}",
                 "/api/v1/knowledge-engine/sources/{source_id}/documents",
-            },
+                "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}",
+                "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}/chunks",
+                "/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}/extract",
+                "/api/v1/knowledge-engine/sources/{source_id}/chunks/stats",
+            }
+            - {"/api/v1/knowledge-engine/sources/{source_id}/documents/{document_id}"},
         )
 
     def test_the_real_app_applies_the_reception_guard_to_the_router(self):

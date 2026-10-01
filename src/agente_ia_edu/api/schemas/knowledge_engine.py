@@ -114,3 +114,46 @@ class KnowledgeDocumentRegistrationResponse(BaseModel):
 class KnowledgeSourceListResponse(BaseModel):
     sources: list[KnowledgeSourceResponse]
     count: int
+
+
+class KnowledgeChunkResponse(BaseModel):
+    """Leitura de um chunk.
+
+    Nao ha campo ``raw_text`` - nao e filtro em tempo de execucao, o campo
+    nao existe. ``excerpt`` e governado pela politica de direitos: para fonte
+    COMMERCIAL_REFERENCE vem sempre ``None``.
+    """
+
+    id: UUID
+    document_id: UUID
+    ordinal: int
+    chunk_type: str
+    heading_path: list[str]
+    page_start: int | None
+    page_end: int | None
+    char_count: int | None
+    token_estimate: int | None
+    text_hash: str
+    excerpt: str | None
+    metadata: dict | None
+
+
+class KnowledgeExtractionResponse(BaseModel):
+    document_id: UUID
+    source_id: UUID
+    extraction_status: str
+    extraction_method: str | None
+    extraction_error: str | None
+    page_count: int | None
+    chunks_created: int
+    partial_reasons: list[str]
+    pages_without_text: list[int]
+    duration_seconds: float
+
+
+class KnowledgeChunkStatsResponse(BaseModel):
+    total_chunks: int
+    by_chunk_type: dict[str, int]
+    chunks_without_page: int
+    page_start_min: int | None
+    page_end_max: int | None

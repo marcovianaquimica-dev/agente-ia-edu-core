@@ -1342,3 +1342,172 @@ exceção é o caminho previsto. Uma terceira asserção do guarda garante que a
 lista não apodreça — exceção apontando para coluna inexistente é erro — de
 modo que as colunas `*_tokens` que a Fase 9 vai criar em `knowledge_packs`
 só poderão ser registradas quando existirem.
+
+---
+
+## 20. Fase 3 — extração e chunking: decisões
+
+Aprovado em 2026-10-01, com três ajustes ao plano apresentado. Esta seção é
+normativa para a Fase 3.
+
+### 20.1 Esqueleto × substância
+
+`parse_authorial_pdf` **colapsa whitespace** nos `content_lines`
+(`" ".join(lead.split())`), então no caminho PDF as fronteiras de parágrafo
+já foram destruídas antes de o chunker ver o texto. Chunking por parágrafo
+sobre `content_lines` é impossível.
+
+Portanto: **o parser dá o esqueleto, o texto cru das páginas dá a
+substância.**
+
+| De `parse_authorial_document` | De `read_pdf_page_texts` |
+|---|---|
+| fronteiras de seção, `section_type`, `title`, `section_number` | texto com quebras de parágrafo **preservadas** |
+| `page_start`/`page_end` por seção | — |
+| marcadores `## subtítulo` | — |
+| `ParsedQuestion` por exercício, com página | — |
+| `ParsedAsset` (imagem com hash, ou referência visual) | — |
+
+O parser não expõe offsets de caractere. Para cortar com precisão, o chunker
+**localiza o título da seção** no texto cru das páginas da faixa. Achou →
+corte exato. Não achou → granularidade de página, e o chunk carrega
+`metadata.boundary_approximate = true`. A aproximação é visível, nunca
+silenciosa.
+
+### 20.2 Três representações, e qual delas alimenta o hash
+
+Distinção obrigatória. O contexto que o sistema acrescenta **nunca** pode
+parecer parte do texto literal da obra.
+
+| Representação | O que é | Onde vive |
+|---|---|---|
+| `raw_text` | **conteúdo literal extraído da fonte.** Nada acrescentado pelo sistema: nem título, nem caminho hierárquico, nem rótulo, nem separador inventado | coluna `knowledge_chunks.raw_text` |
+| `heading_path` | **contexto estrutural** derivado pelo sistema | coluna `knowledge_chunks.heading_path` (JSON) |
+| `retrieval_text` | **representação enriquecida** para busca e embedding: `heading_path` + `raw_text`, montados por função pura e versionada | **não é persistido** — é derivado |
+
+`retrieval_text` é função pura de `(raw_text, heading_path, política)`, em
+`knowledge_chunking_policy/v1.py :: build_retrieval_text()`. Não é
+persistido: duplicaria ~9 MB e seria uma segunda fonte de verdade capaz de
+sair de sincronia.
+
+**`text_hash = sha256(retrieval_text)`.** Esta é a decisão normativa, e a
+razão importa: `text_hash` também existe em `knowledge_chunk_embeddings`,
+onde seu trabalho é ser a chave de idempotência do embedding. O embedding é
+calculado a partir do que se manda ao provider, que é exatamente
+`retrieval_text`. Hashear `raw_text` faria uma mudança na política de
+enriquecimento passar em silêncio, deixando embeddings obsoletos
+indistinguíveis de válidos.
+
+Consequência aceita e desejada: mudar a política de enriquecimento muda o
+hash e **dispara re-embedding**. É o comportamento correto.
+
+`metadata.source_text_sha256` guarda o hash do `raw_text` isolado, para que
+"o texto da fonte mudou" seja distinguível de "nosso enriquecimento mudou".
+
+`metadata.chunking_policy_version` registra a versão da política, para que
+todo chunk seja reproduzível.
+
+### 20.3 `PARTIAL` — critérios determinísticos
+
+Migração **`059_knowledge_documents_partial_status`** acrescenta `PARTIAL` ao
+CheckConstraint de `knowledge_documents.extraction_status`. É `DROP` + `ADD`
+de CHECK, sem reescrita de tabela.
+
+**Página vazia não é, por si, perda de conteúdo.** Páginas podem ser
+intencionalmente vazias (verso de capa, folha de guarda) ou
+predominantemente visuais. Classificar todo documento com uma página vazia
+como `PARTIAL` tornaria o estado inútil por excesso de alarme.
+
+Sinais, todos determinísticos, calculados por página:
+
+- `text_pages` — páginas com >= `MIN_USEFUL_CHARS` (200) de texto;
+- `empty_pages` — páginas com 0 caracteres após `strip()`;
+- `sparse_pages` — páginas com 1..199 caracteres;
+- `pages_with_images` — páginas com ao menos uma imagem embutida;
+- **páginas interiores** — as estritamente entre a primeira e a última
+  página com texto. Capa, folhas de guarda e brancos finais ficam fora por
+  construção.
+
+Regras, avaliadas em ordem:
+
+| Status | Condição |
+|---|---|
+| `FAILED` | `text_pages == 0` |
+| `PARTIAL` | **`IMAGE_ONLY_INTERIOR_PAGE`** — >=1 página interior sem texto útil **e com** imagem embutida. É a assinatura de página escaneada/achatada: havia conteúdo, e ele não saiu. |
+| `PARTIAL` | **`CONTIGUOUS_GAP`** — corrida de >=3 páginas interiores consecutivas sem texto útil. Um buraco de três páginas no meio de um capítulo é perda, haja imagem ou não. |
+| `PARTIAL` | **`HIGH_GAP_RATIO`** — mais de 10% das páginas interiores sem texto útil. Pega a perda difusa que nenhuma das outras duas pega. |
+| `EXTRACTED` | nenhuma das acima |
+
+Nota sobre a assimetria entre as duas primeiras: uma página **com imagem e
+sem texto** é sinal forte de perda; uma página **sem imagem e sem texto** é,
+na maioria das vezes, uma página de fato branca. Por isso a primeira regra
+exige imagem e a segunda não — a segunda cobre o caso em que a quantidade,
+não a natureza, denuncia o problema.
+
+`metadata.extraction.pages_without_text` é registrado **em todos os casos**,
+inclusive quando o status é `EXTRACTED`. `metadata.extraction.partial_reasons`
+lista os códigos que dispararam.
+
+Em qualquer status, **os chunks das páginas que deram certo são
+persistidos**. Falha parcial não descarta trabalho bom.
+
+### 20.4 Heurísticas estruturais: corretas onde importa, refináveis onde não
+
+Prioridade da fase, em ordem: **texto, páginas, origem, hierarquia, hash,
+rastreabilidade**. Essas seis precisam estar certas.
+
+A classificação estrutural (`WORKED_EXAMPLE`, `FORMULA`, `TABLE`,
+`DEFINITION`, `SUMMARY`) é implementada, mas **não** tenta resolver todo caso
+extremo nesta fase. Uma classificação errada degrada ranking; não corrompe o
+corpus, porque `raw_text`, página e proveniência seguem corretos.
+
+Para que o refinamento seja possível depois, todo falso positivo é
+**observável**: `metadata.structure.classified_as` e
+`metadata.structure.signals` registram o que disparou a classificação, e
+`GET /sources/{id}/chunks/stats` reporta a distribuição por tipo.
+
+### 20.5 `TEXTBOOK` × `CURRICULUM_FRAMEWORK`
+
+| | `TEXTBOOK` | `CURRICULUM_FRAMEWORK` |
+|---|---|---|
+| Estrutura | capítulo -> seção -> parágrafo; prosa contínua | área -> competência -> habilidade; lista codificada |
+| Unidade natural | um raciocínio (definição + exemplo) | **uma habilidade** |
+| Função | **ensina** o conteúdo | **prescreve** o que deve ser aprendido |
+| Tamanho | janelamento necessário | nunca janelar |
+| Hierarquia | títulos em texto livre | o código (`EM13CNT301`) **é** a hierarquia |
+| Chunker | `ProseChunker` (Fase 3) | `CurriculumFrameworkChunker` (Fase 4) |
+
+A Fase 3 implementa só o caminho de prosa e **recusa**
+`CURRICULUM_FRAMEWORK` com `422 UNSUPPORTED_SOURCE_KIND_FOR_PHASE`. Rodar o
+chunker de prosa sobre a BNCC produziria chunks plausíveis e errados -
+janelas cortando habilidades ao meio e perdendo o código, que é a única chave
+útil. Recusar é mais correto que produzir lixo convincente.
+
+`OWN_MATERIAL` e `ARTICLE` usam o caminho de prosa. `OTHER` é recusado.
+
+### 20.6 Tamanhos
+
+| Parâmetro | Valor |
+|---|---:|
+| alvo | 700 tokens (~2800 chars) |
+| mínimo | 120 tokens (~480 chars) — abaixo disso, funde com o vizinho da mesma seção |
+| máximo | 1100 tokens (~4400 chars) — teto de unidade divisível |
+| overlap | ~120 tokens, 1 parágrafo, **só entre `PROSE` da mesma seção** |
+
+`token_estimate = ceil(char_count / 4)` — determinístico, sem dependência de
+tokenizer. A coluna chama-se *estimate* de propósito.
+
+Unidade indivisível (`EXERCISE`, `TABLE`, `FORMULA`, `WORKED_EXAMPLE`) acima
+do máximo é emitida **inteira**, com `metadata.oversized = true`. Cortar um
+exemplo resolvido ao meio produz dois chunks que não sustentam afirmação
+nenhuma.
+
+### 20.7 Fora da Fase 3
+
+OCR por visão (o caminho `VISION_OCR` existe e nunca é produzido aqui; PDF
+sem texto termina em `FAILED` com `extraction_error` começando por
+`OCR_REQUIRED`, que é estado consultável); reconstrução de tabela em PDF;
+normalização de fórmula; OCR de imagem; promoção de exercício para o banco
+de questões; e `content_node_id` dos chunks, que fica `NULL` nesta fase -
+casar chunk com currículo é trabalho do matcher, e misturá-lo com chunking
+tornaria as duas coisas mais difíceis de testar.

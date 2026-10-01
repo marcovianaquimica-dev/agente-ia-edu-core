@@ -33,7 +33,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from pathlib import Path
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from .ingestion_parser import DocxParser, ParsedAsset, ParsedDocument, ParsedQuestion, ParsedSection
 
@@ -123,23 +127,106 @@ def _flush_exercises(body_text: str, section_index: int | None, questions: list[
         ))
 
 
-def parse_authorial_pdf(filepath: Path) -> ParsedDocument:
+@dataclass(frozen=True)
+class PdfTextLayer:
+    """O texto bruto de cada pagina, mais QUAL leitor o produziu.
+
+    ``method`` e gravado em ``knowledge_documents.extraction_method`` como
+    valor distinto, nunca confundido com o caminho padrao: os dois leitores
+    quebram linhas de forma diferente, entao um documento lido pelo fallback
+    pode seccionar de forma ligeiramente diferente, e essa proveniencia tem
+    de ficar visivel.
+    """
+
+    page_texts: list[str]
+    method: str  # PDF_TEXT_LAYER | PDF_TEXT_LAYER_PYMUPDF
+
+
+def _import_pymupdf():
+    """``pymupdf`` e o extra opcional ``recovery``. Ausente, o comportamento
+    volta a ser exatamente o de antes deste fallback existir."""
+    try:
+        import pymupdf  # noqa: PLC0415 - opcional por desenho
+    except ImportError:
+        return None
+    return pymupdf
+
+
+def read_pdf_page_texts(filepath: Path) -> PdfTextLayer:
+    """Le o texto de cada pagina, com fallback para PyMuPDF.
+
+    Ate a Fase 3, duas situacoes diferentes terminavam na MESMA excecao e
+    eram indistinguiveis no codigo:
+
+      * o ``pypdf`` nao consegue abrir o container  -> outro leitor resolve;
+      * as paginas genuinamente nao tem texto       -> so OCR resolve.
+
+    A Fase 0 encontrou um exemplar real da primeira (a BNCC EI+EF: pypdf
+    levanta ``Cannot find Root object``, pymupdf le as 600 paginas sem
+    esforco) e um da segunda (os tres volumes Usberco, puramente imagem).
+
+    O fallback dispara SO nos dois caminhos de falha que ja estavam
+    codificados - excecao, ou zero texto em todas as paginas. Se o PyMuPDF
+    tambem nao achar texto, a mensagem volta a ser a de sempre e o documento
+    segue para OCR, que e o destino correto.
+    """
+    page_texts: list[str] | None = None
+    try:
+        reader = PdfReader(filepath)
+        page_texts = [page.extract_text() or "" for page in reader.pages]
+    except (OSError, PdfReadError, ImportError):
+        page_texts = None
+
+    if page_texts and any(page_texts):
+        return PdfTextLayer(page_texts=page_texts, method="PDF_TEXT_LAYER")
+
+    pymupdf = _import_pymupdf()
+    if pymupdf is None:
+        if page_texts is None:
+            raise ValueError("Unable to read PDF text layer")
+        raise ValueError("PDF has no extractable text layer; OCR review is required")
+
+    try:
+        with pymupdf.open(str(filepath)) as document:
+            recovered = [page.get_text() or "" for page in document]
+    except Exception as exc:
+        if page_texts is None:
+            raise ValueError("Unable to read PDF text layer") from exc
+        raise ValueError("PDF has no extractable text layer; OCR review is required") from exc
+
+    if any(recovered):
+        return PdfTextLayer(page_texts=recovered, method="PDF_TEXT_LAYER_PYMUPDF")
+
+    raise ValueError("PDF has no extractable text layer; OCR review is required")
+
+
+def parse_authorial_pdf(
+    filepath: Path, *, page_texts: list[str] | None = None
+) -> ParsedDocument:
     """Generic, deterministic PDF prose/exercise structuring for authorial
     material. Never OCRs, never reconstructs an image - visual elements are
     recorded as review-required evidence only (spec s10: 'não inventar
     conteúdo'). Headings are matched over the FULL joined document text
-    (pypdf's own line breaks do not reliably fall at paragraph boundaries)."""
-    from pypdf import PdfReader
-    from pypdf.errors import PdfReadError
+    (pypdf's own line breaks do not reliably fall at paragraph boundaries).
 
+    ``page_texts`` lets a caller that ALREADY read the pages (via
+    ``read_pdf_page_texts``, e.g. to record which reader produced them) pass
+    them in instead of having the file read a second time - the same
+    ``parsed_override`` idiom ``IngestionService.ingest_document`` uses.
+    Omitted, the behaviour is exactly what it was before this parameter
+    existed.
+    """
     try:
         reader = PdfReader(filepath)
     except (OSError, PdfReadError, ImportError) as exc:
-        raise ValueError("Unable to read PDF text layer") from exc
+        if page_texts is None:
+            raise ValueError("Unable to read PDF text layer") from exc
+        reader = None
 
-    page_texts = [page.extract_text() or "" for page in reader.pages]
-    if not any(page_texts):
-        raise ValueError("PDF has no extractable text layer; OCR review is required")
+    if page_texts is None:
+        page_texts = [page.extract_text() or "" for page in reader.pages]
+        if not any(page_texts):
+            raise ValueError("PDF has no extractable text layer; OCR review is required")
 
     document_hash = DocxParser.file_hash(filepath)
     document_text = "\f".join(page_texts)
@@ -239,7 +326,9 @@ def parse_authorial_pdf(filepath: Path) -> ParsedDocument:
     #    embedded images counted; a bare textual reference to a figure/table
     #    with no embeddable image is flagged for review, never invented) --
     assets: list[ParsedAsset] = []
-    for page_no, page in enumerate(reader.pages, start=1):
+    # reader e None so quando o chamador trouxe page_texts de um PDF que o
+    # pypdf nao abre; sem reader nao ha imagem embutida a inventariar.
+    for page_no, page in enumerate(reader.pages if reader is not None else [], start=1):
         try:
             images = list(page.images)
         except Exception:
