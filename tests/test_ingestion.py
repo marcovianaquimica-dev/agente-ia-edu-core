@@ -46,9 +46,9 @@ class TestDocxParser(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Locate pilot material."""
-        cls.pilot_material = Path(
-            "/Users/marcoviana/agente-ia-edu-core/tests/fixtures/ingestion_materials/"
-            "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
+        cls.pilot_material = (
+            Path(__file__).resolve().parent / "fixtures" / "ingestion_materials"
+            / "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
         )
         assert cls.pilot_material.exists(), f"Pilot material not found: {cls.pilot_material}"
 
@@ -189,9 +189,9 @@ class TestIngestionService(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
         """Locate pilot material."""
-        cls.pilot_material = Path(
-            "/Users/marcoviana/agente-ia-edu-core/tests/fixtures/ingestion_materials/"
-            "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
+        cls.pilot_material = (
+            Path(__file__).resolve().parent / "fixtures" / "ingestion_materials"
+            / "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
         )
         assert cls.pilot_material.exists()
 
@@ -400,9 +400,9 @@ class TestPilotMaterialValidation(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Setup pilot material."""
-        cls.pilot_material = Path(
-            "/Users/marcoviana/agente-ia-edu-core/tests/fixtures/ingestion_materials/"
-            "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
+        cls.pilot_material = (
+            Path(__file__).resolve().parent / "fixtures" / "ingestion_materials"
+            / "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
         )
 
     def test_scenario_1_document_ingestion(self):

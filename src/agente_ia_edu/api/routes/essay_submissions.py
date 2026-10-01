@@ -524,6 +524,23 @@ def _as_list_or_none(value: Any) -> list | None:
     return value if isinstance(value, list) else None
 
 
+def _as_str_or_none(value: Any) -> str | None:
+    """Same defensive read as _as_list_or_none, for the contract v5 structured
+    C2/C3 fields: a correction published under v4 simply has no such key, and
+    a demo/seed row may store one with the wrong type. Both degrade to None
+    instead of 500-ing the student's own devolutiva."""
+    return value if isinstance(value, str) else None
+
+
+#: The contract v5 structured C2/C3 feedback fields, in rendering order -
+#: see essay_engine_contract/v5.py's STRUCTURED_FEEDBACK_FIELDS.
+_STRUCTURED_FEEDBACK_FIELDS: tuple[str, ...] = (
+    "c2_tipologia_textual", "c2_tema", "c2_repertorio_sociocultural",
+    "c2_orientacao_melhoria", "c3_projeto_argumentativo",
+    "c3_fatos_informacoes_opinioes", "c3_autoria", "c3_orientacao_melhoria",
+)
+
+
 class StudentCorrectionResponse(BaseModel):
     essay_submission_id: UUID
     status: str
@@ -538,6 +555,16 @@ class StudentCorrectionResponse(BaseModel):
     intro_message: Optional[str] = None
     closing_message: Optional[str] = None
     mechanical_review: Optional[list] = None
+    # Contract v5's structured C2/C3 feedback. None for every correction
+    # published under v4 - the frontend falls back to rationales there.
+    c2_tipologia_textual: Optional[str] = None
+    c2_tema: Optional[str] = None
+    c2_repertorio_sociocultural: Optional[str] = None
+    c2_orientacao_melhoria: Optional[str] = None
+    c3_projeto_argumentativo: Optional[str] = None
+    c3_fatos_informacoes_opinioes: Optional[str] = None
+    c3_autoria: Optional[str] = None
+    c3_orientacao_melhoria: Optional[str] = None
     # Only ever populated (True/False) in the REJECTED branch - PENDING has no
     # decision to resubmit against yet, and APPROVED is terminal in the other
     # direction (already published, no resubmit UI to gate). Left None there.
@@ -596,6 +623,10 @@ async def get_essay_submission_correction(
             intro_message=ai_output.get("intro_message"),
             closing_message=ai_output.get("closing_message"),
             mechanical_review=_as_list_or_none(ai_output.get("mechanical_review")),
+            **{
+                field: _as_str_or_none(ai_output.get(field))
+                for field in _STRUCTURED_FEEDBACK_FIELDS
+            },
         )
 
 
@@ -643,6 +674,7 @@ async def export_essay_submission_correction_pdf(
             "intro_message": ai_output.get("intro_message"),
             "closing_message": ai_output.get("closing_message"),
             "mechanical_review": ai_output.get("mechanical_review"),
+            **{field: ai_output.get(field) for field in _STRUCTURED_FEEDBACK_FIELDS},
         })
 
         page_images = None

@@ -126,6 +126,7 @@ from .essay_rubric import (
     EssayRubricScoringRule,
 )
 from .institution import SchoolIdentityVersion, SchoolSetting
+from .platform_essay_prompt import PlatformEssayPrompt
 from .essay_proposal import (
     EssayPrompt,
     PromptMaterial,
@@ -134,6 +135,8 @@ from .essay_proposal import (
     EssaySubmissionPage,
 )
 from .essay_correction import EssayCorrection
+from .essay_batch import EssayBatchPage, EssayBatchUpload
+from .mass_correction_run import MassCorrectionRun
 
 __all__ = [
     "StudySession",
@@ -228,6 +231,10 @@ __all__ = [
     "EssaySubmission",
     "EssaySubmissionPage",
     "EssayCorrection",
+    "EssayBatchUpload",
+    "EssayBatchPage",
+    "MassCorrectionRun",
+    "PlatformEssayPrompt",
     "Person",
     "User",
     "AcademicYear",

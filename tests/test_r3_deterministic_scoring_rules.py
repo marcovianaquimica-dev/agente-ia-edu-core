@@ -223,6 +223,61 @@ class DeterministicScoringRulesTests(unittest.TestCase):
                 result = _apply_deterministic_scoring_rules(output)
                 self.assertEqual(result["total"], 800)
 
+    def test_phase2_points_replace_output_scores_as_the_starting_point(self):
+        """The whole reason phase2_points exists (2026-09-28 calibration
+        finding): output.scores.per_competency is phase 1's own noisy
+        points, never what should be published once a phase-2 evidence-only
+        decision exists for the same correction."""
+        output = _output(points={c: 200 for c in ("C1", "C2", "C3", "C4", "C5")})
+        phase2_points = {"C1": 80, "C2": 40, "C3": 120, "C4": 160, "C5": 0}
+        result = _apply_deterministic_scoring_rules(output, phase2_points)
+        for code, points in phase2_points.items():
+            self.assertEqual(result["per_competency"][code]["points"], points)
+        self.assertEqual(result["total"], sum(phase2_points.values()))
+
+    def test_phase2_points_still_go_through_the_same_alert_rules(self):
+        """An ANULA_REDACAO alert must zero the essay regardless of whether
+        the starting points came from phase 1 or phase 2 - the alert rule
+        applies to whatever the starting points were, not just phase 1's."""
+        output = _output(
+            alerts=["FUGA_AO_TEMA"], points={c: 160 for c in ("C1", "C2", "C3", "C4", "C5")},
+        )
+        phase2_points = {c: 200 for c in ("C1", "C2", "C3", "C4", "C5")}
+        result = _apply_deterministic_scoring_rules(output, phase2_points)
+        self.assertEqual(result["total"], 0)
+
+    def test_phase2_points_none_falls_back_to_output_scores(self):
+        """Backward-compatible default: omitting phase2_points entirely
+        behaves exactly like before phase 2 existed."""
+        output = _output(points={c: 120 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 600)
+
+    def test_alert_codes_override_replaces_outputs_own_alerts(self):
+        """The whole reason alert_codes exists (2026-09-28 calibration
+        finding): output.alerts is phase 1's own, itself noisy, alert
+        detection - once alert_review_v1 has run, ITS verdict is what
+        final_scores is computed from, never output.alerts directly."""
+        output = _output(alerts=["FUGA_AO_TEMA"],
+                          points={c: 160 for c in ("C1", "C2", "C3", "C4", "C5")})
+        # Alert review rejected the false positive - empty confirmed set.
+        result = _apply_deterministic_scoring_rules(output, alert_codes=set())
+        self.assertEqual(result["total"], 800)
+
+    def test_alert_codes_override_can_still_zero_when_confirmed(self):
+        output = _output(alerts=["FUGA_AO_TEMA"],
+                          points={c: 160 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output, alert_codes={"FUGA_AO_TEMA"})
+        self.assertEqual(result["total"], 0)
+
+    def test_alert_codes_none_falls_back_to_outputs_own_alerts(self):
+        """Backward-compatible default: omitting alert_codes entirely
+        behaves exactly like before alert review existed."""
+        output = _output(alerts=["TEXTO_ILEGIVEL"],
+                          points={c: 200 for c in ("C1", "C2", "C3", "C4", "C5")})
+        result = _apply_deterministic_scoring_rules(output)
+        self.assertEqual(result["total"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

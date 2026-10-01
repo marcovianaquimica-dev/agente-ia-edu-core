@@ -21,6 +21,7 @@ already corrected) raises, from correct()/retry() themselves.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import mimetypes
@@ -40,8 +41,14 @@ from ..db.models import (
     EssaySubmissionPage,
     PromptAssignment,
 )
-from ..essay_engine_contract.v4 import CONTRACT_VERSION, EssayEngineOutput, Feedback, Scores
-from ..essay_prompts import get_essay_prompt
+from ..essay_engine_contract.v5 import (
+    COMPETENCY_CODES,
+    CONTRACT_VERSION,
+    EssayEngineOutput,
+    Feedback,
+    Scores,
+)
+from ..essay_prompts import alert_review_v1, competency_scoring_v1, get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_image_corrector, build_text_provider
@@ -59,9 +66,74 @@ from .institution_settings import InstitutionSettingsService
 
 logger = logging.getLogger(__name__)
 
-_ENGINE_VERSION = "r3_correction_engine_v1"
-_PROMPT_VERSION = "essay_correction_v12"
+_ENGINE_VERSION = "r3_correction_engine_v2"
+_PROMPT_VERSION = "essay_correction_v15"
 _RUBRIC_FILE_NAME = "enem_2025"
+
+# Determinism: "mesma redacao = mesma nota" (the C1 protocol's own item 25
+# already names this as a requirement). Confirmed live (2026-09-28
+# calibration run) that the SAME essay text corrected 4 times in a row
+# swung C1 from 0 to 80 and the total score from 0 to 360 - pure sampling
+# noise from the provider's own default generation, unrelated to any prompt
+# content. temperature is deliberately NOT pinned here - confirmed live
+# that the model backing this deployment (OPENAI_MODEL) rejects any
+# temperature other than its default (1) with a 400 error ("Unsupported
+# value: 'temperature' does not support 0.0 with this model"). seed is a
+# best-effort reproducibility hint the API does not guarantee but does
+# accept for this model, and costs nothing when a provider ignores it.
+_CORRECTION_SEED = 20260928
+
+#: Aspect label -> structured field, per competency, in rendering order. The
+#: same pairs (same labels, same order) live in web/essay-report.js's
+#: COMPETENCY_ASPECTS and essay_pdf_export.py's _COMPETENCY_ASPECTS - three
+#: copies on purpose, one per runtime, never three different orders.
+_STRUCTURED_ASPECTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "C2": (
+        ("Tipologia textual", "c2_tipologia_textual"),
+        ("Tema", "c2_tema"),
+        ("Repertório sociocultural", "c2_repertorio_sociocultural"),
+        ("Como melhorar", "c2_orientacao_melhoria"),
+    ),
+    "C3": (
+        ("Projeto argumentativo", "c3_projeto_argumentativo"),
+        ("Informações, fatos e opiniões", "c3_fatos_informacoes_opinioes"),
+        ("Autoria", "c3_autoria"),
+        ("Como melhorar", "c3_orientacao_melhoria"),
+    ),
+}
+
+
+def _structured_rationale(output: EssayEngineOutput, code: str) -> dict[str, str] | None:
+    """Rebuild phase 1's per-competency rationale for C2/C3 from contract v5's
+    eight structured fields.
+
+    Under v4 the phase-2a scorer read each competency's own
+    CompetencyRationale (summary/strengths/growth_area) - 2026-09-28
+    calibration finding: diffusely weak essays with few quotable errors had
+    too little signal in annotations alone. v5 removed C2/C3 from
+    ``rationales``, so without this the scorer would silently lose that
+    signal for exactly two competencies - a scoring change this leva
+    deliberately does NOT make (spec §2, "Não entrega").
+
+    Returns None for C1/C4/C5 (they still carry a real rationale) and for any
+    output missing one of the four fields (FORMATIVO, or older data) - the
+    caller then falls back to the rationale it already had.
+    """
+    aspects = _STRUCTURED_ASPECTS.get(code)
+    if aspects is None:
+        return None
+    values: list[tuple[str, str]] = []
+    for label, field in aspects:
+        value = getattr(output, field, None)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        values.append((label, value))
+    *evidence, (_, improvement) = values
+    return {
+        "summary": " ".join(text for _, text in evidence),
+        "strengths": "\n".join(f"{label}: {text}" for label, text in evidence),
+        "growth_area": improvement,
+    }
 
 
 def _utcnow() -> datetime:
@@ -86,25 +158,50 @@ _ANULA_REDACAO_ALERT_CODES = frozenset({
 })
 
 
-def _apply_deterministic_scoring_rules(output: EssayEngineOutput) -> dict | None:
+def _apply_deterministic_scoring_rules(
+    output: EssayEngineOutput,
+    phase2_points: dict[str, int] | None = None,
+    alert_codes: set[str] | None = None,
+) -> dict | None:
     """Enforces the ENEM 2025 rubric's own normative scoring_rules
-    (rubrics/enem_2025.yaml) on top of the model's raw scores, deterministically -
-    these are checkable, official consequences of specific signals the model
-    already reports (alerts, intervention.respeita_direitos_humanos), not
-    pedagogical judgment calls the model should be trusted to apply consistently
-    entry by entry. ai_output keeps the model's own scores exactly as it
-    reported them; only this function's result - final_scores, what actually
-    gets published - can differ from that, the same split approve() already
+    (rubrics/enem_2025.yaml) on top of the starting per-competency points,
+    deterministically - these are checkable, official consequences of
+    specific signals the model already reports (alerts,
+    intervention.respeita_direitos_humanos), not pedagogical judgment calls
+    the model should be trusted to apply consistently entry by entry.
+    ai_output keeps the model's own phase-1 scores exactly as it reported
+    them; only this function's result - final_scores, what actually gets
+    published - can differ from that, the same split approve() already
     relies on for a teacher's manual score edit.
 
+    ``phase2_points``, when given (see
+    EssayCorrectionService._score_competencies_from_evidence), REPLACES
+    output.scores.per_competency's own points as the starting point before
+    alert/tangenciamento/direitos-humanos rules are applied - phase 1's own
+    per-competency points are calibration-noisy (2026-09-28 finding: the
+    same essay swung 0-80 on C1 alone across repeated identical calls) and
+    are never what gets published once phase 2 has run.
+
+    ``alert_codes``, when given (see
+    EssayCorrectionService._review_anula_redacao_alerts), REPLACES
+    {alert.code for alert in output.alerts} for this function's own purposes
+    - phase 1's own ANULA_REDACAO alerts are ALSO calibration-noisy (same
+    2026-09-28 finding: a normal, gradeable essay got zeroed by a
+    whole-essay alert in 2 of 4 identical repeated corrections) and are
+    never what final_scores is computed from once the alert review has run.
+
     Returns None when output.scores is None (FORMATIVO produces no grade to
-    adjust).
+    adjust - phase 2 never runs in that mode either, see correct()/_run_ai).
     """
     if output.scores is None:
         return None
 
-    alert_codes = {alert.code for alert in output.alerts}
-    points = {code: score.points for code, score in output.scores.per_competency.items()}
+    if alert_codes is None:
+        alert_codes = {alert.code for alert in output.alerts}
+    if phase2_points is not None:
+        points = dict(phase2_points)
+    else:
+        points = {code: score.points for code, score in output.scores.per_competency.items()}
     confidences = {code: score.confidence for code, score in output.scores.per_competency.items()}
 
     if alert_codes & _ANULA_REDACAO_ALERT_CODES:
@@ -560,6 +657,45 @@ class EssayCorrectionService:
                 "input_tokens": input_tokens, "output_tokens": output_tokens,
             }
 
+        phase2_points: dict[str, int] | None = None
+        confirmed_alert_codes: set[str] | None = None
+        if output.scores is not None:
+            # Phase 2: only when there is a grade to refine at all - FORMATIVO
+            # (output.scores is None) has nothing for a competency score or
+            # an alert-driven zero to replace. Both sub-phases are
+            # independent of each other (neither reads the other's result),
+            # so they run concurrently. See _score_competencies_from_evidence
+            # and _review_anula_redacao_alerts docstrings for why each
+            # exists.
+            try:
+                phase2_points, confirmed_alert_codes = await asyncio.gather(
+                    self._score_competencies_from_evidence(
+                        output=output, rubric_file=rubric_file,
+                    ),
+                    self._review_anula_redacao_alerts(
+                        output=output,
+                        essay_statement=_effective_essay_statement(submission, essay_prompt),
+                    ),
+                )
+            except ProviderError as exc:
+                logger.warning(
+                    "essay correction for submission %s: phase-2 provider "
+                    "error: %s", submission.id, exc,
+                )
+                return {
+                    **failure_fields, "model_version": model_version,
+                    "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
+                }
+            except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                logger.warning(
+                    "essay correction for submission %s: phase-2 returned "
+                    "an unusable response: %s", submission.id, exc,
+                )
+                return {
+                    **failure_fields, "model_version": model_version,
+                    "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
+                }
+
         key = compute_correction_key(
             normalized_text_hash=input_hash, essay_prompt_id=str(essay_prompt.id),
             rubric_version=rubric_version, model_version=model_version,
@@ -570,11 +706,137 @@ class EssayCorrectionService:
             "model_version": model_version, "prompt_version": prompt_artifact.version,
             "engine_version": _ENGINE_VERSION,
             "ai_output": output.model_dump(mode="json"),
-            "final_scores": _apply_deterministic_scoring_rules(output),
+            "final_scores": _apply_deterministic_scoring_rules(
+                output, phase2_points, confirmed_alert_codes,
+            ),
             "final_feedback": output.feedback.model_dump(mode="json"),
             "failure_reason": None,
             "input_tokens": input_tokens, "output_tokens": output_tokens,
         }
+
+    async def _score_competencies_from_evidence(
+        self, *, output: EssayEngineOutput, rubric_file: RubricFile,
+    ) -> dict[str, int]:
+        """Phase 2 of the correction pipeline (r3_correction_engine_v2): one
+        small, evidence-only call per competency, run concurrently - see
+        essay_prompts/competency_scoring_v1.py's module docstring for the
+        calibration finding that motivated this (2026-09-28: the SAME essay
+        text, corrected 4 times with an identical phase-1 prompt and a fixed
+        seed, swung C1 from 0 to 80 points; isolating "decide the level"
+        from "find the evidence" into its own small call answered
+        identically across 5/5 repeated calls on two different essays).
+
+        Raises ProviderError / json.JSONDecodeError / KeyError / ValueError
+        on any failure - the caller (_run_ai) turns those into the same
+        NEEDS_REVIEW failure_reason shape every other AI-side failure in
+        this module already uses. Never called for FORMATIVO (see caller).
+        """
+        competency_by_code = {c.code: c for c in rubric_file.competencies}
+        annotations_by_code: dict[str, list] = {code: [] for code in COMPETENCY_CODES}
+        for annotation in output.annotations:
+            annotations_by_code.setdefault(annotation.competency_code, []).append(annotation)
+        rationale_by_code = {r.competency_code: r for r in output.rationales}
+        mechanical_review = [
+            {
+                "category": m.category, "excerpt": m.excerpt,
+                "suggested_form": m.suggested_form, "rule_explanation": m.rule_explanation,
+            }
+            for m in output.mechanical_review
+        ]
+
+        async def _score_one(code: str) -> tuple[str, int]:
+            competency = competency_by_code[code]
+            levels = [(level.points, level.descriptor) for level in competency.levels]
+            annotations = [
+                {"short_comment": a.short_comment, "long_comment": a.long_comment}
+                for a in annotations_by_code.get(code, [])
+            ]
+            rationale_obj = rationale_by_code.get(code)
+            rationale = _structured_rationale(output, code)
+            if rationale is None and rationale_obj is not None:
+                rationale = {
+                    "summary": rationale_obj.summary,
+                    "strengths": rationale_obj.strengths,
+                    "growth_area": rationale_obj.growth_area,
+                }
+            prompt_text = competency_scoring_v1.build_prompt(
+                competency_code=code, competency_label=competency.official_title,
+                levels=levels, annotations=annotations,
+                # mechanical_review is exclusively C1's own domain (norma
+                # padrao) - see MechanicalOccurrence.category's Literal.
+                mechanical_review=mechanical_review if code == "C1" else (),
+                rationale=rationale,
+            )
+            result = await self._get_text_provider().generate(
+                TextGenerationRequest(prompt=prompt_text, seed=_CORRECTION_SEED)
+            )
+            payload = json.loads(result.text)
+            points = int(payload["points"])
+            if points not in (0, 40, 80, 120, 160, 200):
+                raise ValueError(
+                    f"competency scoring for {code} returned an invalid points "
+                    f"value: {points!r} (must be one of 0/40/80/120/160/200)"
+                )
+            return code, points
+
+        results = await asyncio.gather(*(_score_one(code) for code in COMPETENCY_CODES))
+        return dict(results)
+
+    async def _review_anula_redacao_alerts(
+        self, *, output: EssayEngineOutput, essay_statement: str,
+    ) -> set[str]:
+        """Phase 2b of the correction pipeline (r3_correction_engine_v2): a
+        small, focused re-check of any whole-essay-zero alert phase 1
+        raised - see essay_prompts/alert_review_v1.py's module docstring
+        for the calibration finding that motivated this (2026-09-28: a
+        normal, gradeable essay - official C1=80 - got zeroed by an
+        ANULA_REDACAO alert in 2 of 4 identical repeated corrections, the
+        same inconsistency competency_scoring_v1 already fixed for the
+        per-competency score, but for the single highest-stakes decision in
+        the pipeline).
+
+        Only ever calls the provider when output.alerts contains at least
+        one _ANULA_REDACAO_ALERT_CODES candidate - the common case (no such
+        alert) returns immediately, at no extra cost. Never introduces a
+        code that was not already a candidate; non-ANULA_REDACAO alerts
+        (OCR_DUVIDOSO, POSSIVEL_DUPLICIDADE, TANGENCIAMENTO_AO_TEMA) are
+        passed through untouched, since only ANULA_REDACAO codes zero the
+        whole essay - see _apply_deterministic_scoring_rules.
+
+        Raises ProviderError / json.JSONDecodeError / KeyError / ValueError
+        on any failure - same caller-side handling as
+        _score_competencies_from_evidence. Never called for FORMATIVO.
+        """
+        all_codes = {alert.code for alert in output.alerts}
+        candidates = [
+            {"code": alert.code, "detail": alert.detail}
+            for alert in output.alerts
+            if alert.code in _ANULA_REDACAO_ALERT_CODES
+        ]
+        if not candidates:
+            return all_codes
+
+        prompt_text = alert_review_v1.build_prompt(
+            essay_statement=essay_statement, alerts=candidates,
+        )
+        result = await self._get_text_provider().generate(
+            TextGenerationRequest(prompt=prompt_text, seed=_CORRECTION_SEED)
+        )
+        payload = json.loads(result.text)
+        confirmed = set(payload["confirmed_alert_codes"])
+        if not isinstance(payload["confirmed_alert_codes"], list) or not all(
+            isinstance(code, str) for code in payload["confirmed_alert_codes"]
+        ):
+            raise ValueError(
+                f"alert review returned a non-list-of-strings "
+                f"confirmed_alert_codes: {payload['confirmed_alert_codes']!r}"
+            )
+        # Never let the review invent a code that was not itself a
+        # candidate - it may only narrow, never widen, the set phase 1 raised.
+        candidate_codes = {c["code"] for c in candidates}
+        confirmed &= candidate_codes
+        passthrough_codes = all_codes - candidate_codes
+        return confirmed | passthrough_codes
 
     async def _call_text_provider(
         self, *, submission: EssaySubmission, essay_prompt: EssayPrompt,
@@ -587,7 +849,10 @@ class EssayCorrectionService:
             rubric=rubric_payload, include_scores=include_scores, text=text,
         )
         result = await self._get_text_provider().generate(
-            TextGenerationRequest(prompt=prompt_text)
+            TextGenerationRequest(
+                prompt=prompt_text,
+                seed=_CORRECTION_SEED,
+            )
         )
         raw_payload = json.loads(result.text)
         return (
@@ -622,6 +887,7 @@ class EssayCorrectionService:
         image_paths = tuple(Path(page.storage_uri) for page in pages)
         request = EssayImageCorrectionRequest(
             image_paths=image_paths, mime_type=_guess_mime(image_paths[0]), prompt=prompt_text,
+            seed=_CORRECTION_SEED,
         )
         result = await self._get_image_provider().correct_from_images(request)
         raw_payload = json.loads(result.text)

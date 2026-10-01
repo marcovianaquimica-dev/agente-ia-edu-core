@@ -1,4 +1,6 @@
 # tests/test_r3_essay_correction_service.py
+import json
+import re
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -31,18 +33,83 @@ from agente_ia_edu.services.institution_settings import InstitutionSettingsServi
 
 
 class _StubTextProvider:
-    def __init__(self, *, text="", model="gpt-test", raise_error=None, input_tokens=None, output_tokens=None):
+    """Answers all three shapes of call _run_ai now makes when scores are
+    present: the phase-1 (essay_correction_v14) call always gets ``text``
+    back verbatim, same as before phase 2 existed; a phase-2a
+    (competency_scoring_v1) call - recognized by the "SCORING_RULES:"
+    marker only that prompt ever writes - gets a small
+    {"points": ..., "reasoning": ...} response, using per_competency_points
+    (default: 160 for all five, matching _happy_payload's own default) so
+    existing final_scores assertions keep meaning what they said before
+    phase 2 existed; a phase-2b (alert_review_v1) call - recognized by the
+    "ALERTS_TO_REVIEW:" marker - gets a {"confirmed_alert_codes": [...]}
+    response that by default CONFIRMS every code it was asked to review
+    (reject_alert_codes narrows that to a specific subset, for tests of the
+    rejection path)."""
+
+    def __init__(
+        self, *, text="", model="gpt-test", raise_error=None, per_competency_points=None,
+        phase2_raise_error=None, phase2_text=None, reject_alert_codes=None,
+        alert_review_raise_error=None, alert_review_text=None,
+        input_tokens=None, output_tokens=None,
+    ):
         self._text = text
         self.model = model
         self._raise_error = raise_error
+        self._phase2_raise_error = phase2_raise_error
+        self._phase2_text = phase2_text
+        self._reject_alert_codes = reject_alert_codes or set()
+        self._alert_review_raise_error = alert_review_raise_error
+        self._alert_review_text = alert_review_text
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
         self.last_request = None
+        # Separate from last_request: phase 2 runs several concurrent calls
+        # AFTER phase 1, so plain last_request ends up being whichever one
+        # happened to finish last - existing tests asserting on the phase-1
+        # prompt's own content (SCORING_MODE, rubric signals, etc.) want
+        # THIS one instead.
+        self.last_phase1_request = None
+        # Phase 2a runs 5 concurrent calls, one per competency - keyed here
+        # by the RUBRIC_<code> the prompt itself embeds, so tests can assert
+        # on a SPECIFIC competency's own prompt content (e.g. its rationale)
+        # without a race on which call happened to finish last.
+        self.phase2_requests_by_code: dict[str, object] = {}
+        self.call_count = 0
+        self._per_competency_points = per_competency_points or {
+            c: 160 for c in ("C1", "C2", "C3", "C4", "C5")
+        }
 
     async def generate(self, request):
         self.last_request = request
+        self.call_count += 1
+        if "SCORING_RULES:" in request.prompt:
+            if self._phase2_raise_error is not None:
+                raise self._phase2_raise_error
+            if self._phase2_text is not None:
+                return TextGenerationResult(text=self._phase2_text, provider="stub", model=self.model)
+            match = re.search(r"RUBRIC_(C\d)", request.prompt)
+            code = match.group(1) if match else "C1"
+            self.phase2_requests_by_code[code] = request
+            points = self._per_competency_points.get(code, 160)
+            return TextGenerationResult(
+                text=json.dumps({"points": points, "reasoning": "stub"}),
+                provider="stub", model=self.model,
+            )
+        if "ALERTS_TO_REVIEW:" in request.prompt:
+            if self._alert_review_raise_error is not None:
+                raise self._alert_review_raise_error
+            if self._alert_review_text is not None:
+                return TextGenerationResult(text=self._alert_review_text, provider="stub", model=self.model)
+            candidate_codes = re.findall(r"- ([A-Z_]+): ", request.prompt)
+            confirmed = [c for c in candidate_codes if c not in self._reject_alert_codes]
+            return TextGenerationResult(
+                text=json.dumps({"confirmed_alert_codes": confirmed, "reasoning": "stub"}),
+                provider="stub", model=self.model,
+            )
         if self._raise_error is not None:
             raise self._raise_error
+        self.last_phase1_request = request
         return TextGenerationResult(
             text=self._text, provider="stub", model=self.model,
             input_tokens=self._input_tokens, output_tokens=self._output_tokens,
@@ -105,6 +172,14 @@ def _happy_payload(
                     "signal_keys": [],
                 }
             ],
+            "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
+            "c2_tema": "Desenvolve o tema especifico proposto.",
+            "c2_repertorio_sociocultural": "Cita a Constituicao de 1988.",
+            "c2_orientacao_melhoria": "Articule o repertorio ao argumento.",
+            "c3_projeto_argumentativo": "Tese retomada na conclusao.",
+            "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
+            "c3_autoria": "Ha ponto de vista proprio.",
+            "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
             "annotations": [
                 {
                     "letter": "A", "competency_code": "C1", "kind": "ACERTO",
@@ -236,7 +311,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.final_scores["total"], 800)
             self.assertEqual(correction.model_version, "gpt-test")
             self.assertIsNotNone(correction.correction_key)
-            self.assertIn("SCORING_MODE: FORMATIVO", provider.last_request.prompt)
+            self.assertIn("SCORING_MODE: FORMATIVO", provider.last_phase1_request.prompt)
 
     async def test_text_offset_correction_persists_token_usage(self):
         async with self.session_factory() as session:
@@ -261,7 +336,15 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                 text=_happy_payload(anchor_mode="IMAGE_REGION"),
                 input_tokens=9000, output_tokens=700,
             )
-            service = EssayCorrectionService(session, image_provider=provider)
+            # Phase 2 (competency scoring from evidence + alert review) always
+            # runs on the TEXT provider, regardless of anchor_mode - a real
+            # IMAGE_REGION correction uses build_text_provider() for it too,
+            # a separate instance from the image provider phase 1 uses. Inject
+            # a text stub here so phase 2 gets a usable response instead of
+            # falling back to a real (unconfigured) provider in this test.
+            service = EssayCorrectionService(
+                session, image_provider=provider, text_provider=_StubTextProvider(),
+            )
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.input_tokens, 9000)
@@ -321,7 +404,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             service = EssayCorrectionService(session, text_provider=provider)
             await service.correct(submission.id)
 
-            prompt = provider.last_request.prompt
+            prompt = provider.last_phase1_request.prompt
             self.assertIn("estrutura_sintatica", prompt)
             self.assertIn("Estrutura sintática", prompt)
 
@@ -365,11 +448,15 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_tangenciamento_alert_caps_c3_and_c5_in_final_scores(self):
         async with self.session_factory() as session:
             submission = await self._submission(session, "22", correction_mode="FORMATIVO")
-            provider = _StubTextProvider(text=_happy_payload(
-                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
-                alerts=[{"code": "TANGENCIAMENTO_AO_TEMA", "detail": "So aborda o assunto amplo."}],
-                per_competency_points={"C1": 160, "C2": 80, "C3": 200, "C4": 160, "C5": 200},
-            ))
+            points = {"C1": 160, "C2": 80, "C3": 200, "C4": 160, "C5": 200}
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "TANGENCIAMENTO_AO_TEMA", "detail": "So aborda o assunto amplo."}],
+                    per_competency_points=points,
+                ),
+                per_competency_points=points,
+            )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
@@ -408,7 +495,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.status, "PENDING_REVIEW")
             self.assertIsNone(correction.published_at)
             self.assertIsNone(correction.reviewed_at)
-            self.assertIn("SCORING_MODE: AVALIATIVO", provider.last_request.prompt)
+            self.assertIn("SCORING_MODE: AVALIATIVO", provider.last_phase1_request.prompt)
 
     async def test_tema_livre_always_auto_publishes_even_in_avaliativo(self):
         """"Tema livre" (EssaySubmission.student_declared_theme) has no
@@ -504,7 +591,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                 with_pages=True,
             )
             provider = _StubImageProvider(text=_happy_payload(anchor_mode="IMAGE_REGION"))
-            service = EssayCorrectionService(session, image_provider=provider)
+            service = EssayCorrectionService(
+                session, image_provider=provider, text_provider=_StubTextProvider(),
+            )
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.status, "APPROVED")
@@ -586,7 +675,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             provider = _StubImageProvider(
                 text=_happy_payload(anchor_mode="IMAGE_REGION", page=1, box=(800.0, 600.0))
             )
-            service = EssayCorrectionService(session, image_provider=provider)
+            service = EssayCorrectionService(
+                session, image_provider=provider, text_provider=_StubTextProvider(),
+            )
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.status, "APPROVED")
@@ -739,9 +830,378 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v12(self):
+    def test_production_prompt_version_is_v15(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v12")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v15")
+
+    def test_production_engine_version_is_v2(self):
+        from agente_ia_edu.services.essay_correction import _ENGINE_VERSION
+        self.assertEqual(_ENGINE_VERSION, "r3_correction_engine_v2")
+
+    async def test_phase2_scores_override_phase1_raw_scores_in_final_scores(self):
+        """The whole point of phase 2 (calibration run 2026-09-28, see
+        essay_prompts/competency_scoring_v1.py's docstring): ai_output keeps
+        phase 1's own (noisy) per-competency points exactly as reported,
+        but final_scores - what actually gets published - comes from the
+        separate, small, evidence-only phase-2 call instead."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "25", correction_mode="FORMATIVO")
+            phase1_points = {c: 160 for c in ("C1", "C2", "C3", "C4", "C5")}
+            phase2_points = {"C1": 80, "C2": 40, "C3": 120, "C4": 200, "C5": 0}
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    per_competency_points=phase1_points,
+                ),
+                per_competency_points=phase2_points,
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            for code, points in phase1_points.items():
+                self.assertEqual(
+                    correction.ai_output["scores"]["per_competency"][code]["points"], points,
+                )
+            for code, points in phase2_points.items():
+                self.assertEqual(
+                    correction.final_scores["per_competency"][code]["points"], points,
+                )
+            self.assertEqual(correction.final_scores["total"], sum(phase2_points.values()))
+            # Phase 1 (1 call) + phase 2 (5 concurrent calls, one per competency).
+            self.assertEqual(provider.call_count, 6)
+
+    async def test_phase2_provider_failure_becomes_needs_review(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "26", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text),
+                phase2_raise_error=ProviderTimeoutError("competency scoring timed out"),
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.ai_output)
+            self.assertIsNone(correction.final_scores)
+            self.assertIn("CompetencyScoringFailed", correction.failure_reason)
+
+    async def test_phase2_invalid_points_value_becomes_needs_review(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "27", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text),
+                phase2_text=json.dumps({"points": 50, "reasoning": "nivel invalido"}),
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIn("CompetencyScoringFailed", correction.failure_reason)
+            self.assertIn("ValueError", correction.failure_reason)
+
+    async def test_formativo_never_invokes_phase2(self):
+        """output.scores is None in FORMATIVO - there is no grade for phase
+        2 to refine, so it must never be called at all (not just ignored)."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "28", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    include_scores=False,
+                )
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIsNone(correction.final_scores)
+            self.assertEqual(provider.call_count, 1)
+
+    async def test_phase2_mechanical_review_only_sent_for_c1(self):
+        """MechanicalOccurrence.category is exclusively C1's own domain
+        (norma padrao) - the phase-2 prompt for every other competency must
+        never see it."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "29", correction_mode="FORMATIVO")
+            payload = json.loads(
+                _happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text)
+            )
+            payload["mechanical_review"] = [
+                {
+                    "category": "ORTOGRAFIA", "excerpt": "erro de grafia",
+                    "suggested_form": "correcao", "rule_explanation": "regra x",
+                }
+            ]
+            seen_prompts: dict[str, str] = {}
+
+            class _RecordingProvider(_StubTextProvider):
+                async def generate(self, request):
+                    if "SCORING_RULES:" in request.prompt:
+                        match = re.search(r"RUBRIC_(C\d)", request.prompt)
+                        if match:
+                            seen_prompts[match.group(1)] = request.prompt
+                    return await super().generate(request)
+
+            provider = _RecordingProvider(text=json.dumps(payload))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIn("ORTOGRAFIA", seen_prompts["C1"])
+            for code in ("C2", "C3", "C4", "C5"):
+                self.assertNotIn("ocorrencias mecanicas", seen_prompts[code])
+
+    async def test_phase2_prompt_carries_that_competencys_own_rationale(self):
+        """2026-09-28 calibration fix: phase 1's per-competency rationale
+        (summary/strengths/growth_area) was being produced for free but
+        never sent to phase 2 - diffusely weak essays with few discrete
+        quotable errors had too little signal in annotations alone and
+        defaulted to middling scores. Each competency's phase-2a prompt
+        must now carry THAT competency's own rationale text."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "30")
+            payload = json.loads(
+                _happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text)
+            )
+            payload["rationales"] = [
+                {
+                    "competency_code": "C1", "summary": "Resumo unico de C1.",
+                    "strengths": "Forcas unicas de C1.", "growth_area": "Melhoria unica de C1.",
+                    "signal_keys": [],
+                },
+            ]
+            payload["c2_tipologia_textual"] = "Tipologia unica de C2."
+            payload["c2_tema"] = "Tema unico de C2."
+            payload["c2_repertorio_sociocultural"] = "Repertorio unico de C2."
+            payload["c2_orientacao_melhoria"] = "Melhoria unica de C2."
+            provider = _StubTextProvider(text=json.dumps(payload))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertIn("Resumo unico de C1.", provider.phase2_requests_by_code["C1"].prompt)
+            self.assertIn("Forcas unicas de C1.", provider.phase2_requests_by_code["C1"].prompt)
+            self.assertIn("Melhoria unica de C1.", provider.phase2_requests_by_code["C1"].prompt)
+            self.assertIn("Repertorio unico de C2.", provider.phase2_requests_by_code["C2"].prompt)
+            # C1's own rationale must not leak into C2's prompt.
+            self.assertNotIn("Resumo unico de C1.", provider.phase2_requests_by_code["C2"].prompt)
+            # C3 keeps its own default structured evidence (unaffected by the
+            # C1/C2 overrides above) and neither C1's nor C2's unique text.
+            self.assertIn("Tese retomada na conclusao.", provider.phase2_requests_by_code["C3"].prompt)
+            self.assertNotIn("Resumo unico de C1.", provider.phase2_requests_by_code["C3"].prompt)
+            self.assertNotIn(
+                "Repertorio unico de C2.", provider.phase2_requests_by_code["C3"].prompt,
+            )
+
+    async def test_alert_review_can_reject_a_false_positive_anula_redacao_alert(self):
+        """The whole point of phase 2b (calibration run 2026-09-28, see
+        essay_prompts/alert_review_v1.py's docstring): a normal, gradeable
+        essay - phase 1 wrongly raised TEXTO_INSUFICIENTE - must NOT be
+        zeroed once the alert review rejects it. ai_output keeps phase 1's
+        own alert exactly as reported; final_scores reflects the review's
+        verdict instead."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "30", correction_mode="FORMATIVO")
+            phase2_points = {c: 160 for c in ("C1", "C2", "C3", "C4", "C5")}
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "TEXTO_INSUFICIENTE", "detail": "Texto muito curto."}],
+                    per_competency_points=phase2_points,
+                ),
+                per_competency_points=phase2_points,
+                reject_alert_codes={"TEXTO_INSUFICIENTE"},
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.ai_output["alerts"][0]["code"], "TEXTO_INSUFICIENTE")
+            self.assertEqual(correction.final_scores["total"], sum(phase2_points.values()))
+            for code, points in phase2_points.items():
+                self.assertEqual(correction.final_scores["per_competency"][code]["points"], points)
+
+    async def test_alert_review_confirming_the_alert_still_zeroes_final_scores(self):
+        """The mirror case of the rejection test above - the stub's default
+        behavior (confirm everything asked) must still zero the essay, the
+        same outcome the pre-phase-2b alert tests already covered."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "31", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.final_scores["total"], 0)
+
+    async def test_alert_review_never_called_when_no_anula_redacao_alert_was_raised(self):
+        """The common case: no candidate alert means no extra call at all -
+        not just an ignored one."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "32", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text)
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            # Phase 1 (1 call) + phase 2a (5 concurrent competency calls) -
+            # no phase-2b call, since output.alerts was empty.
+            self.assertEqual(provider.call_count, 6)
+
+    async def test_alert_review_non_anula_redacao_alerts_pass_through_without_a_call(self):
+        """OCR_DUVIDOSO/POSSIVEL_DUPLICIDADE/TANGENCIAMENTO_AO_TEMA never
+        zero the whole essay, so they are never sent to alert_review_v1 -
+        only _ANULA_REDACAO_ALERT_CODES candidates trigger that call."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "33", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(text=_happy_payload(
+                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                alerts=[{"code": "OCR_DUVIDOSO", "detail": "Trecho de leitura duvidosa."}],
+            ))
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.final_scores["total"], 800)
+            self.assertEqual(provider.call_count, 6)
+
+    async def test_alert_review_provider_failure_becomes_needs_review(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "34", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
+                ),
+                alert_review_raise_error=ProviderTimeoutError("alert review timed out"),
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.ai_output)
+            self.assertIsNone(correction.final_scores)
+            self.assertIn("CompetencyScoringFailed", correction.failure_reason)
+
+    async def test_alert_review_invalid_response_shape_becomes_needs_review(self):
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "35", correction_mode="FORMATIVO")
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
+                ),
+                alert_review_text=json.dumps({"confirmed_alert_codes": "FUGA_AO_TEMA", "reasoning": "x"}),
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIn("CompetencyScoringFailed", correction.failure_reason)
+            self.assertIn("ValueError", correction.failure_reason)
+
+
+class StructuredC2C3RationaleTests(unittest.TestCase):
+    """The phase-2a scorer used to receive each competency's own
+    CompetencyRationale. Under contract v5, C2 and C3 no longer have one -
+    their feedback lives in eight named fields. The scorer must still see the
+    same evidence, synthesized from those fields, so this leva changes the
+    FEEDBACK shape without silently changing how C2/C3 are SCORED (spec §2,
+    "Não entrega")."""
+
+    def _output(self, **overrides):
+        import uuid as _uuid
+
+        from agente_ia_edu.essay_engine_contract.v5 import (
+            CONTRACT_VERSION, EssayEngineOutput,
+        )
+
+        payload = {
+            "identification": {
+                "essay_id": str(_uuid.uuid4()), "essay_version_id": str(_uuid.uuid4()),
+                "rubric_version": "ENEM_2025", "model_version": "fake-model-1",
+                "prompt_version": "essay_correction_v15",
+                "engine_version": "r3_correction_engine_v2",
+                "contract_version": CONTRACT_VERSION, "anchor_mode": "TEXT_OFFSET",
+            },
+            "scores": {
+                "per_competency": {
+                    c: {"points": 160, "confidence": 0.9}
+                    for c in ("C1", "C2", "C3", "C4", "C5")
+                },
+                "total": 800,
+            },
+            "rationales": [
+                {"competency_code": c, "summary": f"resumo {c}",
+                 "strengths": f"forcas {c}", "growth_area": f"melhoria {c}",
+                 "signal_keys": []}
+                for c in ("C1", "C4", "C5")
+            ],
+            "annotations": [],
+            "rewrites": [],
+            "feedback": {"strengths": [], "improvements": [], "next_essay_strategy": "..."},
+            "intervention": {"respeita_direitos_humanos": True},
+            "alerts": [],
+            "intro_message": "Ola.",
+            "closing_message": "Continue.",
+            "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
+            "c2_tema": "Desenvolve o tema especifico proposto.",
+            "c2_repertorio_sociocultural": "Cita a Constituicao de 1988.",
+            "c2_orientacao_melhoria": "Articule o repertorio ao argumento.",
+            "c3_projeto_argumentativo": "Tese retomada na conclusao.",
+            "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
+            "c3_autoria": "Ha ponto de vista proprio.",
+            "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
+        }
+        payload.update(overrides)
+        return EssayEngineOutput.model_validate(payload)
+
+    def test_c2_rationale_is_synthesized_from_the_four_structured_fields(self):
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        rationale = _structured_rationale(self._output(), "C2")
+        self.assertIsNotNone(rationale)
+        self.assertIn("Tipologia textual: Texto dissertativo-argumentativo completo.",
+                      rationale["strengths"])
+        self.assertIn("Tema: Desenvolve o tema especifico proposto.", rationale["strengths"])
+        self.assertIn("Repertório sociocultural: Cita a Constituicao de 1988.",
+                      rationale["strengths"])
+        self.assertEqual(rationale["growth_area"], "Articule o repertorio ao argumento.")
+        self.assertIn("Desenvolve o tema especifico proposto.", rationale["summary"])
+
+    def test_c3_rationale_is_synthesized_from_the_four_structured_fields(self):
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        rationale = _structured_rationale(self._output(), "C3")
+        self.assertIsNotNone(rationale)
+        self.assertIn("Projeto argumentativo: Tese retomada na conclusao.",
+                      rationale["strengths"])
+        self.assertIn("Informações, fatos e opiniões: Usa dados do IBGE.",
+                      rationale["strengths"])
+        self.assertIn("Autoria: Ha ponto de vista proprio.", rationale["strengths"])
+        self.assertEqual(rationale["growth_area"], "Desenvolva o segundo argumento.")
+
+    def test_non_structured_competencies_get_no_synthesized_rationale(self):
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        for code in ("C1", "C4", "C5"):
+            with self.subTest(code=code):
+                self.assertIsNone(_structured_rationale(self._output(), code))
+
+    def test_missing_structured_field_degrades_to_none(self):
+        """FORMATIVO output (no scores) may legitimately omit the fields -
+        the scorer then falls back to whatever rationales carry, exactly as
+        it did before this leva."""
+        from agente_ia_edu.services.essay_correction import _structured_rationale
+
+        output = self._output(scores=None, c2_tema=None)
+        self.assertIsNone(_structured_rationale(output, "C2"))
 
 
 if __name__ == "__main__":

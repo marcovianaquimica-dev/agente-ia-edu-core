@@ -24,16 +24,51 @@
   const DASH_COMPETENCY_COLORS = { C1: '#4f46e5', C2: '#06b6d4', C3: '#ef4444', C4: '#f59e0b', C5: '#10b981' };
   const DASH_COMPETENCY_CODES = ['C1', 'C2', 'C3', 'C4', 'C5'];
 
+  // Display-only translation - the values stored/sent to the API stay the
+  // English DB enum values (EssayPrompt.status, PromptAssignment.status),
+  // only what the teacher reads on screen changes.
+  const STATUS_LABEL = {
+    DRAFT: 'Rascunho', ACTIVE: 'Ativa', SUPERSEDED: 'Substituída',
+    OPEN: 'Aberta', CLOSED: 'Encerrada',
+  };
+
+  function statusLabel(status) {
+    return STATUS_LABEL[status] || status;
+  }
+
   function tmEsc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
     })[character]);
   }
 
+  // GET /api/v1/catalog/essay-prompts (Task 6) devolve, na mesma lista, as
+  // propostas da plataforma ACTIVE que esta escola ainda nao materializou -
+  // so pre-visualizacao, sem EssayPrompt real por tras. Como ainda nao
+  // existe um essay_prompts.id real pra elas, o backend devolve o proprio
+  // platform_prompt_id como id (ver list_essay_prompts em
+  // api/routes/essay_prompts.py). Numa copia ja materializada, id e o id
+  // real da copia - sempre diferente do platform_prompt_id de origem.
+  function isUnmaterializedPlatformPrompt(p) {
+    return !!p.is_platform && p.id === p.platform_prompt_id;
+  }
+
   function translateDetail(detail) {
     if (typeof detail === 'string') {
       const moduleMatch = detail.match(/^Module '(.+)' is not enabled for the current school\.$/);
       if (moduleMatch) return `O módulo '${moduleMatch[1]}' não está habilitado para esta escola.`;
+      if (detail.includes('does not allow disabling teacher review per proposal')) {
+        return 'Esta escola não permite desativar a revisão docente por proposta - a opção "Exigir revisão docente" precisa continuar marcada.';
+      }
+      if (/^Class not found in school /.test(detail)) {
+        return 'Turma não encontrada nesta escola.';
+      }
+      if (/^EssayPrompt .+ is already assigned to class /.test(detail)) {
+        return 'Esta proposta já está atribuída a essa turma.';
+      }
+      if (/^EssayPrompt not found in school /.test(detail)) {
+        return 'Proposta não encontrada nesta escola.';
+      }
       return detail;
     }
     if (detail && detail.message) return detail.message;
@@ -66,6 +101,7 @@
     return `
       <div class="essay-review-tabs">
         <button class="btn ${activeTab === 'prompts' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="prompts">Propostas</button>
+        <button class="btn ${activeTab === 'batch' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="batch">Enviar em lote</button>
         <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
         <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
         <button class="btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="dashboard">Dashboard</button>
@@ -76,7 +112,9 @@
   function wireTabs() {
     container.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        stopBatchPolling();
         if (btn.dataset.tab === 'prompts') renderPromptsList();
+        if (btn.dataset.tab === 'batch') renderBatchTab();
         if (btn.dataset.tab === 'queue') renderReviewQueue();
         if (btn.dataset.tab === 'evolution') renderEvolutionTab();
         if (btn.dataset.tab === 'dashboard') renderDashboardTab();
@@ -107,10 +145,11 @@
           <tbody id="er-prompts-body">
             ${prompts.map((p) => `
               <tr>
-                <td>${tmEsc(p.title)}</td><td>${p.year}</td><td>${tmEsc(p.status)}</td>
+                <td>${tmEsc(p.title)}${p.is_platform ? ' <span class="er-platform-badge">Plataforma</span>' : ''}</td>
+                <td>${p.year}</td><td>${tmEsc(statusLabel(p.status))}</td>
                 <td>
                   <button class="btn btn-secondary" type="button" data-open-prompt="${tmEsc(p.id)}">Abrir</button>
-                  <button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>
+                  ${p.is_platform ? '' : `<button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>`}
                 </td>
               </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhuma proposta criada ainda.</td></tr>'}
           </tbody>
@@ -173,6 +212,215 @@
         try {
           await reviewRequest(`/api/v1/catalog/essay-prompts/${btn.dataset.restorePrompt}/restore`, { method: 'POST' });
           renderTrashTab();
+        } catch (e) {
+          alert(e.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  // Intervalo de consulta do progresso do lote. 2s: o processamento gasta
+  // alguns segundos por pagina (OCR de cabecalho + corpo, com retentativa),
+  // entao consultar mais rapido so geraria requisicao a toa.
+  const BATCH_POLL_MS = 2000;
+  let batchPollTimer = null;
+
+  function stopBatchPolling() {
+    if (batchPollTimer) {
+      clearTimeout(batchPollTimer);
+      batchPollTimer = null;
+    }
+  }
+
+  async function renderBatchTab() {
+    stopBatchPolling();
+    container.innerHTML = `${renderTabs('batch')}<p class="empty-text">Carregando...</p>`;
+    wireTabs();
+
+    let promptOptions = [];
+    let classrooms = [];
+    try {
+      promptOptions = await reviewRequest('/api/v1/catalog/essay-prompts');
+    } catch (e) {
+      promptOptions = [];
+    }
+    // Uma proposta da plataforma ainda nao materializada nesta escola nao
+    // tem PromptAssignment nenhuma pra nenhuma turma - o backend rejeitaria
+    // o envio em lote com 422, mas so depois do professor ja ter subido ate
+    // 60 paginas de fotos. Tira essas da lista antes.
+    promptOptions = promptOptions.filter((p) => !isUnmaterializedPlatformPrompt(p));
+    try {
+      classrooms = await reviewRequest(
+        `/api/v1/teacher/classrooms?school_id=${encodeURIComponent(schoolId)}&academic_year=2026`,
+      );
+    } catch (e) {
+      classrooms = [];
+    }
+    // Mesmo filtro da tela de atribuicao: so turmas que ja resolvem para uma
+    // Class real podem receber um lote (o lote guarda class_id como FK).
+    const assignableClassrooms = classrooms.filter((c) => c.class_id);
+
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="card tm-form">
+        <h3>Enviar redações em lote</h3>
+        <p class="empty-text">Suba as fotos ou o PDF escaneado das folhas de uma turma inteira. O sistema identifica cada aluno pelo nome escrito no cabeçalho da folha, junta as páginas seguidas de um mesmo aluno em uma redação só e manda direto para correção. As folhas que ele não conseguir identificar ficam numa lista aqui embaixo para você escolher o aluno. Máximo de 60 páginas por envio.</p>
+        <form id="er-batch-form">
+          <div class="form-group">
+            <label for="er-batch-prompt">Proposta</label>
+            <select id="er-batch-prompt" class="text-input" required>
+              ${promptOptions.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="er-batch-class">Turma</label>
+            <select id="er-batch-class" class="text-input" required>
+              ${assignableClassrooms.map((c) => `<option value="${tmEsc(c.class_id)}">${tmEsc(c.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="er-batch-files">Arquivos (fotos JPG/PNG e/ou PDF)</label>
+            <input id="er-batch-files" class="text-input" type="file" accept=".png,.jpg,.jpeg,.pdf" multiple required>
+          </div>
+          <button class="btn btn-primary" type="submit">Enviar lote</button>
+          <p id="er-batch-msg" class="tm-msg" hidden></p>
+        </form>
+      </div>
+      <div id="er-batch-progress"></div>`);
+
+    container.querySelector('#er-batch-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const msg = container.querySelector('#er-batch-msg');
+      const submitBtn = ev.target.querySelector('button[type="submit"]');
+      const files = container.querySelector('#er-batch-files').files;
+      msg.hidden = true;
+      if (!files.length) return;
+      const formData = new FormData();
+      formData.append('essay_prompt_id', container.querySelector('#er-batch-prompt').value);
+      formData.append('class_id', container.querySelector('#er-batch-class').value);
+      Array.from(files).forEach((file) => formData.append('files', file));
+      submitBtn.disabled = true;
+      try {
+        const batch = await reviewRequest('/api/v1/teacher/essay-batches', {
+          method: 'POST', body: formData,
+        });
+        pollBatch(batch.id);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  async function pollBatch(batchId) {
+    stopBatchPolling();
+    let data;
+    try {
+      data = await reviewRequest(`/api/v1/teacher/essay-batches/${batchId}`);
+    } catch (e) {
+      const target = container.querySelector('#er-batch-progress');
+      if (target) target.innerHTML = `<p class="empty-text">${tmEsc(e.message)}</p>`;
+      return;
+    }
+    renderBatchProgress(data);
+    if (data.status === 'PROCESSING') {
+      batchPollTimer = setTimeout(() => pollBatch(batchId), BATCH_POLL_MS);
+    }
+  }
+
+  function renderBatchProgress(data) {
+    const target = container.querySelector('#er-batch-progress');
+    if (!target) return;
+    const processing = data.status === 'PROCESSING';
+    // processed_count (nao matched_count + needs_review_count) e o contador
+    // real de progresso: enquanto o lote esta PROCESSING, uma pagina que o
+    // OCR ainda nem visitou nao entra em nenhum dos dois - so em
+    // processed_count quando ela realmente foi lida (Problema 2a do
+    // fix-round-1-brief.md, spec s5: GET .../essay-batches/{id} sempre
+    // reflete o progresso real, mesmo com o lote ainda rodando).
+    const done = data.processed_count;
+    // Defesa em profundidade (Problema 2b): o backend ja filtra fora de
+    // needs_review_pages qualquer pagina com matched_student_id preenchido
+    // (ja casada, so ainda nao materializada porque o lote esta
+    // PROCESSING), mas a fila de resolucao nunca deve confiar cegamente
+    // nisso - resolver essa pagina de novo sobrescreveria um match que ja
+    // estava certo.
+    const resolvableNeedsReview = data.needs_review_pages.filter((page) => !page.matched_student_id);
+    const studentOptions = data.available_students
+      .map((s) => `<option value="${tmEsc(s.student_id)}">${tmEsc(s.full_name)}${s.document_number ? ` — CPF ${tmEsc(s.document_number)}` : ''}</option>`)
+      .join('');
+
+    target.innerHTML = `
+      <div class="card">
+        <h4>${processing ? 'Processando o lote...' : 'Lote processado'}</h4>
+        <p class="empty-text">${done} de ${data.total_pages} páginas lidas — ${data.matched_count} identificadas, ${data.needs_review_count} aguardando você.</p>
+        ${resolvableNeedsReview.length ? `
+        <h4>Folhas que o sistema não conseguiu identificar</h4>
+        <div class="tm-table-wrap" style="overflow-x:auto;">
+          <table class="tm-table">
+            <thead><tr><th>Página</th><th>Folha</th><th>Nome lido</th><th>CPF lido</th><th>Aluno</th><th></th></tr></thead>
+            <tbody>
+              ${resolvableNeedsReview.map((page) => `
+                <tr data-batch-page="${tmEsc(page.id)}">
+                  <td>${page.page_number}</td>
+                  <td><a href="/api/v1/teacher/essay-batches/${tmEsc(data.id)}/pages/${tmEsc(page.id)}/image" target="_blank" rel="noopener" data-page-image="${tmEsc(page.id)}">ver folha</a></td>
+                  <td>${tmEsc(page.ocr_name_raw || '—')}</td>
+                  <td>${tmEsc(page.ocr_cpf_raw || '—')}</td>
+                  <td>
+                    <select class="text-input" data-student-select="${tmEsc(page.id)}" ${page.has_text ? '' : 'disabled'}>
+                      <option value="">Selecione...</option>${studentOptions}
+                    </select>
+                  </td>
+                  <td>
+                    ${page.has_text
+                      ? `<button class="btn btn-primary" type="button" data-resolve-page="${tmEsc(page.id)}">Confirmar</button>`
+                      : '<span class="empty-text">Sem texto legível — reenvie esta folha em outro lote.</span>'}
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : (processing ? '' : '<p class="empty-text">Todas as folhas foram identificadas automaticamente.</p>')}
+      </div>`;
+
+    // A imagem da folha e servida por uma rota autenticada, entao um <a href>
+    // simples abriria sem o cabecalho Authorization - buscamos o blob e abrimos
+    // a URL de objeto, mesmo caminho que o export de XLSX ja usa.
+    target.querySelectorAll('[data-page-image]').forEach((link) => {
+      link.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        try {
+          const res = await fetch(link.getAttribute('href'), { headers: reviewHeaders() });
+          if (!res.ok) throw new Error('Não foi possível abrir a imagem da folha.');
+          const url = URL.createObjectURL(await res.blob());
+          window.open(url, '_blank', 'noopener');
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+
+    target.querySelectorAll('[data-resolve-page]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const pageId = btn.dataset.resolvePage;
+        const select = target.querySelector(`[data-student-select="${pageId}"]`);
+        if (!select.value) {
+          alert('Escolha o aluno desta folha.');
+          return;
+        }
+        btn.disabled = true;
+        try {
+          const updated = await reviewRequest(
+            `/api/v1/teacher/essay-batches/${data.id}/pages/${pageId}/resolve`,
+            {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ student_id: select.value }),
+            },
+          );
+          renderBatchProgress(updated);
         } catch (e) {
           alert(e.message);
           btn.disabled = false;
@@ -253,7 +501,15 @@
         <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
         <h3>${tmEsc(detail.title)}</h3>
         <p>${tmEsc(detail.statement)}</p>
-        <p class="empty-text">Status: ${tmEsc(detail.status)}</p>
+        <p class="empty-text">Status: ${tmEsc(statusLabel(detail.status))}</p>
+        <div class="tm-form-actions" id="er-sheet-actions" style="margin: 8px 0;">
+          <label for="er-sheet-copies" style="margin-right:6px;">Cópias</label>
+          <input id="er-sheet-copies" class="text-input" type="number" min="1" max="60" value="30" style="width:80px;display:inline-block;">
+          <button class="btn btn-secondary" type="button" id="er-answer-sheet-btn">Gerar folha de resposta</button>
+          <input id="er-logo-file" type="file" accept="image/png,image/jpeg" hidden>
+          <button class="btn btn-secondary" type="button" id="er-logo-btn">Enviar logo da escola</button>
+          <span id="er-sheet-msg" class="tm-msg" hidden></span>
+        </div>
 
         <h4>Materiais de apoio</h4>
         <ul id="er-materials-list">${detail.materials.map((m) => `<li>${renderMaterialLabel(m)}</li>`).join('') || '<li class="empty-text">Nenhum material.</li>'}</ul>
@@ -265,7 +521,7 @@
         <p id="er-material-msg" class="tm-msg" hidden></p>
 
         <h4>Turmas atribuídas</h4>
-        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(a.status)}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
+        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
         <form id="er-assign-form" class="tm-form-row">
           <div class="form-group">
             <label>Turmas (selecione uma ou mais)</label>
@@ -285,7 +541,73 @@
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
     tabsEl.insertAdjacentElement('afterend', detailHtml.firstElementChild);
 
+    // Proposta da plataforma é somente-leitura pro professor (spec, decisão
+    // 3): ele só atribui a turmas, nunca edita nem adiciona material. Os
+    // blocos continuam no DOM (os listeners abaixo os procuram) e só são
+    // escondidos - o backend recusaria essas chamadas de qualquer forma.
+    const isPlatform = !!detail.is_platform;
+    if (isPlatform) {
+      container.querySelector('#er-material-form').hidden = true;
+    }
+    if (detail.materialized === false) {
+      // Ainda não existe EssayPrompt nenhum nesta escola - a folha de
+      // resposta (answer-sheet.pdf) só passa a fazer sentido depois da
+      // primeira atribuição, que é o que materializa a cópia.
+      container.querySelector('#er-sheet-actions').hidden = true;
+    }
+
     container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+    const sheetMsg = container.querySelector('#er-sheet-msg');
+    function showSheetMsg(text) {
+      sheetMsg.hidden = false;
+      sheetMsg.textContent = text;
+    }
+
+    container.querySelector('#er-answer-sheet-btn').addEventListener('click', async () => {
+      const btn = container.querySelector('#er-answer-sheet-btn');
+      const copies = Math.max(1, Math.min(60, Number(container.querySelector('#er-sheet-copies').value) || 1));
+      btn.disabled = true;
+      sheetMsg.hidden = true;
+      try {
+        // Aviso (nao bloqueio): sem logo a folha e gerada do mesmo jeito.
+        const logoState = await reviewRequest('/api/v1/teacher/school/logo');
+        if (!logoState.has_logo) showSheetMsg('A folha vai sair sem logo - envie a logo da escola se quiser que ela apareça.');
+        const res = await fetch(
+          `/api/v1/catalog/essay-prompts/${promptId}/answer-sheet.pdf?copies=${copies}`,
+          { headers: reviewHeaders() },
+        );
+        if (!res.ok) throw new Error('Não foi possível gerar a folha de resposta.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `folha-de-redacao-${copies}-copias.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        showSheetMsg(e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    container.querySelector('#er-logo-btn').addEventListener('click', () => {
+      container.querySelector('#er-logo-file').click();
+    });
+    container.querySelector('#er-logo-file').addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        await reviewRequest('/api/v1/teacher/school/logo', { method: 'POST', body: formData });
+        showSheetMsg('Logo enviada. As próximas folhas geradas já saem com ela.');
+      } catch (e) {
+        showSheetMsg(e.message);
+      }
+    });
     container.querySelector('#er-material-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const content = container.querySelector('#er-material-content').value.trim();
@@ -349,7 +671,7 @@
         });
         detail.assignments = detail.assignments.concat(result.assigned);
         container.querySelector('#er-assignments-list').innerHTML = detail.assignments
-          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(a.status)}</li>`)
+          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`)
           .join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>';
         container.querySelectorAll('[data-assign-class-id]:checked').forEach((cb) => { cb.checked = false; });
         const failureEntries = Object.entries(result.failures || {});
@@ -360,7 +682,7 @@
           // classes that succeeded above already show as assigned.
           failuresEl.hidden = false;
           failuresEl.innerHTML = failureEntries.map(([classId, reason]) => `
-            <li>${tmEsc(classNameById.get(classId) || classId)}: ${tmEsc(reason)}</li>`).join('');
+            <li>${tmEsc(classNameById.get(classId) || classId)}: ${tmEsc(translateDetail(reason))}</li>`).join('');
         }
       } catch (e) {
         msg.hidden = false;
@@ -477,7 +799,7 @@
         body.innerHTML = '<p class="empty-text">Este aluno ainda não tem redação aprovada.</p>';
         return;
       }
-      let checklistData = { rationales: [], feedbackStrengths: [] };
+      let checklistData = { rationales: [], feedbackStrengths: [], structured: null };
       try {
         const approved = await reviewRequest('/api/v1/teacher/essay-corrections?status=APPROVED');
         const match = approved.find((c) => c.essay_submission_id === data.entries[0].essay_submission_id);
@@ -485,6 +807,7 @@
           checklistData = {
             rationales: (match.ai_output || {}).rationales || [],
             feedbackStrengths: (match.final_feedback || {}).strengths || [],
+            structured: match.ai_output || {},
           };
         }
       } catch (e) {
@@ -535,6 +858,12 @@
       wireTabs();
       return;
     }
+    // O dashboard so faz sentido pra uma proposta que ja tem EssayPrompt
+    // real nesta escola (materializada) - uma proposta da plataforma ainda
+    // nao adotada bateria em GET .../dashboard com 403 "This proposal is
+    // not yours.", e pior, essa seria a primeira da lista (e abriria
+    // sozinha) numa escola que ainda nao tem proposta propria nenhuma.
+    const dashboardPrompts = prompts.filter((p) => !isUnmaterializedPlatformPrompt(p));
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
     tabsEl.insertAdjacentHTML('afterend', `
@@ -542,7 +871,7 @@
         <div class="form-group">
           <label for="er-dash-prompt">Proposta</label>
           <select id="er-dash-prompt" class="text-input">
-            ${prompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
+            ${dashboardPrompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
           </select>
         </div>
       </div>
@@ -552,8 +881,8 @@
     promptSelect.addEventListener('change', () => {
       if (promptSelect.value) renderDashboardBody(promptSelect.value);
     });
-    if (prompts.length) {
-      renderDashboardBody(prompts[0].id);
+    if (dashboardPrompts.length) {
+      renderDashboardBody(dashboardPrompts[0].id);
     } else {
       container.querySelector('#er-dash-body').innerHTML = '<p class="empty-text">Nenhuma proposta criada ainda.</p>';
     }

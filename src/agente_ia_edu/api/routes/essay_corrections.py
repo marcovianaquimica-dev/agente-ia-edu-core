@@ -27,6 +27,7 @@ from ...services.authorization import AuthorizationService
 from ...services.essay_correction import EssayCorrectionService
 from ...services.essay_evolution import EssayEvolutionResponse, build_evolution
 from ...services.essay_pdf_export import build_render_model, filename_for_title, pdf_available, render_pdf
+from .essay_submissions import _STRUCTURED_FEEDBACK_FIELDS
 
 essay_corrections_router = APIRouter(
     prefix="/api/v1/teacher/essay-corrections", tags=["essay-corrections"]
@@ -407,6 +408,7 @@ async def export_essay_correction_pdf(
             "intro_message": ai_output.get("intro_message"),
             "closing_message": ai_output.get("closing_message"),
             "mechanical_review": ai_output.get("mechanical_review"),
+            **{field: ai_output.get(field) for field in _STRUCTURED_FEEDBACK_FIELDS},
         })
 
         page_images = None

@@ -32,9 +32,9 @@ from agente_ia_edu.services.pedagogical_classifier import MockPedagogicalClassif
 class TestIngestionClassifierIntegration(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pilot_material = Path(
-            "/Users/marcoviana/agente-ia-edu-core/tests/fixtures/ingestion_materials/"
-            "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
+        cls.pilot_material = (
+            Path(__file__).resolve().parent / "fixtures" / "ingestion_materials"
+            / "T 01 PRINCÍPIOS ELEMENTARES DA MATÉRIA3.docx"
         )
         assert cls.pilot_material.exists(), f"Pilot material not found at {cls.pilot_material}"
 

@@ -73,6 +73,27 @@ class OpenAIProviderTests(unittest.TestCase):
         self.assertEqual(result.text, '{"ok": true}')
         self.assertEqual(calls.calls[0]["response_format"], {"type": "json_object"})
 
+    def test_generate_forwards_seed_when_the_request_sets_one(self):
+        """essay_correction.py sets a fixed seed for reproducibility ("mesma
+        redacao = mesma nota") - confirm it actually reaches the API call,
+        not just the request object."""
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))])
+        client, calls = client_for(response)
+        provider = OpenAIProvider(api_key="test-key", model="test-model", client=client)
+        asyncio.run(provider.generate(TextGenerationRequest(prompt="payload", seed=20260928)))
+        self.assertEqual(calls.calls[0]["seed"], 20260928)
+
+    def test_generate_omits_seed_when_the_request_does_not_set_one(self):
+        """Every OTHER caller of generate() (question_modification.py,
+        curriculum_classification.py, authorial_question_classification_
+        service.py) never sets seed - confirm their calls stay unchanged,
+        not silently passed seed=None."""
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))])
+        client, calls = client_for(response)
+        provider = OpenAIProvider(api_key="test-key", model="test-model", client=client)
+        asyncio.run(provider.generate(TextGenerationRequest(prompt="payload")))
+        self.assertNotIn("seed", calls.calls[0])
+
     def test_generate_captures_token_usage_from_the_sdk_response(self):
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))],

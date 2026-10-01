@@ -13,6 +13,7 @@ from .routes.teacher_materials import router as teacher_materials_router
 from .routes.question_modification_proposals import router as question_modification_proposals_router
 from .routes.learning_path import practice_router
 from .routes.catalog import catalog_router
+from .routes.essay_batches import essay_batches_router, teacher_school_router
 from .routes.essay_prompts import essay_prompts_router
 from .routes.essay_submissions import (
     essay_evolution_student_router,
@@ -27,6 +28,8 @@ from .routes.video_engine import video_router
 from .routes.discovery import discovery_router
 from .routes.student import student_router
 from .routes.admin import admin_router
+from .routes.admin_essay_prompts import admin_essay_prompts_router
+from .routes.mass_correction_status import mass_correction_status_router
 from .routes.teaching_context import (
     teacher_router,
     coordination_router,
@@ -64,6 +67,8 @@ def create_app() -> FastAPI:
     app.include_router(essay_student_prompts_router, dependencies=reception_only_guard)
     app.include_router(essay_evolution_student_router, dependencies=reception_only_guard)
     app.include_router(essay_corrections_router, dependencies=reception_only_guard)
+    app.include_router(essay_batches_router, dependencies=reception_only_guard)
+    app.include_router(teacher_school_router, dependencies=reception_only_guard)
     app.include_router(essay_evolution_teacher_router, dependencies=reception_only_guard)
     app.include_router(ingestion_router, dependencies=reception_only_guard)
     app.include_router(qe_router, dependencies=reception_only_guard)
@@ -72,6 +77,8 @@ def create_app() -> FastAPI:
     app.include_router(discovery_router, dependencies=reception_only_guard)
     app.include_router(student_router, dependencies=reception_only_guard)
     app.include_router(admin_router, dependencies=reception_only_guard)
+    app.include_router(admin_essay_prompts_router, dependencies=reception_only_guard)
+    app.include_router(mass_correction_status_router, dependencies=reception_only_guard)
     app.include_router(teacher_router, dependencies=reception_only_guard)
     app.include_router(coordination_router, dependencies=reception_only_guard)
     app.include_router(pedagogical_context_router, dependencies=reception_only_guard)

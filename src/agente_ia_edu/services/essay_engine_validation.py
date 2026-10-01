@@ -39,7 +39,7 @@ from agente_ia_edu.db.models import (
     EssayRubricLevel,
     EssayRubricSignal,
 )
-from agente_ia_edu.essay_engine_contract.v4 import EssayEngineOutput
+from agente_ia_edu.essay_engine_contract.v5 import EssayEngineOutput
 
 logger = logging.getLogger(__name__)
 
