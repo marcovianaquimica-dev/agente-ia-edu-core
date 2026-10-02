@@ -2,6 +2,7 @@ import unittest
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -14,6 +15,7 @@ from agente_ia_edu.db.models import (
     EssaySubmissionPage,
     GradeLevel,
     PromptAssignment,
+    PromptAssignmentLog,
     PromptMaterial,
     School,
     Segment,
@@ -177,6 +179,95 @@ class EssayProposalModelTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(fetched_no_usage.output_tokens)
             self.assertEqual(fetched_with_usage.input_tokens, 4200)
             self.assertEqual(fetched_with_usage.output_tokens, 310)
+
+    async def test_assignment_with_student_id_and_no_class_id_succeeds(self):
+        async with self.session_factory() as session:
+            school, klass, student = await self._class_and_student(session, "4")
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema Y",
+                statement="Disserte sobre Y.", year=2026,
+                created_by_external_identity="teacher:prof1",
+            )
+            session.add(prompt)
+            await session.flush()
+            assignment = PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id, class_id=None,
+                student_id=student.id, assigned_by_external_identity="prof",
+            )
+            session.add(assignment)
+            await session.commit()
+            refreshed = await session.get(PromptAssignment, assignment.id)
+            self.assertIsNone(refreshed.class_id)
+            self.assertEqual(refreshed.student_id, student.id)
+
+    async def test_assignment_with_class_id_and_student_id_together_violates_check(self):
+        async with self.session_factory() as session:
+            school, klass, student = await self._class_and_student(session, "5")
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema Z",
+                statement="Disserte sobre Z.", year=2026,
+                created_by_external_identity="teacher:prof1",
+            )
+            session.add(prompt)
+            await session.flush()
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id, class_id=klass.id,
+                student_id=student.id, assigned_by_external_identity="prof",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+
+    async def test_same_student_assigned_twice_to_same_prompt_violates_unique(self):
+        async with self.session_factory() as session:
+            school, klass, student = await self._class_and_student(session, "6")
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema W",
+                statement="Disserte sobre W.", year=2026,
+                created_by_external_identity="teacher:prof1",
+            )
+            session.add(prompt)
+            await session.flush()
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id, class_id=None,
+                student_id=student.id, assigned_by_external_identity="prof",
+            ))
+            await session.commit()
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id, class_id=None,
+                student_id=student.id, assigned_by_external_identity="prof",
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+
+    async def test_prompt_assignment_log_round_trips_target_summary_json(self):
+        async with self.session_factory() as session:
+            school, klass, student = await self._class_and_student(session, "7")
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema V",
+                statement="Disserte sobre V.", year=2026,
+                created_by_external_identity="teacher:prof1",
+            )
+            session.add(prompt)
+            await session.flush()
+            log = PromptAssignmentLog(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id,
+                assigned_by_external_identity="prof",
+                target_summary={
+                    "turmas": [{"class_id": str(klass.id), "name": "Turma A"}],
+                    "series": [],
+                    "alunos": [{"student_id": str(student.id), "name": "Aluno"}],
+                },
+            )
+            session.add(log)
+            await session.commit()
+            refreshed = await session.get(PromptAssignmentLog, log.id)
+            self.assertEqual(refreshed.target_summary["turmas"][0]["name"], "Turma A")
+            self.assertEqual(refreshed.target_summary["series"], [])
 
 
 if __name__ == "__main__":
