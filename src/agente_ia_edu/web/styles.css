@@ -118,6 +118,15 @@ body.sidebar-open {
 
 .brand-logo {
   font-size: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.brand-logo img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
 }
 
 .brand-text {

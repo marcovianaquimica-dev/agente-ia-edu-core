@@ -146,6 +146,13 @@
   font-size: 28px;
 }
 
+.entrada-card-icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
 .entrada-card h2 {
   margin: 0;
   font-size: 17px;
