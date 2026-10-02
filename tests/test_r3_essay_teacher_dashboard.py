@@ -111,6 +111,64 @@ class EssayTeacherDashboardTests(unittest.IsolatedAsyncioTestCase):
         await session.flush()
         return submission
 
+    async def _seed_prompt_with_direct_student_assignment(self, session):
+        """Proposta atribuida SO a um aluno especifico (PromptAssignment
+        com class_id=None, student_id=<aluno>) - nenhuma turma envolvida."""
+        school, _seg, grade, year = await self._base_school(session, "6")
+        klass = await self._class(session, school, grade, year, "6")
+        person = Person(id=uuid.uuid4(), school_id=school.id, full_name="Aluno Direto")
+        session.add(person)
+        await session.flush()
+        student = Student(
+            id=uuid.uuid4(), school_id=school.id, person_id=person.id, student_code="ST-6d",
+        )
+        session.add(student)
+        await session.flush()
+        prompt = EssayPrompt(
+            id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+            year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+        )
+        session.add(prompt)
+        await session.flush()
+        session.add(PromptAssignment(
+            id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+            class_id=None, student_id=student.id, assigned_by_external_identity="teacher:t",
+        ))
+        await session.commit()
+        return school, klass, prompt, student.id
+
+    async def _seed_prompt_with_class_and_direct_assignment(self, session):
+        """Proposta atribuida a 1 turma inteira + 1 aluno de FORA dela
+        atribuido direto pra MESMA proposta - os dois precisam contar, sem
+        duplicar, sem sumir."""
+        school, _seg, grade, year = await self._base_school(session, "7")
+        klass = await self._class(session, school, grade, year, "7")
+        class_student = await self._enrolled_student(session, school, klass, "7a", "Aluno Turma")
+        person = Person(id=uuid.uuid4(), school_id=school.id, full_name="Aluno Direto")
+        session.add(person)
+        await session.flush()
+        direct_student = Student(
+            id=uuid.uuid4(), school_id=school.id, person_id=person.id, student_code="ST-7d",
+        )
+        session.add(direct_student)
+        await session.flush()
+        prompt = EssayPrompt(
+            id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+            year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+        )
+        session.add(prompt)
+        await session.flush()
+        session.add(PromptAssignment(
+            id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+            class_id=klass.id, assigned_by_external_identity="teacher:t",
+        ))
+        session.add(PromptAssignment(
+            id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+            class_id=None, student_id=direct_student.id, assigned_by_external_identity="teacher:t",
+        ))
+        await session.commit()
+        return school, klass, prompt, class_student.id, direct_student.id
+
     async def test_dashboard_counts_submitted_vs_not_and_averages_only_approved_scores(self):
         async with self.session_factory() as session:
             school, _seg, grade, year = await self._base_school(session, "1")
@@ -255,6 +313,34 @@ class EssayTeacherDashboardTests(unittest.IsolatedAsyncioTestCase):
                 await build_essay_prompt_dashboard(
                     session, school_id=uuid.uuid4(), essay_prompt_id=prompt.id,
                 )
+
+    async def test_dashboard_counts_a_student_with_only_a_direct_assignment(self):
+        """Critical companion do dashboard: proposta atribuida so a um
+        aluno especifico precisa aparecer no dashboard com esse aluno
+        contado, nao total_students=0."""
+        async with self.session_factory() as session:
+            school, _klass, prompt, student_id = await self._seed_prompt_with_direct_student_assignment(session)
+            result = await build_essay_prompt_dashboard(
+                session, school_id=school.id, essay_prompt_id=prompt.id,
+            )
+            self.assertEqual(result.total_students, 1)
+            self.assertEqual(result.students[0].student_id, student_id)
+            self.assertIsNone(result.students[0].class_id)
+
+    async def test_dashboard_counts_mixed_class_and_direct_assignments(self):
+        """Proposta com 1 turma atribuida + 1 aluno de FORA dela atribuido
+        direto: os dois contam, sem duplicar, sem sumir."""
+        async with self.session_factory() as session:
+            school, klass, prompt, class_student_id, direct_student_id = \
+                await self._seed_prompt_with_class_and_direct_assignment(session)
+            result = await build_essay_prompt_dashboard(
+                session, school_id=school.id, essay_prompt_id=prompt.id,
+            )
+            self.assertEqual(result.total_students, 2)
+            self.assertEqual(
+                {s.student_id for s in result.students},
+                {class_student_id, direct_student_id},
+            )
 
 
 class EssayDashboardPolicyTests(unittest.TestCase):

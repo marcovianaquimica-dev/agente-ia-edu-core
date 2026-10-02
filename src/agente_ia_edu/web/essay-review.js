@@ -745,7 +745,7 @@
         <p id="er-material-msg" class="tm-msg" hidden></p>
 
         <h4>Turmas atribuídas</h4>
-        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
+        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(a.class_id ? (classNameById.get(a.class_id) || a.class_id) : 'Aluno específico')} — ${tmEsc(statusLabel(a.status))}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
         <form id="er-assign-form" class="tm-form-row">
           <div class="form-group">
             <label>Turmas (selecione uma ou mais)</label>
@@ -911,7 +911,7 @@
         });
         detail.assignments = detail.assignments.concat(result.assigned);
         container.querySelector('#er-assignments-list').innerHTML = detail.assignments
-          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`)
+          .map((a) => `<li>${tmEsc(a.class_id ? (classNameById.get(a.class_id) || a.class_id) : 'Aluno específico')} — ${tmEsc(statusLabel(a.status))}</li>`)
           .join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>';
         container.querySelectorAll('[data-assign-class-id]:checked').forEach((cb) => { cb.checked = false; });
         const failureEntries = Object.entries(result.failures || {});

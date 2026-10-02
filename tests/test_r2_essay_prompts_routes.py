@@ -436,6 +436,58 @@ class EssayPromptsRoutesTests(unittest.TestCase):
         finally:
             self._as("prof_r2")
 
+    def test_get_detail_after_combined_assignment_with_student_succeeds(self):
+        """Reproduz o Critical #1 da revisao final: atribuir a um aluno
+        especifico e depois abrir o detalhe da proposta (exatamente o que
+        o frontend faz em seguida) nao pode dar 500."""
+        school_id, class_id, student_id = self._seed_school_teacher_class_and_student("16")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/combined",
+            json={"class_ids": [], "grade_level_ids": [], "student_ids": [str(student_id)]},
+        )
+        response = self.client.get(f"/api/v1/catalog/essay-prompts/{prompt_id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        assignment = response.json()["assignments"][0]
+        self.assertIsNone(assignment["class_id"])
+        self.assertEqual(assignment["student_id"], str(student_id))
+
+    def test_combined_assignment_with_grade_level_ids_recusa_professor_de_turma_unica(self):
+        school_id, class_id, student_id = self._seed_school_teacher_class_and_student("17")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        async def _add_classroom_scoped_teacher():
+            async with self.factory() as session:
+                session.add(UserSchoolLink(
+                    external_user_id="prof_turma_unica", school_id=school_id,
+                    role="TEACHER", scope_type="CLASSROOM", active=True,
+                ))
+                await session.commit()
+
+        self.loop.run_until_complete(_add_classroom_scoped_teacher())
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_turma_unica")
+        try:
+            response = self.client.post(
+                f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/combined",
+                json={"class_ids": [], "grade_level_ids": [str(uuid.uuid4())], "student_ids": []},
+            )
+            self.assertEqual(response.status_code, 403, response.text)
+        finally:
+            self._as("prof_r2")
+
 
 if __name__ == "__main__":
     unittest.main()

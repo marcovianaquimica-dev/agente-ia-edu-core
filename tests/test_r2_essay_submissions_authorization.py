@@ -3,6 +3,7 @@ import unittest
 import uuid
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -368,6 +369,38 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         titles = [p["title"] for p in resp.json()]
         self.assertIn("Tema", titles)
+
+    def test_student_with_class_and_direct_assignment_to_same_prompt_sees_it_once(self):
+        """Fix 3 da revisao final: a turma do aluno foi atribuida E o
+        professor tambem marcou esse mesmo aluno individualmente na mesma
+        selecao de publico - sem a deduplicacao ele veria a mesma proposta
+        2x na lista (e poderia abrir 2 submissoes independentes do mesmo
+        tema)."""
+        school_id, class_id, assignment_id_by_class = self._seed_school_with_class_and_assignment("11")
+        self._enroll_student(school_id, class_id, "class_and_direct_student")
+
+        async def _add_direct_assignment():
+            async with self.factory() as session:
+                assignment = await session.get(PromptAssignment, assignment_id_by_class)
+                student_enrollment = (await session.execute(
+                    select(StudentEnrollment).where(StudentEnrollment.class_id == class_id)
+                )).scalars().first()
+                session.add(PromptAssignment(
+                    id=uuid.uuid4(), school_id=school_id, essay_prompt_id=assignment.essay_prompt_id,
+                    class_id=None, student_id=student_enrollment.student_id,
+                    assigned_by_external_identity="teacher:t", status="OPEN",
+                ))
+                await session.commit()
+                return student_enrollment.student_id
+
+        self.loop.run_until_complete(_add_direct_assignment())
+        self._as("class_and_direct_student")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200)
+        prompt_assignment_ids = [p["prompt_assignment_id"] for p in resp.json()]
+        self.assertEqual(len(prompt_assignment_ids), len(set(prompt_assignment_ids)))
+        titles = [p["title"] for p in resp.json()]
+        self.assertEqual(titles.count("Tema"), 1)
 
 
 if __name__ == "__main__":

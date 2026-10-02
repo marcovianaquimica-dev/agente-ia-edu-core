@@ -99,7 +99,8 @@ class PromptAssignmentResponse(BaseModel):
     id: UUID
     school_id: UUID
     essay_prompt_id: UUID
-    class_id: UUID
+    class_id: Optional[UUID] = None
+    student_id: Optional[UUID] = None
     status: str
     validation_enabled: bool
 
@@ -435,6 +436,31 @@ async def create_prompt_assignments_bulk(
         )
 
 
+async def _require_school_wide_scope_for_series(
+    identity: ExternalIdentityContext, session: AsyncSession
+) -> None:
+    """Atribuir a uma serie inteira expande pra TODAS as turmas dela,
+    potencialmente fora do escopo de um professor de turma unica - mesma
+    regra que api/routes/essay_batches.py's _require_school_wide_scope ja
+    usa pro mesmo risco no envio em lote: DIRECTOR/COORDINATOR/PLATFORM_ADMIN
+    sempre passam; TEACHER so passa com escopo PLATFORM ou SCHOOL. So e
+    chamada quando grade_level_ids nao esta vazio - escopo de turma/aluno
+    direto continua sem esse gate (mesmo nivel de exposicao que
+    assignments/bulk ja tem hoje pra class_ids, pre-existente, fora do
+    escopo desta correcao)."""
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity)
+    if context.role.upper() in {"DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN"}:
+        return
+    if context.role.upper() == "TEACHER" and context.scope_type.upper() in {"PLATFORM", "SCHOOL"}:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Atribuir a uma serie inteira exige escopo de toda a escola "
+        "(diretor, coordenador, ou professor com abrangencia de escola).",
+    )
+
+
 @essay_prompts_router.post(
     "/{essay_prompt_id}/assignments/combined",
     response_model=PromptAssignmentCombinedResponse,
@@ -451,6 +477,8 @@ async def create_prompt_assignments_combined(
     essa proposta nao e erro."""
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        if request.grade_level_ids:
+            await _require_school_wide_scope_for_series(identity, session)
         essay_prompt_id = await _materialize_if_platform_prompt(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id,
             created_by_external_identity=identity.external_user_id,
@@ -815,7 +843,8 @@ async def get_essay_prompt_detail(
             assignments=[
                 PromptAssignmentResponse(
                     id=a.id, school_id=a.school_id, essay_prompt_id=a.essay_prompt_id,
-                    class_id=a.class_id, status=a.status, validation_enabled=a.validation_enabled,
+                    class_id=a.class_id, student_id=a.student_id,
+                    status=a.status, validation_enabled=a.validation_enabled,
                 )
                 for a in assignments
             ],

@@ -784,13 +784,31 @@ async def list_essay_prompts_for_student(
                     ),
                     PromptAssignment.status == "OPEN",
                 )
-                # "Tema livre" (EssayPrompt.is_free_theme) is pinned first,
-                # regardless of when it was assigned - a different card color
-                # on the student's list (see web/essay.js).
-                .order_by(EssayPrompt.is_free_theme.desc(), PromptAssignment.created_at.desc())
-                .limit(8)
             )
         ).all()
+
+        # Um aluno pode ter atribuicao por turma E atribuicao direta pra
+        # MESMA proposta (ex: a turma dele foi atribuida, e o professor
+        # tambem marcou ele individualmente na mesma selecao de publico) -
+        # sem isso ele veria a proposta 2x e poderia enviar 2 redacoes
+        # independentes do mesmo tema. A atribuicao por turma vence, mesma
+        # prioridade de _assignment_for_own_class_or_403 (acima neste
+        # arquivo) e de EssayBatchService._assignment_for_student.
+        best_by_prompt: dict[uuid.UUID, tuple[PromptAssignment, EssayPrompt]] = {}
+        for assignment, prompt in rows:
+            current = best_by_prompt.get(prompt.id)
+            if current is None:
+                best_by_prompt[prompt.id] = (assignment, prompt)
+            elif current[0].class_id is None and assignment.class_id is not None:
+                best_by_prompt[prompt.id] = (assignment, prompt)
+        # "Tema livre" (EssayPrompt.is_free_theme) is pinned first,
+        # regardless of when it was assigned - a different card color on
+        # the student's list (see web/essay.js).
+        rows = sorted(
+            best_by_prompt.values(),
+            key=lambda pair: (pair[1].is_free_theme, pair[0].created_at),
+            reverse=True,
+        )[:8]
 
         results: list[EssayPromptForStudentResponse] = []
         for assignment, prompt in rows:
