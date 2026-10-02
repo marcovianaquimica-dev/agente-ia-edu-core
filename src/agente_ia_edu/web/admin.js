@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---------- School detail: info + modules + disciplines + status + user links ----------
 
-  const MODULE_LABELS = { AGENTE_IA_EDU: 'AGENTE IA EDU', REDACAO_IA: 'Redação IA' };
+  const MODULE_LABELS = { AGENTE_IA_EDU: 'Núcleo Edu 360°', REDACAO_IA: 'Redação IA' };
   const ALL_MODULES = ['AGENTE_IA_EDU', 'REDACAO_IA'];
 
   async function openSchoolDetail(schoolId) {
@@ -414,7 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const scopeRes = await fetch(`${API}/pedagogical-universes/${state.schoolUniverse.id}/catalog-scopes`, { headers: authHeaders() });
       state.schoolUniverseScopes = scopeRes.ok ? await scopeRes.json() : [];
-      showAlert('✅ Disciplinas do módulo AGENTE IA EDU atualizadas.', 'success');
+      showAlert('✅ Disciplinas do módulo Núcleo Edu 360° atualizadas.', 'success');
     } catch (err) {
       showAlert(`Não foi possível atualizar as disciplinas: ${err.message}`, 'error');
       loadSchoolDisciplines();

@@ -120,7 +120,7 @@ def render_pdf(model: dict) -> bytes:
         state["page"] = doc.new_page(width=_A4[0], height=_A4[1])
         state["y"] = _MARGIN
         state["page"].insert_text(
-            (_MARGIN, _A4[1] - _MARGIN + 20), f"AGENTE IA EDU · {model['title'][:70]}",
+            (_MARGIN, _A4[1] - _MARGIN + 20), f"Núcleo Edu 360° · {model['title'][:70]}",
             fontsize=7, color=(0.4, 0.4, 0.4),
         )
 
