@@ -28,8 +28,8 @@ QUERY_REDACOES_APROVADAS = """
         ec.created_at AS data_correcao
     FROM essay_corrections ec
     JOIN essay_submissions es ON es.id = ec.essay_submission_id
-    JOIN users u ON u.id = es.student_id
-    JOIN persons p ON p.id = u.person_id
+    JOIN students st ON st.id = es.student_id
+    JOIN persons p ON p.id = st.person_id
     JOIN schools sc ON sc.id = es.school_id
     LEFT JOIN LATERAL (
         SELECT se.class_id

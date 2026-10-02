@@ -56,8 +56,9 @@ def pg_schema_vazio():
     )
     conn.execute(
         """
-        CREATE TABLE users (
+        CREATE TABLE students (
             id UUID PRIMARY KEY,
+            school_id UUID NOT NULL REFERENCES schools(id),
             person_id UUID NOT NULL REFERENCES persons(id)
         )
         """
@@ -66,7 +67,7 @@ def pg_schema_vazio():
         """
         CREATE TABLE student_enrollments (
             id UUID PRIMARY KEY,
-            student_id UUID NOT NULL,
+            student_id UUID NOT NULL REFERENCES students(id),
             class_id UUID NOT NULL REFERENCES classes(id),
             enrolled_on DATE NOT NULL,
             status VARCHAR NOT NULL
@@ -77,7 +78,7 @@ def pg_schema_vazio():
         """
         CREATE TABLE essay_submissions (
             id UUID PRIMARY KEY,
-            student_id UUID NOT NULL REFERENCES users(id),
+            student_id UUID NOT NULL REFERENCES students(id),
             school_id UUID NOT NULL REFERENCES schools(id)
         )
         """
@@ -144,7 +145,10 @@ def pg_com_dados_sinteticos(pg_schema_vazio):
 
     # Aluno 1: APPROVED, com turma (via matricula ativa)
     conn.execute("INSERT INTO persons (id, full_name) VALUES (%s, %s)", (IDS["pessoa_1"], "Aluno Um"))
-    conn.execute("INSERT INTO users (id, person_id) VALUES (%s, %s)", (IDS["usuario_1"], IDS["pessoa_1"]))
+    conn.execute(
+        "INSERT INTO students (id, school_id, person_id) VALUES (%s, %s, %s)",
+        (IDS["usuario_1"], IDS["escola"], IDS["pessoa_1"]),
+    )
     conn.execute(
         "INSERT INTO student_enrollments (id, student_id, class_id, enrolled_on, status) "
         "VALUES (%s, %s, %s, %s, %s)",
@@ -163,7 +167,10 @@ def pg_com_dados_sinteticos(pg_schema_vazio):
 
     # Aluno 2: PENDING_REVIEW (deve ficar de fora do export)
     conn.execute("INSERT INTO persons (id, full_name) VALUES (%s, %s)", (IDS["pessoa_2"], "Aluno Dois"))
-    conn.execute("INSERT INTO users (id, person_id) VALUES (%s, %s)", (IDS["usuario_2"], IDS["pessoa_2"]))
+    conn.execute(
+        "INSERT INTO students (id, school_id, person_id) VALUES (%s, %s, %s)",
+        (IDS["usuario_2"], IDS["escola"], IDS["pessoa_2"]),
+    )
     conn.execute(
         "INSERT INTO essay_submissions (id, student_id, school_id) VALUES (%s, %s, %s)",
         (IDS["submissao_2"], IDS["usuario_2"], IDS["escola"]),
@@ -177,7 +184,10 @@ def pg_com_dados_sinteticos(pg_schema_vazio):
 
     # Aluno 3: APPROVED, sem matricula (turma deve vir NULL)
     conn.execute("INSERT INTO persons (id, full_name) VALUES (%s, %s)", (IDS["pessoa_3"], "Aluno Tres"))
-    conn.execute("INSERT INTO users (id, person_id) VALUES (%s, %s)", (IDS["usuario_3"], IDS["pessoa_3"]))
+    conn.execute(
+        "INSERT INTO students (id, school_id, person_id) VALUES (%s, %s, %s)",
+        (IDS["usuario_3"], IDS["escola"], IDS["pessoa_3"]),
+    )
     conn.execute(
         "INSERT INTO essay_submissions (id, student_id, school_id) VALUES (%s, %s, %s)",
         (IDS["submissao_3"], IDS["usuario_3"], IDS["escola"]),
