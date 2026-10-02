@@ -435,6 +435,28 @@ class LexicalSearcher:
             candidate_cap_reached=candidate_cap_reached,
         )
 
+    async def ranked_chunks(
+        self, query: str, **kwargs: Any
+    ) -> tuple[tuple[UUID, int, float, dict[str, Any]], ...]:
+        """``(chunk_id, rank, score, explanation)`` - o contrato minimo.
+
+        ESPELHA ``VectorSearcher.ranked_chunks()``, com a MESMA forma de
+        tupla. A simetria e o ponto: o fundidor da Fase 7 consome as duas
+        pernas pela mesma assinatura e nao precisa conhecer ``LexicalHit``
+        nem ``VectorHit`` - nem, portanto, excerpt, direitos ou paginas.
+
+        ATENCAO AO ``score``: aqui ele e BM25F, nao-limitado e maior-melhor;
+        na perna vetorial e similaridade de cosseno em [-1, 1]. Os dois sao
+        maior-melhor e os dois param aqui como diagnostico - as escalas NAO
+        sao comparaveis entre si, e e por isso que a fusao da Fase 7 se
+        apoia em RANK. ``explanation`` carrega a procedencia de cada um.
+        """
+        resultado = await self.search(query, **kwargs)
+        return tuple(
+            (hit.chunk_id, hit.rank, hit.score, hit.explanation)
+            for hit in resultado.hits
+        )
+
     async def explain_query(self, query: str) -> QueryExplanation:
         """Tokeniza e estatistica, sem recuperar nada."""
         stream = tokenize(query)
