@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block conteudo %}
+{% set cores_faixa = {
+    "Muito baixo": "badge-muito-baixo",
+    "Baixo": "badge-baixo",
+    "Adequado": "badge-adequado",
+    "Alto": "badge-alto",
+    "Muito alto": "badge-muito-alto",
+} %}
+<div class="page-header">
+    <h1 class="page-title">Visao Geral da Rede</h1>
+    <p class="page-subtitle">Resultados de {{ metricas.total }} redacao(oes) corrigida(s)</p>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card kpi-blue">
+        <div class="kpi-icon">&#128196;</div>
+        <div class="kpi-label">Redacoes corrigidas</div>
+        <div class="kpi-value">{{ metricas.total }}</div>
+    </div>
+    <div class="kpi-card kpi-purple">
+        <div class="kpi-icon">&#128202;</div>
+        <div class="kpi-label">Nota media</div>
+        <div class="kpi-value">{{ metricas.media }}</div>
+        <div class="kpi-caption">em 0-1000</div>
+    </div>
+    <div class="kpi-card kpi-amber">
+        <div class="kpi-icon">&#127919;</div>
+        <div class="kpi-label">Mediana</div>
+        <div class="kpi-value">{{ metricas.mediana }}</div>
+        <div class="kpi-caption">em 0-1000</div>
+    </div>
+    <div class="kpi-card kpi-green">
+        <div class="kpi-icon">&#128201;</div>
+        <div class="kpi-label">Desvio-padrao</div>
+        <div class="kpi-value">{{ metricas.desvio_padrao }}</div>
+    </div>
+    <div class="kpi-card kpi-red">
+        <div class="kpi-icon">&#11088;</div>
+        <div class="kpi-label">% nota &ge; 800</div>
+        <div class="kpi-value">{{ metricas.distribuicao_faixas_pct.get("Alto", 0) + metricas.distribuicao_faixas_pct.get("Muito alto", 0) }}%</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Sintese executiva</h2>
+    <div class="sintese-card">
+        <span class="icone">&#128161;</span>
+        <p>{{ sintese }}</p>
+    </div>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Distribuicao por faixa</h2>
+    <p class="card-subtitle">Quantidade e percentual de estudantes em cada faixa de nota</p>
+    {% if metricas.total == 0 %}
+    <p class="empty-state">Nenhuma redacao corrigida ainda.</p>
+    {% else %}
+    {% for faixa, quantidade in metricas.distribuicao_faixas.items() %}
+    <div class="faixa-bar-row">
+        <div class="faixa-bar-label">{{ faixa }}</div>
+        <div class="faixa-bar-track">
+            <div class="faixa-bar-fill" style="width: {{ metricas.distribuicao_faixas_pct.get(faixa, 0) }}%"></div>
+        </div>
+        <div class="faixa-bar-value">{{ quantidade }} ({{ metricas.distribuicao_faixas_pct.get(faixa, 0) }}%)</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2 class="card-title">Escolas</h2>
+    <p class="card-subtitle">Clique em uma escola para ver o detalhamento</p>
+    {% if escolas %}
+    <div class="table-wrapper">
+    <table>
+        <thead><tr><th>Escola</th></tr></thead>
+        <tbody>
+            {% for escola in escolas %}
+            <tr><td><a class="link-tabela" href="/escola/{{ escola.escola_id }}">{{ escola.escola_nome }}</a></td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty-state">Nenhuma escola com redacoes corrigidas ainda.</p>
+    {% endif %}
+</div>
+{% endblock %}
