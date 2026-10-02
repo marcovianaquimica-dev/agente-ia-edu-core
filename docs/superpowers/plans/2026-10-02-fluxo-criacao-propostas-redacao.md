@@ -1214,7 +1214,7 @@ de `..db.models`:
 
 ```python
 from ..db.models import (
-    Class, EssayPrompt, Person, PromptAssignment, PromptAssignmentLog,
+    Class, EssayPrompt, GradeLevel, Person, PromptAssignment, PromptAssignmentLog,
     PromptMaterial, Student, StudentEnrollment,
 )
 ```
@@ -1245,7 +1245,6 @@ adicionar os 4 métodos novos ao final da classe `EssayProposalService`
             for class_id, class_name, grade_level_id in grade_classes:
                 final_class_ids.add(class_id)
                 by_grade.setdefault(grade_level_id, []).append((class_id, class_name))
-            from ..db.models import GradeLevel
             grade_rows = (await self.session.execute(
                 select(GradeLevel.id, GradeLevel.name).where(GradeLevel.id.in_(grade_level_ids))
             )).all()
