@@ -34,13 +34,20 @@ REDACAO_ESCOLA_2 = {
 }
 
 
+PLANO_ACAO_TESTE = {
+    "ponto_forte": "forte de teste",
+    "ponto_atencao": "atencao de teste",
+    "recomendacao": "recomendacao de teste",
+}
+
+
 @pytest.fixture
 def snapshot_populado(tmp_path, monkeypatch):
     caminho = tmp_path / "snapshot.db"
     monkeypatch.setenv("SEDUC_DASHBOARD_SNAPSHOT_PATH", str(caminho))
-    # Troca o provider real de sintese por um stub - os testes nao podem
+    # Troca o provider real de IA por um stub - os testes nao podem
     # depender de rede nem da API da OpenAI de verdade.
-    monkeypatch.setattr("app.gerar_sintese_via_openai", lambda dados: "sintese de teste")
+    monkeypatch.setattr("app.gerar_plano_acao_via_openai", lambda dados: dict(PLANO_ACAO_TESTE))
     conn = get_connection(caminho)
     create_schema(conn)
     criar_usuario(conn, "gestor", "senha-teste")
@@ -55,11 +62,21 @@ def snapshot_duas_escolas(tmp_path, monkeypatch):
     monkeypatch.setenv("SEDUC_DASHBOARD_SNAPSHOT_PATH", str(caminho))
     chamadas = []
 
-    def gerador_stub(dados: dict) -> str:
+    def gerador_stub(dados: dict) -> dict:
         chamadas.append(dados)
-        return f"sintese para {dados.get('escola_nome')}"
+        identificador = (
+            dados.get("escola_nome")
+            or dados.get("gre_nome")
+            or dados.get("municipio_nome")
+            or "rede"
+        )
+        return {
+            "ponto_forte": f"forte para {identificador}",
+            "ponto_atencao": f"atencao para {identificador}",
+            "recomendacao": f"recomendacao para {identificador}",
+        }
 
-    monkeypatch.setattr("app.gerar_sintese_via_openai", gerador_stub)
+    monkeypatch.setattr("app.gerar_plano_acao_via_openai", gerador_stub)
     conn = get_connection(caminho)
     create_schema(conn)
     criar_usuario(conn, "gestor", "senha-teste")
@@ -92,7 +109,9 @@ def test_login_valido_permite_acessar_visao_geral(snapshot_populado):
     assert resposta.status_code == 200
     assert "Redacoes corrigidas" in resposta.text
     assert '<div class="kpi-value">1</div>' in resposta.text
-    assert "sintese de teste" in resposta.text
+    assert "forte de teste" in resposta.text
+    assert "atencao de teste" in resposta.text
+    assert "recomendacao de teste" in resposta.text
 
 
 def test_ranking_lista_a_redacao_cadastrada(snapshot_populado):
@@ -194,14 +213,15 @@ def test_app_sobe_com_secret_key_real_mesmo_sem_dev_flag():
     assert resultado.returncode == 0, resultado.stderr
 
 
-# --- finding #2: falha na sintese de IA nao pode derrubar a tela ---
+# --- finding #2: falha na IA nao pode derrubar a tela ---
+
+
+def _gerador_com_falha(dados: dict) -> dict:
+    raise RuntimeError("simulando falha da API (sem rede, quota, etc)")
 
 
 def test_visao_geral_mostra_fallback_quando_ia_falha(snapshot_populado, monkeypatch):
-    def gerador_com_falha(dados: dict) -> str:
-        raise RuntimeError("simulando falha da API (sem rede, quota, etc)")
-
-    monkeypatch.setattr("app.gerar_sintese_via_openai", gerador_com_falha)
+    monkeypatch.setattr("app.gerar_plano_acao_via_openai", _gerador_com_falha)
     cliente = TestClient(app)
     cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
     resposta = cliente.get("/")
@@ -210,13 +230,19 @@ def test_visao_geral_mostra_fallback_quando_ia_falha(snapshot_populado, monkeypa
 
 
 def test_escola_mostra_fallback_quando_ia_falha(snapshot_populado, monkeypatch):
-    def gerador_com_falha(dados: dict) -> str:
-        raise RuntimeError("simulando falha da API (sem rede, quota, etc)")
-
-    monkeypatch.setattr("app.gerar_sintese_via_openai", gerador_com_falha)
+    monkeypatch.setattr("app.gerar_plano_acao_via_openai", _gerador_com_falha)
     cliente = TestClient(app)
     cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
     resposta = cliente.get("/escola/e1")
+    assert resposta.status_code == 200
+    assert "indisponivel" in resposta.text.lower()
+
+
+def test_turma_mostra_fallback_quando_ia_falha(snapshot_populado, monkeypatch):
+    monkeypatch.setattr("app.gerar_plano_acao_via_openai", _gerador_com_falha)
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/turma/t1")
     assert resposta.status_code == 200
     assert "indisponivel" in resposta.text.lower()
 
@@ -286,13 +312,19 @@ def test_turma_inexistente_retorna_404(snapshot_populado):
     assert resposta.status_code == 404
 
 
-def test_escola_inexistente_nao_chama_a_ia_nem_grava_sintese(snapshot_populado, monkeypatch):
+def test_escola_inexistente_nao_chama_a_ia_nem_grava_plano(snapshot_populado, monkeypatch):
     chamadas = []
-    monkeypatch.setattr("app.gerar_sintese_via_openai", lambda dados: chamadas.append(dados) or "x")
+
+    def gerador(dados: dict) -> dict:
+        chamadas.append(dados)
+        return dict(PLANO_ACAO_TESTE)
+
+    monkeypatch.setattr("app.gerar_plano_acao_via_openai", gerador)
     cliente = TestClient(app)
     # follow_redirects=False: um POST /login bem-sucedido redireciona para
-    # "/", que por si so chamaria a sintese "geral" - isso contaminaria a
-    # contagem de chamadas que este teste quer isolar na tela de escola.
+    # "/", que por si so chamaria o plano de acao "geral" - isso
+    # contaminaria a contagem de chamadas que este teste quer isolar na
+    # tela de escola.
     cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"}, follow_redirects=False)
     resposta = cliente.get("/escola/NAO-EXISTE")
     assert resposta.status_code == 404
@@ -337,15 +369,15 @@ def test_obter_snapshot_cria_schema_automaticamente_se_ausente(tmp_path, monkeyp
     assert resposta.status_code == 401
 
 
-# --- finding #9: a sintese da escola leva o nome dela, nao so numeros ---
+# --- finding #9: o plano de acao da escola leva o nome dela, nao so numeros ---
 
 
-def test_escolas_com_metricas_identicas_recebem_sintese_diferente(snapshot_duas_escolas):
+def test_escolas_com_metricas_identicas_recebem_plano_de_acao_diferente(snapshot_duas_escolas):
     caminho, chamadas = snapshot_duas_escolas
     cliente = TestClient(app)
     # follow_redirects=False pelo mesmo motivo do teste acima: isolar as
-    # chamadas de sintese nas duas telas de escola, sem a chamada "geral"
-    # que o redirect do login para "/" dispararia.
+    # chamadas de IA nas duas telas de escola, sem a chamada "geral" que o
+    # redirect do login para "/" dispararia.
     cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"}, follow_redirects=False)
 
     resposta_e1 = cliente.get("/escola/e1")
@@ -353,8 +385,8 @@ def test_escolas_com_metricas_identicas_recebem_sintese_diferente(snapshot_duas_
 
     assert resposta_e1.status_code == 200
     assert resposta_e2.status_code == 200
-    assert "sintese para Escola Um" in resposta_e1.text
-    assert "sintese para Escola Dois" in resposta_e2.text
+    assert "forte para Escola Um" in resposta_e1.text
+    assert "forte para Escola Dois" in resposta_e2.text
     assert {chamada.get("escola_nome") for chamada in chamadas} == {"Escola Um", "Escola Dois"}
 
 
@@ -425,3 +457,78 @@ def test_municipios_embute_grafico_de_barras(snapshot_duas_escolas):
     assert 'id="grafico-municipios"' in resposta.text
     assert "Joao Pessoa" in resposta.text
     assert "Campina Grande" in resposta.text
+
+
+# --- plano de acao: Turma (novo) e telas de detalhe de GRE/Municipio (novas) ---
+
+
+def test_turma_mostra_plano_de_acao(snapshot_populado):
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/turma/t1")
+    assert resposta.status_code == 200
+    assert "Plano de acao" in resposta.text
+    assert "forte de teste" in resposta.text
+
+
+def test_gres_lista_linka_para_tela_de_detalhe(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/gres")
+    assert resposta.status_code == 200
+    assert 'href="/gres/1a%20GRE%20-%20Joao%20Pessoa"' in resposta.text
+
+
+def test_municipios_lista_linka_para_tela_de_detalhe(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/municipios")
+    assert resposta.status_code == 200
+    assert 'href="/municipios/Joao%20Pessoa"' in resposta.text
+
+
+def test_gre_detalhe_mostra_metricas_grafico_e_plano_de_acao(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/gres/1a GRE - Joao Pessoa")
+    assert resposta.status_code == 200
+    assert "1a GRE - Joao Pessoa" in resposta.text
+    assert 'id="grafico-comparacao-gre"' in resposta.text
+    assert "Estado (Paraiba)" in resposta.text
+    assert "forte para 1a GRE - Joao Pessoa" in resposta.text
+
+
+def test_municipio_detalhe_mostra_metricas_grafico_e_plano_de_acao(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/municipios/Joao Pessoa")
+    assert resposta.status_code == 200
+    assert "Joao Pessoa" in resposta.text
+    assert 'id="grafico-comparacao-municipio"' in resposta.text
+    assert "forte para Joao Pessoa" in resposta.text
+
+
+def test_gre_detalhe_inexistente_retorna_404(snapshot_populado):
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/gres/NAO-EXISTE")
+    assert resposta.status_code == 404
+
+
+def test_municipio_detalhe_inexistente_retorna_404(snapshot_populado):
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/municipios/NAO-EXISTE")
+    assert resposta.status_code == 404
+
+
+def test_gres_e_municipios_detalhe_redirecionam_para_login_sem_sessao(snapshot_populado):
+    cliente = TestClient(app)
+    for rota in ("/gres/1a GRE - Joao Pessoa", "/municipios/Joao Pessoa"):
+        resposta = cliente.get(rota, follow_redirects=False)
+        assert resposta.status_code == 303
+        assert resposta.headers["location"] == "/login"

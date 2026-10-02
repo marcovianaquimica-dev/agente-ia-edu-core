@@ -16,8 +16,8 @@ from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import (
-    AcademicYear, Class, EssayBatchPage, EssayBatchUpload, EssayPrompt, GradeLevel,
-    Person, PromptAssignment, School, Segment, Student, StudentEnrollment,
+    AcademicYear, Class, EssayBatchPage, EssayBatchUpload, EssayPrompt, EssaySubmission,
+    GradeLevel, Person, PromptAssignment, School, Segment, Student, StudentEnrollment,
 )
 from agente_ia_edu.providers.errors import ProviderError
 from agente_ia_edu.providers.models import EssayOcrToken, EssayPageTranscriptionResult
@@ -319,6 +319,194 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 commits[:2], [1, 2],
                 "houve um commit logo apos a primeira pagina e outro apos a segunda",
+            )
+
+    async def _seed_two_classes_same_grade(
+        self, session, *, nome_aluno_a: str = "Aluno Turma A", nome_aluno_b: str = "Aluno Turma B"
+    ) -> dict:
+        """2 turmas (A e B) da mesma serie, 1 aluno em cada - pra testar o
+        escopo de serie (grade_level_id) de create_batch/process_batch, que
+        precisa enxergar alunos de QUALQUER turma da serie, nao so de uma."""
+        school = School(id=uuid.uuid4(), code="PB-SERIE", name="Escola")
+        session.add(school)
+        await session.flush()
+        segment = Segment(
+            id=uuid.uuid4(), school_id=school.id, name="seg", external_id="SEG-PB-SERIE"
+        )
+        session.add(segment)
+        await session.flush()
+        grade = GradeLevel(
+            id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+            name="Serie Unica", external_id="GRADE-PB-SERIE",
+        )
+        year = AcademicYear(
+            id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-PB-SERIE"
+        )
+        session.add_all([grade, year])
+        await session.flush()
+        class_a = Class(
+            id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+            grade_level_id=grade.id, name="Turma A", external_id="TURMA-PB-A",
+        )
+        class_b = Class(
+            id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+            grade_level_id=grade.id, name="Turma B", external_id="TURMA-PB-B",
+        )
+        prompt = EssayPrompt(
+            id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+            year=2026, created_by_external_identity="prof",
+        )
+        session.add_all([class_a, class_b, prompt])
+        await session.flush()
+
+        def _make_student(nome, klass):
+            person = Person(id=uuid.uuid4(), school_id=school.id, full_name=nome)
+            session.add(person)
+            student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id)
+            session.add(student)
+            session.add(StudentEnrollment(
+                id=uuid.uuid4(), school_id=school.id, student_id=student.id,
+                class_id=klass.id, status="ACTIVE",
+            ))
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                class_id=klass.id, assigned_by_external_identity="prof",
+            ))
+            return student.id
+
+        student_a = _make_student(nome_aluno_a, class_a)
+        student_b = _make_student(nome_aluno_b, class_b)
+        await session.flush()
+        return {
+            "school": school, "prompt": prompt, "grade": grade,
+            "class_a": class_a, "class_b": class_b,
+            "student_a": student_a, "student_b": student_b,
+        }
+
+    async def test_escopo_serie_casa_aluno_de_qualquer_turma_da_serie_e_atribui_a_turma_real(self):
+        """2 turmas (A e B) da mesma serie, 1 aluno com nome unico em cada.
+        Lote com escopo = serie inteira (grade_level_id, sem class_id): as
+        duas paginas casam automatico (nome unico NA SERIE INTEIRA), e cada
+        submissao fica atribuida a turma REAL do aluno (A ou B, nunca a
+        'turma do lote', que nem existe neste escopo) - confirma que
+        _assignment_for_student continua correto sem nenhuma mudanca."""
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            transcriber = ScriptedTranscriber({
+                "a": ("NOME COMPLETO DO PARTICIPANTE Aluno Turma A", "Texto da redacao A."),
+                "b": ("NOME COMPLETO DO PARTICIPANTE Aluno Turma B", "Texto da redacao B."),
+            })
+            paths = [
+                _write_stamped_page(self.tmp_dir / f"{key}.png", key) for key in ["a", "b"]
+            ]
+            service = EssayBatchService(session, storage=self.storage, transcriber=transcriber)
+            created = await service.create_batch(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_id=None, grade_level_id=seed["grade"].id,
+                uploaded_by_external_identity="prof",
+                source_paths=paths,
+            )
+            await session.commit()
+            await service.process_batch(created["id"])
+
+            status = await service.get_batch_status(created["id"])
+            self.assertEqual(status["matched_count"], 2)
+            self.assertEqual(status["needs_review_count"], 0)
+
+            submissions = (await session.execute(
+                select(EssaySubmission).where(EssaySubmission.school_id == seed["school"].id)
+            )).scalars().all()
+            by_student = {s.student_id: s for s in submissions}
+            assignment_a = await session.get(
+                PromptAssignment, by_student[seed["student_a"]].prompt_assignment_id
+            )
+            assignment_b = await session.get(
+                PromptAssignment, by_student[seed["student_b"]].prompt_assignment_id
+            )
+            self.assertEqual(assignment_a.class_id, seed["class_a"].id)
+            self.assertEqual(assignment_b.class_id, seed["class_b"].id)
+
+    async def test_escopo_serie_homonimos_em_turmas_diferentes_caem_em_revisao_manual(self):
+        """Mesmo cenario, mas os dois alunos tem o MESMO nome normalizado
+        (homonimos em turmas diferentes da mesma serie) - match_student ve
+        2 candidatos no roster ampliado e NUNCA desempata sozinho (nem por
+        CPF): as duas paginas devem ficar NEEDS_REVIEW, nunca um match
+        errado. match_student em si nao muda nesta leva - este teste prova
+        que o roster maior nao quebra essa garantia."""
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(
+                session, nome_aluno_a="Maria Silva", nome_aluno_b="Maria Silva"
+            )
+            transcriber = ScriptedTranscriber({
+                "a": ("NOME COMPLETO DO PARTICIPANTE Maria Silva", "Texto da redacao 1."),
+            })
+            paths = [_write_stamped_page(self.tmp_dir / "a.png", "a")]
+            service = EssayBatchService(session, storage=self.storage, transcriber=transcriber)
+            created = await service.create_batch(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_id=None, grade_level_id=seed["grade"].id,
+                uploaded_by_external_identity="prof",
+                source_paths=paths,
+            )
+            await session.commit()
+            await service.process_batch(created["id"])
+
+            status = await service.get_batch_status(created["id"])
+            self.assertEqual(status["matched_count"], 0)
+            self.assertEqual(status["needs_review_count"], 1)
+
+    async def test_escopo_serie_aluno_sem_atribuicao_na_turma_real_cai_em_revisao_visivel(self):
+        """Cenario do Critical #1 da revisao final: a proposta so esta
+        atribuida a Turma A, nao a Turma B. Upload com escopo serie: a
+        pagina do aluno da Turma B CASA pelo nome (esta no roster ampliado),
+        mas _assignment_for_student nao acha atribuicao valida pra turma
+        REAL dele. Antes da Fix 1, essa pagina ficava invisivel (matched_
+        student_id preenchido, nunca aparecia em needs_review_pages, era
+        contada em matched_count). Depois da fix, ela tem que aparecer em
+        needs_review_pages, com needs_review_count=1 e matched_count=1
+        (so a pagina da Turma A, que tem atribuicao, de fato casa)."""
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            # _seed_two_classes_same_grade ja cria PromptAssignment pra
+            # class_a E class_b (pro prompt "Tema") - pra este teste
+            # precisamos de uma proposta SEGUNDA, atribuida SO a class_a,
+            # pra reproduzir "turma real sem atribuicao".
+            prompt_so_turma_a = EssayPrompt(
+                id=uuid.uuid4(), school_id=seed["school"].id, title="Tema 2",
+                statement="Disserte.", year=2026, created_by_external_identity="prof",
+            )
+            session.add(prompt_so_turma_a)
+            await session.flush()
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=seed["school"].id,
+                essay_prompt_id=prompt_so_turma_a.id, class_id=seed["class_a"].id,
+                assigned_by_external_identity="prof",
+            ))
+            await session.flush()
+
+            transcriber = ScriptedTranscriber({
+                "a": ("NOME COMPLETO DO PARTICIPANTE Aluno Turma A", "Texto da redacao A."),
+                "b": ("NOME COMPLETO DO PARTICIPANTE Aluno Turma B", "Texto da redacao B."),
+            })
+            paths = [
+                _write_stamped_page(self.tmp_dir / f"{key}.png", key) for key in ["a", "b"]
+            ]
+            service = EssayBatchService(session, storage=self.storage, transcriber=transcriber)
+            created = await service.create_batch(
+                school_id=seed["school"].id, essay_prompt_id=prompt_so_turma_a.id,
+                class_id=None, grade_level_id=seed["grade"].id,
+                uploaded_by_external_identity="prof",
+                source_paths=paths,
+            )
+            await session.commit()
+            await service.process_batch(created["id"])
+
+            status = await service.get_batch_status(created["id"])
+            self.assertEqual(status["matched_count"], 1)
+            self.assertEqual(status["needs_review_count"], 1)
+            self.assertEqual(len(status["needs_review_pages"]), 1)
+            self.assertEqual(
+                status["needs_review_pages"][0]["ocr_name_raw"], "ALUNO TURMA B"
             )
 
 

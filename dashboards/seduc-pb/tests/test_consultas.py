@@ -12,12 +12,17 @@ from consultas import (
     buscar_medias_competencia_por_turma,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
+    buscar_metricas_por_gre,
+    buscar_metricas_por_municipio,
+    buscar_metricas_por_turma,
     buscar_municipios,
     buscar_nome_escola,
     buscar_ranking,
     buscar_redacoes_por_turma,
     buscar_turmas_por_escola,
     escola_existe,
+    gre_existe,
+    municipio_existe,
     turma_existe,
 )
 from snapshot_db import create_schema, get_connection, insert_redacoes
@@ -211,3 +216,31 @@ def test_buscar_gre_e_municipio_da_escola(conn):
 
 def test_buscar_escola_da_turma(conn):
     assert buscar_escola_da_turma(conn, "t1") == ("e1", "Escola Um")
+
+
+def test_buscar_metricas_por_gre(conn):
+    metricas = buscar_metricas_por_gre(conn, "1a GRE - Joao Pessoa")
+    assert metricas["total"] == 2
+    assert metricas["media"] == pytest.approx(800.0, abs=0.1)
+
+
+def test_buscar_metricas_por_municipio(conn):
+    metricas = buscar_metricas_por_municipio(conn, "Campina Grande")
+    assert metricas["total"] == 1
+    assert metricas["media"] == pytest.approx(500.0, abs=0.1)
+
+
+def test_buscar_metricas_por_turma(conn):
+    metricas = buscar_metricas_por_turma(conn, "t1")
+    assert metricas["total"] == 2
+    assert metricas["media"] == pytest.approx(800.0, abs=0.1)
+
+
+def test_gre_existe(conn):
+    assert gre_existe(conn, "1a GRE - Joao Pessoa") is True
+    assert gre_existe(conn, "nao-existe") is False
+
+
+def test_municipio_existe(conn):
+    assert municipio_existe(conn, "Joao Pessoa") is True
+    assert municipio_existe(conn, "nao-existe") is False

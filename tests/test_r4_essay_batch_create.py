@@ -91,20 +91,25 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
                 class_id=klass.id, assigned_by_external_identity="prof",
             ))
         await session.commit()
-        return school, klass, prompt
+        return {
+            "school": school,
+            "class": klass,
+            "grade": grade,
+            "prompt": prompt,
+        }
 
     def _service(self, session):
         return EssayBatchService(session, storage=self.storage)
 
     async def test_creates_one_page_per_image_in_upload_order(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             paths = [
                 _write_image(self.tmp_dir / "a.png", "aluno a"),
                 _write_image(self.tmp_dir / "b.jpg", "aluno b"),
             ]
             created = await self._service(session).create_batch(
-                school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                 uploaded_by_external_identity="prof", source_paths=paths,
             )
             await session.commit()
@@ -123,13 +128,13 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_pdf_pages_are_expanded_and_numbering_continues_across_files(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             paths = [
                 _write_pdf(self.tmp_dir / "turma.pdf", 3),
                 _write_image(self.tmp_dir / "extra.png", "aluno extra"),
             ]
             created = await self._service(session).create_batch(
-                school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                 uploaded_by_external_identity="prof", source_paths=paths,
             )
             await session.commit()
@@ -144,71 +149,109 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_a_pdf_above_the_per_file_page_limit(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             path = _write_pdf(self.tmp_dir / "grande.pdf", 21)
             with self.assertRaises(ValueError) as ctx:
                 await self._service(session).create_batch(
-                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=[path],
                 )
             self.assertIn("20", str(ctx.exception))
 
     async def test_rejects_a_batch_above_the_total_page_limit(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             paths = [
                 _write_pdf(self.tmp_dir / f"parte{index}.pdf", 20) for index in range(4)
             ]
             with self.assertRaises(ValueError) as ctx:
                 await self._service(session).create_batch(
-                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=paths,
                 )
             self.assertIn(str(MAX_BATCH_PAGES), str(ctx.exception))
 
     async def test_rejects_an_unsupported_file_type(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             path = self.tmp_dir / "planilha.xlsx"
             path.write_bytes(b"x")
             with self.assertRaises(ValueError):
                 await self._service(session).create_batch(
-                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=[path],
                 )
 
     async def test_rejects_an_empty_upload(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             with self.assertRaises(ValueError):
                 await self._service(session).create_batch(
-                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=[],
                 )
 
     async def test_rejects_a_class_the_proposal_was_never_assigned_to(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session, assign=False)
+            seed = await self._seed(session, assign=False)
             path = _write_image(self.tmp_dir / "c.png")
             with self.assertRaises(ValueError) as ctx:
                 await self._service(session).create_batch(
-                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=[path],
                 )
             self.assertIn("atribu", str(ctx.exception).lower())
 
     async def test_nothing_is_persisted_when_the_limit_is_exceeded(self):
         async with self.session_factory() as session:
-            school, klass, prompt = await self._seed(session)
+            seed = await self._seed(session)
             paths = [_write_pdf(self.tmp_dir / f"p{index}.pdf", 20) for index in range(4)]
             with self.assertRaises(ValueError):
                 await self._service(session).create_batch(
-                    school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=paths,
                 )
             await session.rollback()
             remaining = (await session.execute(select(EssayBatchUpload))).scalars().all()
             self.assertEqual(remaining, [])
+
+    async def test_cria_lote_com_escopo_serie_sem_checar_atribuicao_antecipada(self):
+        async with self.session_factory() as session:
+            seed = await self._seed(session, assign=False)
+            service = EssayBatchService(session, transcriber=None, storage=self.storage)
+            source = _write_image(self.tmp_dir / "folha.png")
+            created = await service.create_batch(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_id=None, grade_level_id=seed["grade"].id,
+                uploaded_by_external_identity="prof", source_paths=[source],
+            )
+            self.assertIsNone(created["class_id"])
+            self.assertEqual(created["grade_level_id"], seed["grade"].id)
+
+    async def test_cria_lote_com_escopo_escola_inteira(self):
+        async with self.session_factory() as session:
+            seed = await self._seed(session, assign=False)
+            service = EssayBatchService(session, transcriber=None, storage=self.storage)
+            source = _write_image(self.tmp_dir / "folha.png")
+            created = await service.create_batch(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_id=None, grade_level_id=None,
+                uploaded_by_external_identity="prof", source_paths=[source],
+            )
+            self.assertIsNone(created["class_id"])
+            self.assertIsNone(created["grade_level_id"])
+
+    async def test_class_id_e_grade_level_id_juntos_e_erro(self):
+        async with self.session_factory() as session:
+            seed = await self._seed(session, assign=True)
+            service = EssayBatchService(session, transcriber=None, storage=self.storage)
+            source = _write_image(self.tmp_dir / "folha.png")
+            with self.assertRaises(ValueError):
+                await service.create_batch(
+                    school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                    class_id=seed["class"].id, grade_level_id=seed["grade"].id,
+                    uploaded_by_external_identity="prof", source_paths=[source],
+                )
 
 
 if __name__ == "__main__":

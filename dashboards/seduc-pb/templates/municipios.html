@@ -25,7 +25,7 @@
         <tbody>
             {% for linha in linhas %}
             <tr>
-                <td><a class="link-tabela" href="/ranking?municipio_nome={{ linha.nome | urlencode }}">{{ linha.nome }}</a></td>
+                <td><a class="link-tabela" href="/municipios/{{ linha.nome | urlencode }}">{{ linha.nome }}</a></td>
                 <td>{{ linha.total }}</td>
                 <td>{{ linha.media }}</td>
                 <td>{{ linha.media_c1 }}</td>

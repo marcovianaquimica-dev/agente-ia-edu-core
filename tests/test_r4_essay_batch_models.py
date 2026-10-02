@@ -154,6 +154,72 @@ class EssayBatchModelsTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(IntegrityError):
                 await session.commit()
 
+    async def test_class_id_e_opcional_quando_grade_level_id_esta_setado(self):
+        async with self.session_factory() as session:
+            school = School(id=uuid.uuid4(), code="MOD-1", name="Escola")
+            session.add(school)
+            await session.flush()
+            segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id="SEG-MOD")
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                name="3a", external_id="GRADE-MOD",
+            )
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                year=2026, created_by_external_identity="prof",
+            )
+            session.add_all([grade, prompt])
+            await session.flush()
+
+            batch = EssayBatchUpload(
+                id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                class_id=None, grade_level_id=grade.id,
+                uploaded_by_external_identity="prof", status="PROCESSING", total_pages=0,
+            )
+            session.add(batch)
+            await session.flush()
+
+            fetched = await session.get(EssayBatchUpload, batch.id)
+            self.assertIsNone(fetched.class_id)
+            self.assertEqual(fetched.grade_level_id, grade.id)
+
+    async def test_class_id_e_grade_level_id_juntos_violam_o_check(self):
+        async with self.session_factory() as session:
+            school = School(id=uuid.uuid4(), code="MOD-2", name="Escola")
+            session.add(school)
+            await session.flush()
+            segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id="SEG-MOD2")
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                name="3a", external_id="GRADE-MOD2",
+            )
+            year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-MOD2")
+            session.add_all([grade, year])
+            await session.flush()
+            klass = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="3A", external_id="TURMA-MOD2",
+            )
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                year=2026, created_by_external_identity="prof",
+            )
+            session.add_all([klass, prompt])
+            await session.flush()
+
+            batch = EssayBatchUpload(
+                id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                class_id=klass.id, grade_level_id=grade.id,
+                uploaded_by_external_identity="prof", status="PROCESSING", total_pages=0,
+            )
+            session.add(batch)
+            with self.assertRaises(IntegrityError):
+                await session.flush()
+
 
 if __name__ == "__main__":
     unittest.main()

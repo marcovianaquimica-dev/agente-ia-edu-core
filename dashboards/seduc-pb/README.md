@@ -6,7 +6,12 @@ Isolado do produto principal - nao importa nada de `src/agente_ia_edu`.
 Os graficos (Chart.js) sao carregados via CDN (`cdn.jsdelivr.net`) direto
 no navegador - sem build step, sem dependencia Python nova. Se a rede do
 usuario bloquear o CDN, as telas continuam funcionando normalmente (tabelas,
-filtros, sintese), so os graficos ficam em branco.
+filtros, plano de acao), so os graficos ficam em branco.
+
+Alem das 4 telas da v1 (Visao Geral, Ranking, Escola, Turma), existem 2
+telas de detalhe: `/gres/{nome}` e `/municipios/{nome}` (acessadas a partir
+das listas de GREs e Municipios), cada uma com metricas, grafico de
+comparacao com o estado e plano de acao.
 
 ## Setup
 
@@ -55,17 +60,21 @@ compartilhado), defina uma chave real em vez do modo dev:
 
 Acesse http://localhost:8000/login
 
-### Sintese executiva via IA
+### Plano de acao via IA
 
-As telas "Visao Geral" e "Escola" tentam gerar uma sintese executiva curta
-via IA (OpenAI). Isso exige `OPENAI_API_KEY` definida no ambiente (variavel
-padrao do SDK da OpenAI):
+As telas "Visao Geral", "Escola", "Turma" e as telas de detalhe de GRE e
+Municipio tentam gerar um plano de acao curto via IA (OpenAI): 3 blocos -
+ponto forte, ponto de atencao e recomendacao - calculados so a partir de
+indicadores ja agregados (nunca o texto de uma redacao). Isso exige
+`OPENAI_API_KEY` definida no ambiente (variavel padrao do SDK da OpenAI):
 
     export OPENAI_API_KEY="sk-..."
 
 Sem essa chave (ou se a chamada falhar por qualquer motivo - rede, quota,
-modelo invalido), a tela continua funcionando normalmente e mostra o texto
-"Sintese executiva indisponivel no momento." no lugar - nunca um erro 500.
+JSON invalido), a tela continua funcionando normalmente e mostra o texto
+"Plano de acao indisponivel no momento." no lugar - nunca um erro 500. O
+resultado e cacheado por corte (geral, por escola, por turma, por GRE, por
+municipio) e so regenera quando os indicadores de entrada mudam.
 
 ### Cookies de sessao em producao
 

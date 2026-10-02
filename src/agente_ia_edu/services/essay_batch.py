@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..providers.contracts import EssayTranscriptionProvider
 from ..db.models import (
-    EssayBatchPage, EssayBatchUpload, EssayCorrection, PromptAssignment, Person, Student,
+    Class, EssayBatchPage, EssayBatchUpload, EssayCorrection, PromptAssignment, Person, Student,
     StudentEnrollment, EssaySubmission,
 )
 from ..providers.errors import ProviderError
@@ -421,12 +421,22 @@ class EssayBatchService:
         *,
         school_id: uuid.UUID,
         essay_prompt_id: uuid.UUID,
-        class_id: uuid.UUID,
+        class_id: uuid.UUID | None = None,
+        grade_level_id: uuid.UUID | None = None,
         uploaded_by_external_identity: str,
         source_paths: list[Path],
     ) -> dict:
         """Cria o lote em PROCESSING com TODAS as suas paginas ja gravadas em
         MaterialStorage, e devolve os campos como dict simples.
+
+        class_id e grade_level_id sao mutuamente exclusivos - nenhum dos
+        dois (escola inteira), so class_id (turma unica, com checagem
+        antecipada de atribuicao como sempre) ou so grade_level_id (serie
+        inteira, sem checagem antecipada: cada corrida resolve a
+        atribuicao pela turma REAL do aluno matched via
+        _assignment_for_student, que ja trata gracilmente um aluno sem
+        atribuicao valida marcando a pagina NEEDS_REVIEW sem derrubar o
+        lote inteiro - ver _materialize_run).
 
         Os limites sao checados ANTES de qualquer escrita, pra que um envio
         recusado nao deixe meio lote no banco. total_pages e fixado aqui (os
@@ -437,14 +447,20 @@ class EssayBatchService:
         rota commita logo em seguida e expire_on_commit=True faria o proximo
         acesso a um atributo do objeto virar MissingGreenlet.
         """
-        await self._assignment_for_class_or_raise(
-            school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id
-        )
+        if class_id is not None and grade_level_id is not None:
+            raise ValueError(
+                "Escolha turma ou serie, nunca as duas - ou nenhuma para a escola inteira."
+            )
+        if class_id is not None:
+            await self._assignment_for_class_or_raise(
+                school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id
+            )
         page_images = await asyncio.to_thread(self._expand_to_page_images, source_paths)
 
         batch = EssayBatchUpload(
             id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
-            class_id=class_id, uploaded_by_external_identity=uploaded_by_external_identity,
+            class_id=class_id, grade_level_id=grade_level_id,
+            uploaded_by_external_identity=uploaded_by_external_identity,
             status="PROCESSING", total_pages=len(page_images),
         )
         self.session.add(batch)
@@ -461,6 +477,7 @@ class EssayBatchService:
         return {
             "id": batch.id, "school_id": batch.school_id,
             "essay_prompt_id": batch.essay_prompt_id, "class_id": batch.class_id,
+            "grade_level_id": batch.grade_level_id,
             "status": batch.status, "total_pages": batch.total_pages,
         }
 
@@ -484,6 +501,42 @@ class EssayBatchService:
             .order_by(Person.full_name)
         )).all()
         return [(student_id, full_name, document_number) for student_id, full_name, document_number in rows]
+
+    async def roster_for_batch(
+        self, batch: EssayBatchUpload
+    ) -> list[tuple[uuid.UUID, str, str | None]]:
+        """Roster de alunos ativos no escopo do lote: a turma unica (delega
+        pra class_roster, sem duplicar a query), todas as turmas da serie
+        (grade_level_id), ou a escola inteira (nenhum dos dois) - mesma
+        forma de retorno de class_roster em qualquer um dos 3 casos."""
+        if batch.class_id is not None:
+            return await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+
+        condicoes = [
+            StudentEnrollment.school_id == batch.school_id,
+            StudentEnrollment.status == "ACTIVE",
+        ]
+        if batch.grade_level_id is not None:
+            condicoes.append(
+                StudentEnrollment.class_id.in_(
+                    select(Class.id).where(
+                        Class.school_id == batch.school_id,
+                        Class.grade_level_id == batch.grade_level_id,
+                    )
+                )
+            )
+        rows = (await self.session.execute(
+            select(StudentEnrollment.student_id, Person.full_name, Person.document_number)
+            .join(Student, Student.id == StudentEnrollment.student_id)
+            .join(Person, Person.id == Student.person_id)
+            .where(*condicoes)
+            .order_by(Person.full_name)
+            .distinct()
+        )).all()
+        return [
+            (student_id, full_name, document_number)
+            for student_id, full_name, document_number in rows
+        ]
 
     async def _assignment_for_student(
         self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID, student_id: uuid.UUID
@@ -541,6 +594,7 @@ class EssayBatchService:
             for page in run:
                 page.status = "NEEDS_REVIEW"
                 page.essay_submission_id = None
+                page.matched_student_id = None
             return None
 
         student_id = run[0].matched_student_id
@@ -558,6 +612,7 @@ class EssayBatchService:
             for page in run:
                 page.status = "NEEDS_REVIEW"
                 page.essay_submission_id = None
+                page.matched_student_id = None
             return None
 
         existing_id = next(
@@ -724,7 +779,7 @@ class EssayBatchService:
         batch = await self.session.get(EssayBatchUpload, batch_id)
         if batch is None:
             raise ValueError(f"EssayBatchUpload not found: {batch_id}")
-        roster = await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+        roster = await self.roster_for_batch(batch)
         pages = (await self.session.execute(
             select(EssayBatchPage)
             .where(EssayBatchPage.batch_id == batch_id)
@@ -805,13 +860,14 @@ class EssayBatchService:
             page.matched_student_id for page in pages
             if page.essay_submission_id is not None and page.matched_student_id is not None
         }
-        roster = await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+        roster = await self.roster_for_batch(batch)
 
         return {
             "id": batch.id,
             "school_id": batch.school_id,
             "essay_prompt_id": batch.essay_prompt_id,
             "class_id": batch.class_id,
+            "grade_level_id": batch.grade_level_id,
             "status": batch.status,
             "total_pages": batch.total_pages,
             "matched_count": len(processed_pages) - len(needs_review),

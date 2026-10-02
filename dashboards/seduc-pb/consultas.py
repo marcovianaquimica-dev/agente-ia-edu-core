@@ -56,6 +56,44 @@ def buscar_metricas_por_escola(conn: sqlite3.Connection, escola_id: str) -> dict
     return _calcular_metricas(linhas)
 
 
+def buscar_metricas_por_turma(conn: sqlite3.Connection, turma_id: str) -> dict:
+    linhas = conn.execute(
+        "SELECT nota_final, faixa_classificacao FROM redacoes WHERE turma_id = ?",
+        (turma_id,),
+    ).fetchall()
+    return _calcular_metricas(linhas)
+
+
+def buscar_metricas_por_gre(conn: sqlite3.Connection, gre_nome: str) -> dict:
+    linhas = conn.execute(
+        "SELECT nota_final, faixa_classificacao FROM redacoes WHERE gre_nome = ?",
+        (gre_nome,),
+    ).fetchall()
+    return _calcular_metricas(linhas)
+
+
+def buscar_metricas_por_municipio(conn: sqlite3.Connection, municipio_nome: str) -> dict:
+    linhas = conn.execute(
+        "SELECT nota_final, faixa_classificacao FROM redacoes WHERE municipio_nome = ?",
+        (municipio_nome,),
+    ).fetchall()
+    return _calcular_metricas(linhas)
+
+
+def gre_existe(conn: sqlite3.Connection, gre_nome: str) -> bool:
+    linha = conn.execute(
+        "SELECT 1 FROM redacoes WHERE gre_nome = ? LIMIT 1", (gre_nome,)
+    ).fetchone()
+    return linha is not None
+
+
+def municipio_existe(conn: sqlite3.Connection, municipio_nome: str) -> bool:
+    linha = conn.execute(
+        "SELECT 1 FROM redacoes WHERE municipio_nome = ? LIMIT 1", (municipio_nome,)
+    ).fetchone()
+    return linha is not None
+
+
 def buscar_escolas(conn: sqlite3.Connection) -> list[dict]:
     linhas = conn.execute(
         "SELECT DISTINCT escola_id, escola_nome FROM redacoes ORDER BY escola_nome"

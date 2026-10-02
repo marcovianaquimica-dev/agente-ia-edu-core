@@ -377,6 +377,85 @@ class EssayBatchesRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.content)
 
+    def _seed_school_with_grade_level_no_class_assignment(self) -> dict:
+        """Escola com um GradeLevel real mas SEM nenhuma turma (nem
+        PromptAssignment) atribuida a proposta - o escopo serie nao exige
+        atribuicao antecipada (create_batch resolve isso por aluno, via
+        _assignment_for_student, quando o lote roda)."""
+        code = uuid.uuid4().hex[:8]
+
+        async def _run():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"BR-GL-{code}", name=f"escola-gl-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id="prof_lote", school_id=school.id, role="TEACHER",
+                    scope_type="SCHOOL", active=True,
+                ))
+                segment = Segment(
+                    id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEG-{code}"
+                )
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="3a", external_id=f"GRADE-{code}",
+                )
+                prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                    year=2026, created_by_external_identity="prof_lote",
+                )
+                session.add_all([grade, prompt])
+                await session.commit()
+                return {
+                    "school_id": str(school.id),
+                    "grade_level_id": str(grade.id),
+                    "prompt_id": str(prompt.id),
+                    "class_id": None,
+                }
+
+        return self.loop.run_until_complete(_run())
+
+    def _fake_png_bytes(self, key: str = "g1") -> bytes:
+        path = _write_stamped_page(self.tmp_dir / f"{key}.png", key)
+        return path.read_bytes()
+
+    def test_post_lote_com_grade_level_id_em_vez_de_class_id(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        response = self.client.post(
+            "/api/v1/teacher/essay-batches",
+            data={
+                "essay_prompt_id": seed["prompt_id"],
+                "grade_level_id": seed["grade_level_id"],
+            },
+            files={"files": ("folha.png", self._fake_png_bytes(), "image/png")},
+        )
+        self.assertEqual(response.status_code, 202, response.text)
+        body = response.json()
+        self.assertIsNone(body["class_id"])
+        self.assertEqual(body["grade_level_id"], seed["grade_level_id"])
+
+    def test_post_lote_com_class_id_e_grade_level_id_juntos_e_422(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        response = self.client.post(
+            "/api/v1/teacher/essay-batches",
+            data={
+                "essay_prompt_id": seed["prompt_id"],
+                "class_id": seed.get("class_id") or seed["grade_level_id"],
+                "grade_level_id": seed["grade_level_id"],
+            },
+            files={"files": ("folha.png", self._fake_png_bytes(), "image/png")},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+
+    def test_get_grade_levels_lista_as_series_da_escola(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        response = self.client.get("/api/v1/teacher/essay-batches/grade-levels")
+        self.assertEqual(response.status_code, 200, response.text)
+        ids = {item["id"] for item in response.json()}
+        self.assertIn(seed["grade_level_id"], ids)
+
     def test_resolving_a_page_with_no_text_is_422(self):
         _school_id, class_id, prompt_id, students = self._seed("7", ["Ana Lúcia Ferreira"])
         ScriptedTranscriber.script = {"t1": ("NOME Alguem Desconhecido", "   ")}
@@ -390,6 +469,38 @@ class EssayBatchesRoutesTests(unittest.TestCase):
             json={"student_id": students["Ana Lúcia Ferreira"]},
         )
         self.assertEqual(response.status_code, 422, response.text)
+
+    def _seed_classroom_scoped_teacher(self, school_id: str) -> None:
+        """Mesma escola de algum _seed/_seed_school_with_grade_level_no_class_assignment
+        anterior, mas um SEGUNDO professor (prof_turma_unica) com
+        scope_type=CLASSROOM - o caso que o gate da Fix 4 deve recusar pra
+        serie/escola."""
+        async def _run():
+            async with self.factory() as session:
+                session.add(UserSchoolLink(
+                    external_user_id="prof_turma_unica", school_id=uuid.UUID(school_id),
+                    role="TEACHER", scope_type="CLASSROOM", active=True,
+                ))
+                await session.commit()
+        self.loop.run_until_complete(_run())
+
+    def test_get_grade_levels_recusa_professor_de_turma_unica(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        self._seed_classroom_scoped_teacher(seed["school_id"])
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_turma_unica")
+        response = self.client.get("/api/v1/teacher/essay-batches/grade-levels")
+        self.assertEqual(response.status_code, 403, response.text)
+
+    def test_post_lote_com_grade_level_id_recusa_professor_de_turma_unica(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        self._seed_classroom_scoped_teacher(seed["school_id"])
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_turma_unica")
+        response = self.client.post(
+            "/api/v1/teacher/essay-batches",
+            data={"essay_prompt_id": seed["prompt_id"], "grade_level_id": seed["grade_level_id"]},
+            files={"files": ("folha.png", self._fake_png_bytes(), "image/png")},
+        )
+        self.assertEqual(response.status_code, 403, response.text)
 
 
 if __name__ == "__main__":

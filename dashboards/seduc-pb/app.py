@@ -23,20 +23,23 @@ from consultas import (
     buscar_medias_competencia_por_turma,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
+    buscar_metricas_por_gre,
+    buscar_metricas_por_municipio,
+    buscar_metricas_por_turma,
     buscar_municipios,
     buscar_nome_escola,
     buscar_ranking,
     buscar_redacoes_por_turma,
     buscar_turmas_por_escola,
     escola_existe,
+    gre_existe,
+    municipio_existe,
     turma_existe,
 )
-from ia_synthesis import gerar_sintese_via_openai, obter_ou_gerar_sintese
+from ia_synthesis import gerar_plano_acao_via_openai, obter_ou_gerar_plano_acao
 from snapshot_db import create_schema, get_connection
 
 BASE_DIR = Path(__file__).resolve().parent
-
-SINTESE_INDISPONIVEL = "Sintese executiva indisponivel no momento."
 
 _secret_key_env = os.environ.get("SEDUC_DASHBOARD_SECRET_KEY")
 if _secret_key_env:
@@ -81,7 +84,6 @@ def usuario_logado(request: Request) -> str | None:
 
 
 CORES_SERIE = ["#2f6fed", "#16a34a", "#d97706", "#7c3aed"]
-COMPETENCIAS_SEM_DADOS = {"c1": 0, "c2": 0, "c3": 0, "c4": 0, "c5": 0}
 
 
 def _valores_competencia(medias: dict) -> list:
@@ -104,6 +106,13 @@ def _dados_grafico_comparacao(series: list[tuple[str, dict]]) -> dict:
             for indice, (nome, medias) in enumerate(series)
         ],
     }
+
+
+def _obter_plano_acao(conn: sqlite3.Connection, corte: str, dados_agregados: dict) -> dict | None:
+    try:
+        return obter_ou_gerar_plano_acao(conn, corte, dados_agregados, gerar_plano_acao_via_openai)
+    except Exception:
+        return None
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -144,10 +153,7 @@ def visao_geral(
     if login is None:
         return RedirectResponse("/login", status_code=303)
     metricas = buscar_metricas_gerais(conn)
-    try:
-        sintese = obter_ou_gerar_sintese(conn, "geral", metricas, gerar_sintese_via_openai)
-    except Exception:
-        sintese = SINTESE_INDISPONIVEL
+    plano_acao = _obter_plano_acao(conn, "geral", metricas)
     escolas = buscar_escolas(conn)
     dados_distribuicao = {
         "labels": list(metricas["distribuicao_faixas"].keys()),
@@ -164,7 +170,7 @@ def visao_geral(
         context={
             "login": login,
             "metricas": metricas,
-            "sintese": sintese,
+            "plano_acao": plano_acao,
             "escolas": escolas,
             "dados_distribuicao": dados_distribuicao,
             "dados_competencia": dados_competencia,
@@ -264,13 +270,9 @@ def escola(
     metricas = buscar_metricas_por_escola(conn, escola_id)
     escola_nome = buscar_nome_escola(conn, escola_id)
     turmas = buscar_turmas_por_escola(conn, escola_id)
-    dados_sintese = {**metricas, "escola_nome": escola_nome}
-    try:
-        sintese = obter_ou_gerar_sintese(
-            conn, f"escola:{escola_id}", dados_sintese, gerar_sintese_via_openai
-        )
-    except Exception:
-        sintese = SINTESE_INDISPONIVEL
+    plano_acao = _obter_plano_acao(
+        conn, f"escola:{escola_id}", {**metricas, "escola_nome": escola_nome}
+    )
 
     gre_nome, municipio_nome = buscar_gre_e_municipio_da_escola(conn, escola_id)
     dados_comparacao = _dados_grafico_comparacao(
@@ -288,7 +290,7 @@ def escola(
             "login": login,
             "metricas": metricas,
             "turmas": turmas,
-            "sintese": sintese,
+            "plano_acao": plano_acao,
             "escola_nome": escola_nome,
             "dados_comparacao": dados_comparacao,
         },
@@ -316,8 +318,83 @@ def turma(
             ("Estado (Paraiba)", buscar_medias_competencia_geral(conn)),
         ]
     )
+    metricas_turma = buscar_metricas_por_turma(conn, turma_id)
+    plano_acao = _obter_plano_acao(
+        conn, f"turma:{turma_id}", {**metricas_turma, "escola_nome": escola_nome}
+    )
     return templates.TemplateResponse(
         request=request,
         name="turma.html",
-        context={"login": login, "alunos": alunos, "dados_comparacao": dados_comparacao},
+        context={
+            "login": login,
+            "alunos": alunos,
+            "dados_comparacao": dados_comparacao,
+            "plano_acao": plano_acao,
+        },
+    )
+
+
+@app.get("/gres/{gre_nome}", response_class=HTMLResponse)
+def gre_detalhe(
+    gre_nome: str,
+    request: Request,
+    login: str | None = Depends(usuario_logado),
+    conn: sqlite3.Connection = Depends(obter_snapshot),
+):
+    if login is None:
+        return RedirectResponse("/login", status_code=303)
+    if not gre_existe(conn, gre_nome):
+        raise HTTPException(status_code=404, detail="GRE nao encontrada")
+    metricas = buscar_metricas_por_gre(conn, gre_nome)
+    plano_acao = _obter_plano_acao(conn, f"gre:{gre_nome}", {**metricas, "gre_nome": gre_nome})
+    dados_comparacao = _dados_grafico_comparacao(
+        [
+            (gre_nome, buscar_medias_competencia_por_gre(conn, gre_nome)),
+            ("Estado (Paraiba)", buscar_medias_competencia_geral(conn)),
+        ]
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="gre_detalhe.html",
+        context={
+            "login": login,
+            "gre_nome": gre_nome,
+            "metricas": metricas,
+            "dados_comparacao": dados_comparacao,
+            "plano_acao": plano_acao,
+        },
+    )
+
+
+@app.get("/municipios/{municipio_nome}", response_class=HTMLResponse)
+def municipio_detalhe(
+    municipio_nome: str,
+    request: Request,
+    login: str | None = Depends(usuario_logado),
+    conn: sqlite3.Connection = Depends(obter_snapshot),
+):
+    if login is None:
+        return RedirectResponse("/login", status_code=303)
+    if not municipio_existe(conn, municipio_nome):
+        raise HTTPException(status_code=404, detail="Municipio nao encontrado")
+    metricas = buscar_metricas_por_municipio(conn, municipio_nome)
+    plano_acao = _obter_plano_acao(
+        conn, f"municipio:{municipio_nome}", {**metricas, "municipio_nome": municipio_nome}
+    )
+    dados_comparacao = _dados_grafico_comparacao(
+        [
+            (municipio_nome, buscar_medias_competencia_por_municipio(conn, municipio_nome)),
+            ("Estado (Paraiba)", buscar_medias_competencia_geral(conn)),
+        ]
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="municipio_detalhe.html",
+        context={
+            "login": login,
+            "municipio_nome": municipio_nome,
+            "metricas": metricas,
+            "dados_comparacao": dados_comparacao,
+            "plano_acao": plano_acao,
+        },
     )

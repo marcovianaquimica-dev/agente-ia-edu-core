@@ -1,0 +1,27 @@
+{% if plano_acao %}
+<div class="plano-acao-grid">
+    <div class="plano-acao-box plano-acao-forte">
+        <span class="icone">&#9989;</span>
+        <div>
+            <div class="plano-acao-titulo">Ponto forte</div>
+            <p>{{ plano_acao.ponto_forte }}</p>
+        </div>
+    </div>
+    <div class="plano-acao-box plano-acao-atencao">
+        <span class="icone">&#9888;&#65039;</span>
+        <div>
+            <div class="plano-acao-titulo">Ponto de atencao</div>
+            <p>{{ plano_acao.ponto_atencao }}</p>
+        </div>
+    </div>
+    <div class="plano-acao-box plano-acao-recomendacao">
+        <span class="icone">&#128161;</span>
+        <div>
+            <div class="plano-acao-titulo">Recomendacao</div>
+            <p>{{ plano_acao.recomendacao }}</p>
+        </div>
+    </div>
+</div>
+{% else %}
+<p class="empty-state">Plano de acao indisponivel no momento.</p>
+{% endif %}

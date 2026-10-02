@@ -20,10 +20,11 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayBatchPage, EssayBatchUpload, School
+from ...db.models import EssayBatchPage, EssayBatchUpload, GradeLevel, School
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_batch import ALLOWED_BATCH_SUFFIXES, EssayBatchService
@@ -50,7 +51,8 @@ class EssayBatchCreatedResponse(BaseModel):
     id: UUID
     school_id: UUID
     essay_prompt_id: UUID
-    class_id: UUID
+    class_id: Optional[UUID] = None
+    grade_level_id: Optional[UUID] = None
     status: str
     total_pages: int
 
@@ -79,7 +81,8 @@ class EssayBatchStatusResponse(BaseModel):
     id: UUID
     school_id: UUID
     essay_prompt_id: UUID
-    class_id: UUID
+    class_id: Optional[UUID] = None
+    grade_level_id: Optional[UUID] = None
     status: str
     total_pages: int
     matched_count: int
@@ -116,6 +119,31 @@ async def _authorize(identity: ExternalIdentityContext, session: AsyncSession) -
     return uuid.UUID(str(context.school_id))
 
 
+async def _require_school_wide_scope(
+    identity: ExternalIdentityContext, session: AsyncSession
+) -> None:
+    """Serie inteira e escola inteira expoem nome e CPF de alunos de
+    QUALQUER turma da escola - um TEACHER com escopo de uma unica turma
+    (scope_type CLASSROOM) nao tem hoje nenhum caminho pra ver isso, nem
+    pela tela de turma. Mesma regra de "autorizado em toda a escola" que
+    TeacherPortalService._teacher_is_school_wide_authorized ja usa:
+    DIRECTOR/COORDINATOR/PLATFORM_ADMIN sempre passam; TEACHER so passa com
+    escopo PLATFORM ou SCHOOL. Nao se aplica ao escopo de turma unica
+    (class_id) - so e chamada quando ele e None."""
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity)
+    if context.role.upper() in {"DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN"}:
+        return
+    if context.role.upper() == "TEACHER" and context.scope_type.upper() in {"PLATFORM", "SCHOOL"}:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Serie inteira ou escola inteira exige escopo de toda a escola "
+        "(diretor, coordenador, ou professor com abrangencia de escola) - "
+        "professor de turma unica so pode enviar por turma.",
+    )
+
+
 async def _batch_for_own_school_or_403(
     session: AsyncSession, *, batch_id: uuid.UUID, school_id: uuid.UUID
 ) -> EssayBatchUpload:
@@ -142,7 +170,8 @@ async def _run_batch_processing_in_background(batch_id: UUID, session_factory) -
 async def create_essay_batch(
     background_tasks: BackgroundTasks,
     essay_prompt_id: UUID = Form(...),
-    class_id: UUID = Form(...),
+    class_id: Optional[UUID] = Form(None),
+    grade_level_id: Optional[UUID] = Form(None),
     files: list[UploadFile] = File(...),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
@@ -150,12 +179,24 @@ async def create_essay_batch(
     """Devolve 202 assim que o lote esta gravado, SEM esperar o processamento -
     o professor acompanha por GET /{batch_id} (spec s5).
 
+    class_id e grade_level_id sao mutuamente exclusivos (turma unica, serie
+    inteira, ou nenhum dos dois = escola inteira) - checado aqui ANTES de
+    processar qualquer arquivo, pra falhar rapido em vez de so depois de
+    receber ate 60 paginas de foto.
+
     Streaming em pedacos de 1MB pra um arquivo temporario, checando o tamanho a
     cada pedaco, exatamente como upload_prompt_material ja faz: um upload
     gigante nunca chega a virar um arquivo em MaterialStorage.
     """
+    if class_id is not None and grade_level_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Escolha turma ou serie, nunca as duas - ou nenhuma para a escola inteira.",
+        )
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        if class_id is None:
+            await _require_school_wide_scope(identity, session)
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="r4_batch_upload_"))
         try:
@@ -182,7 +223,8 @@ async def create_essay_batch(
 
             try:
                 created = await build_batch_service(session).create_batch(
-                    school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id,
+                    school_id=school_id, essay_prompt_id=essay_prompt_id,
+                    class_id=class_id, grade_level_id=grade_level_id,
                     uploaded_by_external_identity=identity.external_user_id,
                     source_paths=source_paths,
                 )
@@ -202,6 +244,26 @@ async def create_essay_batch(
         _run_batch_processing_in_background, response.id, session_factory
     )
     return response
+
+
+@essay_batches_router.get("/grade-levels")
+async def list_grade_levels_for_batch(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[dict]:
+    """Series (GradeLevel) da escola do professor, pro seletor de abrangencia
+    do envio em lote - dado real (GradeLevel.name), diferente do campo
+    grade_level hardcoded que /api/v1/teacher/classrooms expoe hoje (bug
+    pre-existente, fora de escopo desta rota)."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _require_school_wide_scope(identity, session)
+        rows = (await session.execute(
+            select(GradeLevel.id, GradeLevel.name)
+            .where(GradeLevel.school_id == school_id)
+            .order_by(GradeLevel.ordinal)
+        )).all()
+        return [{"id": str(row.id), "name": row.name} for row in rows]
 
 
 @essay_batches_router.get("/{batch_id}", response_model=EssayBatchStatusResponse)

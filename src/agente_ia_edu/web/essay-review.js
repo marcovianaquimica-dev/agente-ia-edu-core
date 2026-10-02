@@ -240,10 +240,16 @@
 
     let promptOptions = [];
     let classrooms = [];
+    let gradeLevels = [];
     try {
       promptOptions = await reviewRequest('/api/v1/catalog/essay-prompts');
     } catch (e) {
       promptOptions = [];
+    }
+    try {
+      gradeLevels = await reviewRequest('/api/v1/teacher/essay-batches/grade-levels');
+    } catch (e) {
+      gradeLevels = [];
     }
     // Uma proposta da plataforma ainda nao materializada nesta escola nao
     // tem PromptAssignment nenhuma pra nenhuma turma - o backend rejeitaria
@@ -275,9 +281,23 @@
             </select>
           </div>
           <div class="form-group">
+            <label for="er-batch-scope">Abrangência</label>
+            <select id="er-batch-scope" class="text-input">
+              <option value="turma">Uma turma</option>
+              <option value="serie">Uma série inteira</option>
+              <option value="escola">A escola inteira</option>
+            </select>
+          </div>
+          <div class="form-group" id="er-batch-class-group">
             <label for="er-batch-class">Turma</label>
-            <select id="er-batch-class" class="text-input" required>
+            <select id="er-batch-class" class="text-input">
               ${assignableClassrooms.map((c) => `<option value="${tmEsc(c.class_id)}">${tmEsc(c.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" id="er-batch-grade-group" hidden>
+            <label for="er-batch-grade-level">Série</label>
+            <select id="er-batch-grade-level" class="text-input">
+              ${gradeLevels.map((g) => `<option value="${tmEsc(g.id)}">${tmEsc(g.name)}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
@@ -290,6 +310,12 @@
       </div>
       <div id="er-batch-progress"></div>`);
 
+    container.querySelector('#er-batch-scope').addEventListener('change', (ev) => {
+      const scope = ev.target.value;
+      container.querySelector('#er-batch-class-group').hidden = scope !== 'turma';
+      container.querySelector('#er-batch-grade-group').hidden = scope !== 'serie';
+    });
+
     container.querySelector('#er-batch-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const msg = container.querySelector('#er-batch-msg');
@@ -299,7 +325,24 @@
       if (!files.length) return;
       const formData = new FormData();
       formData.append('essay_prompt_id', container.querySelector('#er-batch-prompt').value);
-      formData.append('class_id', container.querySelector('#er-batch-class').value);
+      const scope = container.querySelector('#er-batch-scope').value;
+      if (scope === 'turma') {
+        const classId = container.querySelector('#er-batch-class').value;
+        if (!classId) {
+          msg.hidden = false;
+          msg.textContent = 'Selecione uma turma.';
+          return;
+        }
+        formData.append('class_id', classId);
+      } else if (scope === 'serie') {
+        const gradeLevelId = container.querySelector('#er-batch-grade-level').value;
+        if (!gradeLevelId) {
+          msg.hidden = false;
+          msg.textContent = 'Selecione uma série.';
+          return;
+        }
+        formData.append('grade_level_id', gradeLevelId);
+      }
       Array.from(files).forEach((file) => formData.append('files', file));
       submitBtn.disabled = true;
       try {
