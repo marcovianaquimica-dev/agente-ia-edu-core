@@ -86,6 +86,6 @@ td strong { display: block; font-size: 14px; } td small { color: var(--text-mute
 .future-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 
 @media (max-width: 820px) {
-  :root { --sidebar: 0px; }.sidebar { position: static; width: 100%; min-height: auto; }.sidebar nav { grid-template-columns: 1fr 1fr; }.sidebar-foot { display: none; }
+  :root { --sidebar: 0px; }.sidebar { position: static; width: 100%; min-height: auto; transform: none; box-shadow: none; z-index: auto; }.sidebar nav { grid-template-columns: 1fr 1fr; }.sidebar-foot { display: none; }
   main { margin-left: 0; padding: 24px 16px 48px; }.session-panel form, .detail-grid { grid-template-columns: 1fr; }.toolbar { align-items: stretch; flex-direction: column; }.search-field { width: 100%; }.form-grid, .facts, .result-grid { grid-template-columns: 1fr; }.form-grid .wide { grid-column: auto; }.detail-head { flex-direction: column; }
 }

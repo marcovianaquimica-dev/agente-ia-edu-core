@@ -30,9 +30,15 @@
   --text-white: #f8fafc;
 
   /* === Ação primária (Azul tecnológico da marca) === */
-  --primary: var(--brand-blue);
+  /* --primary é uma variante levemente escurecida do Azul tecnológico,
+     não o hex puro (--brand-blue) - #087FF5 puro com texto branco dá
+     3.91:1 de contraste, abaixo do mínimo AA para texto (4.5:1, a cor
+     antiga tinha 6.29:1). 90% mantém a mesma tonalidade reconhecível e
+     sobe para 4.71:1. --brand-blue continua puro para logo/gradiente,
+     onde a fidelidade à paleta oficial importa mais que texto em cima. */
+  --primary: color-mix(in srgb, var(--brand-blue) 90%, black);
   --primary-action: var(--primary);
-  --primary-hover: color-mix(in srgb, var(--brand-blue) 82%, black);
+  --primary-hover: color-mix(in srgb, var(--brand-blue) 78%, black);
   --primary-light: color-mix(in srgb, var(--brand-blue) 12%, white);
 
   /* === Acento (Ciano da marca) === */
