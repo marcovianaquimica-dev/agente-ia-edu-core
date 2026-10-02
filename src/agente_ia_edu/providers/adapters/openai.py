@@ -1,9 +1,11 @@
 """OpenAI implementation of the provider-neutral text-generation contract."""
 
 import base64
+import hashlib
 import math
 import os
 import re
+from datetime import datetime, timezone
 
 from ..errors import (
     ProviderAuthenticationError,
@@ -14,6 +16,9 @@ from ..errors import (
     ProviderUnavailableError,
 )
 from ..models import (
+    EmbeddingArtifact,
+    EmbeddingRequest,
+    EmbeddingResult,
     EssayImageCorrectionRequest,
     EssayOcrToken,
     EssayPageTranscriptionRequest,
@@ -72,15 +77,121 @@ def _usage_tokens(response) -> tuple[int | None, int | None]:
     return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
 
 
+def _embedding_usage_tokens(response) -> int | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    value = getattr(usage, "prompt_tokens", None)
+    if value is None:
+        value = getattr(usage, "total_tokens", None)
+    return int(value) if value is not None else None
+
+
+def _ordered_vectors(response, *, expected: int) -> list[list[float]]:
+    """Vetores na ordem do PEDIDO, e nao na ordem em que vieram.
+
+    A API documenta que a ordem da resposta pode diferir da do envio e que o
+    alinhamento correto e pelo campo ``index``. Confiar na ordem de chegada
+    trocaria enunciado por vetor errado - e silenciosamente, porque um vetor
+    trocado continua sendo um vetor valido.
+    """
+    data = list(getattr(response, "data", None) or [])
+    if len(data) != expected:
+        raise ProviderInvalidResponseError(
+            f"OpenAI returned {len(data)} embeddings for {expected} inputs"
+        )
+    ordenados: list[list[float]] = [None] * expected  # type: ignore[list-item]
+    for posicao, item in enumerate(data):
+        indice = getattr(item, "index", None)
+        indice = posicao if indice is None else int(indice)
+        if not 0 <= indice < expected or ordenados[indice] is not None:
+            raise ProviderInvalidResponseError(
+                f"OpenAI returned an out-of-range or duplicated index: {indice}"
+            )
+        vetor = getattr(item, "embedding", None)
+        if not vetor:
+            raise ProviderInvalidResponseError("OpenAI returned an empty embedding")
+        ordenados[indice] = [float(component) for component in vetor]
+    tamanhos = {len(vetor) for vetor in ordenados}
+    if len(tamanhos) != 1:
+        # A dimensao do ESPACO e validada pelo servico; o que se recusa aqui
+        # e uma resposta internamente inconsistente.
+        raise ProviderInvalidResponseError(
+            f"OpenAI returned embeddings of differing lengths: {sorted(tamanhos)}"
+        )
+    return ordenados
+
+
 class OpenAIProvider:
     provider = "openai"
 
-    def __init__(self, *, api_key: str | None = None, model: str | None = None, vision_model: str | None = None, timeout_seconds: float | None = None, client=None):
+    def __init__(self, *, api_key: str | None = None, model: str | None = None, vision_model: str | None = None, embedding_model: str | None = None, timeout_seconds: float | None = None, client=None):
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._model = model or os.getenv("OPENAI_MODEL")
         self._vision_model = vision_model or os.getenv("OPENAI_VISION_MODEL")
+        # Default de ULTIMO recurso. O caminho normal e o chamador mandar o
+        # modelo em ``EmbeddingRequest.model``, vindo da linha de
+        # ``KnowledgeEmbeddingSpace`` - e assim que o Knowledge Engine usa um
+        # modelo sem conhecer nome de modelo nenhum.
+        self._embedding_model = embedding_model or os.getenv("OPENAI_EMBEDDING_MODEL")
         self._timeout_seconds = timeout_seconds or float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
         self._client = client
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingResult:
+        """Vetoriza textos, devolvendo o contrato provider-neutral.
+
+        O texto vai VERBATIM. Nenhuma normalizacao aqui: ``text_hash``
+        precisa continuar identificando exatamente o conteudo vetorizado, e
+        qualquer transformacao - ate NFC - quebraria essa identidade.
+        """
+        if not self._api_key:
+            raise ProviderConfigurationError("OpenAI is not configured")
+        model = request.model or self._embedding_model
+        if not model:
+            raise ProviderConfigurationError("OpenAI embedding model is not configured")
+        if not request.texts:
+            # Nem chega a chamar: um lote vazio nao e erro, e gastar uma
+            # requisicao para descobrir isso seria desperdicio.
+            return EmbeddingResult(
+                artifacts=(), provider=self.provider, model=model, dimensions=0
+            )
+        try:
+            client = self._client or self._create_client()
+            response = await client.embeddings.create(
+                model=model,
+                input=list(request.texts),
+                timeout=self._timeout_seconds,
+            )
+            vectors = _ordered_vectors(response, expected=len(request.texts))
+            generated_at = datetime.now(timezone.utc)
+            dimensions = len(vectors[0])
+            artifacts = tuple(
+                EmbeddingArtifact(
+                    canonical_text=text,
+                    text_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    vector=tuple(vector),
+                    dimensions=dimensions,
+                    provider=self.provider,
+                    model=model,
+                    generated_at=generated_at,
+                )
+                for text, vector in zip(request.texts, vectors)
+            )
+            norms = [math.sqrt(sum(c * c for c in vector)) for vector in vectors]
+            media = sum(norms) / len(norms)
+            return EmbeddingResult(
+                artifacts=artifacts,
+                provider=self.provider,
+                model=model,
+                dimensions=dimensions,
+                vector_norm_mean=media,
+                vectors_are_unit_norm=all(abs(n - 1.0) <= 1e-3 for n in norms),
+                input_tokens=_embedding_usage_tokens(response),
+            )
+        except ProviderInvalidResponseError:
+            raise
+        except Exception as exc:
+            raise self._map_error(exc) from exc
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         if not self._api_key:

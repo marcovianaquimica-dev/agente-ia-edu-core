@@ -46,6 +46,20 @@ class EmbeddingResult:
     provider: str
     model: str
     dimensions: int
+    #: Norma MEDIA dos vetores devolvidos - OBSERVABILIDADE do adapter, nunca
+    #: pressuposto do contrato.
+    #:
+    #: ``text-embedding-3`` devolve vetores de norma ~1, e isso torna cosseno,
+    #: produto interno e L2 monotonicamente equivalentes. A arquitetura NAO
+    #: depende disso: o cosseno e calculado de verdade, e um provider futuro
+    #: que nao normalize vira um fato registrado em vez de um erro silencioso
+    #: de ranking.
+    vector_norm_mean: float = 0.0
+    #: Todos os vetores tem norma 1 dentro da tolerancia? Resposta medida.
+    vectors_are_unit_norm: bool = False
+    #: Tokens cobrados, quando o provider os reporta. ``None`` quando nao -
+    #: nunca um zero fabricado, pela mesma razao de ``TextGenerationResult``.
+    input_tokens: int | None = None
 
 
 @dataclass(frozen=True)
