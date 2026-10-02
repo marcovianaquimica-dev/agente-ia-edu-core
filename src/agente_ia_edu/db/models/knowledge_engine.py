@@ -227,6 +227,7 @@ class KnowledgeChunk(Base):
         Index("ix_knowledge_chunks_document_ordinal", "document_id", "ordinal"),
         Index("ix_knowledge_chunks_content_node_id", "content_node_id"),
         Index("ix_knowledge_chunks_text_hash", "text_hash"),
+        Index("ix_knowledge_chunks_editorial_role", "editorial_role"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -260,6 +261,27 @@ class KnowledgeChunk(Base):
     # nao e inferida por similaridade textual (Fase 0 mostrou que produziria
     # ruido); sem curadoria, fica vazio - resultado honesto, nao falha.
     bncc_node_codes: Mapped[list[str] | None] = mapped_column(JSONBCompatible)
+
+    # -- estrutura editorial (Fase 5.1b) --------------------------------
+    #
+    # ORTOGONAL a ``chunk_type``, e a distincao nao e sutil:
+    #
+    #     chunk_type      forma e funcao pedagogica LOCAL
+    #     editorial_role  funcao EDITORIAL na obra
+    #
+    # Um gabarito pode ser PROSE, EXERCISE ou SOLUTION - e e ANSWER_KEY nos
+    # tres casos. SOLUTION + ANSWER_KEY e combinacao legitima e esperada.
+    #
+    # String livre, como ``chunk_type``: papel novo nao exige migracao.
+    editorial_role: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="UNKNOWN"
+    )
+    editorial_role_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3))
+    #: NULO significa NAO PROCESSADO por versao alguma do detector. Com versao
+    #: preenchida e ``editorial_role = 'UNKNOWN'``, significa CLASSIFICADO e a
+    #: evidencia nao bastou. Sao estados diferentes, e ``UNKNOWN`` nao pode
+    #: esconder ausencia de processamento - era exatamente o risco apontado.
+    editorial_detector_version: Mapped[str | None] = mapped_column(String(20))
 
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONBCompatible)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)

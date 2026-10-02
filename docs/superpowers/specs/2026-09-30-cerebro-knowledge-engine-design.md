@@ -2211,3 +2211,253 @@ geração; detecção de front/back matter (§23.15); vínculo `SOLUTION`↔`EXE
 por nó de currículo **correto e inerte** no corpus real — dito em voz alta, não
 escondido; correção do `_morphology_key` de `curriculum_classification`
 (§23.2); teto de diversidade por fonte (§23.13).
+
+---
+
+## 24. Fase 5.1 — Editorial Gate
+
+Corrigir a **representação editorial do corpus** antes de gerar embeddings.
+Duas etapas: **5.1a** ataca seccionação, duplicação e chunks gigantes na raiz;
+**5.1b** acrescenta `editorial_role` e `retrieval_eligibility`.
+
+O baseline **Lexical v1 pré-Editorial Gate** é `816eff5`, e permanece a
+referência. O resultado posterior é **nova medição**, não reescrita.
+
+### 24.1 Por que antes dos embeddings
+
+Medido no baseline: 17,4% do corpus era texto contido em outro chunk, 145
+chunks passavam de 6.000 caracteres (o maior tinha 82.022) e ~26% era material
+de manual docente. Gerar embedding disso custa dinheiro e produz um espaço
+vetorial povoado de ruído — e corrigir depois exigiria re-embeddar tudo.
+
+### 24.2 5.1a — quatro causas, todas na raiz
+
+`authorial_material_parser.py` **não** foi alterado: PHASE 26 depende dele, e
+o filtro vive no Knowledge Engine, como o portão de `EXERCISE` da Fase 3.1.
+
+**1. Linha de sumário não origina seção.** A página 452 do Cotidiano — o
+sumário do manual docente — produzia **40 chunks**: o parser criou 24 seções
+cujo *título* é a própria linha do sumário, pontilhados inclusive
+(`'Nanotecnologia .........'`), e cada uma abria janela sobre a mesma página
+cortando a partir do seu título. 43 seções-fantasma suprimidas no Cotidiano,
+22 no SuperAção. Detecção tipográfica: corrida de 4+ pontos, que nenhum
+cabeçalho real carrega.
+
+**2. O texto de uma seção termina onde a próxima começa.** Esta era a causa
+**maior**, e o plano não a previa. `_section_raw_text` devolvia o sufixo da
+faixa de páginas inteira, ignorando onde a seção seguinte começa. Medido: 19
+faixas repetidas no Cotidiano envolvendo **107 das 264 seções** — entre elas 12
+seções na página 9 cujos títulos são nomes de autor de bibliografia
+(`MEIS, L`, `FILGUEIRAS, C`).
+
+**3. Cursor sequencial por faixa.** Seções que dividem a mesma faixa
+particionam o texto em ordem. Resolve os títulos curtos demais para serem
+localizados (`len(title) >= 12`), que antes levavam a janela inteira.
+
+**4. Fronteira de fim do enunciado.** Ver §24.3.
+
+**Resgate de página.** A correção derrubaria a cobertura, e isso seria
+*descartar* conteúdo. Página com texto útil (≥200 chars) que nenhuma seção
+reivindica passa a ser emitida com `residual_page` observável: 89 chunks, e
+cobertura **546/546 nas três obras**.
+
+### 24.3 Por que `statement_text` contornava o janelamento
+
+Medido: **100% dos 145 chunks acima de 6.000 caracteres vinham do caminho de
+exercício; zero do janelamento.**
+
+O caminho é estrutural — a emissão leva `question.statement_text` direto para
+`_draft`, sem passar por `_blocks` nem `_window`, por desenho, porque um
+enunciado é uma unidade. E ele fica gigante porque **não tem fronteira de
+fim**: quando o parser não detecta a questão seguinte, estende até o fim da
+seção. Nenhum dos maiores casos tinha um item numerado interno, e eles
+começavam com `EMSLEY, J.` (bibliografia), com o texto de competências da BNCC
+ou com *"Espera-se que os estudantes…"*. Um tinha `question_number = 472`.
+
+Correção de **fronteira**, em três níveis degradantes e todos estruturais:
+marcador de abertura → **primeira** quebra de parágrafo com cabeça ≥
+`_MIN_EXERCISE_CHARS` → fronteira de **sentença**. O que vem depois nunca
+pertenceu à unidade e volta ao fluxo de prosa, com a mesma faixa de páginas e
+`exercise_boundary_corrected` registrado.
+
+Foi a fronteira de sentença que levou os gigantes de 130 a **0**: o pypdf
+devolve páginas inteiras sem uma única linha em branco.
+
+### 24.4 Duas invariantes de tamanho
+
+`_window` testava `if buffer and candidate > _MAX_CHARS` — com o buffer
+**vazio**, um bloco único nunca era testado. E a fusão de fragmentos abaixo do
+mínimo em `out[-1]` crescia sem teto, de onde vinham chunks `PROSE` de 15 mil
+caracteres que nenhum limite pegava.
+
+A exceção de indivisibilidade continua, agora **limitada e observável**:
+`INDIVISIBLE_CEILING_CHARS = 13.200` (3 × o máximo), com marca
+`indivisible_overflow`. Um "exercício" de 70.990 caracteres não é uma unidade
+pedagógica — é artefato da heurística do parser.
+
+### 24.5 Resultado de 5.1a
+
+| | baseline | 5.1a |
+|---|---:|---:|
+| chunks | 5.796 | 5.922 |
+| chunks > 6.000 chars | 145 | **0** |
+| maior chunk | 82.022 | **5.003** |
+| containment | 1.008 (17,4%) | **488 (8,2%)** |
+| cobertura de páginas | 532/546/545 | **546/546/546** |
+| página 452 | 40 chunks | **3**, zero aninhados |
+
+Containment restante **classificado**, sem meta de zero: 46,9% fragmento curto
+repetido na própria obra, 26,4% repetição interna da mesma seção, 21,1%
+enunciado também presente na prosa, 0,6% overlap deliberado — e **4,7% (23
+chunks, 0,4% do corpus) defeito estrutural remanescente**, registrado.
+
+### 24.6 5.1b — `editorial_role`, ortogonal a `chunk_type`
+
+```
+chunk_type      forma e função pedagógica LOCAL  (prosa, exercício, tabela)
+editorial_role  função EDITORIAL na obra         (conteúdo, gabarito, sumário)
+```
+
+Um gabarito pode ser `PROSE`, `EXERCISE` ou `SOLUTION` — e é `ANSWER_KEY` nos
+três casos. **`SOLUTION` + `ANSWER_KEY` é combinação legítima e esperada**, e é
+por isso que são duas colunas.
+
+Vocabulário: `CONTENT`, `TABLE_OF_CONTENTS`, `INDEX`, `ANSWER_KEY`,
+`TEACHER_GUIDE`, `REFERENCES`, `FRONT_MATTER`, `BACK_MATTER`, `UNKNOWN`.
+String livre, como `chunk_type`: papel novo não exige migração.
+
+`INDEX` está declarado e **não foi observado** nas três obras — zero
+ocorrências de "Índice remissivo". Entra como regra, não como número.
+
+### 24.7 Detecção em três camadas
+
+**1. Região (página).** O manual docente é uma região **contígua**, medido:
+p477–543 em Investigar (pureza 99%), p467–543 em Cotidiano (97%), p465–541 em
+SuperAção (90%). Derivada de **densidade de marcadores**, nunca de posição.
+
+É a região que resolve o problema central: **34% a 66% dos chunks do último
+15% de cada livro não disparam sinal algum** — *"Sim, pois faz parte da
+ideia…"*, *"Resposta pessoal."*. Nenhum detector por chunk os pegaria.
+
+**Regiões, no plural**: o sumário do manual do Cotidiano (p452–463) é região
+separada do corpo (p467–543), e a seção de respostas do SuperAção
+(p437–439) só apareceu quando a densidade de `Alternativa X` por página passou
+a marcar a página sozinha.
+
+**2. Perfil da obra, ativado por evidência.** Um detector único seria errado:
+
+| marcador | Investigar | Cotidiano | SuperAção |
+|---|---:|---:|---:|
+| `MPxxx` | **0** | 188 | 161 |
+| fólio romano isolado | **95 pág** | 10 | 14 |
+| pontilhado ≥3 | 2 | **91** | 32 |
+| instrução ao professor | 129 | 49 | 113 |
+
+`MPxxx` não existe em Investigar. O único sinal presente nas três obras é a
+instrução ao professor. Perfis ligam por **evidência observada no documento**,
+nunca por nome de editora — um perfil "Moderna" por metadado erraria no dia em
+que outra editora adotasse a convenção.
+
+**3. Sinais universais por chunk.** Refinam dentro da região e pegam
+ocorrências fora dela. Posição é sinal **auxiliar**: sozinha nunca decide, e
+`FRONT_MATTER` é o único papel que a exige — catalogação no meio do livro é
+outra coisa.
+
+### 24.8 A assimetria que governa a incerteza
+
+Um falso positivo **esconde conteúdo legítimo e ninguém percebe**; um falso
+negativo apenas mantém o estado atual. Logo:
+
+- evidência insuficiente → `UNKNOWN`, que é **elegível**;
+- papel desconhecido pela política → **elegível**, por decisão explícita;
+- nada é apagado: página, origem, literal restrito, hashes e rastreabilidade
+  seguem intactos. `editorial_role` é **rótulo**, não exclusão.
+
+`editorial_role_is_eligible` falha **aberta**, ao contrário de
+`solution_is_visible`, e a inversão é deliberada.
+
+### 24.9 Validação reprovou três classes, e isso mudou o desenho
+
+A amostra real reprovou o detector em quatro rodadas. Cada correção está
+fixada como teste de regressão:
+
+| classe | antes | depois | causa |
+|---|---:|---:|---|
+| `REFERENCES` | 504 | **75** | conteúdo cita fonte em legenda de figura; passou a exigir **cabeçalho próprio** ou densidade dentro de região |
+| `TABLE_OF_CONTENTS` | falso positivo em prosa | **22** | pontilhado passou a precisar **apontar para fólio** — p422/p427 eram texto sobre polímeros |
+| `ANSWER_KEY` fora de região | 213 em SuperAção | **5** | `Alternativa X` sozinha pegava exercício do aluno (~2 de 8 corretos); fora de região só o abridor explícito conta |
+| `TEACHER_GUIDE` fora de região | 53 | → `UNKNOWN` | `Enfatize`/`Proponha`/`Convide` soltos pegavam atividade do aluno |
+
+Referência do rigor: o detector ingênuo da sondagem acertou **5 de 14** (~36%).
+Um detector assim pioraria o sistema.
+
+### 24.10 Não classificado × `UNKNOWN`
+
+`editorial_detector_version` **NULO** = não processado por versão alguma.
+Versão preenchida com `editorial_role = 'UNKNOWN'` = **classificado, e a
+evidência não bastou**. Uma coluna de versão resolve sem máquina de estados, e
+ainda diz *qual* versão julgou cada chunk. `UNKNOWN` não pode esconder
+ausência de processamento — o relatório de cobertura mentiria.
+
+### 24.11 Corpus estatístico elegível
+
+`df`, `N` e `avgdl` passam a ser calculados sobre o **corpus elegível da
+política versionada**, nunca sobre o conjunto filtrado por uma consulta
+ocasional.
+
+A definição é **derivada** da tabela de elegibilidade — os papéis com ao menos
+um propósito aberto —, não uma segunda lista que sairia de sincronia:
+`('ANSWER_KEY', 'CONTENT', 'REFERENCES', 'TEACHER_GUIDE', 'UNKNOWN')`.
+Determinista, versionada, observável na resposta e **participante do
+`query_fingerprint`**: mudar os papéis elegíveis muda o `idf` de todo termo, e
+isso não pode passar em silêncio entre duas medições.
+
+Era o aparato de navegação que inflava o `idf`. Medido: `df(estequiometria)`
+74 → **50**, `df(mol)` 966 → **900**, `df(concentracao)` 772 → **714**.
+
+Propósito **ausente** = contexto mais restritivo entre os declarados. Não é
+"fecha tudo": `CONTENT` e `UNKNOWN`, elegíveis nos quatro propósitos, seguem
+elegíveis — fechá-los tornaria toda busca sem propósito vazia. E `ANSWER_KEY`,
+fechado em `PRACTICE`, fica fechado, exatamente como a Fase 3.1 manda.
+
+`EMPTY_ELIGIBLE_CORPUS` é razão própria: há índice, mas nenhum chunk no corpus
+estatístico. Dizer "índice vazio" mentiria sobre o estado do corpus.
+
+### 24.12 Resultado oficial, constantes intactas
+
+`k1=1.2`, `b=0.75`, `heading_weight=1.0`, `phrase_bonus_weight=0.5`,
+`proximity_window=5` — **nenhuma alterada**.
+
+| consulta | P@10 base → 5.1 | P@5 base → 5.1 | alvo |
+|---|---|---|---|
+| `estequiometria` | 1 → **6** | 1 → **2** | ≥8 ✗ |
+| `reagente limitante` | 6 → **7** | 4 → **4** | ≥8 ✗ |
+| `mol` | 1 → **8** | 0 → **5** | ≥6 ✓ |
+| `diluição` | 6 → **7** | 3 → **4** | ≥7 ✓ |
+| `concentração das soluções` | 7 → **9** | 4 → **5** | ≥7 ✓ |
+
+Média P@10 **4,2 → 7,4**. Alvos atingidos **1 de 5 → 3 de 5**.
+
+### 24.13 O que ainda falha, e por quê
+
+**`estequiometria`, P@5 = 2/5.** Duas perdas, de causas conhecidas e
+registradas:
+
+1. rank 1 é o **sumário do livro do aluno** de Investigar — aquela obra não usa
+   pontilhado no sumário (medido: 2 chunks), e a detecção tipográfica não o
+   alcança;
+2. rank 8 é **bibliografia na página 546**, fora da região (p477–543), e
+   `REFERENCES` exige cabeçalho ou região.
+
+**`reagente limitante`, 7/10.** As perdas são **semânticas**, não editoriais:
+*"fator limitante para a vida de espécies aquáticas"* usa a palavra em outro
+sentido, e uma atividade de modelos moleculares é tangencial. Busca lexical
+não distingue sentido — é precisamente o que a perna vetorial existe para
+fazer, e é por isso que esta fase vem antes dela e não depois.
+
+### 24.14 Fora da Fase 5.1
+
+Embeddings, Fase 6, Knowledge Pack. Os 23 defeitos de containment
+remanescentes. Sumário sem pontilhado e bibliografia fora de região (§24.13).
+Os ~29,5% de chunks abaixo de 500 caracteres, comportamento pré-existente.
+Correção do `_morphology_key`. Teto de diversidade por fonte.

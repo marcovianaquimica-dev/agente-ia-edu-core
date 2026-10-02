@@ -38,6 +38,7 @@ from ..authorial_material_parser import parse_authorial_pdf, parse_authorial_tex
 from ..ingestion_parser import DocxParser
 from .bncc_extraction import BnccExtractionError, extract_bncc_cnt
 from .chunking import ChunkDraft, CurriculumFrameworkChunker, ProseChunker
+from .editorial_structure import classify_editorial, detect_profiles, detect_regions
 from .lexical_index import LexicalIndexService
 from .rights import max_excerpt_chars, may_expose_literal_text
 from .extraction import DocumentExtractionError, extract_document
@@ -180,6 +181,11 @@ class KnowledgeDocumentService:
         )
 
         rows = [_row(document, draft) for draft in drafts]
+        # ESTRUTURA EDITORIAL (Fase 5.1b). Classifica antes de persistir, com
+        # o documento inteiro em maos: regiao e perfil sao propriedades do
+        # DOCUMENTO, nao do chunk, e e a regiao que pega o gabarito sem
+        # marcador - 34% a 66% dos chunks do fim de cada livro.
+        _classify_editorial_roles(rows, extraction.page_texts)
         self.session.add_all(rows)
         # Flush ANTES de indexar: os postings precisam do ``id`` dos chunks.
         await self.session.flush()
@@ -293,6 +299,7 @@ class KnowledgeDocumentService:
             # recuperacao; a tripla normativa completa vive em metadata.
             row.bncc_node_codes = draft.metadata.get("bncc_node_codes")
             rows.append(row)
+        _classify_editorial_roles(rows, extraction.page_texts)
         self.session.add_all(rows)
         await self.session.flush()
         # A norma tambem e indexada: sem isto a BNCC ficaria inbuscavel, e o
@@ -443,6 +450,41 @@ def _parse(path: Path, page_texts: list[str]):
     if suffix == ".docx":
         return DocxParser.parse_file(path)
     return parse_authorial_text(path)
+
+
+def _classify_editorial_roles(
+    rows: list[KnowledgeChunk], page_texts: list[str]
+) -> None:
+    """Atribui ``editorial_role`` a cada chunk, com o documento em maos.
+
+    Regiao e perfil sao propriedades do DOCUMENTO: a regiao do manual docente
+    e contigua (medido: p477-543, p467-543, p465-541 nas tres obras do
+    piloto), e os perfis sao ativados por evidencia observada no proprio
+    arquivo, nunca por nome de editora.
+
+    ``editorial_detector_version`` e gravado SEMPRE que a classificacao roda -
+    e isso que distingue "classificado como UNKNOWN por evidencia
+    insuficiente" de "nao processado por esta versao".
+    """
+    if not rows:
+        return
+    profiles = detect_profiles(page_texts)
+    regions = detect_regions(page_texts)
+    total = len(page_texts)
+    for row in rows:
+        verdict = classify_editorial(
+            row.raw_text,
+            heading_path=row.heading_path or (),
+            page=row.page_start,
+            page_count=total,
+            regions=regions,
+            profiles=profiles,
+            chunk_type=row.chunk_type,
+        )
+        row.editorial_role = verdict.role
+        row.editorial_role_confidence = verdict.confidence
+        row.editorial_detector_version = verdict.detector_version
+        row.metadata_ = {**(row.metadata_ or {}), "editorial": verdict.as_metadata()}
 
 
 def _row(document: KnowledgeDocument, draft: ChunkDraft) -> KnowledgeChunk:

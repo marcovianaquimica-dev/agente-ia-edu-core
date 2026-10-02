@@ -81,6 +81,73 @@ _SOLUTION_VISIBILITY: Mapping[str, bool] = MappingProxyType(
     }
 )
 
+#: Papeis EDITORIAIS - funcao do chunk NA OBRA, ortogonal a ``chunk_type``.
+#:
+#:     chunk_type      forma e funcao pedagogica LOCAL (prosa, exercicio...)
+#:     editorial_role  funcao EDITORIAL na obra (conteudo, gabarito, sumario)
+#:
+#: ``TEACHER_GUIDE`` e papel proprio, separado de ``ANSWER_KEY``: a regiao do
+#: manual docente contem orientacao didatica que NAO e resposta.
+#:
+#: ``INDEX`` esta declarado e NAO foi observado nas tres obras do piloto -
+#: zero ocorrencias de "Indice remissivo". Entra como regra, nao como numero.
+EDITORIAL_ROLES: tuple[str, ...] = (
+    "CONTENT",
+    "TABLE_OF_CONTENTS",
+    "INDEX",
+    "ANSWER_KEY",
+    "TEACHER_GUIDE",
+    "REFERENCES",
+    "FRONT_MATTER",
+    "BACK_MATTER",
+    "UNKNOWN",
+)
+
+#: Elegibilidade por papel e por proposito.
+#:
+#: ``ANSWER_KEY`` herda exatamente a regra de ``SOLUTION`` da Fase 3.1 -
+#: fechado em PRACTICE e ASSESS, aberto em LEARN e AUTHOR. Sao dimensoes
+#: ortogonais que convergem, e basta UMA fechar para fechar.
+#:
+#: ``UNKNOWN`` e ELEGIVEL em tudo, e a razao e uma assimetria: um falso
+#: positivo esconde conteudo legitimo e ninguem percebe; um falso negativo
+#: apenas mantem o estado atual.
+#:
+#: ``TEACHER_GUIDE`` so em AUTHOR: orientacao docente e insumo de autoria,
+#: nao material de aprendizagem para o aluno.
+_ELIGIBILITY_BY_ROLE: Mapping[str, Mapping[str, bool]] = MappingProxyType(
+    {
+        "CONTENT": MappingProxyType(
+            {"LEARN": True, "PRACTICE": True, "ASSESS": True, "AUTHOR": True}
+        ),
+        "UNKNOWN": MappingProxyType(
+            {"LEARN": True, "PRACTICE": True, "ASSESS": True, "AUTHOR": True}
+        ),
+        "ANSWER_KEY": MappingProxyType(
+            {"LEARN": True, "PRACTICE": False, "ASSESS": False, "AUTHOR": True}
+        ),
+        "TEACHER_GUIDE": MappingProxyType(
+            {"LEARN": False, "PRACTICE": False, "ASSESS": False, "AUTHOR": True}
+        ),
+        "REFERENCES": MappingProxyType(
+            {"LEARN": False, "PRACTICE": False, "ASSESS": False, "AUTHOR": True}
+        ),
+        "TABLE_OF_CONTENTS": MappingProxyType(
+            {"LEARN": False, "PRACTICE": False, "ASSESS": False, "AUTHOR": False}
+        ),
+        "INDEX": MappingProxyType(
+            {"LEARN": False, "PRACTICE": False, "ASSESS": False, "AUTHOR": False}
+        ),
+        "FRONT_MATTER": MappingProxyType(
+            {"LEARN": False, "PRACTICE": False, "ASSESS": False, "AUTHOR": False}
+        ),
+        "BACK_MATTER": MappingProxyType(
+            {"LEARN": False, "PRACTICE": False, "ASSESS": False, "AUTHOR": False}
+        ),
+    }
+)
+
+
 #: Razoes nomeadas para um resultado vazio. STRICT_CORPUS exige que "nada
 #: encontrado" seja uma resposta EXPLICADA, nunca uma lista vazia muda e nunca
 #: um relaxamento silencioso de filtro.
@@ -94,6 +161,11 @@ EMPTY_RESULT_REASONS: tuple[str, ...] = (
     "FILTERED_OUT_BY_SOURCE_KIND",
     "FILTERED_OUT_BY_CONTENT_NODE",
     "EMPTY_INDEX",
+    "FILTERED_OUT_BY_EDITORIAL_ROLE",
+    # Ha chunks indexados, mas NENHUM pertence ao corpus estatistico
+    # elegivel. E diferente de indice vazio, e dizer "indice vazio" seria
+    # mentir sobre o estado do corpus.
+    "EMPTY_ELIGIBLE_CORPUS",
 )
 
 
@@ -151,16 +223,87 @@ class RetrievalPolicyV1:
         default_factory=lambda: _SOLUTION_VISIBILITY
     )
 
+    # -- estrutura editorial (Fase 5.1b) --------------------------------
+    #: Versao do detector editorial. Gravada POR CHUNK: coluna nula significa
+    #: "nao processado por esta versao", e ``UNKNOWN`` com versao preenchida
+    #: significa "classificado, e a evidencia nao bastou". Nao se confundem.
+    editorial_detector_version: str = "v1"
+    eligibility_by_role: Mapping[str, Mapping[str, bool]] = field(
+        default_factory=lambda: _ELIGIBILITY_BY_ROLE
+    )
+
     def snapshot(self) -> dict[str, object]:
-        """Dict JSON-serializavel com TUDO que afeta um score."""
-        out: dict[str, object] = {}
-        for item in fields(self):
-            value = getattr(self, item.name)
-            out[item.name] = dict(value) if isinstance(value, Mapping) else value
-        return out
+        """Dict JSON-serializavel com TUDO que afeta um score.
+
+        A conversao e RECURSIVA porque ``eligibility_by_role`` e um mapa de
+        mapas: converter so o nivel de cima deixava ``mappingproxy`` dentro, e
+        o Pydantic recusava serializar a resposta inteira.
+        """
+
+        def plain(value: object) -> object:
+            if isinstance(value, Mapping):
+                return {key: plain(item) for key, item in value.items()}
+            return value
+
+        return {item.name: plain(getattr(self, item.name)) for item in fields(self)}
 
 
 POLICY = RetrievalPolicyV1()
+
+
+def editorial_role_is_eligible(role: str | None, purpose: str | None) -> bool:
+    """O papel editorial admite recuperacao neste proposito?
+
+    Falha ABERTA, ao contrario de ``solution_is_visible``, e a inversao e
+    deliberada. Aqui o erro caro e o oposto: esconder conteudo legitimo e
+    invisivel - ninguem percebe um resultado que nao veio -, enquanto deixar
+    passar material editorial apenas mantem o estado de hoje. Papel que a
+    politica nao conhece e ELEGIVEL, por decisao explicita.
+
+    ``editorial_role`` e um ROTULO, nunca uma exclusao fisica: pagina,
+    origem, literal restrito, hashes e rastreabilidade seguem intactos.
+    """
+    mapa = POLICY.eligibility_by_role.get(role or "UNKNOWN")
+    if mapa is None:
+        return True
+    if purpose is None or purpose == UNKNOWN_PURPOSE:
+        # Proposito AUSENTE = contexto mais restritivo entre os declarados.
+        #
+        # Nao e "fecha tudo" nem "abre tudo". ``CONTENT`` e ``UNKNOWN``, que
+        # sao elegiveis nos quatro propositos, continuam elegiveis - fecha-los
+        # tornaria toda busca sem proposito vazia. E ``ANSWER_KEY``, fechado em
+        # PRACTICE, fica fechado - exatamente a regra da Fase 3.1, em que
+        # proposito desconhecido nao entrega gabarito.
+        return all(mapa.get(declarado, False) for declarado in RETRIEVAL_PURPOSES)
+    return mapa.get(purpose, False)
+
+
+def statistical_corpus_roles() -> tuple[str, ...]:
+    """Papeis que compoem o CORPUS ESTATISTICO - a base de ``df``, ``N`` e
+    ``avgdl``.
+
+    DERIVADO da tabela de elegibilidade, nao uma segunda lista: sao os papeis
+    com pelo menos um proposito aberto. Duas listas paralelas sairiam de
+    sincronia; esta nao pode.
+
+    Consequencia: aparato de navegacao - sumario, indice, front e back matter -
+    fica FORA da estatistica, porque nunca e recuperavel em proposito algum.
+    Era ele que inflava o ``df`` dos termos topicos: no baseline,
+    ``df(estequiometria) = 74`` incluia ocorrencias de sumario.
+
+    A definicao e determinista, versionada com a politica, observavel na
+    resposta e participa do ``query_fingerprint``.
+    """
+    return tuple(
+        sorted(
+            role
+            for role in EDITORIAL_ROLES
+            if any(
+                editorial_role_is_eligible(role, purpose)
+                for purpose in RETRIEVAL_PURPOSES
+            )
+        )
+    )
 
 
 def solution_is_visible(purpose: str | None) -> bool:

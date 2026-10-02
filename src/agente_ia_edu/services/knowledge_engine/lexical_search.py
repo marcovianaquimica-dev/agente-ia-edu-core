@@ -65,7 +65,9 @@ from ...knowledge_retrieval_policy.v1 import (
     POLICY,
     RETRIEVAL_PURPOSES,
     UNKNOWN_PURPOSE,
+    editorial_role_is_eligible,
     solution_is_visible,
+    statistical_corpus_roles,
 )
 from .lexical_index import GLOBAL_SCOPE
 from .lexical_tokenizer import (
@@ -111,6 +113,8 @@ class LexicalHit:
     page_end: int | None
     text_hash: str
     char_count: int | None
+    editorial_role: str
+    editorial_detector_version: str | None
     content_node_id: UUID | None
     bncc_node_codes: tuple[str, ...]
     document_id: UUID
@@ -142,6 +146,7 @@ class LexicalSearchResult:
     index_generation: int | None
     corpus_size: int
     avgdl: float
+    statistical_corpus_roles: tuple[str, ...]
     retrieval_mode: str
     lexical_backend: str
     retrieval_purpose: str
@@ -189,6 +194,8 @@ class _Candidate:
     page_end: int | None
     text_hash: str
     char_count: int | None
+    editorial_role: str
+    editorial_detector_version: str | None
     content_node_id: UUID | None
     bncc_node_codes: tuple[str, ...]
     document_id: UUID
@@ -253,9 +260,26 @@ class LexicalSearcher:
                 KnowledgeLexicalIndexState.scope == GLOBAL_SCOPE
             )
         )
+        # CORPUS ESTATISTICO (decisao 2 da Fase 5.1b). ``df``, ``N`` e
+        # ``avgdl`` sobre o corpus ELEGIVEL da politica versionada - nunca
+        # sobre o conjunto filtrado por uma consulta ocasional.
+        #
+        # A definicao e DERIVADA da tabela de elegibilidade (papeis com ao
+        # menos um proposito aberto): determinista, versionada, observavel na
+        # resposta e participante do ``query_fingerprint``.
+        #
+        # Era o aparato de navegacao que inflava o idf - no baseline,
+        # df(estequiometria) = 74 incluia ocorrencias de sumario.
+        corpus_roles = statistical_corpus_roles()
         corpus_size = (
             await self.session.scalar(
-                select(func.count()).select_from(KnowledgeChunkLexicalIndex)
+                select(func.count())
+                .select_from(KnowledgeChunkLexicalIndex)
+                .join(
+                    KnowledgeChunk,
+                    KnowledgeChunk.id == KnowledgeChunkLexicalIndex.chunk_id,
+                )
+                .where(KnowledgeChunk.editorial_role.in_(corpus_roles))
             )
         ) or 0
 
@@ -284,15 +308,35 @@ class LexicalSearcher:
             return await empty(("EMPTY_QUERY",))
         if not stream.terms:
             return await empty(("ALL_TERMS_BELOW_MIN_LENGTH",))
-        if not corpus_size or generation is None:
+        if generation is None:
             return await empty(("EMPTY_INDEX",))
+        if not corpus_size:
+            # Ha indice, mas nenhum chunk no corpus ESTATISTICO elegivel -
+            # um acervo so de sumario, por exemplo. Dizer "indice vazio"
+            # seria mentir sobre o estado do corpus.
+            indexados = (
+                await self.session.scalar(
+                    select(func.count()).select_from(KnowledgeChunkLexicalIndex)
+                )
+            ) or 0
+            return await empty(
+                ("EMPTY_ELIGIBLE_CORPUS",) if indexados else ("EMPTY_INDEX",),
+                filtered_out={"EDITORIAL_ROLE": indexados},
+            )
 
         terms = tuple(dict.fromkeys(stream.terms))
         document_frequency = dict(
             (
                 await self.session.execute(
                     select(KnowledgeChunkTerm.term, func.count())
-                    .where(KnowledgeChunkTerm.term.in_(terms))
+                    .join(
+                        KnowledgeChunk,
+                        KnowledgeChunk.id == KnowledgeChunkTerm.chunk_id,
+                    )
+                    .where(
+                        KnowledgeChunkTerm.term.in_(terms),
+                        KnowledgeChunk.editorial_role.in_(corpus_roles),
+                    )
                     .group_by(KnowledgeChunkTerm.term)
                 )
             ).all()
@@ -300,6 +344,12 @@ class LexicalSearcher:
         total_tokens = (
             await self.session.scalar(
                 select(func.coalesce(func.sum(KnowledgeChunkLexicalIndex.token_count), 0))
+                .select_from(KnowledgeChunkLexicalIndex)
+                .join(
+                    KnowledgeChunk,
+                    KnowledgeChunk.id == KnowledgeChunkLexicalIndex.chunk_id,
+                )
+                .where(KnowledgeChunk.editorial_role.in_(corpus_roles))
             )
         ) or 0
         avgdl = float(total_tokens) / corpus_size if corpus_size else 0.0
@@ -513,6 +563,8 @@ class LexicalSearcher:
                     KnowledgeChunk.page_end,
                     KnowledgeChunk.text_hash,
                     KnowledgeChunk.char_count,
+                    KnowledgeChunk.editorial_role,
+                    KnowledgeChunk.editorial_detector_version,
                     KnowledgeChunk.content_node_id,
                     KnowledgeChunk.bncc_node_codes,
                     KnowledgeChunk.document_id,
@@ -549,6 +601,8 @@ class LexicalSearcher:
                     page_end=row.page_end,
                     text_hash=row.text_hash,
                     char_count=row.char_count,
+                    editorial_role=row.editorial_role,
+                    editorial_detector_version=row.editorial_detector_version,
                     content_node_id=row.content_node_id,
                     bncc_node_codes=tuple(row.bncc_node_codes or ()),
                     document_id=row.document_id,
@@ -647,6 +701,16 @@ class LexicalSearcher:
         # e proposito ausente ou desconhecido FECHA.
         if candidate.chunk_type == _SOLUTION and not solution_is_visible(purpose):
             return "PURPOSE_SOLUTION"
+        # ELEGIBILIDADE EDITORIAL. Duas dimensoes ORTOGONAIS que convergem, e
+        # basta UMA fechar para fechar: ``chunk_type == SOLUTION`` e forma
+        # pedagogica local, ``editorial_role == ANSWER_KEY`` e funcao
+        # editorial na obra.
+        #
+        # Falha ABERTA, ao contrario do portao de SOLUTION: papel que a
+        # politica nao conhece e elegivel, porque esconder conteudo e o erro
+        # invisivel - ninguem percebe um resultado que nao veio.
+        if not editorial_role_is_eligible(candidate.editorial_role, purpose):
+            return "EDITORIAL_ROLE"
         if source_kinds and candidate.source_kind not in source_kinds:
             return "SOURCE_KIND"
         if chunk_types and candidate.chunk_type not in chunk_types:
@@ -695,6 +759,7 @@ class LexicalSearcher:
             "CHUNK_TYPE": "FILTERED_OUT_BY_CHUNK_TYPE",
             "CONTENT_NODE": "FILTERED_OUT_BY_CONTENT_NODE",
             "RIGHTS": "FILTERED_OUT_BY_RIGHTS",
+            "EDITORIAL_ROLE": "FILTERED_OUT_BY_EDITORIAL_ROLE",
             "PHRASE_REQUIRED": "FILTERED_OUT_BY_PHRASE",
         }
         return tuple(
@@ -869,6 +934,7 @@ class LexicalSearcher:
             index_generation=generation,
             corpus_size=corpus_size,
             avgdl=avgdl,
+            statistical_corpus_roles=statistical_corpus_roles(),
             retrieval_mode=POLICY.retrieval_mode,
             lexical_backend=POLICY.lexical_backend,
             retrieval_purpose=purpose,
@@ -909,6 +975,8 @@ class LexicalSearcher:
             page_end=candidate.page_end,
             text_hash=candidate.text_hash,
             char_count=candidate.char_count,
+            editorial_role=candidate.editorial_role,
+            editorial_detector_version=candidate.editorial_detector_version,
             content_node_id=candidate.content_node_id,
             bncc_node_codes=candidate.bncc_node_codes,
             document_id=candidate.document_id,
@@ -943,6 +1011,11 @@ def _fingerprint(
         "normalizer_version": POLICY.normalizer_version,
         "lexical_backend": POLICY.lexical_backend,
         "index_generation": generation,
+        # A definicao do corpus estatistico participa da identidade da foto:
+        # mudar os papeis elegiveis muda o idf de TODO termo, e isso nao pode
+        # passar em silencio entre duas medicoes.
+        "editorial_detector_version": POLICY.editorial_detector_version,
+        "statistical_corpus_roles": list(statistical_corpus_roles()),
     }
     blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()

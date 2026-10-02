@@ -71,6 +71,12 @@ class _BaseHitResponse(BaseModel):
     page_end: int | None
     char_count: int | None
     text_hash: str
+    #: Funcao EDITORIAL na obra, ortogonal a ``chunk_type``.
+    editorial_role: str
+    #: NULO = nao processado por versao alguma do detector. Com versao e
+    #: ``editorial_role = 'UNKNOWN'``, significa classificado e evidencia
+    #: insuficiente. Sao estados diferentes.
+    editorial_detector_version: str | None
     content_node_id: UUID | None
     bncc_node_codes: list[str]
     document_id: UUID
@@ -123,6 +129,10 @@ class LexicalSearchResponse(BaseModel):
     index_generation: int | None
     corpus_size: int
     avgdl: float
+    #: Papeis editoriais que compoem a base de ``df``/``N``/``avgdl``.
+    #: Derivado da tabela de elegibilidade, versionado, e participa do
+    #: ``query_fingerprint``.
+    statistical_corpus_roles: list[str]
 
     retrieval_mode: str
     lexical_backend: str
