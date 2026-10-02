@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..providers.contracts import EssayTranscriptionProvider
 from ..db.models import (
-    EssayBatchPage, EssayBatchUpload, EssayCorrection, PromptAssignment, Person, Student,
+    Class, EssayBatchPage, EssayBatchUpload, EssayCorrection, PromptAssignment, Person, Student,
     StudentEnrollment, EssaySubmission,
 )
 from ..providers.errors import ProviderError
@@ -484,6 +484,41 @@ class EssayBatchService:
             .order_by(Person.full_name)
         )).all()
         return [(student_id, full_name, document_number) for student_id, full_name, document_number in rows]
+
+    async def roster_for_batch(
+        self, batch: EssayBatchUpload
+    ) -> list[tuple[uuid.UUID, str, str | None]]:
+        """Roster de alunos ativos no escopo do lote: a turma unica (delega
+        pra class_roster, sem duplicar a query), todas as turmas da serie
+        (grade_level_id), ou a escola inteira (nenhum dos dois) - mesma
+        forma de retorno de class_roster em qualquer um dos 3 casos."""
+        if batch.class_id is not None:
+            return await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+
+        condicoes = [
+            StudentEnrollment.school_id == batch.school_id,
+            StudentEnrollment.status == "ACTIVE",
+        ]
+        if batch.grade_level_id is not None:
+            condicoes.append(
+                StudentEnrollment.class_id.in_(
+                    select(Class.id).where(
+                        Class.school_id == batch.school_id,
+                        Class.grade_level_id == batch.grade_level_id,
+                    )
+                )
+            )
+        rows = (await self.session.execute(
+            select(StudentEnrollment.student_id, Person.full_name, Person.document_number)
+            .join(Student, Student.id == StudentEnrollment.student_id)
+            .join(Person, Person.id == Student.person_id)
+            .where(*condicoes)
+            .order_by(Person.full_name)
+        )).all()
+        return [
+            (student_id, full_name, document_number)
+            for student_id, full_name, document_number in rows
+        ]
 
     async def _assignment_for_student(
         self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID, student_id: uuid.UUID
