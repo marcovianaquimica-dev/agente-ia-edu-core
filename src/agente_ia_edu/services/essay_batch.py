@@ -421,12 +421,22 @@ class EssayBatchService:
         *,
         school_id: uuid.UUID,
         essay_prompt_id: uuid.UUID,
-        class_id: uuid.UUID,
+        class_id: uuid.UUID | None = None,
+        grade_level_id: uuid.UUID | None = None,
         uploaded_by_external_identity: str,
         source_paths: list[Path],
     ) -> dict:
         """Cria o lote em PROCESSING com TODAS as suas paginas ja gravadas em
         MaterialStorage, e devolve os campos como dict simples.
+
+        class_id e grade_level_id sao mutuamente exclusivos - nenhum dos
+        dois (escola inteira), so class_id (turma unica, com checagem
+        antecipada de atribuicao como sempre) ou so grade_level_id (serie
+        inteira, sem checagem antecipada: cada corrida resolve a
+        atribuicao pela turma REAL do aluno matched via
+        _assignment_for_student, que ja trata gracilmente um aluno sem
+        atribuicao valida marcando a pagina NEEDS_REVIEW sem derrubar o
+        lote inteiro - ver _materialize_run).
 
         Os limites sao checados ANTES de qualquer escrita, pra que um envio
         recusado nao deixe meio lote no banco. total_pages e fixado aqui (os
@@ -437,14 +447,20 @@ class EssayBatchService:
         rota commita logo em seguida e expire_on_commit=True faria o proximo
         acesso a um atributo do objeto virar MissingGreenlet.
         """
-        await self._assignment_for_class_or_raise(
-            school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id
-        )
+        if class_id is not None and grade_level_id is not None:
+            raise ValueError(
+                "Escolha turma ou serie, nunca as duas - ou nenhuma para a escola inteira."
+            )
+        if class_id is not None:
+            await self._assignment_for_class_or_raise(
+                school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id
+            )
         page_images = await asyncio.to_thread(self._expand_to_page_images, source_paths)
 
         batch = EssayBatchUpload(
             id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
-            class_id=class_id, uploaded_by_external_identity=uploaded_by_external_identity,
+            class_id=class_id, grade_level_id=grade_level_id,
+            uploaded_by_external_identity=uploaded_by_external_identity,
             status="PROCESSING", total_pages=len(page_images),
         )
         self.session.add(batch)
@@ -461,6 +477,7 @@ class EssayBatchService:
         return {
             "id": batch.id, "school_id": batch.school_id,
             "essay_prompt_id": batch.essay_prompt_id, "class_id": batch.class_id,
+            "grade_level_id": batch.grade_level_id,
             "status": batch.status, "total_pages": batch.total_pages,
         }
 
