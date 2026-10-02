@@ -141,6 +141,20 @@
         .sintese-card .icone { font-size: 1.2rem; }
         .sintese-card p { margin: 0; font-size: 0.9rem; color: var(--text); line-height: 1.5; }
 
+        .plano-acao-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
+        .plano-acao-box {
+            border-radius: 10px; padding: 0.9rem 1rem; display: flex; gap: 0.6rem; align-items: flex-start;
+        }
+        .plano-acao-box .icone { font-size: 1.1rem; flex-shrink: 0; }
+        .plano-acao-titulo { font-size: 0.78rem; font-weight: 700; margin-bottom: 0.2rem; }
+        .plano-acao-box p { margin: 0; font-size: 0.87rem; color: var(--text); line-height: 1.45; }
+        .plano-acao-forte { background: var(--green-bg); }
+        .plano-acao-forte .plano-acao-titulo { color: var(--green); }
+        .plano-acao-atencao { background: var(--red-bg); }
+        .plano-acao-atencao .plano-acao-titulo { color: var(--red); }
+        .plano-acao-recomendacao { background: var(--blue-bg); }
+        .plano-acao-recomendacao .plano-acao-titulo { color: var(--blue); }
+
         .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: 100vh; width: 100%; }
         .login-card { background: #fff; border-radius: 14px; padding: 2.5rem; width: 320px; box-shadow: 0 4px 20px rgba(16, 24, 40, 0.12); }
         .login-card .brand { justify-content: center; margin-bottom: 1.5rem; }
