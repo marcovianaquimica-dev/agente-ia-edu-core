@@ -491,6 +491,22 @@ class KnowledgeChunkEmbedding(Base):
             sqlite_where=text("is_active"),
         ),
         Index("ix_knowledge_chunk_embeddings_chunk_id", "chunk_id"),
+        # UM vetor ativo por chunk, no acervo INTEIRO - repare que nao ha
+        # ``space_id`` aqui. E o que torna "a busca viu duas representacoes
+        # ativas do mesmo chunk em espacos diferentes" um estado que o banco
+        # nao consegue representar, em vez de um `if` que o servico de busca
+        # de hoje por acaso nao erra. Fase 6, migracao 063.
+        #
+        # Indice unico PARCIAL nao e DEFERRABLE no PostgreSQL, e e dai que
+        # sai o protocolo de troca: desativa o antigo, DEPOIS ativa o novo,
+        # na mesma transacao.
+        Index(
+            "uq_knowledge_chunk_embeddings_one_active_per_chunk",
+            "chunk_id",
+            unique=True,
+            postgresql_where=text("is_active"),
+            sqlite_where=text("is_active"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -504,5 +520,60 @@ class KnowledgeChunkEmbedding(Base):
     text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+
+
+class KnowledgeEmbeddingActivation(Base):
+    """O HISTORICO das trocas de espaco de embedding. Append-only.
+
+    Trocar de espaco muda o significado de toda busca vetorial do sistema.
+    "Por que o ranking mudou na quinta-feira?" precisa ter resposta, e
+    ``KnowledgeEmbeddingSpace.activated_at`` nao responde: guarda so a ultima
+    vez, e e sobrescrito no rollback.
+
+    Esta tabela grava o EVENTO, nao o estado - quem ativou o que, sobre qual
+    populacao, com que cobertura medida, e quais portoes foram aceitos
+    degradados num rollback de emergencia. ``previous_space_id`` encadeia os
+    eventos, de modo que a historia do acervo seja reconstruivel.
+    """
+
+    __tablename__ = "knowledge_embedding_activations"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('ACTIVATE', 'ROLLBACK')",
+            name="ck_knowledge_embedding_activations_action",
+        ),
+        Index("ix_knowledge_embedding_activations_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    space_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("knowledge_embedding_spaces.id", ondelete="RESTRICT"), nullable=False
+    )
+    previous_space_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_embedding_spaces.id", ondelete="RESTRICT")
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: Politica de backfill sob a qual a prontidao foi avaliada. Sem ela,
+    #: "cobertura 100%" nao significa nada: 100% de QUAL populacao?
+    policy: Mapped[str] = mapped_column(String(40), nullable=False)
+    expected_population: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligible_chunks: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedded: Mapped[int] = mapped_column(Integer, nullable=False)
+    missing: Mapped[int] = mapped_column(Integer, nullable=False)
+    stale: Mapped[int] = mapped_column(Integer, nullable=False)
+    dimension_violations: Mapped[int] = mapped_column(Integer, nullable=False)
+    activated_rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    deactivated_rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Rollback de emergencia que passou por cima de um portao. Verdadeiro
+    #: TEM de deixar rastro, com os portoes violados em ``violations``.
+    degraded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    violations: Mapped[list[Any]] = mapped_column(
+        JSONBCompatible, nullable=False, default=list
+    )
+    actor: Mapped[str | None] = mapped_column(String(100))
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )

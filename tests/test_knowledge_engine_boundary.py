@@ -46,6 +46,11 @@ INTERNAL_MODELS = frozenset(
         # o backend lexical e substituivel (spec 23.1).
         "KnowledgeChunkLexicalIndex",
         "KnowledgeLexicalIndexState",
+        # Fase 6: o historico de ativacao diz QUAL espaco de embedding vale.
+        # Um consumidor que o lesse passaria a depender da representacao
+        # vetorial - exatamente o acoplamento que "dimensao e dado, nao DDL"
+        # existe para evitar.
+        "KnowledgeEmbeddingActivation",
     }
 )
 

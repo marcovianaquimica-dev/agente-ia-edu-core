@@ -348,59 +348,27 @@ class EmbeddingBackfillService:
         *,
         include_roles: Sequence[str] | str | None = None,
     ) -> CoverageSnapshot:
-        """Quanto do corpus elegivel ja tem vetor NESTE espaco, e com o texto
-        de hoje. E a pergunta que decide se um espaco pode ser ativado."""
-        space = await self._space(space_id)
-        policy, roles = _resolve_policy(include_roles)
-        candidates = await self._candidates(roles, policy)
-        pending, present = await self._pending(space.id, candidates)
+        """Atalho para :func:`coverage`, a funcao de modulo.
 
-        pending_ids = {chunk.id for chunk in pending}
-        stale = 0
-        if pending_ids:
-            stale = (
-                await self._session.scalar(
-                    select(func.count(func.distinct(KnowledgeChunkEmbedding.chunk_id)))
-                    .where(KnowledgeChunkEmbedding.space_id == space.id)
-                    .where(KnowledgeChunkEmbedding.chunk_id.in_(pending_ids))
-                )
-            ) or 0
-
-        return CoverageSnapshot(
-            space_id=space.id,
-            policy=policy,
-            eligible_roles=roles,
-            eligible_chunks=len(candidates),
-            embedded=present,
-            missing=len(pending),
-            stale=stale,
-        )
+        A contagem vive fora da classe porque o servico de ATIVACAO precisa
+        exatamente dela e nao pode depender de um provider para obte-la. Duas
+        implementacoes de "o que falta" divergiriam, e divergiriam justamente
+        no momento em que a resposta decide se um espaco pode ser ativado.
+        """
+        return await coverage(self._session, space_id, include_roles=include_roles)
 
     # -- internos ---------------------------------------------------------
 
     async def _space(self, space_id: UUID) -> KnowledgeEmbeddingSpace:
-        space = await self._session.get(KnowledgeEmbeddingSpace, space_id)
-        if space is None:
-            raise EmbeddingSpaceNotFound(f"Espaco de embedding {space_id} nao existe")
-        return space
+        return await _load_space(self._session, space_id)
 
     def _candidate_query(self, roles: tuple[str, ...], policy: str):
-        query = select(KnowledgeChunk)
-        if policy == ELIGIBLE_ROLES_POLICY:
-            query = query.where(
-                func.coalesce(KnowledgeChunk.editorial_role, "UNKNOWN").in_(roles)
-            )
-        return query
+        return _candidate_query(roles, policy)
 
     async def _candidates(
         self, roles: tuple[str, ...], policy: str
     ) -> list[KnowledgeChunk]:
-        rows = await self._session.scalars(
-            self._candidate_query(roles, policy).order_by(
-                KnowledgeChunk.document_id, KnowledgeChunk.ordinal
-            )
-        )
-        return list(rows.all())
+        return await _candidates(self._session, roles, policy)
 
     async def _skipped(self, roles: tuple[str, ...], policy: str) -> int:
         if policy != ELIGIBLE_ROLES_POLICY:
@@ -411,7 +379,7 @@ class EmbeddingBackfillService:
         eligible = (
             await self._session.scalar(
                 select(func.count()).select_from(
-                    self._candidate_query(roles, policy).subquery()
+                    _candidate_query(roles, policy).subquery()
                 )
             )
         ) or 0
@@ -420,22 +388,7 @@ class EmbeddingBackfillService:
     async def _pending(
         self, space_id: UUID, candidates: Sequence[KnowledgeChunk]
     ) -> tuple[list[KnowledgeChunk], int]:
-        """Separa o que falta do que ja existe - ANTES de chamar o provider,
-        porque e a chamada que custa."""
-        if not candidates:
-            return [], 0
-        rows = await self._session.execute(
-            select(
-                KnowledgeChunkEmbedding.chunk_id, KnowledgeChunkEmbedding.text_hash
-            ).where(KnowledgeChunkEmbedding.space_id == space_id)
-        )
-        existing = {(chunk_id, text_hash) for chunk_id, text_hash in rows.all()}
-        pending = [
-            chunk
-            for chunk in candidates
-            if (chunk.id, chunk.text_hash) not in existing
-        ]
-        return pending, len(candidates) - len(pending)
+        return await _pending(self._session, space_id, candidates)
 
     async def _embed_batch(
         self,
@@ -480,6 +433,98 @@ class EmbeddingBackfillService:
             )
         )
         return None, calls
+
+
+async def _load_space(
+    session: AsyncSession, space_id: UUID
+) -> KnowledgeEmbeddingSpace:
+    space = await session.get(KnowledgeEmbeddingSpace, space_id)
+    if space is None:
+        raise EmbeddingSpaceNotFound(f"Espaco de embedding {space_id} nao existe")
+    return space
+
+
+def _candidate_query(roles: tuple[str, ...], policy: str):
+    query = select(KnowledgeChunk)
+    if policy == ELIGIBLE_ROLES_POLICY:
+        query = query.where(
+            func.coalesce(KnowledgeChunk.editorial_role, "UNKNOWN").in_(roles)
+        )
+    return query
+
+
+async def _candidates(
+    session: AsyncSession, roles: tuple[str, ...], policy: str
+) -> list[KnowledgeChunk]:
+    rows = await session.scalars(
+        _candidate_query(roles, policy).order_by(
+            KnowledgeChunk.document_id, KnowledgeChunk.ordinal
+        )
+    )
+    return list(rows.all())
+
+
+async def _pending(
+    session: AsyncSession, space_id: UUID, candidates: Sequence[KnowledgeChunk]
+) -> tuple[list[KnowledgeChunk], int]:
+    """Separa o que falta do que ja existe - ANTES de chamar o provider,
+    porque e a chamada que custa."""
+    if not candidates:
+        return [], 0
+    rows = await session.execute(
+        select(
+            KnowledgeChunkEmbedding.chunk_id, KnowledgeChunkEmbedding.text_hash
+        ).where(KnowledgeChunkEmbedding.space_id == space_id)
+    )
+    existing = {(chunk_id, text_hash) for chunk_id, text_hash in rows.all()}
+    pending = [
+        chunk for chunk in candidates if (chunk.id, chunk.text_hash) not in existing
+    ]
+    return pending, len(candidates) - len(pending)
+
+
+async def coverage(
+    session: AsyncSession,
+    space_id: UUID,
+    *,
+    include_roles: Sequence[str] | str | None = None,
+) -> CoverageSnapshot:
+    """Quanto do corpus elegivel ja tem vetor NESTE espaco, com o texto de hoje.
+
+    FUNCAO DE MODULO, e nao metodo, de proposito: quem decide ativar um
+    espaco precisa desta contagem e NAO pode precisar de um provider para
+    obte-la. Ver ``embedding_activation.py``.
+
+    Cuidado, e o passo 3 depende disto: esta resposta e uma RAZAO. Com o
+    corpus vazio, ``missing`` e zero e a cobertura e trivialmente completa.
+    Por isso ``coverage()`` sozinha nao autoriza ativacao - ver
+    ``ActivationReadiness``.
+    """
+    space = await _load_space(session, space_id)
+    policy, roles = _resolve_policy(include_roles)
+    candidates = await _candidates(session, roles, policy)
+    pending, present = await _pending(session, space.id, candidates)
+
+    pending_ids = {chunk.id for chunk in pending}
+    stale = 0
+    if pending_ids:
+        stale = (
+            await session.scalar(
+                select(func.count(func.distinct(KnowledgeChunkEmbedding.chunk_id)))
+                .where(KnowledgeChunkEmbedding.space_id == space.id)
+                .where(KnowledgeChunkEmbedding.chunk_id.in_(pending_ids))
+            )
+        ) or 0
+
+    return CoverageSnapshot(
+        space_id=space.id,
+        policy=policy,
+        eligible_roles=roles,
+        eligible_chunks=len(candidates),
+        embedded=present,
+        missing=len(pending),
+        stale=stale,
+    )
 
 
 def _canonical_text(chunk: KnowledgeChunk) -> str:

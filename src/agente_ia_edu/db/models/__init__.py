@@ -74,6 +74,7 @@ from .curriculum_bncc import CurriculumBnccLink, CurriculumBnccLinkReview
 from .knowledge_engine import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
+    KnowledgeEmbeddingActivation,
     KnowledgeChunkLexicalIndex,
     KnowledgeChunkTerm,
     KnowledgeDocument,
@@ -256,6 +257,8 @@ __all__ = [
     "KnowledgeChunkTerm",
     "KnowledgeEmbeddingSpace",
     "KnowledgeChunkEmbedding",
+    # CEREBRO / Fase 6 - historico de ativacao de espaco de embedding
+    "KnowledgeEmbeddingActivation",
     # CEREBRO / Fase 5 - estado do indice lexical
     "KnowledgeChunkLexicalIndex",
     "KnowledgeLexicalIndexState",

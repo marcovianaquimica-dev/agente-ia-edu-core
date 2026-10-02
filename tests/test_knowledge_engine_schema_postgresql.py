@@ -113,9 +113,17 @@ class KnowledgeEngineSchemaPostgreSQLTests(unittest.TestCase):
 
     # -- 2. vetores reais e o operador de distancia ----------------------
 
-    def _seed_chunk_and_space(self, connection, dimensions: int = 3):
-        """Semeia pelo ORM - o mesmo caminho que a producao usa."""
-        source_id, document_id, chunk_id, space_id = (uuid.uuid4() for _ in range(4))
+    def _seed_chunk_and_space(self, connection, dimensions: int = 3, chunks: int = 1):
+        """Semeia pelo ORM - o mesmo caminho que a producao usa.
+
+        ``chunks`` existe desde a Fase 6: a migracao 063 criou
+        ``uq_knowledge_chunk_embeddings_one_active_per_chunk``, e dois vetores
+        ATIVOS do mesmo chunk deixaram de ser representaveis. Quem precisa de
+        dois vetores para comparar pede dois chunks - que e, alias, o que a
+        producao tem.
+        """
+        source_id, document_id, space_id = (uuid.uuid4() for _ in range(3))
+        chunk_ids = [uuid.uuid4() for _ in range(chunks)]
         connection.execute(
             insert(KnowledgeSource).values(
                 id=source_id, title="Fonte", source_kind="TEXTBOOK",
@@ -128,19 +136,21 @@ class KnowledgeEngineSchemaPostgreSQLTests(unittest.TestCase):
                 storage_uri="/tmp/a.pdf", document_hash=uuid.uuid4().hex,
             )
         )
-        connection.execute(
-            insert(KnowledgeChunk).values(
-                id=chunk_id, source_id=source_id, document_id=document_id, ordinal=1,
-                chunk_type="PROSE", raw_text="texto", text_hash=uuid.uuid4().hex,
+        for ordinal, chunk_id in enumerate(chunk_ids, start=1):
+            connection.execute(
+                insert(KnowledgeChunk).values(
+                    id=chunk_id, source_id=source_id, document_id=document_id,
+                    ordinal=ordinal, chunk_type="PROSE", raw_text="texto",
+                    text_hash=uuid.uuid4().hex,
+                )
             )
-        )
         connection.execute(
             insert(KnowledgeEmbeddingSpace).values(
                 id=space_id, provider="fake", model=f"m{dimensions}-{space_id.hex[:8]}",
                 dimensions=dimensions, status="BACKFILLING",
             )
         )
-        return chunk_id, space_id
+        return chunk_ids[0] if chunks == 1 else tuple(chunk_ids), space_id
 
     def test_vector_round_trips_through_the_orm_into_a_real_vector_column(self):
         """O caminho que a producao usa: VectorCompatible vincula o parametro
@@ -200,8 +210,11 @@ class KnowledgeEngineSchemaPostgreSQLTests(unittest.TestCase):
         """Sem isto, o indice HNSW parcial por espaco da spec 5.4 nao seria
         viavel e o desenho inteiro de 'dimensao e dado' cairia."""
         with self.engine.begin() as connection:
-            chunk_id, space_id = self._seed_chunk_and_space(connection)
-            for index, vector in enumerate(([1.0, 0.0, 0.0], [0.0, 1.0, 0.0])):
+            # Dois CHUNKS, nao duas linhas do mesmo: ver ``_seed_chunk_and_space``.
+            chunk_ids, space_id = self._seed_chunk_and_space(connection, chunks=2)
+            for index, (chunk_id, vector) in enumerate(
+                zip(chunk_ids, ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]))
+            ):
                 connection.execute(
                     insert(KnowledgeChunkEmbedding).values(
                         id=uuid.uuid4(), chunk_id=chunk_id, space_id=space_id,
