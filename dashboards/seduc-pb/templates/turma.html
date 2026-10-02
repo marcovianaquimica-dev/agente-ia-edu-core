@@ -1,19 +1,42 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<h1>Turma</h1>
-<table>
-    <tr><th>Aluno</th><th>Nota</th><th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>Classificacao</th></tr>
-    {% for aluno in alunos %}
-    <tr>
-        <td>{{ aluno.nome_aluno }}</td>
-        <td>{{ aluno.nota_final }}</td>
-        <td>{{ aluno.c1 }}</td>
-        <td>{{ aluno.c2 }}</td>
-        <td>{{ aluno.c3 }}</td>
-        <td>{{ aluno.c4 }}</td>
-        <td>{{ aluno.c5 }}</td>
-        <td>{{ aluno.faixa_classificacao }}</td>
-    </tr>
-    {% endfor %}
-</table>
+{% set cores_faixa = {
+    "Muito baixo": "badge-muito-baixo",
+    "Baixo": "badge-baixo",
+    "Adequado": "badge-adequado",
+    "Alto": "badge-alto",
+    "Muito alto": "badge-muito-alto",
+} %}
+<div class="page-header">
+    <h1 class="page-title">Turma</h1>
+    <p class="page-subtitle">{{ alunos|length }} aluno(s) com redacao corrigida</p>
+</div>
+
+<div class="card">
+    {% if alunos %}
+    <div class="table-wrapper">
+    <table>
+        <thead>
+            <tr><th>Aluno</th><th>Nota</th><th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>Classificacao</th></tr>
+        </thead>
+        <tbody>
+            {% for aluno in alunos %}
+            <tr>
+                <td>{{ aluno.nome_aluno }}</td>
+                <td>{{ aluno.nota_final }}</td>
+                <td>{{ aluno.c1 }}</td>
+                <td>{{ aluno.c2 }}</td>
+                <td>{{ aluno.c3 }}</td>
+                <td>{{ aluno.c4 }}</td>
+                <td>{{ aluno.c5 }}</td>
+                <td><span class="badge {{ cores_faixa.get(aluno.faixa_classificacao, '') }}">{{ aluno.faixa_classificacao }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty-state">Nenhum aluno com redacao corrigida nesta turma ainda.</p>
+    {% endif %}
+</div>
 {% endblock %}

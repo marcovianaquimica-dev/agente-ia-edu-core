@@ -13,6 +13,7 @@ from snapshot_db import create_schema, get_connection, insert_redacoes
 REDACAO_EXEMPLO = {
     "id_redacao": "r1", "id_aluno": "a1", "nome_aluno": "Aluno Um",
     "escola_id": "e1", "escola_nome": "Escola Um",
+    "gre_nome": "1a GRE - Joao Pessoa", "municipio_nome": "Joao Pessoa",
     "turma_id": "t1", "turma_nome": "Turma A",
     "nota_final": 800, "c1": 160, "c2": 160, "c3": 160, "c4": 160, "c5": 160,
     "faixa_classificacao": "Alto", "posicao_geral": 1,
@@ -22,6 +23,7 @@ REDACAO_EXEMPLO = {
 REDACAO_ESCOLA_2 = {
     "id_redacao": "r2", "id_aluno": "a2", "nome_aluno": "Aluno Dois",
     "escola_id": "e2", "escola_nome": "Escola Dois",
+    "gre_nome": "3a GRE - Campina Grande", "municipio_nome": "Campina Grande",
     "turma_id": "t2", "turma_nome": "Turma B",
     # mesmas metricas agregadas da escola 1 de proposito - e o cenario do
     # finding #9: duas escolas com numeros identicos nao podem receber a
@@ -88,7 +90,8 @@ def test_login_valido_permite_acessar_visao_geral(snapshot_populado):
     assert resposta_login.status_code == 303
     resposta = cliente.get("/")
     assert resposta.status_code == 200
-    assert "Total de redacoes corrigidas: 1" in resposta.text
+    assert "Redacoes corrigidas" in resposta.text
+    assert '<div class="kpi-value">1</div>' in resposta.text
     assert "sintese de teste" in resposta.text
 
 
@@ -98,6 +101,44 @@ def test_ranking_lista_a_redacao_cadastrada(snapshot_populado):
     resposta = cliente.get("/ranking")
     assert resposta.status_code == 200
     assert "Aluno Um" in resposta.text
+
+
+def test_ranking_filtra_por_gre(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/ranking", params={"gre_nome": "3a GRE - Campina Grande"})
+    assert resposta.status_code == 200
+    assert "Aluno Dois" in resposta.text
+    assert "Aluno Um" not in resposta.text
+
+
+def test_tela_gres_lista_as_gres_agregadas(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/gres")
+    assert resposta.status_code == 200
+    assert "1a GRE - Joao Pessoa" in resposta.text
+    assert "3a GRE - Campina Grande" in resposta.text
+
+
+def test_tela_municipios_lista_os_municipios_agregados(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/municipios")
+    assert resposta.status_code == 200
+    assert "Joao Pessoa" in resposta.text
+    assert "Campina Grande" in resposta.text
+
+
+def test_gres_e_municipios_redirecionam_para_login_sem_sessao(snapshot_populado):
+    cliente = TestClient(app)
+    for rota in ("/gres", "/municipios"):
+        resposta = cliente.get(rota, follow_redirects=False)
+        assert resposta.status_code == 303
+        assert resposta.headers["location"] == "/login"
 
 
 # --- finding #1: sem secret key real nem modo dev, o app nao deve subir ---

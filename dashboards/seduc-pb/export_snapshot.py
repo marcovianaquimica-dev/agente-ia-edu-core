@@ -12,6 +12,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from faixas import classificar
+from gre_municipio import gre_de, municipio_de
 from ranking import calcular_ranking
 from snapshot_db import create_schema, get_connection, substituir_redacoes
 
@@ -53,12 +54,15 @@ def buscar_redacoes_aprovadas(pg_conn: psycopg.Connection) -> list[dict]:
 def montar_redacao_snapshot(linha: dict, posicao: int) -> dict:
     notas = linha["final_scores"]["per_competency"]
     nota_final = linha["final_scores"]["total"]
+    escola_id = str(linha["escola_id"])
     return {
         "id_redacao": str(linha["id_redacao"]),
         "id_aluno": str(linha["id_aluno"]),
         "nome_aluno": linha["nome_aluno"],
-        "escola_id": str(linha["escola_id"]),
+        "escola_id": escola_id,
         "escola_nome": linha["escola_nome"],
+        "gre_nome": gre_de(escola_id),
+        "municipio_nome": municipio_de(escola_id),
         "turma_id": str(linha["turma_id"]) if linha["turma_id"] else None,
         "turma_nome": linha["turma_nome"],
         "nota_final": nota_final,

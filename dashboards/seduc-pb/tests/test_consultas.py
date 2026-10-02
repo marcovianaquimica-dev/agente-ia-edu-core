@@ -2,8 +2,10 @@ import pytest
 
 from consultas import (
     buscar_escolas,
+    buscar_gres,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
+    buscar_municipios,
     buscar_nome_escola,
     buscar_ranking,
     buscar_redacoes_por_turma,
@@ -17,6 +19,7 @@ REDACOES = [
     {
         "id_redacao": "r1", "id_aluno": "a1", "nome_aluno": "Aluno Um",
         "escola_id": "e1", "escola_nome": "Escola Um",
+        "gre_nome": "1a GRE - Joao Pessoa", "municipio_nome": "Joao Pessoa",
         "turma_id": "t1", "turma_nome": "Turma A",
         "nota_final": 900, "c1": 180, "c2": 180, "c3": 180, "c4": 180, "c5": 180,
         "faixa_classificacao": "Muito alto", "posicao_geral": 1,
@@ -25,6 +28,7 @@ REDACOES = [
     {
         "id_redacao": "r2", "id_aluno": "a2", "nome_aluno": "Aluno Dois",
         "escola_id": "e1", "escola_nome": "Escola Um",
+        "gre_nome": "1a GRE - Joao Pessoa", "municipio_nome": "Joao Pessoa",
         "turma_id": "t1", "turma_nome": "Turma A",
         "nota_final": 700, "c1": 140, "c2": 140, "c3": 140, "c4": 140, "c5": 140,
         "faixa_classificacao": "Adequado", "posicao_geral": 2,
@@ -33,6 +37,7 @@ REDACOES = [
     {
         "id_redacao": "r3", "id_aluno": "a3", "nome_aluno": "Aluno Tres",
         "escola_id": "e2", "escola_nome": "Escola Dois",
+        "gre_nome": "3a GRE - Campina Grande", "municipio_nome": "Campina Grande",
         "turma_id": None, "turma_nome": None,
         "nota_final": 500, "c1": 100, "c2": 100, "c3": 100, "c4": 100, "c5": 100,
         "faixa_classificacao": "Baixo", "posicao_geral": 3,
@@ -106,6 +111,37 @@ def test_buscar_ranking_inclui_escola_id_para_permitir_link_na_tela(conn):
     assert all("escola_id" in linha for linha in linhas)
     primeira = next(linha for linha in linhas if linha["nome_aluno"] == "Aluno Um")
     assert primeira["escola_id"] == "e1"
+
+
+def test_buscar_ranking_filtra_por_gre(conn):
+    linhas = buscar_ranking(conn, gre_nome="3a GRE - Campina Grande")
+    assert [linha["nome_aluno"] for linha in linhas] == ["Aluno Tres"]
+
+
+def test_buscar_ranking_filtra_por_municipio(conn):
+    linhas = buscar_ranking(conn, municipio_nome="Joao Pessoa")
+    assert [linha["nome_aluno"] for linha in linhas] == ["Aluno Um", "Aluno Dois"]
+
+
+def test_buscar_gres_agrega_por_gre_ordenado_por_media_desc(conn):
+    linhas = buscar_gres(conn)
+    assert [linha["nome"] for linha in linhas] == [
+        "1a GRE - Joao Pessoa", "3a GRE - Campina Grande",
+    ]
+    joao_pessoa = linhas[0]
+    assert joao_pessoa["total"] == 2
+    assert joao_pessoa["media"] == pytest.approx(800.0, abs=0.1)
+    assert joao_pessoa["media_c1"] == pytest.approx(160.0, abs=0.1)
+    assert joao_pessoa["percentual_800"] == pytest.approx(50.0, abs=0.1)
+
+
+def test_buscar_municipios_agrega_por_municipio(conn):
+    linhas = buscar_municipios(conn)
+    assert [linha["nome"] for linha in linhas] == ["Joao Pessoa", "Campina Grande"]
+    campina_grande = linhas[1]
+    assert campina_grande["total"] == 1
+    assert campina_grande["media"] == pytest.approx(500.0, abs=0.1)
+    assert campina_grande["percentual_800"] == pytest.approx(0.0, abs=0.1)
 
 
 def test_buscar_redacoes_por_turma(conn):

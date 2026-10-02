@@ -20,6 +20,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             nome_aluno TEXT NOT NULL,
             escola_id TEXT NOT NULL,
             escola_nome TEXT NOT NULL,
+            gre_nome TEXT NOT NULL,
+            municipio_nome TEXT NOT NULL,
             turma_id TEXT,
             turma_nome TEXT,
             nota_final INTEGER NOT NULL,
@@ -58,6 +60,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
 CAMPOS_REDACAO = [
     "id_redacao", "id_aluno", "nome_aluno", "escola_id", "escola_nome",
+    "gre_nome", "municipio_nome",
     "turma_id", "turma_nome", "nota_final", "c1", "c2", "c3", "c4", "c5",
     "faixa_classificacao", "posicao_geral", "data_correcao",
 ]

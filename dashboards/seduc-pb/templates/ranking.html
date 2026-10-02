@@ -1,48 +1,99 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<h1>Ranking</h1>
-<form method="get" action="/ranking">
-    <select name="escola_id">
-        <option value="">Todas as escolas</option>
-        {% for escola in escolas %}
-        <option value="{{ escola.escola_id }}" {% if escola_id == escola.escola_id %}selected{% endif %}>{{ escola.escola_nome }}</option>
-        {% endfor %}
-    </select>
-    <select name="turma_id">
-        <option value="">Todas as turmas</option>
-        {% for turma in turmas %}
-        <option value="{{ turma.turma_id }}" {% if turma_id == turma.turma_id %}selected{% endif %}>{{ turma.turma_nome }}</option>
-        {% endfor %}
-    </select>
-    <select name="ordenar_por">
-        <option value="nota_final" {% if ordenar_por == "nota_final" %}selected{% endif %}>Nota</option>
-        <option value="c1" {% if ordenar_por == "c1" %}selected{% endif %}>C1</option>
-        <option value="c2" {% if ordenar_por == "c2" %}selected{% endif %}>C2</option>
-        <option value="c3" {% if ordenar_por == "c3" %}selected{% endif %}>C3</option>
-        <option value="c4" {% if ordenar_por == "c4" %}selected{% endif %}>C4</option>
-        <option value="c5" {% if ordenar_por == "c5" %}selected{% endif %}>C5</option>
-    </select>
+{% set cores_faixa = {
+    "Muito baixo": "badge-muito-baixo",
+    "Baixo": "badge-baixo",
+    "Adequado": "badge-adequado",
+    "Alto": "badge-alto",
+    "Muito alto": "badge-muito-alto",
+} %}
+<div class="page-header">
+    <h1 class="page-title">Ranking</h1>
+    <p class="page-subtitle">Posicao dos alunos por nota, com filtros por GRE, municipio, escola e turma</p>
+</div>
+
+<form class="filter-bar" method="get" action="/ranking">
+    <div class="filter-field">
+        <label>GRE</label>
+        <select name="gre_nome">
+            <option value="">Todas</option>
+            {% for gre in gres %}
+            <option value="{{ gre.nome }}" {% if gre.nome == gre_nome %}selected{% endif %}>{{ gre.nome }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-field">
+        <label>Municipio</label>
+        <select name="municipio_nome">
+            <option value="">Todos</option>
+            {% for municipio in municipios %}
+            <option value="{{ municipio.nome }}" {% if municipio.nome == municipio_nome %}selected{% endif %}>{{ municipio.nome }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-field">
+        <label>Escola</label>
+        <select name="escola_id">
+            <option value="">Todas</option>
+            {% for escola in escolas %}
+            <option value="{{ escola.escola_id }}" {% if escola.escola_id == escola_id %}selected{% endif %}>{{ escola.escola_nome }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-field">
+        <label>Turma</label>
+        <select name="turma_id">
+            <option value="">Todas</option>
+            {% for turma in turmas %}
+            <option value="{{ turma.turma_id }}" {% if turma.turma_id == turma_id %}selected{% endif %}>{{ turma.turma_nome }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-field">
+        <label>Ordenar por</label>
+        <select name="ordenar_por">
+            <option value="nota_final" {% if ordenar_por == "nota_final" %}selected{% endif %}>Nota</option>
+            <option value="c1" {% if ordenar_por == "c1" %}selected{% endif %}>C1</option>
+            <option value="c2" {% if ordenar_por == "c2" %}selected{% endif %}>C2</option>
+            <option value="c3" {% if ordenar_por == "c3" %}selected{% endif %}>C3</option>
+            <option value="c4" {% if ordenar_por == "c4" %}selected{% endif %}>C4</option>
+            <option value="c5" {% if ordenar_por == "c5" %}selected{% endif %}>C5</option>
+        </select>
+    </div>
     <button type="submit">Filtrar</button>
 </form>
-<table>
-    <tr>
-        <th>Posicao</th><th>Aluno</th><th>Escola</th><th>Turma</th><th>Nota</th>
-        <th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>Classificacao</th>
-    </tr>
-    {% for linha in linhas %}
-    <tr>
-        <td>{{ linha.posicao_geral }}</td>
-        <td>{{ linha.nome_aluno }}</td>
-        <td><a href="/escola/{{ linha.escola_id }}">{{ linha.escola_nome }}</a></td>
-        <td>{{ linha.turma_nome or "-" }}</td>
-        <td>{{ linha.nota_final }}</td>
-        <td>{{ linha.c1 }}</td>
-        <td>{{ linha.c2 }}</td>
-        <td>{{ linha.c3 }}</td>
-        <td>{{ linha.c4 }}</td>
-        <td>{{ linha.c5 }}</td>
-        <td>{{ linha.faixa_classificacao }}</td>
-    </tr>
-    {% endfor %}
-</table>
+
+<div class="card">
+    {% if linhas %}
+    <div class="table-wrapper">
+    <table>
+        <thead>
+            <tr>
+                <th>Posicao</th><th>Aluno</th><th>Escola</th><th>Turma</th><th>Nota</th>
+                <th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>Classificacao</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for linha in linhas %}
+            <tr>
+                <td>{{ linha.posicao_geral }}</td>
+                <td>{{ linha.nome_aluno }}</td>
+                <td><a class="link-tabela" href="/escola/{{ linha.escola_id }}">{{ linha.escola_nome }}</a></td>
+                <td>{{ linha.turma_nome or "-" }}</td>
+                <td>{{ linha.nota_final }}</td>
+                <td>{{ linha.c1 }}</td>
+                <td>{{ linha.c2 }}</td>
+                <td>{{ linha.c3 }}</td>
+                <td>{{ linha.c4 }}</td>
+                <td>{{ linha.c5 }}</td>
+                <td><span class="badge {{ cores_faixa.get(linha.faixa_classificacao, '') }}">{{ linha.faixa_classificacao }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty-state">Nenhuma redacao encontrada para esse filtro.</p>
+    {% endif %}
+</div>
 {% endblock %}

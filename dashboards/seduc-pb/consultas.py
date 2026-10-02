@@ -63,6 +63,38 @@ def buscar_escolas(conn: sqlite3.Connection) -> list[dict]:
     return [dict(linha) for linha in linhas]
 
 
+def _agregado_por_coluna(conn: sqlite3.Connection, coluna_agrupamento: str) -> list[dict]:
+    # coluna_agrupamento e sempre um literal fixo escolhido pelas duas
+    # funcoes abaixo (nunca vem de entrada do usuario), entao interpolar o
+    # nome da coluna aqui e seguro.
+    linhas = conn.execute(
+        f"""
+        SELECT {coluna_agrupamento} AS nome,
+               COUNT(*) AS total,
+               ROUND(AVG(nota_final), 1) AS media,
+               ROUND(AVG(c1), 1) AS media_c1,
+               ROUND(AVG(c2), 1) AS media_c2,
+               ROUND(AVG(c3), 1) AS media_c3,
+               ROUND(AVG(c4), 1) AS media_c4,
+               ROUND(AVG(c5), 1) AS media_c5,
+               ROUND(100.0 * SUM(CASE WHEN nota_final >= 800 THEN 1 ELSE 0 END) / COUNT(*), 1)
+                   AS percentual_800
+        FROM redacoes
+        GROUP BY {coluna_agrupamento}
+        ORDER BY media DESC
+        """
+    ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def buscar_gres(conn: sqlite3.Connection) -> list[dict]:
+    return _agregado_por_coluna(conn, "gre_nome")
+
+
+def buscar_municipios(conn: sqlite3.Connection) -> list[dict]:
+    return _agregado_por_coluna(conn, "municipio_nome")
+
+
 def buscar_turmas_por_escola(conn: sqlite3.Connection, escola_id: str) -> list[dict]:
     linhas = conn.execute(
         """
@@ -109,6 +141,8 @@ def buscar_ranking(
     conn: sqlite3.Connection,
     escola_id: str | None = None,
     turma_id: str | None = None,
+    gre_nome: str | None = None,
+    municipio_nome: str | None = None,
     ordenar_por: str = "nota_final",
 ) -> list[dict]:
     if ordenar_por not in ORDENACOES_VALIDAS:
@@ -121,10 +155,17 @@ def buscar_ranking(
     if turma_id:
         condicoes.append("turma_id = ?")
         parametros.append(turma_id)
+    if gre_nome:
+        condicoes.append("gre_nome = ?")
+        parametros.append(gre_nome)
+    if municipio_nome:
+        condicoes.append("municipio_nome = ?")
+        parametros.append(municipio_nome)
     where = f"WHERE {' AND '.join(condicoes)}" if condicoes else ""
     linhas = conn.execute(
         f"""
-        SELECT posicao_geral, nome_aluno, escola_id, escola_nome, turma_nome,
+        SELECT posicao_geral, nome_aluno, escola_id, escola_nome, gre_nome,
+               municipio_nome, turma_nome,
                nota_final, c1, c2, c3, c4, c5, faixa_classificacao
         FROM redacoes
         {where}

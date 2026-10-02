@@ -38,6 +38,8 @@ REDACAO_EXEMPLO = {
     "nome_aluno": "Aluno Um",
     "escola_id": "e1",
     "escola_nome": "Escola Um",
+    "gre_nome": "1a GRE - Joao Pessoa",
+    "municipio_nome": "Joao Pessoa",
     "turma_id": "t1",
     "turma_nome": "Turma A",
     "nota_final": 800,

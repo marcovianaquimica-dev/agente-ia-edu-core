@@ -13,8 +13,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from auth import verificar_login
 from consultas import (
     buscar_escolas,
+    buscar_gres,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
+    buscar_municipios,
     buscar_nome_escola,
     buscar_ranking,
     buscar_redacoes_por_turma,
@@ -128,13 +130,24 @@ def ranking(
     conn: sqlite3.Connection = Depends(obter_snapshot),
     escola_id: str | None = None,
     turma_id: str | None = None,
+    gre_nome: str | None = None,
+    municipio_nome: str | None = None,
     ordenar_por: str = "nota_final",
 ):
     if login is None:
         return RedirectResponse("/login", status_code=303)
-    linhas = buscar_ranking(conn, escola_id=escola_id, turma_id=turma_id, ordenar_por=ordenar_por)
+    linhas = buscar_ranking(
+        conn,
+        escola_id=escola_id,
+        turma_id=turma_id,
+        gre_nome=gre_nome,
+        municipio_nome=municipio_nome,
+        ordenar_por=ordenar_por,
+    )
     escolas = buscar_escolas(conn)
     turmas = buscar_turmas_por_escola(conn, escola_id) if escola_id else []
+    gres = buscar_gres(conn)
+    municipios = buscar_municipios(conn)
     return templates.TemplateResponse(
         request=request,
         name="ranking.html",
@@ -143,10 +156,42 @@ def ranking(
             "linhas": linhas,
             "escolas": escolas,
             "turmas": turmas,
+            "gres": gres,
+            "municipios": municipios,
             "ordenar_por": ordenar_por,
             "escola_id": escola_id,
             "turma_id": turma_id,
+            "gre_nome": gre_nome,
+            "municipio_nome": municipio_nome,
         },
+    )
+
+
+@app.get("/gres", response_class=HTMLResponse)
+def gres(
+    request: Request,
+    login: str | None = Depends(usuario_logado),
+    conn: sqlite3.Connection = Depends(obter_snapshot),
+):
+    if login is None:
+        return RedirectResponse("/login", status_code=303)
+    linhas = buscar_gres(conn)
+    return templates.TemplateResponse(
+        request=request, name="gres.html", context={"login": login, "linhas": linhas}
+    )
+
+
+@app.get("/municipios", response_class=HTMLResponse)
+def municipios(
+    request: Request,
+    login: str | None = Depends(usuario_logado),
+    conn: sqlite3.Connection = Depends(obter_snapshot),
+):
+    if login is None:
+        return RedirectResponse("/login", status_code=303)
+    linhas = buscar_municipios(conn)
+    return templates.TemplateResponse(
+        request=request, name="municipios.html", context={"login": login, "linhas": linhas}
     )
 
 
