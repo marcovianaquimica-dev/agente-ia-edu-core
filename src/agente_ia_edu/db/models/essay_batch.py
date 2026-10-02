@@ -65,6 +65,12 @@ class EssayBatchUpload(Base):
             ondelete="RESTRICT",
             name="fk_essay_batch_uploads_school_class",
         ),
+        ForeignKeyConstraint(
+            ["school_id", "grade_level_id"],
+            ["grade_levels.school_id", "grade_levels.id"],
+            ondelete="RESTRICT",
+            name="fk_essay_batch_uploads_school_grade_level",
+        ),
         UniqueConstraint("school_id", "id", name="uq_essay_batch_uploads_school_id_id"),
         CheckConstraint(
             "status IN ('PROCESSING', 'DONE')", name="ck_essay_batch_uploads_status"
@@ -72,15 +78,23 @@ class EssayBatchUpload(Base):
         CheckConstraint(
             "total_pages >= 0", name="ck_essay_batch_uploads_total_pages_non_negative"
         ),
+        CheckConstraint(
+            "(class_id IS NOT NULL AND grade_level_id IS NULL) OR "
+            "(class_id IS NULL AND grade_level_id IS NOT NULL) OR "
+            "(class_id IS NULL AND grade_level_id IS NULL)",
+            name="ck_essay_batch_uploads_scope",
+        ),
         Index("ix_essay_batch_uploads_school_id", "school_id"),
         Index("ix_essay_batch_uploads_essay_prompt_id", "essay_prompt_id"),
         Index("ix_essay_batch_uploads_class_id", "class_id"),
+        Index("ix_essay_batch_uploads_grade_level_id", "grade_level_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     school_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     essay_prompt_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    class_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    class_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    grade_level_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     uploaded_by_external_identity: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PROCESSING")
     total_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
