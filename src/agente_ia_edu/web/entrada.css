@@ -24,25 +24,15 @@
   max-width: 640px;
 }
 
-.entrada-brand {
+.entrada-hero {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  justify-content: center;
   margin-bottom: 4px;
 }
 
-.entrada-brand .brand-logo {
-  font-size: 32px;
-}
-
-.entrada-brand .brand-text {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--text-main);
-}
-
-.entrada-brand .brand-text span {
-  color: var(--primary);
+.entrada-hero-logo {
+  width: min(100%, 360px);
+  height: auto;
 }
 
 .entrada-identity-box {
