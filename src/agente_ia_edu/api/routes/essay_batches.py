@@ -20,10 +20,11 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayBatchPage, EssayBatchUpload, School
+from ...db.models import EssayBatchPage, EssayBatchUpload, GradeLevel, School
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_batch import ALLOWED_BATCH_SUFFIXES, EssayBatchService
@@ -50,7 +51,8 @@ class EssayBatchCreatedResponse(BaseModel):
     id: UUID
     school_id: UUID
     essay_prompt_id: UUID
-    class_id: UUID
+    class_id: Optional[UUID] = None
+    grade_level_id: Optional[UUID] = None
     status: str
     total_pages: int
 
@@ -79,7 +81,8 @@ class EssayBatchStatusResponse(BaseModel):
     id: UUID
     school_id: UUID
     essay_prompt_id: UUID
-    class_id: UUID
+    class_id: Optional[UUID] = None
+    grade_level_id: Optional[UUID] = None
     status: str
     total_pages: int
     matched_count: int
@@ -142,7 +145,8 @@ async def _run_batch_processing_in_background(batch_id: UUID, session_factory) -
 async def create_essay_batch(
     background_tasks: BackgroundTasks,
     essay_prompt_id: UUID = Form(...),
-    class_id: UUID = Form(...),
+    class_id: Optional[UUID] = Form(None),
+    grade_level_id: Optional[UUID] = Form(None),
     files: list[UploadFile] = File(...),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
@@ -150,10 +154,20 @@ async def create_essay_batch(
     """Devolve 202 assim que o lote esta gravado, SEM esperar o processamento -
     o professor acompanha por GET /{batch_id} (spec s5).
 
+    class_id e grade_level_id sao mutuamente exclusivos (turma unica, serie
+    inteira, ou nenhum dos dois = escola inteira) - checado aqui ANTES de
+    processar qualquer arquivo, pra falhar rapido em vez de so depois de
+    receber ate 60 paginas de foto.
+
     Streaming em pedacos de 1MB pra um arquivo temporario, checando o tamanho a
     cada pedaco, exatamente como upload_prompt_material ja faz: um upload
     gigante nunca chega a virar um arquivo em MaterialStorage.
     """
+    if class_id is not None and grade_level_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Escolha turma ou serie, nunca as duas - ou nenhuma para a escola inteira.",
+        )
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
 
@@ -182,7 +196,8 @@ async def create_essay_batch(
 
             try:
                 created = await build_batch_service(session).create_batch(
-                    school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id,
+                    school_id=school_id, essay_prompt_id=essay_prompt_id,
+                    class_id=class_id, grade_level_id=grade_level_id,
                     uploaded_by_external_identity=identity.external_user_id,
                     source_paths=source_paths,
                 )
@@ -202,6 +217,25 @@ async def create_essay_batch(
         _run_batch_processing_in_background, response.id, session_factory
     )
     return response
+
+
+@essay_batches_router.get("/grade-levels")
+async def list_grade_levels_for_batch(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[dict]:
+    """Series (GradeLevel) da escola do professor, pro seletor de abrangencia
+    do envio em lote - dado real (GradeLevel.name), diferente do campo
+    grade_level hardcoded que /api/v1/teacher/classrooms expoe hoje (bug
+    pre-existente, fora de escopo desta rota)."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        rows = (await session.execute(
+            select(GradeLevel.id, GradeLevel.name)
+            .where(GradeLevel.school_id == school_id)
+            .order_by(GradeLevel.ordinal)
+        )).all()
+        return [{"id": str(row.id), "name": row.name} for row in rows]
 
 
 @essay_batches_router.get("/{batch_id}", response_model=EssayBatchStatusResponse)
