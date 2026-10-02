@@ -176,6 +176,63 @@ def buscar_ranking(
     return [dict(linha) for linha in linhas]
 
 
+def _medias_competencia(
+    conn: sqlite3.Connection, condicao_sql: str = "", parametros: tuple = ()
+) -> dict:
+    linha = conn.execute(
+        f"""
+        SELECT ROUND(AVG(c1), 1) AS c1, ROUND(AVG(c2), 1) AS c2, ROUND(AVG(c3), 1) AS c3,
+               ROUND(AVG(c4), 1) AS c4, ROUND(AVG(c5), 1) AS c5
+        FROM redacoes
+        {condicao_sql}
+        """,
+        parametros,
+    ).fetchone()
+    return {
+        "c1": linha["c1"] or 0,
+        "c2": linha["c2"] or 0,
+        "c3": linha["c3"] or 0,
+        "c4": linha["c4"] or 0,
+        "c5": linha["c5"] or 0,
+    }
+
+
+def buscar_medias_competencia_geral(conn: sqlite3.Connection) -> dict:
+    return _medias_competencia(conn)
+
+
+def buscar_medias_competencia_por_escola(conn: sqlite3.Connection, escola_id: str) -> dict:
+    return _medias_competencia(conn, "WHERE escola_id = ?", (escola_id,))
+
+
+def buscar_medias_competencia_por_turma(conn: sqlite3.Connection, turma_id: str) -> dict:
+    return _medias_competencia(conn, "WHERE turma_id = ?", (turma_id,))
+
+
+def buscar_medias_competencia_por_gre(conn: sqlite3.Connection, gre_nome: str) -> dict:
+    return _medias_competencia(conn, "WHERE gre_nome = ?", (gre_nome,))
+
+
+def buscar_medias_competencia_por_municipio(conn: sqlite3.Connection, municipio_nome: str) -> dict:
+    return _medias_competencia(conn, "WHERE municipio_nome = ?", (municipio_nome,))
+
+
+def buscar_gre_e_municipio_da_escola(conn: sqlite3.Connection, escola_id: str) -> tuple[str, str] | None:
+    linha = conn.execute(
+        "SELECT gre_nome, municipio_nome FROM redacoes WHERE escola_id = ? LIMIT 1",
+        (escola_id,),
+    ).fetchone()
+    return (linha["gre_nome"], linha["municipio_nome"]) if linha is not None else None
+
+
+def buscar_escola_da_turma(conn: sqlite3.Connection, turma_id: str) -> tuple[str, str] | None:
+    linha = conn.execute(
+        "SELECT escola_id, escola_nome FROM redacoes WHERE turma_id = ? LIMIT 1",
+        (turma_id,),
+    ).fetchone()
+    return (linha["escola_id"], linha["escola_nome"]) if linha is not None else None
+
+
 def buscar_redacoes_por_turma(conn: sqlite3.Connection, turma_id: str) -> list[dict]:
     linhas = conn.execute(
         """

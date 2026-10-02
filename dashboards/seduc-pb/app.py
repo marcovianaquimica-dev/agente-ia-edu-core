@@ -12,8 +12,15 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from auth import verificar_login
 from consultas import (
+    buscar_escola_da_turma,
     buscar_escolas,
+    buscar_gre_e_municipio_da_escola,
     buscar_gres,
+    buscar_medias_competencia_geral,
+    buscar_medias_competencia_por_escola,
+    buscar_medias_competencia_por_gre,
+    buscar_medias_competencia_por_municipio,
+    buscar_medias_competencia_por_turma,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
     buscar_municipios,
@@ -73,6 +80,32 @@ def usuario_logado(request: Request) -> str | None:
     return request.session.get("login")
 
 
+CORES_SERIE = ["#2f6fed", "#16a34a", "#d97706", "#7c3aed"]
+COMPETENCIAS_SEM_DADOS = {"c1": 0, "c2": 0, "c3": 0, "c4": 0, "c5": 0}
+
+
+def _valores_competencia(medias: dict) -> list:
+    return [medias["c1"], medias["c2"], medias["c3"], medias["c4"], medias["c5"]]
+
+
+def _dados_grafico_competencia_unica(medias: dict) -> dict:
+    return {"labels": ["C1", "C2", "C3", "C4", "C5"], "valores": _valores_competencia(medias)}
+
+
+def _dados_grafico_comparacao(series: list[tuple[str, dict]]) -> dict:
+    return {
+        "labels": ["C1", "C2", "C3", "C4", "C5"],
+        "series": [
+            {
+                "nome": nome,
+                "valores": _valores_competencia(medias),
+                "cor": CORES_SERIE[indice % len(CORES_SERIE)],
+            }
+            for indice, (nome, medias) in enumerate(series)
+        ],
+    }
+
+
 @app.get("/login", response_class=HTMLResponse)
 def tela_login(request: Request):
     return templates.TemplateResponse(request=request, name="login.html", context={"erro": None})
@@ -116,10 +149,26 @@ def visao_geral(
     except Exception:
         sintese = SINTESE_INDISPONIVEL
     escolas = buscar_escolas(conn)
+    dados_distribuicao = {
+        "labels": list(metricas["distribuicao_faixas"].keys()),
+        "quantidade": list(metricas["distribuicao_faixas"].values()),
+        "percentual": [
+            metricas["distribuicao_faixas_pct"][faixa]
+            for faixa in metricas["distribuicao_faixas"].keys()
+        ],
+    }
+    dados_competencia = _dados_grafico_competencia_unica(buscar_medias_competencia_geral(conn))
     return templates.TemplateResponse(
         request=request,
         name="visao_geral.html",
-        context={"login": login, "metricas": metricas, "sintese": sintese, "escolas": escolas},
+        context={
+            "login": login,
+            "metricas": metricas,
+            "sintese": sintese,
+            "escolas": escolas,
+            "dados_distribuicao": dados_distribuicao,
+            "dados_competencia": dados_competencia,
+        },
     )
 
 
@@ -176,8 +225,11 @@ def gres(
     if login is None:
         return RedirectResponse("/login", status_code=303)
     linhas = buscar_gres(conn)
+    dados_grafico = {"labels": [linha["nome"] for linha in linhas], "valores": [linha["media"] for linha in linhas]}
     return templates.TemplateResponse(
-        request=request, name="gres.html", context={"login": login, "linhas": linhas}
+        request=request,
+        name="gres.html",
+        context={"login": login, "linhas": linhas, "dados_grafico": dados_grafico},
     )
 
 
@@ -190,8 +242,11 @@ def municipios(
     if login is None:
         return RedirectResponse("/login", status_code=303)
     linhas = buscar_municipios(conn)
+    dados_grafico = {"labels": [linha["nome"] for linha in linhas], "valores": [linha["media"] for linha in linhas]}
     return templates.TemplateResponse(
-        request=request, name="municipios.html", context={"login": login, "linhas": linhas}
+        request=request,
+        name="municipios.html",
+        context={"login": login, "linhas": linhas, "dados_grafico": dados_grafico},
     )
 
 
@@ -216,6 +271,16 @@ def escola(
         )
     except Exception:
         sintese = SINTESE_INDISPONIVEL
+
+    gre_nome, municipio_nome = buscar_gre_e_municipio_da_escola(conn, escola_id)
+    dados_comparacao = _dados_grafico_comparacao(
+        [
+            (escola_nome, buscar_medias_competencia_por_escola(conn, escola_id)),
+            (municipio_nome, buscar_medias_competencia_por_municipio(conn, municipio_nome)),
+            (gre_nome, buscar_medias_competencia_por_gre(conn, gre_nome)),
+            ("Estado (Paraiba)", buscar_medias_competencia_geral(conn)),
+        ]
+    )
     return templates.TemplateResponse(
         request=request,
         name="escola.html",
@@ -225,6 +290,7 @@ def escola(
             "turmas": turmas,
             "sintese": sintese,
             "escola_nome": escola_nome,
+            "dados_comparacao": dados_comparacao,
         },
     )
 
@@ -241,6 +307,17 @@ def turma(
     if not turma_existe(conn, turma_id):
         raise HTTPException(status_code=404, detail="Turma nao encontrada")
     alunos = buscar_redacoes_por_turma(conn, turma_id)
+
+    escola_id, escola_nome = buscar_escola_da_turma(conn, turma_id)
+    dados_comparacao = _dados_grafico_comparacao(
+        [
+            ("Turma", buscar_medias_competencia_por_turma(conn, turma_id)),
+            (escola_nome, buscar_medias_competencia_por_escola(conn, escola_id)),
+            ("Estado (Paraiba)", buscar_medias_competencia_geral(conn)),
+        ]
+    )
     return templates.TemplateResponse(
-        request=request, name="turma.html", context={"login": login, "alunos": alunos}
+        request=request,
+        name="turma.html",
+        context={"login": login, "alunos": alunos, "dados_comparacao": dados_comparacao},
     )

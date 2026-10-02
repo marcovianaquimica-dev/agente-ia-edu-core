@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Dashboard SEDUC-PB</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <style>
         :root {
             --navy: #0b1f3a;
@@ -132,11 +133,6 @@
         .badge-alto { background: #def7ee; color: #0d9467; }
         .badge-muito-alto { background: var(--green-bg); color: var(--green); }
 
-        .faixa-bar-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
-        .faixa-bar-label { width: 110px; font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
-        .faixa-bar-track { flex: 1; background: #eef1f8; border-radius: 6px; height: 18px; overflow: hidden; }
-        .faixa-bar-fill { height: 100%; background: var(--blue); border-radius: 6px; }
-        .faixa-bar-value { width: 110px; font-size: 0.8rem; color: var(--text); text-align: right; flex-shrink: 0; }
 
         .sintese-card {
             background: var(--blue-bg); border-left: 4px solid var(--blue); border-radius: 10px;
@@ -159,6 +155,15 @@
         .erro { background: var(--red-bg); color: var(--red); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.85rem; margin-top: 1rem; }
 
         .empty-state { color: var(--text-muted); font-size: 0.9rem; padding: 1rem 0; }
+
+        .chart-wrap { position: relative; height: 280px; }
+        .chart-toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .chart-toggle {
+            padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 999px;
+            background: #fff; color: var(--text-muted); font-size: 0.78rem; font-weight: 600;
+            cursor: pointer;
+        }
+        .chart-toggle.active { background: var(--blue); color: #fff; border-color: var(--blue); }
     </style>
 </head>
 <body>

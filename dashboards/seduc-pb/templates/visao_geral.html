@@ -56,16 +56,68 @@
     {% if metricas.total == 0 %}
     <p class="empty-state">Nenhuma redacao corrigida ainda.</p>
     {% else %}
-    {% for faixa, quantidade in metricas.distribuicao_faixas.items() %}
-    <div class="faixa-bar-row">
-        <div class="faixa-bar-label">{{ faixa }}</div>
-        <div class="faixa-bar-track">
-            <div class="faixa-bar-fill" style="width: {{ metricas.distribuicao_faixas_pct.get(faixa, 0) }}%"></div>
-        </div>
-        <div class="faixa-bar-value">{{ quantidade }} ({{ metricas.distribuicao_faixas_pct.get(faixa, 0) }}%)</div>
+    <div class="chart-toolbar">
+        <button type="button" id="btn-quantidade" class="chart-toggle active">Quantidade</button>
+        <button type="button" id="btn-percentual" class="chart-toggle">Percentual</button>
     </div>
-    {% endfor %}
+    <div class="chart-wrap"><canvas id="grafico-distribuicao"></canvas></div>
+    <script>
+        (function () {
+            const dados = {{ dados_distribuicao | tojson }};
+            const corPorFaixa = {
+                "Muito baixo": "#dc2626", "Baixo": "#d97706", "Adequado": "#2f6fed",
+                "Alto": "#0d9467", "Muito alto": "#16a34a",
+            };
+            const cores = dados.labels.map((rotulo) => corPorFaixa[rotulo] || "#2f6fed");
+            const grafico = new Chart(document.getElementById("grafico-distribuicao"), {
+                type: "bar",
+                data: {
+                    labels: dados.labels,
+                    datasets: [{ label: "Quantidade", data: dados.quantidade, backgroundColor: cores }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true } },
+                },
+            });
+            document.getElementById("btn-quantidade").addEventListener("click", function () {
+                grafico.data.datasets[0].data = dados.quantidade;
+                grafico.data.datasets[0].label = "Quantidade";
+                grafico.update();
+                this.classList.add("active");
+                document.getElementById("btn-percentual").classList.remove("active");
+            });
+            document.getElementById("btn-percentual").addEventListener("click", function () {
+                grafico.data.datasets[0].data = dados.percentual;
+                grafico.data.datasets[0].label = "Percentual (%)";
+                grafico.update();
+                this.classList.add("active");
+                document.getElementById("btn-quantidade").classList.remove("active");
+            });
+        })();
+    </script>
     {% endif %}
+</div>
+
+<div class="card">
+    <h2 class="card-title">Media por competencia</h2>
+    <p class="card-subtitle">Media da rede inteira em cada competencia (0-200)</p>
+    <div class="chart-wrap"><canvas id="grafico-competencia"></canvas></div>
+    <script>
+        (function () {
+            const dados = {{ dados_competencia | tojson }};
+            new Chart(document.getElementById("grafico-competencia"), {
+                type: "bar",
+                data: { labels: dados.labels, datasets: [{ label: "Media da rede", data: dados.valores, backgroundColor: "#2f6fed" }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, max: 200 } },
+                },
+            });
+        })();
+    </script>
 </div>
 
 <div class="card">

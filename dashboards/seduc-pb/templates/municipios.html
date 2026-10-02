@@ -11,6 +11,9 @@
         ate a planilha oficial da SEDUC-PB chegar.
     </p>
     {% if linhas %}
+    {% set canvas_id = "grafico-municipios" %}
+    {% set rotulo_serie = "Nota media" %}
+    {% include "_grafico_barra_unica.html" %}
     <div class="table-wrapper">
     <table>
         <thead>

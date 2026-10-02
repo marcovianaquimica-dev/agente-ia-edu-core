@@ -1,8 +1,15 @@
 import pytest
 
 from consultas import (
+    buscar_escola_da_turma,
     buscar_escolas,
+    buscar_gre_e_municipio_da_escola,
     buscar_gres,
+    buscar_medias_competencia_geral,
+    buscar_medias_competencia_por_escola,
+    buscar_medias_competencia_por_gre,
+    buscar_medias_competencia_por_municipio,
+    buscar_medias_competencia_por_turma,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
     buscar_municipios,
@@ -162,3 +169,45 @@ def test_turma_existe(conn):
 def test_buscar_nome_escola(conn):
     assert buscar_nome_escola(conn, "e1") == "Escola Um"
     assert buscar_nome_escola(conn, "nao-existe") is None
+
+
+def test_buscar_medias_competencia_geral(conn):
+    medias = buscar_medias_competencia_geral(conn)
+    assert medias == {
+        "c1": pytest.approx(140.0, abs=0.1),
+        "c2": pytest.approx(140.0, abs=0.1),
+        "c3": pytest.approx(140.0, abs=0.1),
+        "c4": pytest.approx(140.0, abs=0.1),
+        "c5": pytest.approx(140.0, abs=0.1),
+    }
+
+
+def test_buscar_medias_competencia_por_escola(conn):
+    medias = buscar_medias_competencia_por_escola(conn, "e1")
+    assert medias["c1"] == pytest.approx(160.0, abs=0.1)
+    assert medias["c5"] == pytest.approx(160.0, abs=0.1)
+
+
+def test_buscar_medias_competencia_por_turma(conn):
+    medias = buscar_medias_competencia_por_turma(conn, "t1")
+    assert medias["c1"] == pytest.approx(160.0, abs=0.1)
+
+
+def test_buscar_medias_competencia_por_gre_e_municipio(conn):
+    medias_gre = buscar_medias_competencia_por_gre(conn, "1a GRE - Joao Pessoa")
+    medias_municipio = buscar_medias_competencia_por_municipio(conn, "Joao Pessoa")
+    assert medias_gre["c1"] == pytest.approx(160.0, abs=0.1)
+    assert medias_municipio["c1"] == pytest.approx(160.0, abs=0.1)
+
+
+def test_buscar_medias_competencia_sem_dados_retorna_zeros(conn):
+    medias = buscar_medias_competencia_por_escola(conn, "escola-sem-redacao")
+    assert medias == {"c1": 0, "c2": 0, "c3": 0, "c4": 0, "c5": 0}
+
+
+def test_buscar_gre_e_municipio_da_escola(conn):
+    assert buscar_gre_e_municipio_da_escola(conn, "e1") == ("1a GRE - Joao Pessoa", "Joao Pessoa")
+
+
+def test_buscar_escola_da_turma(conn):
+    assert buscar_escola_da_turma(conn, "t1") == ("e1", "Escola Um")

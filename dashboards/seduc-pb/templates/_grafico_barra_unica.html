@@ -1,0 +1,18 @@
+<div class="chart-wrap"><canvas id="{{ canvas_id }}"></canvas></div>
+<script>
+    (function () {
+        const dados = {{ dados_grafico | tojson }};
+        new Chart(document.getElementById("{{ canvas_id }}"), {
+            type: "bar",
+            data: {
+                labels: dados.labels,
+                datasets: [{ label: "{{ rotulo_serie }}", data: dados.valores, backgroundColor: "#2f6fed" }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 1000 } },
+            },
+        });
+    })();
+</script>
