@@ -13,7 +13,8 @@
   if (root) root.EssayReport = api;
 })(typeof window !== 'undefined' ? window : null, function createEssayReport() {
   const COMPETENCY_LABELS = {
-    C1: 'Domínio da norma padrão', C2: 'Compreensão do tema', C3: 'Argumentação',
+    C1: 'Domínio da norma padrão', C2: 'Tipologia, tema e repertório',
+    C3: 'Projeto argumentativo e autoria',
     C4: 'Coesão textual', C5: 'Proposta de intervenção',
   };
 
@@ -29,16 +30,68 @@
     C5: 'Elaboração de proposta de intervenção respeitando os direitos humanos.',
   };
 
-  function renderCompetencyChecklist(rationales, feedbackStrengths, esc) {
+  // Aspect label -> structured field, per competency, in rendering order
+  // (spec §4). The SAME pairs, same labels and same order, live in
+  // services/essay_pdf_export.py's _COMPETENCY_ASPECTS and in
+  // services/essay_correction.py's _STRUCTURED_ASPECTS - three copies, one
+  // per runtime, deliberately never three different orders.
+  const COMPETENCY_ASPECTS = {
+    C2: [
+      ['Tipologia textual', 'c2_tipologia_textual'],
+      ['Tema', 'c2_tema'],
+      ['Repertório sociocultural', 'c2_repertorio_sociocultural'],
+      ['Como melhorar', 'c2_orientacao_melhoria'],
+    ],
+    C3: [
+      ['Projeto argumentativo', 'c3_projeto_argumentativo'],
+      ['Informações, fatos e opiniões', 'c3_fatos_informacoes_opinioes'],
+      ['Autoria', 'c3_autoria'],
+      ['Como melhorar', 'c3_orientacao_melhoria'],
+    ],
+  };
+
+  // Level 1 of the three-level fallback (spec §4): the structured C2/C3
+  // fields contract v5 introduced. ALL FOUR aspects of that competency must
+  // be present and non-blank - a partially-structured correction (old data,
+  // or a half-written seed row) falls back to level 2 rather than rendering
+  // half a table.
+  function structuredAspects(code, structured) {
+    const spec = COMPETENCY_ASPECTS[code];
+    if (!spec || !structured) return null;
+    const aspects = spec.map(([label, field]) => [label, structured[field]]);
+    const complete = aspects.every(
+      ([, text]) => typeof text === 'string' && text.trim() !== '',
+    );
+    return complete ? aspects : null;
+  }
+
+  function renderCompetencyChecklist(rationales, feedbackStrengths, esc, structured) {
     const rationaleByCode = {};
     (rationales || []).forEach((r) => { rationaleByCode[r.competency_code] = r; });
+    let anyStructured = false;
     const competencyTableRows = Object.keys(COMPETENCY_LABELS).map((code) => {
+      const aspects = structuredAspects(code, structured);
       const rationale = rationaleByCode[code];
-      if (!rationale) return '';
-      const hasSplit = rationale.strengths && rationale.growth_area;
-      const cells = hasSplit
-        ? `<td data-label="Você já faz bem">${esc(rationale.strengths)}</td><td data-label="Onde pode avançar">${esc(rationale.growth_area)}</td>`
-        : `<td colspan="2">${esc(rationale.summary || '')}</td>`;
+      if (!aspects && !rationale) return '';
+      let cells;
+      if (aspects) {
+        anyStructured = true;
+        // The spec's last aspect for both C2 and C3 is always "Como
+        // melhorar" (COMPETENCY_ASPECTS above) - that one is the growth
+        // direction, same meaning as rationale.growth_area for C1/C4/C5, so
+        // it gets its own "Onde pode avançar" column instead of being
+        // listed alongside the three diagnostic aspects.
+        const growthAspect = aspects[aspects.length - 1];
+        const strengthAspects = aspects.slice(0, -1);
+        const items = strengthAspects
+          .map(([label, text]) => `<li><strong>${esc(label)}:</strong> ${esc(text)}</li>`)
+          .join('');
+        cells = `<td data-label="Você já faz bem"><ul class="essay-competency-aspects">${items}</ul></td><td data-label="Onde pode avançar">${esc(growthAspect[1])}</td>`;
+      } else if (rationale.strengths && rationale.growth_area) {
+        cells = `<td data-label="Você já faz bem">${esc(rationale.strengths)}</td><td data-label="Onde pode avançar">${esc(rationale.growth_area)}</td>`;
+      } else {
+        cells = `<td colspan="2">${esc(rationale.summary || '')}</td>`;
+      }
       return `<tr><th scope="row" class="essay-mark-${code}">${code} — ${esc(COMPETENCY_LABELS[code])}</th>${cells}</tr>`;
     }).join('');
     const competencyTableHtml = competencyTableRows
@@ -47,8 +100,9 @@
           <tbody>${competencyTableRows}</tbody>
         </table>`
       : '<p class="empty-text">Nenhuma avaliação por competência.</p>';
-    const hasAnyRationaleSplit = (rationales || []).some((r) => r.strengths && r.growth_area);
-    const strengthsFallbackHtml = (!hasAnyRationaleSplit && (feedbackStrengths || []).length)
+    const hasAnyDetail = anyStructured
+      || (rationales || []).some((r) => r.strengths && r.growth_area);
+    const strengthsFallbackHtml = (!hasAnyDetail && (feedbackStrengths || []).length)
       ? `<h4>Pontos fortes</h4><ul>${feedbackStrengths.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`
       : '';
     return competencyTableHtml + strengthsFallbackHtml;
@@ -90,7 +144,7 @@
         }).join('')
       : '<p class="empty-text">Correção formativa: sem nota atribuída, apenas feedback pedagógico.</p>';
 
-    const competencyTableHtml = renderCompetencyChecklist(rationales, feedback.strengths, esc);
+    const competencyTableHtml = renderCompetencyChecklist(rationales, feedback.strengths, esc, correction);
 
     const annotationsHtml = annotations.length
       ? annotations.map((a, i) => {
@@ -128,15 +182,15 @@
         }).join('')
       : '';
 
-    const mechanicalOccurrencesHtml = mechanicalReview.length
-      ? mechanicalReview.map((m) => `
+    const mechanicalReviewSectionHtml = mechanicalReview.length
+      ? `<h4>Revisão de domínio da norma padrão (C1)</h4>${mechanicalReview.map((m) => `
           <div class="essay-mechanical-occurrence">
             <strong>${esc(m.category)}</strong>
             <blockquote>"${esc(m.excerpt)}"</blockquote>
             <p>Forma sugerida: ${esc(m.suggested_form)}</p>
             <p class="empty-text">${esc(m.rule_explanation)}</p>
-          </div>`).join('')
-      : '<p class="empty-text">Nenhuma ocorrência mecânica confirmada nesta redação.</p>';
+          </div>`).join('')}`
+      : '';
 
     const actionPlanItems = feedback.improvements || [];
     const actionPlanHtml = actionPlanItems.length
@@ -165,8 +219,7 @@
       <h4>Anotações</h4>
       ${annotationsHtml}
       ${rewritesHtml ? `<h4>Reescritas sugeridas</h4>${rewritesHtml}` : ''}
-      <h4>Revisão de domínio da norma padrão (C1)</h4>
-      ${mechanicalOccurrencesHtml}
+      ${mechanicalReviewSectionHtml}
       <h4>Plano de ação</h4>
       ${actionPlanHtml}
       ${nextEssayHtml}

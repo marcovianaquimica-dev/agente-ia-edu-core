@@ -35,7 +35,8 @@ from ..db.models import (
 from ..essay_engine_contract.v1 import COMPETENCY_CODES
 
 _COMPETENCY_LABELS: dict[str, str] = {
-    "C1": "Domínio da norma padrão", "C2": "Compreensão do tema", "C3": "Argumentação",
+    "C1": "Domínio da norma padrão", "C2": "Tipologia, tema e repertório",
+    "C3": "Projeto argumentativo e autoria",
     "C4": "Coesão textual", "C5": "Proposta de intervenção",
 }
 

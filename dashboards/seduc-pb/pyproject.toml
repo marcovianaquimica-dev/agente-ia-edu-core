@@ -1,0 +1,23 @@
+[project]
+name = "seduc-pb-dashboard"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn>=0.32,<1.0",
+    "jinja2>=3.1,<4.0",
+    "python-multipart>=0.0.12,<1.0",
+    "itsdangerous>=2.2,<3.0",
+    "bcrypt>=4.2,<5.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "openai>=1.50,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10.0",
+    "httpx>=0.27,<1.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -21,13 +21,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial
+from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial, School
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
+from ...services.essay_answer_sheet import answer_sheet_available, render_answer_sheet_pdf
 from ...services.essay_dashboard_export import build_essay_dashboard_xlsx, xlsx_media_type
 from ...services.essay_proposal import EssayProposalService, as_aware_utc
 from ...services.essay_teacher_dashboard import EssayDashboardResponse, build_essay_prompt_dashboard
 from ...services.material_storage import MaterialStorage
+from ...services.platform_essay_prompt import PlatformEssayPromptService, materialization_year
 
 # Same cap essay_submissions.py's page/document uploads already use - no
 # reason for a teacher's motivational-material upload to be more permissive.
@@ -55,11 +57,20 @@ class EssayPromptTrashResponse(BaseModel):
 
 class EssayPromptResponse(BaseModel):
     id: UUID
+    # Para uma proposta da plataforma ainda NAO materializada, este e o
+    # school_id da escola do professor que esta lendo - a escola que vai
+    # receber a copia se ele atribuir. Nunca vem do corpo da requisicao.
     school_id: UUID
     title: str
     statement: str
     year: int
     status: str
+    # True tanto para uma proposta da plataforma ainda nao materializada
+    # quanto para a copia dela ja materializada nesta escola: em ambos os
+    # casos ela e somente-leitura para o professor (spec, decisao 3).
+    is_platform: bool = False
+    # A origem em platform_essay_prompts, quando houver.
+    platform_prompt_id: Optional[UUID] = None
 
 
 class PromptMaterialCreateRequest(BaseModel):
@@ -140,6 +151,53 @@ async def _prompt_for_own_school_or_403(
     if prompt.deleted_at is not None and not include_deleted:
         raise HTTPException(status_code=403, detail="This proposal is in the trash.")
     return prompt
+
+
+async def _materialize_if_platform_prompt(
+    session: AsyncSession,
+    *,
+    essay_prompt_id: uuid.UUID,
+    school_id: uuid.UUID,
+    created_by_external_identity: str,
+) -> uuid.UUID:
+    """Devolve sempre o id de um EssayPrompt REAL e escopado a esta escola.
+
+    A lista do professor mistura propostas da escola e propostas da
+    plataforma ainda nao materializadas sob o mesmo campo de id (spec s2) -
+    e aqui que o backend decide qual e qual. Se o id for de uma
+    PlatformEssayPrompt, busca-ou-cria a copia desta escola (spec s4) e
+    devolve o id dela; caso contrario devolve o id recebido, intacto.
+
+    Do ponto de vista de PromptAssignment pra frente nada muda: ele sempre
+    aponta para um EssayPrompt escopado a escola, como sempre apontou.
+
+    A materializacao acontece ANTES da validacao da turma, entao uma
+    atribuicao que depois falhar (turma de outra escola, turma ja atribuida)
+    deixa a copia criada na escola do professor. E inofensivo: a copia e uma
+    proposta comum daquela escola, sem turma nenhuma, e a proxima tentativa a
+    reaproveita em vez de criar outra.
+    """
+    service = PlatformEssayPromptService(session)
+    origin = await service.get_platform_prompt(essay_prompt_id)
+    if origin is None:
+        return essay_prompt_id
+
+    copy = await service.materialize_for_school(
+        platform_essay_prompt_id=origin.id,
+        school_id=school_id,
+        created_by_external_identity=created_by_external_identity,
+    )
+    # Ler copy.id ANTES do commit: commit() expira o objeto
+    # (expire_on_commit=True em producao) e a leitura seguinte viraria um
+    # lazy-load sincrono com MissingGreenlet.
+    copy_id = copy.id
+    # Commit imediato, antes de qualquer atribuicao: create_assignments_bulk
+    # faz rollback por turma que falha (ver o docstring dele em
+    # services/essay_proposal.py) e um rollback depois deste ponto
+    # descartaria a copia recem-criada enquanto as turmas seguintes do mesmo
+    # lote continuariam apontando para o id dela.
+    await session.commit()
+    return copy_id
 
 
 @essay_prompts_router.post("", status_code=201, response_model=EssayPromptResponse)
@@ -280,6 +338,10 @@ async def create_prompt_assignment(
 ) -> PromptAssignmentResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        essay_prompt_id = await _materialize_if_platform_prompt(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id,
+            created_by_external_identity=identity.external_user_id,
+        )
         await _prompt_for_own_school_or_403(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id
         )
@@ -323,6 +385,10 @@ async def create_prompt_assignments_bulk(
     demais."""
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        essay_prompt_id = await _materialize_if_platform_prompt(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id,
+            created_by_external_identity=identity.external_user_id,
+        )
         await _prompt_for_own_school_or_403(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id
         )
@@ -408,6 +474,52 @@ async def export_essay_prompt_dashboard_xlsx(
 class EssayPromptDetailResponse(EssayPromptResponse):
     materials: list[PromptMaterialResponse]
     assignments: list[PromptAssignmentResponse]
+    # False so na pre-visualizacao de uma proposta da plataforma que esta
+    # escola ainda nao adotou: nao existe linha em essay_prompts ainda, entao
+    # nada que dependa de um EssayPrompt real (folha de resposta, materiais,
+    # dashboard) funciona nela - so o formulario de atribuicao, que e o que
+    # dispara a materializacao.
+    materialized: bool = True
+
+
+@essay_prompts_router.get("/{essay_prompt_id}/answer-sheet.pdf")
+async def get_essay_prompt_answer_sheet(
+    essay_prompt_id: UUID,
+    copies: int = Query(1, ge=1, le=60),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    """A folha de resposta em branco desta proposta, pronta pra imprimir - uma
+    folha por pagina do PDF gerado.
+
+    O teto de 60 copias e o mesmo teto de paginas de um lote: mais folhas do que
+    cabem num envio nao teriam pra onde ir.
+
+    Logo nao cadastrada nunca bloqueia a geracao (spec s7) - a folha sai sem
+    logo, exatamente como sairia se o arquivo tivesse sumido do disco.
+    """
+    if not answer_sheet_available():
+        raise HTTPException(
+            status_code=503, detail="PDF export requires the 'pymupdf' package"
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        prompt = await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        school = await session.get(School, school_id)
+        logo_path = school.logo_storage_uri if school is not None else None
+        data = render_answer_sheet_pdf(
+            prompt_title=prompt.title, logo_path=logo_path, copies=copies
+        )
+        safe_title = "".join(
+            c if c.isalnum() or c in " -_" else "_" for c in prompt.title
+        ).strip() or "redacao"
+        filename = f"folha-de-redacao-{safe_title[:60]}.pdf"
+        return Response(
+            content=data, media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 @essay_prompts_router.get("", response_model=list[EssayPromptResponse])
@@ -415,6 +527,11 @@ async def list_essay_prompts(
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> list[EssayPromptResponse]:
+    """As propostas da escola do professor, seguidas das propostas da
+    plataforma ACTIVE que esta escola ainda nao materializou - na MESMA
+    lista, com o campo is_platform como unica diferenca (spec, decisao 2).
+    Uma proposta da plataforma ja adotada por esta escola aparece so uma
+    vez, como a copia dela (que tambem carrega is_platform=True)."""
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
         result = await session.execute(
@@ -422,13 +539,35 @@ async def list_essay_prompts(
             .where(EssayPrompt.school_id == school_id, EssayPrompt.deleted_at.is_(None))
             .order_by(EssayPrompt.created_at.desc())
         )
-        return [
+        items = [
             EssayPromptResponse(
                 id=p.id, school_id=p.school_id, title=p.title,
                 statement=p.statement, year=p.year, status=p.status,
+                is_platform=p.materialized_from_platform_prompt_id is not None,
+                platform_prompt_id=p.materialized_from_platform_prompt_id,
             )
             for p in result.scalars().all()
         ]
+        available = await PlatformEssayPromptService(session).list_available_for_school(
+            school_id=school_id
+        )
+        # O mesmo ano que materialize_for_school vai gravar em
+        # EssayPrompt.year, para o professor nao ver um ano na lista e outro
+        # depois de atribuir.
+        year = materialization_year()
+        items.extend(
+            EssayPromptResponse(
+                id=origin.id, school_id=school_id, title=origin.title,
+                statement=origin.statement, year=year,
+                # A copia nasce ACTIVE - e o status que a proposta tera nesta
+                # escola. list_available_for_school ja so devolve origens
+                # ACTIVE, entao nao ha ARCHIVED para propagar aqui.
+                status="ACTIVE",
+                is_platform=True, platform_prompt_id=origin.id,
+            )
+            for origin in available
+        )
+        return items
 
 
 @essay_prompts_router.get("/trash", response_model=list[EssayPromptTrashResponse])
@@ -502,6 +641,26 @@ async def get_essay_prompt_detail(
 ) -> EssayPromptDetailResponse:
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+
+        # A tela do professor lista proposta propria e proposta da plataforma
+        # sob o mesmo campo de id, e so abre o detalhe antes de atribuir - sem
+        # este trecho, abrir uma proposta da plataforma daria 403 e o fluxo
+        # nunca chegaria ao formulario de atribuicao.
+        platform_service = PlatformEssayPromptService(session)
+        origin = await platform_service.get_platform_prompt(essay_prompt_id)
+        if origin is not None:
+            copy = await platform_service.find_materialized(
+                platform_essay_prompt_id=origin.id, school_id=school_id
+            )
+            if copy is None:
+                return EssayPromptDetailResponse(
+                    id=origin.id, school_id=school_id, title=origin.title,
+                    statement=origin.statement, year=materialization_year(),
+                    status="ACTIVE", is_platform=True, platform_prompt_id=origin.id,
+                    materialized=False, materials=[], assignments=[],
+                )
+            essay_prompt_id = copy.id
+
         prompt = await _prompt_for_own_school_or_403(
             session, essay_prompt_id=essay_prompt_id, school_id=school_id
         )
@@ -520,6 +679,9 @@ async def get_essay_prompt_detail(
         return EssayPromptDetailResponse(
             id=prompt.id, school_id=prompt.school_id, title=prompt.title,
             statement=prompt.statement, year=prompt.year, status=prompt.status,
+            is_platform=prompt.materialized_from_platform_prompt_id is not None,
+            platform_prompt_id=prompt.materialized_from_platform_prompt_id,
+            materialized=True,
             materials=[
                 PromptMaterialResponse(
                     id=m.id, essay_prompt_id=m.essay_prompt_id, material_type=m.material_type,

@@ -8,9 +8,10 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.db.base import Base
 from agente_ia_edu.db.models import EssayRubric, EssayRubricSignal
 from agente_ia_edu.essay_engine_contract.v1 import CONTRACT_VERSION, EssayEngineOutput
-from agente_ia_edu.essay_engine_contract.v4 import (
-    CONTRACT_VERSION as CONTRACT_VERSION_V4,
-    EssayEngineOutput as EssayEngineOutputV4,
+from agente_ia_edu.essay_engine_contract.v5 import (
+    CONTRACT_VERSION as CONTRACT_VERSION_V5,
+    STRUCTURED_FEEDBACK_FIELDS,
+    EssayEngineOutput as EssayEngineOutputV5,
 )
 from agente_ia_edu.rubrics.loader import load_rubric_file
 from agente_ia_edu.services.essay_rubric_seed import EssayRubricSeeder
@@ -108,11 +109,21 @@ def build_output(**overrides) -> EssayEngineOutput:
     return EssayEngineOutput.model_validate(build_payload(**overrides))
 
 
-def build_payload_v4(**overrides) -> dict:
+def build_payload_v5(**overrides) -> dict:
     """Like build_payload(), but for validate_engine_output_from_payload
-    calls, which parse against essay_engine_contract.v4 internally."""
+    calls, which parse against essay_engine_contract.v5 internally: the v5
+    contract_version, the eight structured C2/C3 fields, and rationales
+    restricted to C1/C4/C5."""
     payload = build_payload(**overrides)
-    payload["identification"] = {**payload["identification"], "contract_version": CONTRACT_VERSION_V4}
+    payload["identification"] = {
+        **payload["identification"], "contract_version": CONTRACT_VERSION_V5,
+    }
+    if "rationales" not in overrides:
+        payload["rationales"] = [
+            r for r in payload["rationales"] if r["competency_code"] not in ("C2", "C3")
+        ]
+    for field in STRUCTURED_FEEDBACK_FIELDS:
+        payload.setdefault(field, f"texto de {field}")
     return payload
 
 
@@ -395,7 +406,7 @@ class TestEngineValidation(unittest.TestCase):
         text = LIVE_TRANSCRIPTION
         quote = "4. sas principais"
         drifted_start = text.index("3. a invisibilida")
-        payload = build_payload_v4(annotations=[{
+        payload = build_payload_v5(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "LOCALIZED",
             "anchor": {
@@ -408,6 +419,52 @@ class TestEngineValidation(unittest.TestCase):
         dumped = output.model_dump(mode="json")["annotations"][0]["anchor"]
         self.assertEqual(dumped["start"], text.index(quote))
         self.assertEqual(text[dumped["start"] : dumped["end"]], quote)
+
+    def test_reanchors_an_anchor_whose_end_does_not_follow_start(self):
+        """Confirmed live 2026-09-29: the model reported end <= start for an
+        otherwise verbatim, correctly-chosen quote - essay_engine_contract.v5
+        no longer rejects this shape (see TextOffsetAnchor's docstring), so
+        this layer gets the chance to do what it already does for drifted-but-
+        consistent offsets: treat the quote as authoritative and re-derive the
+        real position from it."""
+        text = TEXT
+        quote = "valorização"
+        real_start = text.index(quote)
+        payload = build_payload_v5(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            # Garbage, self-inconsistent offsets (end before start) - the
+            # quote itself is genuine and unique in the text.
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": real_start + len(quote), "end": real_start,
+                "quote": quote,
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        output = validate_engine_output_from_payload(payload, rubric=RUBRIC, text=text)
+
+        anchor = output.annotations[0].anchor
+        self.assertEqual((anchor.start, anchor.end), (real_start, real_start + len(quote)))
+        self.assertEqual(text[anchor.start : anchor.end], quote)
+
+    def test_still_rejects_an_end_before_start_anchor_whose_quote_is_not_in_the_text(self):
+        """The recovery above must never mask a genuinely hallucinated quote -
+        this is the same anti-hallucination guard as
+        test_rejects_a_quote_that_does_not_match_the_text, just with a
+        self-inconsistent (end <= start) claimed span instead of a
+        consistent-but-wrong one."""
+        payload = build_payload_v5(annotations=[{
+            "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
+            "evidence_kind": "LOCALIZED",
+            "anchor": {
+                "type": "TEXT_OFFSET", "start": 10, "end": 2,
+                "quote": "isto não está no texto",
+            },
+            "short_comment": "curto", "long_comment": "longo",
+        }])
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output_from_payload(payload, rubric=RUBRIC, text=TEXT)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
 
     def test_reanchors_an_anchor_whose_drift_ran_past_the_end_of_the_text(self):
         """Drift is as likely on the last paragraph as on the first, and there
@@ -593,7 +650,7 @@ class TestEngineValidation(unittest.TestCase):
         """End-to-end through the single entry point spec §7 promises: a
         payload with a GLOBAL, anchor-omitted annotation must validate clean
         through all three layers, not just layer 1."""
-        raw_payload = build_payload_v4(annotations=[{
+        raw_payload = build_payload_v5(annotations=[{
             "letter": "A", "competency_code": "C1", "kind": "MELHORIA",
             "evidence_kind": "GLOBAL",
             "short_comment": "curto", "long_comment": "longo",
@@ -751,7 +808,7 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
 
     def test_a_rubric_invalid_payload_still_raises_its_own_layer_2_code(self):
         """Shape is fine; the rejection must come from layer 2, not layer 1."""
-        raw_payload = build_payload(
+        raw_payload = build_payload_v5(
             identification={
                 "essay_id": str(uuid.uuid4()),
                 "essay_version_id": str(uuid.uuid4()),
@@ -759,7 +816,7 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
                 "model_version": "fake-model-1",
                 "prompt_version": "v1",
                 "engine_version": "r1.0.0",
-                "contract_version": CONTRACT_VERSION_V4,
+                "contract_version": CONTRACT_VERSION_V5,
                 "anchor_mode": "TEXT_OFFSET",
             }
         )
@@ -770,9 +827,9 @@ class TestValidateEngineOutputFromPayload(unittest.TestCase):
         self.assertEqual(caught.exception.reason_code, "RUBRIC_VERSION_MISMATCH")
 
     def test_a_valid_payload_returns_the_parsed_output(self):
-        raw_payload = build_payload_v4()
+        raw_payload = build_payload_v5()
 
         output = validate_engine_output_from_payload(raw_payload, rubric=RUBRIC, text=TEXT)
 
-        self.assertIsInstance(output, EssayEngineOutputV4)
+        self.assertIsInstance(output, EssayEngineOutputV5)
         self.assertEqual(output.identification.rubric_version, "ENEM_2025")

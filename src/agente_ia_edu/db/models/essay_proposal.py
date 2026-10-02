@@ -48,6 +48,15 @@ class EssayPrompt(Base):
     __tablename__ = "essay_prompts"
     __table_args__ = (
         UniqueConstraint("school_id", "id", name="uq_essay_prompts_school_id_id"),
+        # Uma escola materializa a mesma proposta da plataforma no maximo uma
+        # vez. UNIQUE comum basta: as propostas normais tem NULL nessa coluna
+        # e NULL nunca e igual a NULL para fins de unicidade, entao elas nunca
+        # colidem entre si (spec 2026-09-29 s2).
+        UniqueConstraint(
+            "school_id",
+            "materialized_from_platform_prompt_id",
+            name="uq_essay_prompts_school_materialized_from",
+        ),
         CheckConstraint(
             "status IN ('DRAFT', 'ACTIVE', 'SUPERSEDED')", name="ck_essay_prompts_status"
         ),
@@ -81,6 +90,16 @@ class EssayPrompt(Base):
     # submissions and corrections are never touched by delete/restore, only
     # this column, so restoring brings back the exact same student data.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Proveniencia: preenchida SO quando esta linha e a copia por escola de
+    # uma proposta da plataforma (platform_essay_prompts), criada pelo
+    # backend na primeira vez que um professor desta escola a atribuiu a uma
+    # turma. NULL = proposta criada normalmente por um professor, o caso de
+    # hoje, sem nenhuma mudanca de comportamento. RESTRICT: uma proposta da
+    # plataforma nunca pode ser apagada enquanto alguma escola tiver copia
+    # dela (defensivo - o admin arquiva, nunca apaga).
+    materialized_from_platform_prompt_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("platform_essay_prompts.id", ondelete="RESTRICT"), nullable=True
+    )
 
     materials: Mapped[list["PromptMaterial"]] = relationship(back_populates="prompt")
 

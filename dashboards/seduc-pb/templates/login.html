@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="login-wrapper">
+    <div class="login-card">
+        <div class="brand">
+            <div class="brand-badge">PB</div>
+            <div class="brand-text">
+                <strong>SEDUC-PB</strong>
+                <span>Simulado de Redacao</span>
+            </div>
+        </div>
+        <form method="post" action="/login">
+            <label>Login</label>
+            <input type="text" name="login" required autofocus>
+            <label>Senha</label>
+            <input type="password" name="senha" required>
+            <button type="submit">Entrar</button>
+        </form>
+        {% if erro %}<p class="erro">{{ erro }}</p>{% endif %}
+    </div>
+</div>
+{% endblock %}

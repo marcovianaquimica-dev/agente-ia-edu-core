@@ -12,6 +12,7 @@ import random
 import unittest
 from pathlib import Path
 
+import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import func, select
@@ -35,6 +36,16 @@ from agente_ia_edu.services.ingestion_parser import PdfParser
 ROOT = Path(__file__).resolve().parents[1]
 PDF = ROOT / "var" / "inep-pilot" / "2020_PV_impresso_D2_CD5.pdf"
 MIGRATION_PATH = ROOT / "migrations" / "versions" / "024_chemistry_kinetics.py"
+
+# "Local only" (see module docstring): var/ is gitignored - the real INEP
+# pilot corpus never ships with the repo (size/licensing), so this module
+# can only run on a machine that already has it. Skip the whole module at
+# import time rather than letting the module-level parse below raise -
+# without this, one missing PDF aborts collection of the ENTIRE test suite
+# (pytest treats a collection error as fatal, not per-file), not just this
+# file's own tests.
+if not PDF.exists():
+    pytest.skip(f"corpus local ausente, pulando modulo inteiro: {PDF}", allow_module_level=True)
 
 _spec = importlib.util.spec_from_file_location("phase9u1c_migration", MIGRATION_PATH)
 migration = importlib.util.module_from_spec(_spec)

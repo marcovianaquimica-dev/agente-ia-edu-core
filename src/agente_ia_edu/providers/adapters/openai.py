@@ -60,6 +60,36 @@ def _looks_like_a_refusal(content: str) -> bool:
     return any(phrase in normalized for phrase in _REFUSAL_SUBSTRINGS)
 
 
+TRANSCRIPTION_SYSTEM_PROMPT = (
+    "Transcreva literalmente o texto manuscrito ou impresso na "
+    "imagem, palavra por palavra, na ordem em que aparece. Nao "
+    "corrija ortografia, gramatica ou concordancia - reproduza "
+    "exatamente o que esta escrito, mesmo que contenha erros. "
+    "Nao adicione nenhum texto que nao esteja na imagem. Se uma "
+    "palavra ou trecho estiver genuinamente ilegivel, escreva "
+    "[ilegivel] no lugar dele em vez de adivinhar - nunca invente "
+    "uma palavra plausivel para preencher um trecho que voce nao "
+    "conseguiu ler. Transcreva a pagina inteira, do inicio ao fim; "
+    "nunca pare no meio e nunca escreva um pedido de desculpas ou "
+    "explicacao sobre nao conseguir continuar. Transcreva APENAS o "
+    "corpo do texto dissertativo-argumentativo escrito pelo "
+    "participante (o texto corrido nas linhas pautadas/numeradas). "
+    "NAO transcreva elementos padronizados de uma folha de "
+    "redacao oficial que nao fazem parte do texto do aluno: o "
+    "enunciado ou reafirmacao impressa do tema (ex.: linha "
+    "\"TEMA:\"), campos de identificacao (nome completo, "
+    "turma, turno, data, local de prova, assinatura do "
+    "participante), tabelas ou grades de correcao (ex.: "
+    "\"Aspectos Macroestruturais\", \"Comp. I\" a \"Comp. V\", "
+    "\"CORRETOR(A)\", \"NOTA\"), instrucoes de preenchimento "
+    "impressas na margem, ou qualquer outro elemento grafico do "
+    "formulario que nao seja prosa escrita pelo participante. "
+    "Ignore esses elementos completamente, mesmo que estejam "
+    "bem legiveis - nao os inclua na transcricao nem os "
+    "mencione."
+)
+
+
 def _usage_tokens(response) -> tuple[int | None, int | None]:
     """The SDK's `response.usage` (prompt_tokens/completion_tokens) can be
     missing entirely on a hand-built test double, or `None` on a real
@@ -90,6 +120,9 @@ class OpenAIProvider:
             raise ProviderConfigurationError("OpenAI model is not configured")
         try:
             client = self._client or self._create_client()
+            extra_kwargs: dict = {}
+            if request.seed is not None:
+                extra_kwargs["seed"] = request.seed
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -98,6 +131,7 @@ class OpenAIProvider:
                 ],
                 response_format={"type": "json_object"},
                 timeout=self._timeout_seconds,
+                **extra_kwargs,
             )
             content = response.choices[0].message.content
             if not content:
@@ -127,34 +161,7 @@ class OpenAIProvider:
                 messages=[
                     {
                         "role": "system",
-                        "content": (
-                            "Transcreva literalmente o texto manuscrito ou impresso na "
-                            "imagem, palavra por palavra, na ordem em que aparece. Nao "
-                            "corrija ortografia, gramatica ou concordancia - reproduza "
-                            "exatamente o que esta escrito, mesmo que contenha erros. "
-                            "Nao adicione nenhum texto que nao esteja na imagem. Se uma "
-                            "palavra ou trecho estiver genuinamente ilegivel, escreva "
-                            "[ilegivel] no lugar dele em vez de adivinhar - nunca invente "
-                            "uma palavra plausivel para preencher um trecho que voce nao "
-                            "conseguiu ler. Transcreva a pagina inteira, do inicio ao fim; "
-                            "nunca pare no meio e nunca escreva um pedido de desculpas ou "
-                            "explicacao sobre nao conseguir continuar. Transcreva APENAS o "
-                            "corpo do texto dissertativo-argumentativo escrito pelo "
-                            "participante (o texto corrido nas linhas pautadas/numeradas). "
-                            "NAO transcreva elementos padronizados de uma folha de "
-                            "redacao oficial que nao fazem parte do texto do aluno: o "
-                            "enunciado ou reafirmacao impressa do tema (ex.: linha "
-                            "\"TEMA:\"), campos de identificacao (nome completo, "
-                            "turma, turno, data, local de prova, assinatura do "
-                            "participante), tabelas ou grades de correcao (ex.: "
-                            "\"Aspectos Macroestruturais\", \"Comp. I\" a \"Comp. V\", "
-                            "\"CORRETOR(A)\", \"NOTA\"), instrucoes de preenchimento "
-                            "impressas na margem, ou qualquer outro elemento grafico do "
-                            "formulario que nao seja prosa escrita pelo participante. "
-                            "Ignore esses elementos completamente, mesmo que estejam "
-                            "bem legiveis - nao os inclua na transcricao nem os "
-                            "mencione."
-                        ),
+                        "content": TRANSCRIPTION_SYSTEM_PROMPT,
                     },
                     {
                         "role": "user",
@@ -215,6 +222,9 @@ class OpenAIProvider:
                         "image_url": {"url": f"data:{request.mime_type};base64,{image_b64}"},
                     }
                 )
+            extra_kwargs: dict = {}
+            if request.seed is not None:
+                extra_kwargs["seed"] = request.seed
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -226,6 +236,7 @@ class OpenAIProvider:
                 ],
                 response_format={"type": "json_object"},
                 timeout=self._timeout_seconds,
+                **extra_kwargs,
             )
             text = response.choices[0].message.content
             if not text:

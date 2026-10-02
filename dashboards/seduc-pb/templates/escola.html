@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="page-header">
+    <h1 class="page-title">{{ escola_nome }}</h1>
+    <p class="page-subtitle">Resultados de {{ metricas.total }} redacao(oes) corrigida(s) nesta escola</p>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card kpi-blue">
+        <div class="kpi-icon">&#128196;</div>
+        <div class="kpi-label">Redacoes corrigidas</div>
+        <div class="kpi-value">{{ metricas.total }}</div>
+    </div>
+    <div class="kpi-card kpi-purple">
+        <div class="kpi-icon">&#128202;</div>
+        <div class="kpi-label">Nota media</div>
+        <div class="kpi-value">{{ metricas.media }}</div>
+    </div>
+    <div class="kpi-card kpi-amber">
+        <div class="kpi-icon">&#127919;</div>
+        <div class="kpi-label">Mediana</div>
+        <div class="kpi-value">{{ metricas.mediana }}</div>
+    </div>
+    <div class="kpi-card kpi-green">
+        <div class="kpi-icon">&#128201;</div>
+        <div class="kpi-label">Desvio-padrao</div>
+        <div class="kpi-value">{{ metricas.desvio_padrao }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Plano de acao</h2>
+    <p class="card-subtitle">Diagnostico desta escola, gerado por IA a partir dos indicadores acima</p>
+    {% include "_plano_acao.html" %}
+</div>
+
+<div class="card">
+    <h2 class="card-title">Comparacao das competencias</h2>
+    <p class="card-subtitle">{{ escola_nome }} comparada com o municipio, a GRE e o estado</p>
+    {% set canvas_id = "grafico-comparacao-escola" %}
+    {% include "_grafico_comparacao.html" %}
+</div>
+
+<div class="card">
+    <h2 class="card-title">Turmas</h2>
+    <p class="card-subtitle">Media da turma e acesso aos alunos</p>
+    {% if turmas %}
+    <table>
+        <thead><tr><th>Turma</th><th>Media</th></tr></thead>
+        <tbody>
+            {% for turma in turmas %}
+            <tr>
+                <td><a class="link-tabela" href="/turma/{{ turma.turma_id }}">{{ turma.turma_nome }}</a></td>
+                <td>{{ turma.media_nota }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">Nenhuma turma com redacoes corrigidas ainda.</p>
+    {% endif %}
+</div>
+{% endblock %}

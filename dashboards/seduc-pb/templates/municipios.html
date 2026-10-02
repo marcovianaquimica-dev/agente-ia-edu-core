@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="page-header">
+    <h1 class="page-title">Desempenho por Municipio</h1>
+    <p class="page-subtitle">Compare os resultados e identifique padroes de desempenho na rede</p>
+</div>
+
+<div class="card">
+    <p class="card-subtitle">
+        O mapeamento escola &rarr; municipio &rarr; GRE ainda e provisorio (fictício),
+        ate a planilha oficial da SEDUC-PB chegar.
+    </p>
+    {% if linhas %}
+    {% set canvas_id = "grafico-municipios" %}
+    {% set rotulo_serie = "Nota media" %}
+    {% include "_grafico_barra_unica.html" %}
+    <div class="table-wrapper">
+    <table>
+        <thead>
+            <tr>
+                <th>Municipio</th><th>Redacoes</th><th>Media</th>
+                <th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>% &ge; 800</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for linha in linhas %}
+            <tr>
+                <td><a class="link-tabela" href="/municipios/{{ linha.nome | urlencode }}">{{ linha.nome }}</a></td>
+                <td>{{ linha.total }}</td>
+                <td>{{ linha.media }}</td>
+                <td>{{ linha.media_c1 }}</td>
+                <td>{{ linha.media_c2 }}</td>
+                <td>{{ linha.media_c3 }}</td>
+                <td>{{ linha.media_c4 }}</td>
+                <td>{{ linha.media_c5 }}</td>
+                <td>{{ linha.percentual_800 }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty-state">Nenhuma redacao corrigida ainda.</p>
+    {% endif %}
+</div>
+{% endblock %}

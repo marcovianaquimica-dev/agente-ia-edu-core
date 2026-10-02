@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard SEDUC-PB</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        :root {
+            --navy: #0b1f3a;
+            --navy-light: #13294f;
+            --blue: #2f6fed;
+            --blue-bg: #e7efff;
+            --green: #16a34a;
+            --green-bg: #e7f8ee;
+            --purple: #7c3aed;
+            --purple-bg: #f1ebfe;
+            --amber: #d97706;
+            --amber-bg: #fff4e0;
+            --red: #dc2626;
+            --red-bg: #fde9e9;
+            --gray-bg: #f3f5fa;
+            --border: #e3e7f0;
+            --text: #1c2638;
+            --text-muted: #5b6477;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background: var(--gray-bg);
+            color: var(--text);
+            display: flex;
+            min-height: 100vh;
+        }
+        a { color: inherit; text-decoration: none; }
+
+        .sidebar {
+            width: 220px;
+            flex-shrink: 0;
+            background: var(--navy);
+            color: #cdd7ee;
+            padding: 1.5rem 1rem;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+        .brand { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 2rem; }
+        .brand-badge {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: var(--blue); color: #fff; font-weight: 700; font-size: 0.8rem;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .brand-text { line-height: 1.2; }
+        .brand-text strong { display: block; color: #fff; font-size: 0.95rem; }
+        .brand-text span { display: block; font-size: 0.7rem; color: #93a3c4; }
+
+        .sidebar-nav a {
+            display: block;
+            padding: 0.6rem 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.25rem;
+            font-size: 0.9rem;
+            color: #cdd7ee;
+        }
+        .sidebar-nav a:hover { background: var(--navy-light); }
+        .sidebar-nav a.active { background: var(--blue); color: #fff; font-weight: 600; }
+        .sidebar-foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--navy-light); font-size: 0.8rem; color: #93a3c4; }
+        .sidebar-foot a { color: #cdd7ee; text-decoration: underline; }
+
+        .main { flex: 1; min-width: 0; padding: 2rem; max-width: 1400px; }
+
+        .page-header { margin-bottom: 1.5rem; }
+        .page-title { font-size: 1.6rem; font-weight: 700; color: var(--navy); margin: 0 0 0.2rem; }
+        .page-subtitle { color: var(--text-muted); margin: 0; font-size: 0.95rem; }
+
+        .filter-bar {
+            background: #fff; border: 1px solid var(--border); border-radius: 12px;
+            padding: 1rem; margin-bottom: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .filter-field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .filter-field label { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
+        .filter-field select, .filter-field input {
+            padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px;
+            font-size: 0.85rem; background: #fff; color: var(--text); min-width: 160px;
+        }
+        .filter-bar button {
+            padding: 0.5rem 1.1rem; border: none; border-radius: 8px; background: var(--blue);
+            color: #fff; font-weight: 600; cursor: pointer; font-size: 0.85rem;
+        }
+
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .kpi-card { background: #fff; border-radius: 12px; padding: 1rem 1.1rem; box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06); }
+        .kpi-icon {
+            width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center;
+            justify-content: center; font-size: 1.05rem; margin-bottom: 0.6rem;
+        }
+        .kpi-blue .kpi-icon { background: var(--blue-bg); color: var(--blue); }
+        .kpi-green .kpi-icon { background: var(--green-bg); color: var(--green); }
+        .kpi-purple .kpi-icon { background: var(--purple-bg); color: var(--purple); }
+        .kpi-amber .kpi-icon { background: var(--amber-bg); color: var(--amber); }
+        .kpi-red .kpi-icon { background: var(--red-bg); color: var(--red); }
+        .kpi-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-bottom: 0.15rem; }
+        .kpi-value { font-size: 1.5rem; font-weight: 700; color: var(--navy); }
+        .kpi-caption { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem; }
+
+        .card {
+            background: #fff; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+        }
+        .card-title { font-size: 1.05rem; font-weight: 700; color: var(--navy); margin: 0 0 0.2rem; }
+        .card-subtitle { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 1rem; }
+
+        .table-wrapper { overflow-x: auto; }
+        table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+        thead th {
+            background: #eef2fb; color: var(--navy); text-align: left; font-weight: 700;
+            padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--border);
+        }
+        tbody td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--border); }
+        tbody tr:hover { background: #f8fafd; }
+        tbody tr:last-child td { border-bottom: none; }
+        td a, .link-tabela { color: var(--blue); font-weight: 600; }
+
+        .badge {
+            display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
+            font-size: 0.75rem; font-weight: 700;
+        }
+        .badge-muito-baixo { background: var(--red-bg); color: var(--red); }
+        .badge-baixo { background: var(--amber-bg); color: var(--amber); }
+        .badge-adequado { background: var(--blue-bg); color: var(--blue); }
+        .badge-alto { background: #def7ee; color: #0d9467; }
+        .badge-muito-alto { background: var(--green-bg); color: var(--green); }
+
+
+        .sintese-card {
+            background: var(--blue-bg); border-left: 4px solid var(--blue); border-radius: 10px;
+            padding: 1rem 1.1rem; display: flex; gap: 0.7rem; align-items: flex-start;
+        }
+        .sintese-card .icone { font-size: 1.2rem; }
+        .sintese-card p { margin: 0; font-size: 0.9rem; color: var(--text); line-height: 1.5; }
+
+        .plano-acao-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
+        .plano-acao-box {
+            border-radius: 10px; padding: 0.9rem 1rem; display: flex; gap: 0.6rem; align-items: flex-start;
+        }
+        .plano-acao-box .icone { font-size: 1.1rem; flex-shrink: 0; }
+        .plano-acao-titulo { font-size: 0.78rem; font-weight: 700; margin-bottom: 0.2rem; }
+        .plano-acao-box p { margin: 0; font-size: 0.87rem; color: var(--text); line-height: 1.45; }
+        .plano-acao-forte { background: var(--green-bg); }
+        .plano-acao-forte .plano-acao-titulo { color: var(--green); }
+        .plano-acao-atencao { background: var(--red-bg); }
+        .plano-acao-atencao .plano-acao-titulo { color: var(--red); }
+        .plano-acao-recomendacao { background: var(--blue-bg); }
+        .plano-acao-recomendacao .plano-acao-titulo { color: var(--blue); }
+
+        .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: 100vh; width: 100%; }
+        .login-card { background: #fff; border-radius: 14px; padding: 2.5rem; width: 320px; box-shadow: 0 4px 20px rgba(16, 24, 40, 0.12); }
+        .login-card .brand { justify-content: center; margin-bottom: 1.5rem; }
+        .login-card .brand-text strong { color: var(--navy); }
+        .login-card .brand-text span { color: var(--text-muted); }
+        .login-card label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.3rem; margin-top: 1rem; }
+        .login-card input { width: 100%; padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; }
+        .login-card button {
+            width: 100%; margin-top: 1.5rem; padding: 0.65rem; border: none; border-radius: 8px;
+            background: var(--blue); color: #fff; font-weight: 700; cursor: pointer; font-size: 0.9rem;
+        }
+        .erro { background: var(--red-bg); color: var(--red); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.85rem; margin-top: 1rem; }
+
+        .empty-state { color: var(--text-muted); font-size: 0.9rem; padding: 1rem 0; }
+
+        .chart-wrap { position: relative; height: 280px; }
+        .chart-toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .chart-toggle {
+            padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 999px;
+            background: #fff; color: var(--text-muted); font-size: 0.78rem; font-weight: 600;
+            cursor: pointer;
+        }
+        .chart-toggle.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+    </style>
+</head>
+<body>
+    {% if login %}
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-badge">PB</div>
+            <div class="brand-text">
+                <strong>SEDUC-PB</strong>
+                <span>Simulado de Redacao</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Visao Geral</a>
+            <a href="/ranking" class="{{ 'active' if request.url.path == '/ranking' else '' }}">Ranking</a>
+            <a href="/gres" class="{{ 'active' if request.url.path == '/gres' else '' }}">GREs</a>
+            <a href="/municipios" class="{{ 'active' if request.url.path == '/municipios' else '' }}">Municipios</a>
+        </nav>
+        <div class="sidebar-foot">
+            {{ login }}<br>
+            <a href="/logout">Sair</a>
+        </div>
+    </aside>
+    {% endif %}
+    <main class="main">
+        {% block conteudo %}{% endblock %}
+    </main>
+</body>
+</html>

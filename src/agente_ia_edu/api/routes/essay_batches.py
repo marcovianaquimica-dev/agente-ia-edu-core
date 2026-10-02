@@ -1,0 +1,421 @@
+"""Envio em lote de redacoes fisicas - superficie do professor.
+
+TEACHER/COORDINATOR/DIRECTOR/PLATFORM_ADMIN, o mesmo conjunto de papeis que
+essay_prompts.py e essay_corrections.py ja usam. school_id sempre vem do
+contexto resolvido, nunca do corpo; um lote de outra escola e 403, nunca 404.
+
+Spec: docs/superpowers/specs/2026-09-28-envio-lote-redacao-design.md
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..dependencies import get_current_identity, get_session_factory
+from ...db.models import EssayBatchPage, EssayBatchUpload, GradeLevel, School
+from ...identity import ExternalIdentityContext
+from ...services.authorization import AuthorizationService
+from ...services.essay_batch import ALLOWED_BATCH_SUFFIXES, EssayBatchService
+from ...services.material_storage import MaterialStorage
+
+logger = logging.getLogger(__name__)
+
+essay_batches_router = APIRouter(
+    prefix="/api/v1/teacher/essay-batches", tags=["essay-batches"]
+)
+
+# Mesmo teto por arquivo que essay_submissions.py e essay_prompts.py ja usam.
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+def build_batch_service(session: AsyncSession) -> EssayBatchService:
+    """Ponto unico de construcao do servico - e o que os testes de rota
+    substituem pra injetar um transcritor e um corretor falsos sem precisar de
+    nenhuma variavel de ambiente de provedor de IA."""
+    return EssayBatchService(session)
+
+
+class EssayBatchCreatedResponse(BaseModel):
+    id: UUID
+    school_id: UUID
+    essay_prompt_id: UUID
+    class_id: Optional[UUID] = None
+    grade_level_id: Optional[UUID] = None
+    status: str
+    total_pages: int
+
+
+class EssayBatchNeedsReviewPage(BaseModel):
+    id: UUID
+    page_number: int
+    ocr_name_raw: Optional[str] = None
+    ocr_cpf_raw: Optional[str] = None
+    has_text: bool
+    # Sempre None: get_batch_status ja filtra fora do que esta lista qualquer
+    # pagina com matched_student_id preenchido (Problema 2b do
+    # fix-round-1-brief.md). Exposto mesmo assim como defesa em profundidade
+    # pro frontend nunca precisar confiar cegamente em "esta na lista
+    # portanto precisa de revisao" - ver essay-review.js.
+    matched_student_id: Optional[UUID] = None
+
+
+class EssayBatchAvailableStudent(BaseModel):
+    student_id: UUID
+    full_name: str
+    document_number: Optional[str] = None
+
+
+class EssayBatchStatusResponse(BaseModel):
+    id: UUID
+    school_id: UUID
+    essay_prompt_id: UUID
+    class_id: Optional[UUID] = None
+    grade_level_id: Optional[UUID] = None
+    status: str
+    total_pages: int
+    matched_count: int
+    needs_review_count: int
+    # Paginas que ja passaram pelo OCR (ocr_body_text preenchido) ou que o
+    # lote ja nao esta mais processando - a diferenca entre "ainda nao lida"
+    # e "lida e sem match" que needs_review_count por si so nao capturava
+    # enquanto o lote estava PROCESSING (Problema 2a do
+    # fix-round-1-brief.md). total_pages - processed_count = quantas paginas
+    # a fila de OCR ainda tem pela frente.
+    processed_count: int
+    needs_review_pages: list[EssayBatchNeedsReviewPage]
+    available_students: list[EssayBatchAvailableStudent]
+
+
+class ResolveBatchPageRequest(BaseModel):
+    student_id: UUID
+
+
+async def _authorize(identity: ExternalIdentityContext, session: AsyncSession) -> uuid.UUID:
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity)
+    role_check = await authz.require_role(
+        context, "TEACHER", "COORDINATOR", "DIRECTOR", "PLATFORM_ADMIN"
+    )
+    if not role_check.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Enviar redacoes em lote requer um papel de professor, coordenador, "
+            "diretor ou administrador da plataforma.",
+        )
+    if context.school_id is None:
+        raise HTTPException(status_code=403, detail="An active school context is required.")
+    return uuid.UUID(str(context.school_id))
+
+
+async def _require_school_wide_scope(
+    identity: ExternalIdentityContext, session: AsyncSession
+) -> None:
+    """Serie inteira e escola inteira expoem nome e CPF de alunos de
+    QUALQUER turma da escola - um TEACHER com escopo de uma unica turma
+    (scope_type CLASSROOM) nao tem hoje nenhum caminho pra ver isso, nem
+    pela tela de turma. Mesma regra de "autorizado em toda a escola" que
+    TeacherPortalService._teacher_is_school_wide_authorized ja usa:
+    DIRECTOR/COORDINATOR/PLATFORM_ADMIN sempre passam; TEACHER so passa com
+    escopo PLATFORM ou SCHOOL. Nao se aplica ao escopo de turma unica
+    (class_id) - so e chamada quando ele e None."""
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity)
+    if context.role.upper() in {"DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN"}:
+        return
+    if context.role.upper() == "TEACHER" and context.scope_type.upper() in {"PLATFORM", "SCHOOL"}:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Serie inteira ou escola inteira exige escopo de toda a escola "
+        "(diretor, coordenador, ou professor com abrangencia de escola) - "
+        "professor de turma unica so pode enviar por turma.",
+    )
+
+
+async def _batch_for_own_school_or_403(
+    session: AsyncSession, *, batch_id: uuid.UUID, school_id: uuid.UUID
+) -> EssayBatchUpload:
+    batch = await session.get(EssayBatchUpload, batch_id)
+    if batch is None or batch.school_id != school_id:
+        raise HTTPException(status_code=403, detail="Este lote nao e seu.")
+    return batch
+
+
+async def _run_batch_processing_in_background(batch_id: UUID, session_factory) -> None:
+    """Roda depois que a resposta 202 ja saiu, com a sua propria sessao (a da
+    requisicao ja esta fechada). process_batch e best-effort por pagina e ja
+    trata falha de OCR; este try/except cobre so uma falha de infraestrutura de
+    verdade (o banco fora do ar, um bug), pra que o lote nunca fique travado em
+    PROCESSING sem nem uma linha de log pra diagnosticar."""
+    try:
+        async with session_factory() as session:
+            await build_batch_service(session).process_batch(batch_id)
+    except Exception:
+        logger.exception("processamento em segundo plano falhou para batch_id=%s", batch_id)
+
+
+@essay_batches_router.post("", status_code=202, response_model=EssayBatchCreatedResponse)
+async def create_essay_batch(
+    background_tasks: BackgroundTasks,
+    essay_prompt_id: UUID = Form(...),
+    class_id: Optional[UUID] = Form(None),
+    grade_level_id: Optional[UUID] = Form(None),
+    files: list[UploadFile] = File(...),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayBatchCreatedResponse:
+    """Devolve 202 assim que o lote esta gravado, SEM esperar o processamento -
+    o professor acompanha por GET /{batch_id} (spec s5).
+
+    class_id e grade_level_id sao mutuamente exclusivos (turma unica, serie
+    inteira, ou nenhum dos dois = escola inteira) - checado aqui ANTES de
+    processar qualquer arquivo, pra falhar rapido em vez de so depois de
+    receber ate 60 paginas de foto.
+
+    Streaming em pedacos de 1MB pra um arquivo temporario, checando o tamanho a
+    cada pedaco, exatamente como upload_prompt_material ja faz: um upload
+    gigante nunca chega a virar um arquivo em MaterialStorage.
+    """
+    if class_id is not None and grade_level_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Escolha turma ou serie, nunca as duas - ou nenhuma para a escola inteira.",
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        if class_id is None:
+            await _require_school_wide_scope(identity, session)
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="r4_batch_upload_"))
+        try:
+            source_paths: list[Path] = []
+            for index, upload in enumerate(files):
+                suffix = Path(upload.filename or "").suffix.lower()
+                if suffix not in ALLOWED_BATCH_SUFFIXES:
+                    raise HTTPException(
+                        status_code=422, detail=f"Formato de arquivo nao suportado: {suffix!r}"
+                    )
+                tmp_path = tmp_dir / f"{index:03d}_{Path(upload.filename or 'arquivo').name}"
+                size = 0
+                with open(tmp_path, "wb") as out:
+                    while chunk := await upload.read(1024 * 1024):
+                        size += len(chunk)
+                        if size > _MAX_UPLOAD_BYTES:
+                            out.close()
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"Arquivo {upload.filename!r} passa de 25MB.",
+                            )
+                        out.write(chunk)
+                source_paths.append(tmp_path)
+
+            try:
+                created = await build_batch_service(session).create_batch(
+                    school_id=school_id, essay_prompt_id=essay_prompt_id,
+                    class_id=class_id, grade_level_id=grade_level_id,
+                    uploaded_by_external_identity=identity.external_user_id,
+                    source_paths=source_paths,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            # MaterialStorage ja copiou tudo o que precisa sobreviver; o que
+            # fica aqui e so rascunho (inclusive os "<stem>_pages" que o split
+            # de PDF escreveu ao lado do arquivo).
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # Resposta montada ANTES do commit (expire_on_commit=True em producao).
+        response = EssayBatchCreatedResponse(**created)
+        await session.commit()
+
+    background_tasks.add_task(
+        _run_batch_processing_in_background, response.id, session_factory
+    )
+    return response
+
+
+@essay_batches_router.get("/grade-levels")
+async def list_grade_levels_for_batch(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[dict]:
+    """Series (GradeLevel) da escola do professor, pro seletor de abrangencia
+    do envio em lote - dado real (GradeLevel.name), diferente do campo
+    grade_level hardcoded que /api/v1/teacher/classrooms expoe hoje (bug
+    pre-existente, fora de escopo desta rota)."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _require_school_wide_scope(identity, session)
+        rows = (await session.execute(
+            select(GradeLevel.id, GradeLevel.name)
+            .where(GradeLevel.school_id == school_id)
+            .order_by(GradeLevel.ordinal)
+        )).all()
+        return [{"id": str(row.id), "name": row.name} for row in rows]
+
+
+@essay_batches_router.get("/{batch_id}", response_model=EssayBatchStatusResponse)
+async def get_essay_batch(
+    batch_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayBatchStatusResponse:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _batch_for_own_school_or_403(session, batch_id=batch_id, school_id=school_id)
+        data = await build_batch_service(session).get_batch_status(batch_id)
+        return EssayBatchStatusResponse(**data)
+
+
+async def _run_corrections_in_background(submission_ids, session_factory) -> None:
+    try:
+        async with session_factory() as session:
+            await build_batch_service(session).run_corrections(submission_ids)
+    except Exception:
+        logger.exception("correcao em segundo plano falhou para %s", submission_ids)
+
+
+@essay_batches_router.post(
+    "/{batch_id}/pages/{page_id}/resolve", response_model=EssayBatchStatusResponse
+)
+async def resolve_essay_batch_page(
+    batch_id: UUID,
+    page_id: UUID,
+    request: ResolveBatchPageRequest,
+    background_tasks: BackgroundTasks,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> EssayBatchStatusResponse:
+    """Devolve o status JA atualizado do lote inteiro, pra que a tela de
+    resolucao manual nao precise de um segundo GET depois de cada pagina."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _batch_for_own_school_or_403(session, batch_id=batch_id, school_id=school_id)
+        service = build_batch_service(session)
+
+        # Desvio intencional em relacao ao brief original (achado na revisao
+        # da Tarefa 8, ja registrado no ledger do controlador):
+        # EssayBatchService.resolve_page nao valida que a pagina ainda esta em
+        # NEEDS_REVIEW antes de realoca-la - uma pagina ja MATCHED_AUTO ou
+        # RESOLVED_MANUAL poderia ser movida de novo em silencio, deixando-a
+        # "presa" na submissao antiga. A validacao fica aqui na rota, e nao no
+        # servico, pra nao mudar a assinatura/contrato ja aprovado do servico.
+        page = await session.get(EssayBatchPage, page_id)
+        if page is None or page.batch_id != batch_id:
+            raise HTTPException(status_code=404, detail="Pagina nao encontrada neste lote.")
+        if page.status != "NEEDS_REVIEW":
+            raise HTTPException(status_code=422, detail="Esta pagina ja foi resolvida.")
+
+        try:
+            submission_ids = await service.resolve_page(
+                batch_id=batch_id, page_id=page_id, student_id=request.student_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        data = await service.get_batch_status(batch_id)
+        response = EssayBatchStatusResponse(**data)
+
+    if submission_ids:
+        # Mesma razao de confirm_essay_submission: a chamada de correcao e a
+        # parte lenta e o professor nao deve esperar por ela.
+        background_tasks.add_task(
+            _run_corrections_in_background, submission_ids, session_factory
+        )
+    return response
+
+
+@essay_batches_router.get("/{batch_id}/pages/{page_id}/image")
+async def get_essay_batch_page_image(
+    batch_id: UUID,
+    page_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+):
+    """A imagem da folha, pro professor identificar o aluno olhando a letra."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _batch_for_own_school_or_403(session, batch_id=batch_id, school_id=school_id)
+        page = await session.get(EssayBatchPage, page_id)
+        if page is None or page.batch_id != batch_id:
+            raise HTTPException(status_code=404, detail="Pagina nao encontrada neste lote.")
+        return FileResponse(page.storage_uri)
+
+
+teacher_school_router = APIRouter(prefix="/api/v1/teacher/school", tags=["teacher-school"])
+
+_ALLOWED_LOGO_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+
+class SchoolLogoResponse(BaseModel):
+    has_logo: bool
+
+
+@teacher_school_router.get("/logo", response_model=SchoolLogoResponse)
+async def get_school_logo_state(
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> SchoolLogoResponse:
+    """So diz SE existe uma logo - o arquivo em si nunca e devolvido por esta
+    rota; quem precisa dele e a geracao da folha, do lado do servidor."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        school = await session.get(School, school_id)
+        return SchoolLogoResponse(
+            has_logo=bool(school is not None and school.logo_storage_uri)
+        )
+
+
+@teacher_school_router.post("/logo", response_model=SchoolLogoResponse)
+async def upload_school_logo(
+    file: UploadFile = File(...),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> SchoolLogoResponse:
+    """Mesma forma de upload_prompt_material: streaming em pedacos de 1MB pra um
+    temporario com teto de tamanho, e so entao MaterialStorage.store()."""
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _ALLOWED_LOGO_SUFFIXES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A logo precisa ser uma imagem PNG ou JPG - recebido {suffix!r}",
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        school = await session.get(School, school_id)
+        if school is None:
+            raise HTTPException(status_code=403, detail="Escola nao encontrada.")
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="r4_school_logo_"))
+        try:
+            tmp_path = tmp_dir / (Path(file.filename or "logo.png").name)
+            size = 0
+            with open(tmp_path, "wb") as out:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > _MAX_UPLOAD_BYTES:
+                        out.close()
+                        raise HTTPException(
+                            status_code=413, detail="Arquivo de logo passa de 25MB."
+                        )
+                    out.write(chunk)
+            managed_path, _digest = MaterialStorage().store(tmp_path)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        school.logo_storage_uri = str(managed_path)
+        # Resposta montada antes do commit (expire_on_commit=True em producao).
+        response = SchoolLogoResponse(has_logo=True)
+        await session.commit()
+        return response
