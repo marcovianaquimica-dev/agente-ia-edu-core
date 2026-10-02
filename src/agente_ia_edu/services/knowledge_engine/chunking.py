@@ -37,6 +37,7 @@ from ...knowledge_chunking_policy.v1 import (
     INDIVISIBLE_CHUNK_TYPES,
     MAX_CHUNK_TOKENS,
     MIN_CHUNK_TOKENS,
+    MIN_USEFUL_CHARS,
     OVERLAP_TOKENS,
     POLICY_VERSION,
     TARGET_CHUNK_TOKENS,
@@ -147,9 +148,36 @@ class ProseChunker:
         drafts: list[ChunkDraft] = []
         ordinal = 1
 
-        for section in sorted(parsed.sections, key=lambda s: s.position):
+        # Fase 5.1a: linha de sumario NAO origina secao. A causa, nao o
+        # sintoma - deduplicar depois de criar deixaria a seccionacao errada
+        # e apagaria texto ja persistido.
+        ordenadas = sorted(parsed.sections, key=lambda s: s.position)
+        reais = [s for s in ordenadas if not is_table_of_contents_title(s.title)]
+        suprimidas = len(ordenadas) - len(reais)
+        # FALHA SEGURA: um documento que seja SO sumario nao pode desaparecer.
+        # Nesse caso o documento inteiro vira uma secao sintetica, marcada.
+        if ordenadas and not reais:
+            reais = ordenadas[:1]
+        secoes_efetivas = reais
+        #: Quanto de cada faixa de paginas ja foi consumido por secoes
+        #: anteriores. Ver a nota do cursor em ``_section_raw_text``.
+        cursores: dict[tuple, int] = {}
+
+        for posicao, section in enumerate(secoes_efetivas):
             heading_base = _section_heading(section)
-            raw, first_page, approximate = self._section_raw_text(page_texts, section)
+            # So as secoes SEGUINTES que ainda tocam a faixa desta: um titulo
+            # de capitulo muito posterior nao deve cortar nada aqui.
+            fim = section.page_end or section.page_start or 0
+            seguintes = [
+                outra.title
+                for outra in secoes_efetivas[posicao + 1 :]
+                if (outra.page_start or 0) <= fim
+            ]
+            faixa = (section.page_start, section.page_end)
+            raw, first_page, approximate, consumido = self._section_raw_text(
+                page_texts, section, next_titles=seguintes, cursor=cursores.get(faixa, 0)
+            )
+            cursores[faixa] = consumido
             if not raw.strip():
                 continue
 
@@ -191,6 +219,12 @@ class ProseChunker:
                             "overlap_prefix_chars": overlap_chars,
                             "overlap_from_same_section": bool(overlap_chars),
                             "exercise_overlap": bool(exercises) and not removed,
+                            # Observabilidade da Fase 5.1a: quantas secoes de
+                            # sumario foram suprimidas, e se este chunk saiu
+                            # de um corte por tamanho.
+                            "sections_suppressed": suprimidas,
+                            "section_suppressed": bool(suprimidas),
+                            "hard_split": bool(window.extra.get("hard_split")),
                             "structure": {
                                 "classified_as": window.chunk_type,
                                 "signals": list(window.signals),
@@ -214,6 +248,14 @@ class ProseChunker:
                     body = f"{statement}\n{question.alternatives_text.strip()}"
                 page_start = (question.page_start or first_page) + page_offset
                 page_end = (question.page_end or question.page_start or first_page) + page_offset
+
+                # CORRECAO DE FRONTEIRA (Fase 5.1a). Ver
+                # ``split_swallowed_statement``: o enunciado para na primeira
+                # fronteira estrutural, e o que o parser engoliu depois dele
+                # volta ao fluxo de prosa, com a mesma faixa de paginas e a
+                # correcao registrada. Nada e truncado nem descartado.
+                body, engolido = split_swallowed_statement(body, _MAX_CHARS)
+                corrigido = bool(engolido)
 
                 # PORTAO DE PROMOCAO (Fase 3.1, spec 21). O parser entrega
                 # candidatos pela heuristica numerada, cuja precisao medida no
@@ -243,19 +285,96 @@ class ProseChunker:
                 if verdict.demoted_from:
                     structure["demoted_from"] = verdict.demoted_from
 
+                for pedaco in bound_indivisible(body):
+                    drafts.append(
+                        _draft(
+                            ordinal=ordinal,
+                            chunk_type=chunk_type,
+                            heading_path=heading_base,
+                            page_start=page_start,
+                            page_end=page_end,
+                            raw_text=pedaco,
+                            extra={
+                                "boundary_approximate": approximate,
+                                "question_number": question.question_number,
+                                "requires_review": question.requires_review,
+                                "exercise_boundary_corrected": corrigido,
+                                "indivisible_overflow": len(body) > INDIVISIBLE_CEILING_CHARS,
+                                "structure": structure,
+                            },
+                        )
+                    )
+                    ordinal += 1
+
+                # A cauda engolida passa pelo MESMO caminho de prosa que
+                # qualquer outro texto: blocos, janelamento e classificacao.
+                if engolido:
+                    for janela in _window(
+                        self._blocks(engolido, first_page, heading_base, section)
+                    ):
+                        for pedaco in bound_indivisible(janela.text):
+                            drafts.append(
+                                _draft(
+                                    ordinal=ordinal,
+                                    chunk_type=janela.chunk_type,
+                                    heading_path=tuple(
+                                        janela.extra.get("heading_path", heading_base)
+                                    ),
+                                    page_start=page_start,
+                                    page_end=page_end,
+                                    raw_text=pedaco,
+                                    extra={
+                                        "boundary_approximate": approximate,
+                                        "exercise_boundary_corrected": True,
+                                        "recovered_from_statement": question.question_number,
+                                        "indivisible_overflow": bool(
+                                            janela.extra.get("indivisible_overflow")
+                                        ),
+                                        "structure": {
+                                            "classified_as": janela.chunk_type,
+                                            "signals": list(janela.signals)
+                                            + ["recovered_from_statement"],
+                                            **describe_block(pedaco),
+                                        },
+                                    },
+                                )
+                            )
+                            ordinal += 1
+
+        # RESGATE DE PAGINA (Fase 5.1a). O corte na proxima secao e o cursor
+        # eliminaram os sufixos aninhados, mas texto que nenhuma secao
+        # reivindica deixaria de ser emitido - e isso seria DESCARTAR
+        # conteudo, nao corrigir representacao. Conteudo editorial nao e
+        # apagado: ele e representado e depois classificado por
+        # ``editorial_role``.
+        cobertas = {
+            pagina
+            for draft in drafts
+            for pagina in range(draft.page_start, draft.page_end + 1)
+        }
+        for indice, texto in enumerate(page_texts, start=1):
+            pagina = indice + page_offset
+            corpo = (texto or "").strip()
+            if pagina in cobertas or len(corpo) < MIN_USEFUL_CHARS:
+                continue
+            for parte in _hard_split(_WHITESPACE.sub(" ", corpo), _MAX_CHARS):
+                verdict = classify_block(parte)
                 drafts.append(
                     _draft(
                         ordinal=ordinal,
-                        chunk_type=chunk_type,
-                        heading_path=heading_base,
-                        page_start=page_start,
-                        page_end=page_end,
-                        raw_text=body,
+                        chunk_type=verdict.chunk_type,
+                        heading_path=(),
+                        page_start=pagina,
+                        page_end=pagina,
+                        raw_text=parte,
                         extra={
-                            "boundary_approximate": approximate,
-                            "question_number": question.question_number,
-                            "requires_review": question.requires_review,
-                            "structure": structure,
+                            "boundary_approximate": True,
+                            "residual_page": True,
+                            "structure": {
+                                "classified_as": verdict.chunk_type,
+                                "signals": list(verdict.signals) + ["residual_page"],
+                                **describe_block(parte),
+                            },
                         },
                     )
                 )
@@ -266,8 +385,12 @@ class ProseChunker:
     # -- alinhamento secao <-> texto cru ---------------------------------
 
     def _section_raw_text(
-        self, page_texts: Sequence[str], section: ParsedSection
-    ) -> tuple[str, int, bool]:
+        self,
+        page_texts: Sequence[str],
+        section: ParsedSection,
+        next_titles: Sequence[str] = (),
+        cursor: int = 0,
+    ) -> tuple[str, int, bool, int]:
         """Devolve ``(texto, primeira_pagina, aproximado)``.
 
         O parser nao expoe offsets de caractere, so faixa de paginas. Para
@@ -281,6 +404,13 @@ class ProseChunker:
         if end < start:
             end = start
         window = "\f".join(page_texts[start - 1 : end])
+        # CURSOR: secoes que compartilham a mesma faixa PARTICIONAM o texto,
+        # em ordem. Sem isto, uma secao cujo titulo e curto demais para ser
+        # localizado (``len(title) >= 12``) caia no fallback e levava a janela
+        # INTEIRA - era assim que "MEIS, L" e "ABDALLA, M", nomes de autor da
+        # bibliografia, geravam copias da pagina toda.
+        base = min(max(cursor, 0), len(window))
+        window = window[base:]
 
         # Localiza pelo titulo CRU do parser, nao pelo limpo: o cru e
         # literalmente um pedaco do texto, entao e ele que da o corte exato.
@@ -299,8 +429,10 @@ class ProseChunker:
             )
             found = probe.search(window)
             if found is not None:
-                return window[found.end() :], start, False
-        return window, start, True
+                body = _until_next_section(window[found.end() :], next_titles)
+                return body, start, False, base + found.end() + len(body)
+        body = _until_next_section(window, next_titles)
+        return body, start, True, base + len(body)
 
     # -- blocos estruturais ----------------------------------------------
 
@@ -372,6 +504,170 @@ class ProseChunker:
 # -- janelamento --------------------------------------------------------
 
 
+def split_swallowed_statement(body: str, limit: int) -> tuple[str, str]:
+    """Separa o ENUNCIADO do material que o parser engoliu depois dele.
+
+    Diagnostico que motiva isto (Fase 5.1a): 100% dos chunks acima de 6.000
+    caracteres vem do caminho de exercicio, e nenhum do janelamento. O
+    ``statement_text`` do parser nao tem fronteira de FIM - quando nenhuma
+    questao seguinte e detectada, ele estende ate o fim da secao. Os maiores
+    casos medidos nao tem um unico item numerado interno e comecam com
+    ``EMSLEY, J.`` (bibliografia), com o texto de competencias da BNCC ou com
+    ``Espera-se que os estudantes...`` (gabarito).
+
+    A correcao e de FRONTEIRA, nao de tamanho: o enunciado termina na
+    primeira fronteira ESTRUTURAL do texto - marcador de abertura ou quebra de
+    paragrafo -, e nao num ponto escolhido por contagem de caractere. O que
+    vem depois nunca pertenceu a unidade, e volta ao fluxo de prosa.
+
+    Devolve ``(cabeca, cauda)``. Cauda vazia significa que nada foi engolido.
+    """
+    if len(body) <= limit:
+        return body, ""
+
+    # 1a escolha: marcador estrutural de abertura - a mesma fronteira que a
+    # Fase 3 usou para impedir um capitulo inteiro de herdar WORKED_EXAMPLE.
+    segments = split_at_structural_markers(body)
+    if len(segments) > 1 and len(segments[0]) <= limit:
+        head = segments[0]
+        return head, body[len(head) :].lstrip()
+
+    # 2a escolha: a PRIMEIRA fronteira de paragrafo que produza uma cabeca de
+    # tamanho plausivel para um enunciado. Primeira, nao a ultima que couber
+    # no limite: o que vem depois da primeira quebra, num enunciado que ja
+    # passou do maximo, foi engolido - nao faz parte da unidade. O piso evita
+    # que uma quebra espuria no inicio produza um "enunciado" de duas
+    # palavras.
+    for separator in ("\n\n", "\n"):
+        posicao = body.find(separator)
+        while 0 < posicao <= limit:
+            if posicao >= _MIN_EXERCISE_CHARS:
+                return body[:posicao].strip(), body[posicao:].strip()
+            posicao = body.find(separator, posicao + len(separator))
+
+    # 3a escolha: fronteira de SENTENCA. O pypdf devolve paginas inteiras sem
+    # uma unica linha em branco, entao a maioria dos enunciados engolidos nao
+    # tem fronteira de paragrafo alguma - medido: todos os 130 maiores chunks
+    # restantes caiam aqui. Sentenca ainda e estrutura do texto, e e o mesmo
+    # ultimo recurso que a Fase 3 ja adota em ``_split_at_sentences``;
+    # caractere nao seria.
+    sentencas = _SENTENCE_SPLIT.split(body)
+    if len(sentencas) > 1:
+        head: list[str] = []
+        for sentenca in sentencas:
+            candidato = " ".join(head + [sentenca])
+            if head and len(candidato) > limit:
+                break
+            head.append(sentenca)
+        texto = " ".join(head).strip()
+        if texto and len(texto) < len(body.strip()):
+            return texto, body[len(texto) :].lstrip()
+
+    # Nenhuma fronteira estrutural de especie alguma: a unidade e grande DE
+    # VERDADE. Nao se divide aqui - quem decide e a politica explicita de
+    # indivisibilidade, e ela marca o que fizer.
+    return body, ""
+
+
+def _until_next_section(text: str, next_titles: Sequence[str]) -> str:
+    """Corta o texto onde a PROXIMA secao comeca.
+
+    Esta e a correcao estrutural da Fase 5.1a, e a causa que ela ataca e
+    maior que o sumario. ``_section_raw_text`` devolvia o sufixo da faixa de
+    paginas INTEIRA a partir do titulo, ignorando onde a secao seguinte
+    comeca. Quando varias secoes compartilham a mesma faixa - medido: 19
+    faixas repetidas no Cotidiano v1, envolvendo 107 das 264 secoes, entre
+    elas 12 secoes na pagina 9 cujos titulos sao nomes de autor de
+    bibliografia - cada uma levava o sufixo inteiro, e o resultado eram
+    SUFIXOS ANINHADOS: 16 a 23% do acervo com texto contido em outro chunk.
+
+    O corte e no PRIMEIRO titulo seguinte que ocorrer, com o mesmo casamento
+    tolerante a whitespace usado para localizar a propria secao. Nenhum
+    caractere se perde: o que e cortado aqui pertence a secao seguinte, e e
+    ela que o emite.
+    """
+    limite = len(text)
+    for title in next_titles:
+        flat = " ".join((title or "").split())
+        if len(flat) < 12:
+            continue
+        probe = re.compile(r"\s+".join(re.escape(part) for part in flat[:60].split()))
+        found = probe.search(text)
+        if found is not None and found.start() < limite:
+            limite = found.start()
+    return text[:limite]
+
+
+#: Corrida de pontos que so existe em linha de sumario. Quatro ou mais:
+#: reticencias tem tres, e "E assim por diante..." nao e sumario.
+_DOT_LEADER = re.compile(r"\.{4,}")
+
+
+def is_table_of_contents_title(title: str | None) -> bool:
+    """O titulo que o parser achou e, na verdade, uma LINHA DE SUMARIO?
+
+    Medido no livro real: na pagina 452 do Cotidiano v1 - o sumario do manual
+    do professor - o parser criou 24 secoes cujo titulo e a propria linha do
+    sumario, pontilhados inclusive. Cada uma abria uma janela sobre a mesma
+    pagina e cortava a partir do seu titulo, produzindo SUFIXOS ANINHADOS:
+    40 chunks numa pagina de 8.614 caracteres.
+
+    A funcao e pura e conservadora de proposito. Pontilhado e um sinal
+    TIPOGRAFICO inequivoco - nenhum cabecalho real de capitulo carrega quatro
+    pontos seguidos - e por isso basta sozinho. Sinais mais fracos (titulo
+    terminado em numero de pagina, por exemplo) ficariam a um passo de
+    suprimir capitulo legitimo, e suprimir conteudo e o erro caro aqui.
+
+    Nao resolve o sumario de obra que nao usa pontilhado: medido, "Investigar
+    e Conhecer" tem apenas 2 chunks com pontilhado. Para essas, o que remove o
+    material da recuperacao e o ``editorial_role`` da Fase 5.1b, nao esta
+    funcao.
+    """
+    return bool(_DOT_LEADER.search(title or ""))
+
+
+#: Teto da excecao de indivisibilidade. Acima disto a alegacao deixa de ser
+#: cridivel: medido no SuperAcao, um "exercicio" de 70.990 caracteres e
+#: artefato da heuristica numerada do parser, nao uma unidade pedagogica.
+INDIVISIBLE_CEILING_CHARS = MAX_CHUNK_TOKENS * CHARS_PER_TOKEN * 3
+
+
+def bound_indivisible(text: str) -> list[str]:
+    """Mantem a unidade indivisivel inteira, ate o teto.
+
+    A excecao da Fase 3 continua valendo - cortar um exemplo resolvido ao meio
+    produz dois chunks que nao sustentam afirmacao nenhuma -, mas ela tem
+    limite. Alem do teto o texto e cortado, e o corte fica OBSERVAVEL.
+    """
+    if len(text) <= INDIVISIBLE_CEILING_CHARS:
+        return [text]
+    return _hard_split(text, INDIVISIBLE_CEILING_CHARS)
+
+
+def _hard_split(text: str, limit: int) -> list[str]:
+    """Ultimo recurso de tamanho, na melhor fronteira disponivel.
+
+    ``_split_at_sentences`` devolve o paragrafo INTEIRO quando nao acha
+    fronteira de sentenca - e foi assim que 12 paginas de sumario, sem um
+    unico ponto final seguido de maiuscula, viraram um bloco de 45.040
+    caracteres. Aqui a fronteira degrada: espaco em branco perto do limite e,
+    se nem isso existir, corte seco. Nenhum caractere e descartado.
+    """
+    if len(text) <= limit:
+        return [text]
+    pieces: list[str] = []
+    rest = text
+    while len(rest) > limit:
+        cut = rest.rfind(" ", limit // 2, limit)
+        if cut <= 0:
+            cut = limit
+        pieces.append(rest[:cut].strip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        pieces.append(rest)
+    return [piece for piece in pieces if piece]
+
+
 def _window(blocks: Sequence[_Block]) -> list[_Block]:
     """Agrupa blocos divisiveis ate o alvo; emite indivisiveis sozinhos.
 
@@ -392,6 +688,10 @@ def _window(blocks: Sequence[_Block]) -> list[_Block]:
             and len(merged.text) < _MIN_CHARS
             and out[-1].divisible
             and out[-1].extra.get("heading_path") == merged.extra.get("heading_path")
+            # Fundir repetidamente crescia sem teto: era dai que vinham os
+            # chunks PROSE de 15 mil caracteres, que nenhum limite pegava
+            # porque nunca passaram pelo caminho de bloco grande.
+            and len(out[-1].text) + len(merged.text) + 2 <= _MAX_CHARS
         ):
             out[-1] = _merge([out[-1], merged])
         else:
@@ -401,10 +701,45 @@ def _window(blocks: Sequence[_Block]) -> list[_Block]:
     for block in blocks:
         if not block.divisible:
             flush()
-            out.append(block)
+            # Teto da excecao de indivisibilidade - ver ``bound_indivisible``.
+            pieces = bound_indivisible(block.text)
+            for piece in pieces:
+                out.append(
+                    _Block(
+                        text=piece,
+                        chunk_type=block.chunk_type,
+                        page_start=block.page_start,
+                        page_end=block.page_end,
+                        signals=block.signals
+                        + (("indivisible_overflow",) if len(pieces) > 1 else ()),
+                        extra={
+                            **block.extra,
+                            "indivisible_overflow": len(pieces) > 1,
+                        },
+                    )
+                )
             continue
         if buffer and buffer[-1].extra.get("heading_path") != block.extra.get("heading_path"):
             flush()
+        # INVARIANTE: nada janelavel escapa do limite. O teste antigo era
+        # ``if buffer and candidate > _MAX_CHARS`` - com o buffer VAZIO, um
+        # bloco unico nunca era testado, e um bloco de 45.040 caracteres saia
+        # inteiro. A excecao continua existindo so para unidade
+        # comprovadamente indivisivel, acima, e la ela e marcada.
+        if len(block.text) > _MAX_CHARS:
+            flush()
+            for index, piece in enumerate(_hard_split(block.text, _MAX_CHARS)):
+                out.append(
+                    _Block(
+                        text=piece,
+                        chunk_type=block.chunk_type,
+                        page_start=block.page_start,
+                        page_end=block.page_end,
+                        signals=block.signals + ("hard_split",),
+                        extra={**block.extra, "hard_split": True},
+                    )
+                )
+            continue
         candidate = len(_merge(buffer + [block]).text) if buffer else len(block.text)
         if buffer and candidate > _MAX_CHARS:
             flush()
