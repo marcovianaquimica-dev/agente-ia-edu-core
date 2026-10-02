@@ -78,23 +78,41 @@ visível só pro professor que atribuiu.
 - Correção em massa via Batch API, envio em lote em si (pipeline
   completamente separado) - só o ponto de interseção abaixo é tocado.
 
-## Ponto de atenção crítico: interseção com o envio em lote
+## Pontos de atenção críticos: todo lugar que hoje filtra só por `class_id`
 
-`EssayBatchService._assignment_for_student` (já revisado e testado nesta
-sessão, parte da feature de envio em lote por série/escola recém-
-integrada) resolve a turma REAL do aluno casado automaticamente via um
-JOIN `PromptAssignment.class_id == StudentEnrollment.class_id`. Com
-`PromptAssignment.student_id` passando a existir, um aluno atribuído
-INDIVIDUALMENTE (sem a turma dele ter sido atribuída) nunca seria achado
-por essa função - a página dele cairia em "sem atribuição válida" mesmo
-tendo sido explicitamente atribuído.
+Generalizar `PromptAssignment` pra aceitar `student_id` não vale nada
+sozinho - QUALQUER lugar do código que hoje decide "este aluno pode ver/
+usar esta atribuição" checando só `class_id` precisa de um segundo ramo,
+senão a atribuição individual fica praticamente invisível pro próprio
+aluno. Investigação direta do código (não suposição) achou 3 pontos, em
+ordem de quão crítico é esquecer cada um:
 
-`_assignment_for_student` precisa de um segundo ramo de busca: além do
-JOIN por turma, uma consulta direta por
-`PromptAssignment.student_id == student_id`. Se os dois ramos acharem
-resultado (aluno tem atribuição por turma E por student_id direto pra a
-mesma proposta - caso raro mas possível), a atribuição por turma vence
-(mesma prioridade de hoje, menor mudança de comportamento).
+1. **`_assignment_for_own_class_or_403`** (`api/routes/essay_submissions.py:133`)
+   - o PORTÃO real antes do aluno conseguir começar a escrever/enviar uma
+   redação (`create_essay_submission`, rota `POST /api/v1/essay-submissions`).
+   Hoje: `assignment.class_id != class_id` → 403. Sem o segundo ramo, um
+   aluno atribuído individualmente veria a proposta na lista (se o item 2
+   abaixo for corrigido) mas tomaria 403 ao tentar de fato escrever - o
+   pior tipo de bug nesta feature, porque parece que funcionou até o
+   último passo. Precisa passar `student_id` pra essa função também (hoje
+   só recebe `class_id`) e aceitar `assignment.class_id == class_id OR
+   assignment.student_id == student_id`.
+2. **`list_essay_prompts_for_student`** (`api/routes/essay_submissions.py:773`)
+   - a lista de propostas que o aluno vê pra responder (`GET .../prompts`
+   do aluno). Hoje: `PromptAssignment.class_id == enrollment.class_id`.
+   Mesmo ajuste: `or_(PromptAssignment.class_id == enrollment.class_id,
+   PromptAssignment.student_id == enrollment.student_id)`.
+3. **`EssayBatchService._assignment_for_student`** (`services/essay_batch.py:540`,
+   já revisado e testado nesta sessão, parte do envio em lote por série/
+   escola recém-integrado) - resolve a turma REAL do aluno casado
+   automaticamente via JOIN por `class_id`. Mesmo ajuste: um segundo ramo
+   de busca direta por `PromptAssignment.student_id == student_id`.
+
+Em TODOS os 3 pontos, se os dois ramos acharem resultado pra mesma
+proposta (aluno tem atribuição por turma E por student_id direto - caso
+raro mas possível), a atribuição por turma vence (mesma prioridade de
+hoje, menor mudança de comportamento, e é a que normalmente tem
+`due_at`/`validation_enabled` mais recentes de uma atribuição em massa).
 
 ## Esquema (migration)
 
@@ -219,18 +237,36 @@ async def _assignment_for_student(
 
 ## API
 
-- `POST /api/v1/catalog/essay-prompts/create-and-assign` (multipart/form,
-  como `essay_batches.py`'s rota de criação já faz pra PDF): título,
-  enunciado, ano, arquivo opcional, `class_ids[]`, `grade_level_ids[]`,
-  `student_ids[]`. Transação única: cria `EssayPrompt`, anexa
-  `PromptMaterial` se veio arquivo, expande público, cria
-  `PromptAssignment`s, grava `PromptAssignmentLog`. Público vazio (nenhum
-  dos 3) é 422 - diferente do envio em lote, aqui não existe "escola
-  inteira implícita".
-- `POST /api/v1/catalog/essay-prompts/{id}/assign`: mesmo corpo de
-  público (sem título/enunciado/arquivo), mesma lógica de expansão +
-  criação de `PromptAssignment`s + log, pra uma proposta já existente
-  (própria ou da plataforma).
+**Reaproveitados tal como estão, sem mudança** (investigação direta do
+código, `api/routes/essay_prompts.py`, confirmou que já fazem exatamente
+o que a tela única de criação precisa):
+- `POST /api/v1/catalog/essay-prompts` (`create_essay_prompt`): cria a
+  `EssayPrompt` (DRAFT), já é o passo 1 da tela única.
+- `POST /api/v1/catalog/essay-prompts/{id}/materials/upload`
+  (`upload_prompt_material`): já aceita qualquer arquivo (inclusive PDF)
+  como material - é o passo 2 (opcional) da tela única, sem mudança
+  nenhuma na rota.
+- `_materialize_if_platform_prompt`: já resolve "usar proposta do banco"
+  quando o id escolhido é de uma `PlatformEssayPrompt` ainda não
+  materializada nesta escola - a atribuição nova abaixo entra DEPOIS
+  dessa materialização, reaproveitando o mesmo helper que
+  `create_prompt_assignment`/`create_prompt_assignments_bulk` já chamam.
+
+**Novo**, em `api/routes/essay_prompts.py` (mesmo arquivo das rotas
+acima, não um arquivo novo):
+- `POST /api/v1/catalog/essay-prompts/{id}/assignments/combined` -
+  público combinado (`class_ids[]`, `grade_level_ids[]`, `student_ids[]`),
+  usado pelos 2 fluxos (depois de criar OU depois de escolher do banco).
+  Diferente de `assignments/bulk` (que já existe, continua intocada,
+  só turma, best-effort por turma com commit incremental - usada pela
+  seção "Turmas atribuídas" que já existe na tela de detalhe): esta rota
+  nova expande série em turmas, junta com `class_ids`/`student_ids`
+  diretos, PRÉ-CONSULTA quais alvos já têm `PromptAssignment` pra essa
+  proposta (pulando os já atribuídos em vez de deixar o `IntegrityError`
+  estourar), cria as linhas realmente novas, e grava 1
+  `PromptAssignmentLog` com a tentativa inteira (inclusive os alvos que já
+  existiam) - tudo num commit só, já que não há `IntegrityError` a
+  tratar. Público vazio (nenhum dos 3) é 422 antes de qualquer consulta.
 - `GET /api/v1/catalog/essay-prompts/students-search?q=...`: busca por
   nome dentro do escopo autorizado do professor
   (`get_teacher_authorized_classrooms`), devolve `[{student_id, full_name,
@@ -238,8 +274,21 @@ async def _assignment_for_student(
   filtrado por nome em vez de turma/série/escola.
 - `GET /api/v1/catalog/essay-prompts/{id}/assignment-log`: histórico de
   atribuições dessa proposta, mais recente primeiro.
-- `GET /api/v1/teacher/essay-batches/grade-levels`: reaproveitada tal
-  como está (nenhuma mudança).
+
+**Reaproveitada tal como está** (feature de envio em lote, já em
+produção): `GET /api/v1/teacher/essay-batches/grade-levels`.
+
+**A tela única "Criar e atribuir" não é uma transação de banco única
+ponta a ponta** - ela orquestra 2-3 chamadas client-side em sequência
+(criar proposta → upload de material, se houver PDF → atribuir
+combinado), o mesmo jeito que a tela de detalhe JÁ faz hoje com 2 chamadas
+separadas (o código só reordena quando cada uma acontece). Isso é
+deliberado, não uma simplificação: `_materialize_if_platform_prompt`
+(código já existente) já documenta e aceita esse mesmo risco pro fluxo de
+atribuição de proposta de plataforma hoje - se uma chamada no meio falhar,
+sobra uma `EssayPrompt` DRAFT sem atribuição nenhuma, que é inofensiva
+(não aparece pra nenhum aluno, o professor só tenta de novo ou a edita
+depois) e seria descartável manualmente via a "Lixeira" que já existe.
 
 ## Frontend
 
@@ -268,17 +317,19 @@ async def _assignment_for_student(
 - `resolve_assignment_targets`: série expande nas turmas certas sem
   duplicar; turma repetida nos dois conjuntos (direta + via série) conta
   uma vez só.
-- `_assignment_for_student`: aluno SÓ com atribuição direta (sem a turma
-  dele atribuída) é achado pelo ramo 2; aluno com os dois tipos de
-  atribuição pra mesma proposta usa o ramo 1 (turma) primeiro; regressão
-  explícita provando que o envio em lote (série/escola, feature já em
-  produção) continua funcionando sem mudança de comportamento pro caso
-  só-turma.
-- Endpoint combinado: sucesso com e sem PDF; público vazio é 422 antes de
-  qualquer escrita; falha no meio (ex: aluno de outra escola) não deixa
-  `EssayPrompt` órfã sem nenhum `PromptAssignment`; reatribuir uma
-  turma/aluno que já tinha essa proposta é idempotente (sem erro, sem
-  linha duplicada), mas ainda gera um `PromptAssignmentLog` novo.
+- Os 3 pontos críticos listados acima, cada um com teste próprio: aluno SÓ
+  com atribuição direta (sem a turma dele atribuída) consegue (a) aparecer
+  na própria lista de propostas, (b) efetivamente criar uma submissão via
+  `POST /api/v1/essay-submissions`, e (c) ser casado corretamente pelo
+  envio em lote; aluno com os dois tipos de atribuição pra mesma proposta
+  usa a atribuição por turma primeiro nos 3 pontos; regressão explícita
+  provando que o comportamento só-turma de hoje (nenhuma das 3 funções
+  muda de resultado quando `student_id` nunca é usado) continua idêntico.
+- Endpoint de atribuição combinada: sucesso com `class_ids`+`grade_level_ids`
+  +`student_ids` misturados; público vazio é 422 antes de qualquer
+  consulta; reatribuir uma turma/aluno que já tinha essa proposta é
+  idempotente (sem erro, sem linha duplicada, sem bater no
+  `IntegrityError`), mas ainda gera um `PromptAssignmentLog` novo.
 - Busca de alunos: só devolve alunos dentro do escopo autorizado do
   professor (nunca de turma que ele não pode ver).
 - `PromptAssignmentLog`: 1 registro por clique (não por turma/aluno
@@ -290,11 +341,12 @@ async def _assignment_for_student(
 
 ## Riscos e decisões em aberto
 
-1. **Nome real do serviço/arquivo que hospeda a lógica de
-   `PromptAssignment` hoje** - não confirmado nesta sessão de
-   brainstorming (não precisei abrir o arquivo pra validar o desenho);
-   a tarefa de implementação confirma antes de escrever código, em vez
-   de supor.
+1. ~~Nome real do serviço/arquivo que hospeda a lógica de
+   `PromptAssignment`~~ - **resolvido**: `services/essay_proposal.py`
+   (`EssayProposalService`), confirmado por leitura direta antes de
+   escrever o plano. `api/routes/essay_prompts.py` já tem quase toda a
+   infraestrutura de rota necessária (criação, upload de material,
+   atribuição por turma) - ver seção API acima, revisada com base nisso.
 2. **Volume de alunos pra busca** - sem paginação nesta leva (YAGNI); se
    uma escola tiver milhares de alunos visíveis a um professor
    school-wide, a busca por nome pode precisar de um limite de resultados
