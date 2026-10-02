@@ -499,31 +499,66 @@ async def coverage(
     corpus vazio, ``missing`` e zero e a cobertura e trivialmente completa.
     Por isso ``coverage()`` sozinha nao autoriza ativacao - ver
     ``ActivationReadiness``.
+
+    AGREGACAO PURA, DESDE O PASSO 4.1
+    =================================
+
+    Quatro numeros saem de UMA consulta, e nenhuma linha e materializada. A
+    versao anterior carregava os chunks elegiveis como entidades ORM
+    COMPLETAS - ``raw_text`` inclusive - so para contar quantos eram: 230 ms
+    por busca no corpus de 5.911, porque o portao de cobertura roda a cada
+    consulta. Era o mesmo erro que a Fase 5 ja tinha cometido e corrigido na
+    busca lexical, reaparecendo aqui.
+
+    Ler ``raw_text`` para contar cobertura e pior que lento: carrega literal
+    de obra comercial para a memoria do processo sem necessidade alguma.
+    ``tests/test_knowledge_coverage_sql.py`` captura o SQL emitido e prova
+    que isso nao acontece.
     """
     space = await _load_space(session, space_id)
     policy, roles = _resolve_policy(include_roles)
-    candidates = await _candidates(session, roles, policy)
-    pending, present = await _pending(session, space.id, candidates)
 
-    pending_ids = {chunk.id for chunk in pending}
-    stale = 0
-    if pending_ids:
-        stale = (
-            await session.scalar(
-                select(func.count(func.distinct(KnowledgeChunkEmbedding.chunk_id)))
-                .where(KnowledgeChunkEmbedding.space_id == space.id)
-                .where(KnowledgeChunkEmbedding.chunk_id.in_(pending_ids))
-            )
-        ) or 0
+    elegivel = _candidate_query(roles, policy).with_only_columns(
+        KnowledgeChunk.id, KnowledgeChunk.text_hash
+    ).subquery()
+
+    # "Tem vetor COM O TEXTO DE HOJE" e "tem ALGUM vetor" sao duas perguntas,
+    # e a diferenca entre elas e exatamente o obsoleto. Os dois EXISTS abaixo
+    # as separam sem carregar linha alguma.
+    atual = (
+        select(1)
+        .select_from(KnowledgeChunkEmbedding)
+        .where(KnowledgeChunkEmbedding.space_id == space.id)
+        .where(KnowledgeChunkEmbedding.chunk_id == elegivel.c.id)
+        .where(KnowledgeChunkEmbedding.text_hash == elegivel.c.text_hash)
+        .exists()
+    )
+    qualquer = (
+        select(1)
+        .select_from(KnowledgeChunkEmbedding)
+        .where(KnowledgeChunkEmbedding.space_id == space.id)
+        .where(KnowledgeChunkEmbedding.chunk_id == elegivel.c.id)
+        .exists()
+    )
+
+    linha = (
+        await session.execute(
+            select(
+                func.count().label("elegiveis"),
+                func.count().filter(atual).label("com_vetor"),
+                func.count().filter(~atual & qualquer).label("obsoletos"),
+            ).select_from(elegivel)
+        )
+    ).one()
 
     return CoverageSnapshot(
         space_id=space.id,
         policy=policy,
         eligible_roles=roles,
-        eligible_chunks=len(candidates),
-        embedded=present,
-        missing=len(pending),
-        stale=stale,
+        eligible_chunks=linha.elegiveis or 0,
+        embedded=linha.com_vetor or 0,
+        missing=(linha.elegiveis or 0) - (linha.com_vetor or 0),
+        stale=linha.obsoletos or 0,
     )
 
 

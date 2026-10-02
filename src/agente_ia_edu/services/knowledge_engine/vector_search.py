@@ -46,7 +46,9 @@ DOIS BACKENDS, E SO UM DELES E DE PRODUCAO
 ===========================================
 
 ``PGVECTOR``          PostgreSQL, operador ``<=>`` sobre o indice HNSW parcial
-                      do espaco ativo. E o backend de producao.
+                      do espaco ativo. E o backend de producao. O indice e
+                      criado por ``EmbeddingActivationService.activate()``,
+                      nao por ``create_all`` - ver ``ann_index_ddl``.
 ``EXACT_IN_PROCESS``  varredura exata em Python. Existe para TESTE, e nao
                       simula ANN nem se equipara em desempenho ao PostgreSQL.
                       Ele e exato, o que para um corpus de teste e uma
@@ -63,20 +65,37 @@ ordem de 1e-8, a ordem nao. Quem comparar scores das duas pernas num
 relatorio precisa saber que o ultimo digito vem do tipo da coluna - esta
 medido em ``test_the_two_backends_differ_in_precision_and_that_is_declared``.
 
-POR QUE O FILTRO E EM PYTHON
-============================
+O FILTRO VEM ANTES DO CORTE - passo 4.1
+=======================================
 
-Mesma razao da Fase 5: filtrar em SQL devolveria o conjunto certo e perderia
-a ATRIBUICAO - quantos ``SOLUTION`` o proposito ``PRACTICE`` excluiu deixaria
-de ser uma pergunta respondivel, e "nada encontrado" nao poderia nomear o
-responsavel.
+O passo 4 filtrava em Python, DEPOIS de formar o conjunto candidato, para
+preservar a atribuicao. O corpus real mostrou o preco disso, e ele era alto
+demais: com 5.911 vetores, uma busca restrita a ``OFFICIAL_PUBLIC`` nao
+achava nenhum dos 23 chunks da BNCC em 4 de 7 consultas - nao porque o
+material faltasse, mas porque nenhum deles estava entre os 2.000 mais
+proximos do acervo inteiro. Falso vazio: a busca dizia "nada encontrado"
+sobre um corpus que tinha a resposta.
 
-O preco, que nao escondemos: o conjunto candidato e limitado por
-``candidate_cap``. Um filtro muito restritivo pode esvaziar um conjunto
-limitado enquanto havia resultado abaixo do corte. Quando isso acontece,
-``candidate_cap_reached`` e verdadeiro e ``CANDIDATE_CAP_EXHAUSTED`` entra em
-``empty_reasons``. Acima de ~10^6 chunks o filtro muda para o SQL, junto com
-a sintonia do ANN.
+Agora a escada de rejeicao (``_rejection_ladder``) e UMA expressao SQL usada
+em dois lugares: no ``WHERE`` que forma o conjunto candidato e no
+``GROUP BY`` que conta quantos cada politica excluiu. Sendo a mesma
+expressao, filtro e atribuicao nao tem como divergir - o risco obvio do
+pushdown.
+
+A atribuicao MUDOU DE ESCOPO, e isso e observavel em ``filtered_out_scope``:
+ela conta sobre o corpus ATIVO inteiro, nao mais sobre o pool ja cortado. O
+numero antigo variava com a consulta, o que fazia dele um artefato do corte
+em vez de um fato sobre o acervo.
+
+A politica continua em Python. ``editorial_role_is_eligible`` e
+``solution_is_visible`` sao avaliadas aqui e o que desce para o banco e uma
+lista de valores concretos - inclusive a falha ABERTA de papel desconhecido,
+que se preserva naturalmente porque papel que a politica nao conhece nao
+entra na lista de inelegiveis.
+
+``candidate_cap`` continua 2.000 e continua sendo atingido em toda consulta
+ampla, porque no vetorial todo chunk ativo e candidato. A diferenca e que
+agora ele corta entre as ELEGIVEIS, que e o que ele sempre quis dizer.
 
 COBERTURA: RANKING PARCIAL NAO PASSA POR CORPUS COMPLETO
 =========================================================
@@ -112,8 +131,9 @@ from datetime import datetime
 from typing import Any, Mapping, Sequence
 from uuid import UUID
 
-from sqlalchemy import literal_column, select, text
+from sqlalchemy import case, func, literal, literal_column, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import Case
 
 from ...db.models import (
     CatalogNode,
@@ -125,6 +145,7 @@ from ...db.models import (
     KnowledgeSource,
 )
 from ...knowledge_retrieval_policy.v1 import (
+    EDITORIAL_ROLES,
     POLICY,
     RETRIEVAL_PURPOSES,
     UNKNOWN_PURPOSE,
@@ -155,6 +176,13 @@ _COMMERCIAL = "COMMERCIAL_REFERENCE"
 #: vetor nulo; a regra existe para que o caso degenerado nao derrube a busca
 #: nem divirja entre dialetos.
 _DEGENERATE_DISTANCE = 2.0
+
+#: Rotulo do ramo "nao rejeitado" da escada. Participa do WHERE e do
+#: GROUP BY, e por isso precisa ser uma constante e nao um literal solto.
+_KEPT = "KEPT"
+
+#: Escopo de ``filtered_out``. Ver o campo homonimo em VectorSearchResult.
+FILTERED_OUT_SCOPE = "ACTIVE_CORPUS"
 
 
 class VectorSearchError(ValueError):
@@ -230,6 +258,11 @@ class VectorSearchResult:
     policy: dict[str, Any]
     empty_reasons: tuple[str, ...]
     filtered_out: dict[str, int]
+    #: Sobre QUE conjunto ``filtered_out`` conta. Desde o passo 4.1 e o corpus
+    #: ATIVO inteiro; antes era o conjunto candidato ja cortado, o que fazia a
+    #: contagem variar com a consulta. Sai nomeado para que a mudanca seja
+    #: observavel em vez de uma surpresa entre duas medicoes.
+    filtered_out_scope: str
     source_distribution: dict[str, int]
     distinct_sources: int
     chunk_type_distribution: dict[str, int]
@@ -292,6 +325,7 @@ class VectorSearcher:
         offset: int = 0,
         max_per_source: int | None = None,
         allow_degraded: bool = False,
+        candidate_cap: int | None = None,
     ) -> VectorSearchResult:
         started = datetime.now()
         limit = POLICY.default_limit if limit is None else limit
@@ -312,6 +346,7 @@ class VectorSearcher:
             "exclude_commercial": exclude_commercial,
             "max_per_source": max_per_source,
             "allow_degraded": allow_degraded,
+            "candidate_cap": _effective_cap(candidate_cap),
             # Nao e coluna: e o VEREDITO da politica versionada sobre papel
             # editorial e proposito. Sai nomeado para que "por que este chunk
             # nao veio?" tenha resposta sem ler codigo.
@@ -350,22 +385,31 @@ class VectorSearcher:
 
         vector = await self._embed_query(query, space)
 
-        candidates, cap_reached = await self._candidates(space, vector)
-        self._assert_one_active_representation(candidates)
-        total_candidates = len(candidates)
-
-        kept, counters = await self._apply_filters(
-            candidates,
+        allowed_nodes: set[UUID] | None = None
+        if content_node_id is not None:
+            allowed_nodes = await self._node_subtree(
+                content_node_id, include_descendants=include_descendant_nodes
+            )
+        ladder = _rejection_ladder(
             purpose=purpose,
             source_kinds=source_kinds,
             source_ids=source_ids,
             document_ids=document_ids,
             chunk_types=chunk_types,
-            content_node_id=content_node_id,
-            include_descendant_nodes=include_descendant_nodes,
+            allowed_nodes=allowed_nodes,
             rights_classes=rights_classes,
             exclude_commercial=exclude_commercial,
         )
+        # ATRIBUICAO sobre o corpus ATIVO INTEIRO, antes de qualquer corte.
+        # Uma unica agregacao, e e a MESMA escada que filtra - divergir e
+        # impossivel porque e a mesma expressao SQL.
+        counters = await self._attribution(space, ladder)
+
+        kept, cap_reached = await self._candidates(
+            space, vector, ladder=ladder, cap=candidate_cap
+        )
+        self._assert_one_active_representation(kept)
+        total_candidates = len(kept)
 
         # DESEMPATE DETERMINISTICO. Dois chunks com o mesmo vetor existem - o
         # mesmo enunciado em duas obras, por exemplo -, e sem criterio
@@ -438,6 +482,7 @@ class VectorSearcher:
             policy=POLICY.snapshot(),
             empty_reasons=(),
             filtered_out=dict(counters),
+            filtered_out_scope=FILTERED_OUT_SCOPE,
             source_distribution=_distribution(hit.source_title for hit in hits),
             distinct_sources=len({hit.source_id for hit in hits}),
             chunk_type_distribution=_distribution(hit.chunk_type for hit in hits),
@@ -570,18 +615,63 @@ class VectorSearcher:
             else EXACT_BACKEND
         )
 
-    async def _candidates(
-        self, space: KnowledgeEmbeddingSpace, vector: Sequence[float]
-    ) -> tuple[list[_Candidate], bool]:
-        cap = POLICY.candidate_cap
-        if self._backend_name() == PGVECTOR_BACKEND:
-            rows = await self._pgvector_rows(space, vector, cap + 1)
-        else:
-            rows = await self._exact_rows(space, vector, cap + 1)
-        cap_reached = len(rows) > cap
-        return [self._candidate(row) for row in rows[:cap]], cap_reached
+    async def _attribution(
+        self, space: KnowledgeEmbeddingSpace, ladder
+    ) -> dict[str, int]:
+        """Quantos chunks cada politica exclui - sobre o corpus ATIVO INTEIRO.
 
-    def _base_query(self, space: KnowledgeEmbeddingSpace):
+        MUDANCA DE SEMANTICA do passo 4, e deliberada. Antes a contagem era
+        "dentro das 2.000 linhas mais proximas", o que fazia dela um artefato
+        do corte: o mesmo filtro produzia numeros diferentes conforme a
+        consulta. Agora e sobre o corpus ativo, uma unica agregacao, e
+        responde a pergunta que de fato se faz - "quanto do acervo esta
+        fechado para este proposito?".
+
+        ``filtered_out_scope`` sai na resposta para que a mudanca seja um
+        dado observavel e nao uma surpresa entre duas medicoes.
+        """
+        consulta = (
+            select(ladder.label("reason"), func.count().label("n"))
+            .select_from(KnowledgeChunkEmbedding)
+            .join(KnowledgeChunk, KnowledgeChunk.id == KnowledgeChunkEmbedding.chunk_id)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeChunk.document_id)
+            .join(KnowledgeSource, KnowledgeSource.id == KnowledgeChunk.source_id)
+            .where(KnowledgeChunkEmbedding.space_id == space.id)
+            .where(KnowledgeChunkEmbedding.is_active.is_(True))
+            .where(KnowledgeChunk.text_hash == KnowledgeChunkEmbedding.text_hash)
+            .group_by(ladder)
+        )
+        linhas = (await self.session.execute(consulta)).all()
+        return {motivo: quantos for motivo, quantos in linhas if motivo != _KEPT}
+
+    async def _candidates(
+        self,
+        space: KnowledgeEmbeddingSpace,
+        vector: Sequence[float],
+        *,
+        ladder,
+        cap: int | None,
+    ) -> tuple[list[_Candidate], bool]:
+        """Conjunto candidato JA FILTRADO, e so depois cortado.
+
+        A ordem importa e foi o defeito do passo 4: formar as 2.000 mais
+        proximas do acervo inteiro e so entao filtrar produz FALSO VAZIO -
+        medido no corpus real, uma busca restrita a BNCC nao achava nenhum
+        dos 23 chunks em 4 de 7 consultas, porque nenhum deles estava entre
+        as 2.000 primeiras. O material existia; a busca dizia que nao.
+
+        Com o filtro antes do corte, as 2.000 sao as 2.000 mais proximas
+        DENTRE AS ELEGIVEIS, que e o que o cap sempre quis dizer.
+        """
+        efetivo = _effective_cap(cap)
+        if self._backend_name() == PGVECTOR_BACKEND:
+            rows = await self._pgvector_rows(space, vector, efetivo + 1, ladder)
+        else:
+            rows = await self._exact_rows(space, vector, efetivo + 1, ladder)
+        cap_reached = len(rows) > efetivo
+        return [self._candidate(row) for row in rows[:efetivo]], cap_reached
+
+    def _base_query(self, space: KnowledgeEmbeddingSpace, ladder=None):
         """As colunas e os vinculos comuns aos dois backends.
 
         Tres condicoes, e nenhuma e redundante:
@@ -592,10 +682,14 @@ class VectorSearcher:
           mudou depois da ativacao e OBSOLETO, e obsoleto nunca e recuperado,
           mesmo em busca degradada.
 
+        E a QUARTA, desde o passo 4.1: a escada de rejeicao, aplicada AQUI,
+        antes do corte. ``ladder == KEPT`` e literalmente a mesma expressao
+        com que a atribuicao conta - nao ha como as duas divergirem.
+
         O ``raw_text`` NAO esta aqui. O literal de fonte comercial nao e lido
         nem por engano nesta etapa.
         """
-        return (
+        consulta = (
             select(
                 KnowledgeChunkEmbedding.chunk_id,
                 KnowledgeChunk.ordinal,
@@ -624,9 +718,13 @@ class VectorSearcher:
             .where(KnowledgeChunkEmbedding.is_active.is_(True))
             .where(KnowledgeChunk.text_hash == KnowledgeChunkEmbedding.text_hash)
         )
+        if ladder is not None:
+            consulta = consulta.where(ladder == _KEPT)
+        return consulta
 
     async def _pgvector_rows(
-        self, space: KnowledgeEmbeddingSpace, vector: Sequence[float], cap: int
+        self, space: KnowledgeEmbeddingSpace, vector: Sequence[float], cap: int,
+        ladder=None,
     ):
         """Distancia calculada pelo pgvector, ordenada pelo indice HNSW.
 
@@ -645,7 +743,7 @@ class VectorSearcher:
         # e nao so na ordenacao final em Python: com empate na distancia, quem
         # entra no corte e quem fica de fora nao pode depender da varredura.
         consulta = (
-            self._base_query(space)
+            self._base_query(space, ladder)
             .add_columns(distance.label("distance"))
             .order_by(distance, KnowledgeChunkEmbedding.chunk_id)
             .limit(cap)
@@ -653,7 +751,8 @@ class VectorSearcher:
         return (await self.session.execute(consulta)).all()
 
     async def _exact_rows(
-        self, space: KnowledgeEmbeddingSpace, vector: Sequence[float], cap: int
+        self, space: KnowledgeEmbeddingSpace, vector: Sequence[float], cap: int,
+        ladder=None,
     ):
         """Varredura EXATA em processo - backend de teste, nao de producao.
 
@@ -661,7 +760,7 @@ class VectorSearcher:
         calculavel a mao, e o teste afirma um numero em vez de aceitar o que
         saiu. Nao simula ANN e nao se equipara em desempenho ao PostgreSQL.
         """
-        consulta = self._base_query(space).add_columns(
+        consulta = self._base_query(space, ladder).add_columns(
             KnowledgeChunkEmbedding.embedding
         )
         rows = (await self.session.execute(consulta)).all()
@@ -717,93 +816,6 @@ class VectorSearcher:
             )
 
     # -- filtros -----------------------------------------------------------
-
-    async def _apply_filters(
-        self,
-        candidates: Sequence[_Candidate],
-        *,
-        purpose: str,
-        source_kinds: Sequence[str] | None,
-        source_ids: Sequence[UUID] | None,
-        document_ids: Sequence[UUID] | None,
-        chunk_types: Sequence[str] | None,
-        content_node_id: UUID | None,
-        include_descendant_nodes: bool,
-        rights_classes: Sequence[str] | None,
-        exclude_commercial: bool,
-    ) -> tuple[list[_Candidate], dict[str, int]]:
-        allowed_nodes: set[UUID] | None = None
-        if content_node_id is not None:
-            allowed_nodes = await self._node_subtree(
-                content_node_id, include_descendants=include_descendant_nodes
-            )
-        source_set = {UUID(str(item)) for item in source_ids} if source_ids else None
-        document_set = (
-            {UUID(str(item)) for item in document_ids} if document_ids else None
-        )
-
-        counters: dict[str, int] = {}
-        kept: list[_Candidate] = []
-        for candidate in candidates:
-            reason = self._rejection(
-                candidate,
-                purpose=purpose,
-                source_kinds=source_kinds,
-                source_ids=source_set,
-                document_ids=document_set,
-                chunk_types=chunk_types,
-                allowed_nodes=allowed_nodes,
-                rights_classes=rights_classes,
-                exclude_commercial=exclude_commercial,
-            )
-            if reason is None:
-                kept.append(candidate)
-            else:
-                counters[reason] = counters.get(reason, 0) + 1
-        return kept, counters
-
-    @staticmethod
-    def _rejection(
-        candidate: _Candidate,
-        *,
-        purpose: str,
-        source_kinds: Sequence[str] | None,
-        source_ids: set[UUID] | None,
-        document_ids: set[UUID] | None,
-        chunk_types: Sequence[str] | None,
-        allowed_nodes: set[UUID] | None,
-        rights_classes: Sequence[str] | None,
-        exclude_commercial: bool,
-    ) -> str | None:
-        """A MESMA ordem e a MESMA politica da perna lexical.
-
-        Nao e coincidencia nem copia preguicosa: se as duas pernas filtrassem
-        diferente, o RRF da Fase 7 fundiria conjuntos com regras de direito
-        distintas, e qual delas valeu dependeria de qual perna achou o chunk.
-        """
-        # Politica, nao preferencia de consulta: em PRACTICE e ASSESS entregar
-        # gabarito destroi o proposito, e proposito ausente FECHA.
-        if candidate.chunk_type == _SOLUTION and not solution_is_visible(purpose):
-            return "PURPOSE_SOLUTION"
-        # Falha ABERTA, ao contrario do portao acima: esconder conteudo
-        # legitimo e o erro que ninguem percebe.
-        if not editorial_role_is_eligible(candidate.editorial_role, purpose):
-            return "EDITORIAL_ROLE"
-        if source_kinds and candidate.source_kind not in source_kinds:
-            return "SOURCE_KIND"
-        if source_ids is not None and candidate.source_id not in source_ids:
-            return "SOURCE"
-        if document_ids is not None and candidate.document_id not in document_ids:
-            return "DOCUMENT"
-        if chunk_types and candidate.chunk_type not in chunk_types:
-            return "CHUNK_TYPE"
-        if allowed_nodes is not None and candidate.content_node_id not in allowed_nodes:
-            return "CONTENT_NODE"
-        if rights_classes and candidate.rights_class not in rights_classes:
-            return "RIGHTS"
-        if exclude_commercial and candidate.rights_class == _COMMERCIAL:
-            return "RIGHTS"
-        return None
 
     async def _node_subtree(
         self, content_node_id: UUID, *, include_descendants: bool
@@ -995,6 +1007,7 @@ class VectorSearcher:
             policy=POLICY.snapshot(),
             empty_reasons=reasons,
             filtered_out=dict(filtered_out or {}),
+            filtered_out_scope=FILTERED_OUT_SCOPE,
             source_distribution={},
             distinct_sources=0,
             chunk_type_distribution={},
@@ -1028,6 +1041,124 @@ class VectorSearcher:
                 "OFFSET_OUT_OF_RANGE",
                 f"offset {offset} fora de 0..{POLICY.candidate_cap}",
             )
+
+
+def _effective_cap(cap: int | None) -> int:
+    """O cap da politica, ou um MENOR pedido pelo chamador.
+
+    Nunca MAIOR. O parametro existe para teste e diagnostico - um corpus
+    sintetico de dez chunks nao consegue demonstrar um corte em 2.000 -, e
+    limitar para cima impede que ele vire atalho justamente para o defeito
+    que o passo 4.1 corrigiu.
+    """
+    if cap is None:
+        return POLICY.candidate_cap
+    if cap < 1:
+        raise VectorSearchError(
+            "INVALID_CANDIDATE_CAP", f"candidate_cap {cap} precisa ser >= 1"
+        )
+    return min(cap, POLICY.candidate_cap)
+
+
+def _rejection_ladder(
+    *,
+    purpose: str,
+    source_kinds: Sequence[str] | None,
+    source_ids: Sequence[UUID] | None,
+    document_ids: Sequence[UUID] | None,
+    chunk_types: Sequence[str] | None,
+    allowed_nodes: set[UUID] | None,
+    rights_classes: Sequence[str] | None,
+    exclude_commercial: bool,
+) -> Case:
+    """A escada de rejeicao como UMA expressao SQL.
+
+    POR QUE UMA SO EXPRESSAO
+    ========================
+
+    Ela e usada em dois lugares: no ``WHERE`` que forma o conjunto candidato
+    (``ladder == 'KEPT'``) e no ``GROUP BY`` que conta quantos cada politica
+    excluiu. Fossem duas expressoes, divergiriam - e divergiriam em silencio,
+    porque um relatorio de atribuicao errado continua parecendo um relatorio.
+    Sendo a mesma, nao ha como.
+
+    POR QUE A ORDEM E ESTA
+    ======================
+
+    E a mesma da perna lexical, e `CASE` para no primeiro ramo verdadeiro -
+    entao o motivo atribuido e o de MAIOR precedencia, exatamente como o
+    ``return`` precoce do ``_rejection`` do passo 4 fazia. Politica primeiro,
+    preferencia de consulta depois: saber que um chunk foi barrado por
+    direitos importa mais do que saber que ele tambem nao era do
+    ``chunk_type`` pedido.
+
+    A POLITICA CONTINUA EM PYTHON
+    =============================
+
+    O SQL nunca decide elegibilidade. ``editorial_role_is_eligible`` e
+    ``solution_is_visible`` sao avaliadas aqui, em Python, e o que desce para
+    o banco e uma LISTA DE VALORES concretos. A politica versionada segue
+    sendo a unica autoridade, e a falha ABERTA de papel desconhecido se
+    preserva naturalmente: papel que a politica nao conhece nao entra na
+    lista de inelegiveis, logo nao e rejeitado.
+    """
+    ramos: list[tuple[Any, str]] = []
+
+    if not solution_is_visible(purpose):
+        ramos.append((KnowledgeChunk.chunk_type == _SOLUTION, "PURPOSE_SOLUTION"))
+
+    inelegiveis = tuple(
+        papel
+        for papel in EDITORIAL_ROLES
+        if not editorial_role_is_eligible(papel, purpose)
+    )
+    if inelegiveis:
+        ramos.append(
+            (
+                func.coalesce(KnowledgeChunk.editorial_role, "UNKNOWN").in_(
+                    inelegiveis
+                ),
+                "EDITORIAL_ROLE",
+            )
+        )
+
+    if source_kinds:
+        ramos.append(
+            (KnowledgeSource.source_kind.notin_(tuple(source_kinds)), "SOURCE_KIND")
+        )
+    if source_ids:
+        ramos.append(
+            (KnowledgeChunk.source_id.notin_(tuple(source_ids)), "SOURCE")
+        )
+    if document_ids:
+        ramos.append(
+            (KnowledgeChunk.document_id.notin_(tuple(document_ids)), "DOCUMENT")
+        )
+    if chunk_types:
+        ramos.append(
+            (KnowledgeChunk.chunk_type.notin_(tuple(chunk_types)), "CHUNK_TYPE")
+        )
+    if allowed_nodes is not None:
+        # ``NOT IN`` com NULL devolve NULL, e NULL nao e verdadeiro - um chunk
+        # sem no de curriculo escaparia do filtro. O ``IS NULL`` explicito e o
+        # que faz "nao mapeado" contar como "fora do no pedido".
+        ramos.append(
+            (
+                or_(
+                    KnowledgeChunk.content_node_id.is_(None),
+                    KnowledgeChunk.content_node_id.notin_(tuple(allowed_nodes)),
+                ),
+                "CONTENT_NODE",
+            )
+        )
+    if rights_classes:
+        ramos.append(
+            (KnowledgeSource.rights_class.notin_(tuple(rights_classes)), "RIGHTS")
+        )
+    if exclude_commercial:
+        ramos.append((KnowledgeSource.rights_class == _COMMERCIAL, "RIGHTS"))
+
+    return case(*ramos, else_=literal(_KEPT))
 
 
 _VECTOR_LITERAL_CHARS = set("0123456789.,-+e[]")

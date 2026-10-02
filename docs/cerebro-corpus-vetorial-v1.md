@@ -117,11 +117,34 @@ chunks distintos.
 4. `EmbeddingBackfillService.backfill(space_id)`.
 5. `EmbeddingActivationService.activate(space_id, expected_population=5911)`.
 
-**Limitação conhecida:** `create_all` não cria o índice HNSW parcial — ele
-só existe na migração `058`, em SQL cru. Um banco montado por `create_all`
-faz varredura sequencial. No piloto isso custa ~60 ms por consulta e não
-afeta resultado algum, mas a reconstrução por `create_all` **não** é
-equivalente em desempenho à montada por migração.
+**Corrigido no Passo 4.1.** O índice ANN deixou de depender de como o banco
+foi montado. Ele pertence ao ciclo de vida do espaço — depende de `space_id`
+e dimensão, que são dado, e por isso jamais poderia ser um hook de
+`create_all`, que roda quando ainda não existe espaço algum. Agora
+`EmbeddingActivationService.activate()` o garante, idempotentemente, com o
+mesmo nome que a migração `058` usa; um banco montado por migração o
+reconhece em vez de criar um segundo. Construção medida: **3,9 s** para
+5.911 vetores de 1536 dimensões.
+
+## O que NÃO é reproduzível bit a bit, e por quê
+
+**O provider de embedding é não-determinístico.** Medido no Passo 4.1:
+`text-embedding-3-small` devolveu vetores diferentes para o mesmo texto em
+chamadas sucessivas, com delta máximo de **1,22 × 10⁻⁴** por componente.
+Consequência direta: o mesmo Evaluation Set, rodado duas vezes, pode produzir
+scores levemente diferentes e, em empates muito próximos, trocar posições
+vizinhas.
+
+O que **é** determinístico, medido no mesmo experimento:
+
+- com o vetor da consulta fixo, o banco devolve sempre o mesmo resultado;
+- o índice HNSW, neste corpus, devolveu top-10 **idêntico** à varredura
+  exata (10/10 nas duas consultas testadas) — a aproximação do ANN não é,
+  aqui, fonte de variação.
+
+Portanto, ao comparar duas execuções, diferença na quarta casa decimal do
+score vem do provider, não do código. Comparação entre versões do sistema
+deve usar **rank** e métricas agregadas, nunca igualdade de scores.
 
 ## Conjuntos congelados — intocados
 

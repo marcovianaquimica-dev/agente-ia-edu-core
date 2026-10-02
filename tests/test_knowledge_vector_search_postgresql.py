@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 import uuid
 
 from sqlalchemy import create_engine, select, text
@@ -45,6 +46,9 @@ from agente_ia_edu.db.models import (
 from agente_ia_edu.knowledge_chunking_policy.v1 import retrieval_text_hash
 from agente_ia_edu.services.knowledge_engine.embedding import (
     coverage as corpus_coverage,
+)
+from agente_ia_edu.services.knowledge_engine.embedding_activation import (
+    EmbeddingActivationService,
 )
 from agente_ia_edu.services.knowledge_engine.vector_search import (
     EXACT_BACKEND,
@@ -73,6 +77,10 @@ _CORPUS = [
     ("empatado", [1.0, 0.0, 0.0], "PROSE", "CONTENT", "comercial"),
     ("gabarito", [0.9, 0.1, 0.0], "SOLUTION", "ANSWER_KEY", "propria"),
 ]
+
+#: Populacao elegivel do corpus sintetico: os 7 chunks menos nenhum - todos
+#: os papeis usados aqui sao elegiveis para embedding.
+_ELEGIVEIS = len(_CORPUS)
 
 _QUERY = "consulta sintetica"
 _QUERY_VECTOR = (1.0, 0.0, 0.0)
@@ -193,6 +201,13 @@ class VectorSearchPostgreSQL(unittest.IsolatedAsyncioTestCase):
             self.engine, class_=AsyncSession, expire_on_commit=True
         )
         async with self.factory() as session:
+            # O indice ANN sobrevive ao DELETE das linhas - ele e DDL. Cada
+            # teste precisa comecar no estado de ``create_all``, que e
+            # justamente "sem indice", senao a prova de paridade mediria o
+            # residuo do teste anterior.
+            await session.execute(
+                text(f"DROP INDEX IF EXISTS ix_kce_hnsw_{_id('space', 'a').hex}")
+            )
             for table in (
                 "knowledge_embedding_activations",
                 "knowledge_chunk_embeddings",
@@ -254,19 +269,63 @@ class VectorSearchPostgreSQL(unittest.IsolatedAsyncioTestCase):
             self.assertAlmostEqual(hit.distance, esperado[hit.chunk_id], places=9)
             self.assertAlmostEqual(hit.score + hit.distance, 1.0, places=9)
 
-    async def test_the_partial_hnsw_index_of_the_space_is_usable(self):
-        """O indice e criado POR ESPACO, com cast explicito - e so assim a
-        coluna pode seguir sem dimensao. Aqui se confirma que o planejador o
-        enxerga."""
-        indice = f"ix_kce_hnsw_probe_{self.space_id.hex}"
+    async def test_the_real_activation_path_creates_the_ann_index(self):
+        """PARIDADE DE INFRAESTRUTURA - passo 4.1.
+
+        O teste NAO cria o indice. Ele exercita o caminho que producao e
+        piloto usam: ``activate()``. O passo 5 expos a divergencia - um banco
+        montado por ``Base.metadata.create_all``, que e como o corpus de
+        avaliacao e todos os testes sao montados, nao tinha indice ANN algum,
+        enquanto um montado por migracao tinha. O caminho de producao so
+        existia no banco que ninguem usava.
+
+        A correcao foi mover o indice para o CICLO DE VIDA DO ESPACO, onde
+        ele pertence: ele depende de ``space_id`` e dimensao, que sao DADO, e
+        por isso jamais poderia ser um hook de ``create_all`` - na hora em que
+        as tabelas nascem nao existe espaco algum.
+        """
+        from agente_ia_edu.services.knowledge_engine.embedding_activation import (
+            ann_index_name,
+        )
+
+        esperado = ann_index_name(self.space_id)
         async with self.factory() as session:
-            await session.execute(
-                text(
-                    f"CREATE INDEX {indice} ON knowledge_chunk_embeddings "
-                    f"USING hnsw ((embedding::vector({_DIMENSIONS})) "
-                    f"vector_cosine_ops) WHERE space_id = '{self.space_id}'"
-                )
+            antes = await session.scalar(
+                text("SELECT count(*) FROM pg_indexes WHERE indexname = :n")
+                .bindparams(n=esperado)
             )
+        self.assertEqual(antes, 0, "o indice nao deveria existir antes")
+
+        async with self.factory() as session:
+            await EmbeddingActivationService(session).activate(
+                self.space_id, expected_population=_ELEGIVEIS
+            )
+            await session.commit()
+
+        async with self.factory() as session:
+            definicao = await session.scalar(
+                text("SELECT indexdef FROM pg_indexes WHERE indexname = :n")
+                .bindparams(n=esperado)
+            )
+        self.assertIsNotNone(definicao, "activate() nao criou o indice ANN")
+        self.assertIn("hnsw", definicao.lower())
+        self.assertIn("vector_cosine_ops", definicao)
+        self.assertIn(str(self.space_id), definicao)
+
+    async def test_the_planner_actually_uses_the_index_created_that_way(self):
+        """Nao basta o indice existir: o cast da consulta tem de casar com o
+        da expressao indexada, senao o planejador o ignora."""
+        async with self.factory() as session:
+            await EmbeddingActivationService(session).activate(
+                self.space_id, expected_population=_ELEGIVEIS
+            )
+            await session.commit()
+
+        from agente_ia_edu.services.knowledge_engine.embedding_activation import (
+            ann_index_name,
+        )
+
+        async with self.factory() as session:
             await session.execute(text("SET LOCAL enable_seqscan = off"))
             plano = "\n".join(
                 row[0]
@@ -282,7 +341,60 @@ class VectorSearchPostgreSQL(unittest.IsolatedAsyncioTestCase):
                 ).all()
             )
             await session.rollback()
-        self.assertIn(indice, plano)
+        self.assertIn(ann_index_name(self.space_id), plano)
+
+    async def test_ensure_ann_index_is_idempotent(self):
+        """Um banco montado por MIGRACAO ja tem o indice, com este mesmo
+        nome. Chamar de novo nao pode criar um segundo nem falhar."""
+        from agente_ia_edu.services.knowledge_engine.embedding_activation import (
+            ann_index_name,
+        )
+
+        async with self.factory() as session:
+            servico = EmbeddingActivationService(session)
+            self.assertTrue(await servico.ensure_ann_index(self.space_id))
+            self.assertTrue(await servico.ensure_ann_index(self.space_id))
+            await session.commit()
+        async with self.factory() as session:
+            quantos = await session.scalar(
+                text("SELECT count(*) FROM pg_indexes WHERE indexname = :n")
+                .bindparams(n=ann_index_name(self.space_id))
+            )
+        self.assertEqual(quantos, 1)
+
+    async def test_the_ddl_matches_what_migration_058_produces(self):
+        """FONTE UNICA, sem reescrever historia.
+
+        A migracao 058 continua com o seu DDL literal - migracao e registro
+        historico e nao se reescreve. O vinculo entre as duas e este teste:
+        se a funcao divergir do que a migracao cria, o nome ou a definicao
+        param de bater e isto quebra.
+        """
+        from agente_ia_edu.services.knowledge_engine.embedding_activation import (
+            ann_index_ddl, ann_index_name,
+        )
+        import importlib.util
+
+        caminho = (
+            Path(__file__).resolve().parents[1]
+            / "migrations" / "versions" / "058_knowledge_engine_embeddings.py"
+        )
+        spec = importlib.util.spec_from_file_location("mig058", caminho)
+        mig = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mig)
+
+        inicial = uuid.UUID(mig.INITIAL_SPACE_ID)
+        self.assertEqual(
+            ann_index_name(inicial),
+            f"ix_kce_hnsw_{mig.INITIAL_SPACE_ID.replace('-', '')}",
+        )
+        gerado = ann_index_ddl(inicial, mig.INITIAL_DIMENSIONS)
+        for fragmento in (
+            "USING hnsw",
+            f"(embedding::vector({mig.INITIAL_DIMENSIONS})) vector_cosine_ops",
+            f"WHERE space_id = '{mig.INITIAL_SPACE_ID}'",
+        ):
+            self.assertIn(fragmento, gerado, fragmento)
 
     # -- 2. o contrato, no banco de producao ------------------------------
 

@@ -92,7 +92,7 @@ from datetime import datetime, timezone
 from typing import Sequence
 from uuid import UUID, uuid4
 
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,6 +121,46 @@ DIMENSION_MISMATCH = "DIMENSION_MISMATCH"
 _DIMENSION_SCAN_BATCH = 500
 
 
+def ann_index_name(space_id: UUID) -> str:
+    """Nome do indice ANN do espaco - a MESMA convencao da migracao 058.
+
+    O nome ser identico e o que faz a paridade funcionar: um banco montado
+    por migracao ja tem o indice com este nome, e ``CREATE INDEX IF NOT
+    EXISTS`` o reconhece em vez de criar um segundo.
+    """
+    return f"ix_kce_hnsw_{space_id.hex}"
+
+
+def ann_index_ddl(space_id: UUID, dimensions: int) -> str:
+    """O DDL do indice ANN parcial do espaco. FONTE UNICA.
+
+    POR QUE ELE NAO PODE SER UM HOOK DE ``create_all``
+    ==================================================
+
+    Porque ele depende de DADO, nao de schema: do ``space_id`` e da dimensao
+    daquele espaco. Na hora em que as tabelas sao criadas nao existe espaco
+    algum, entao nao ha indice a criar. A extensao pgvector e um hook de
+    ``before_create`` justamente por ser o contrario - ela nao depende de
+    linha nenhuma.
+
+    O indice pertence, portanto, ao CICLO DE VIDA DO ESPACO, e e por isso que
+    quem o cria e ``ensure_ann_index``, chamada na ativacao. A migracao 058 o
+    cria para o espaco que ela propria semeia, que e o mesmo motivo.
+
+    O cast explicito e o que permite a coluna seguir SEM dimensao: o indice
+    sabe o tamanho, a tabela nao. Sem o cast identico ao da consulta, o
+    planejador nao usa o indice - e e exatamente isso que o teste de EXPLAIN
+    verifica.
+    """
+    dims = int(dimensions)
+    return (
+        f"CREATE INDEX IF NOT EXISTS {ann_index_name(space_id)} "
+        "ON knowledge_chunk_embeddings "
+        f"USING hnsw ((embedding::vector({dims})) vector_cosine_ops) "
+        f"WHERE space_id = '{space_id}'"
+    )
+
+
 class EmbeddingActivationError(RuntimeError):
     """Pedido de ativacao que nao pode ser atendido."""
 
@@ -146,6 +186,10 @@ class ActivationReadiness:
     coverage: CoverageSnapshot
     dimension_violations: int
     violations: tuple[dict[str, object], ...]
+    #: Observacao, nao portao: no SQLite nao ha ANN, e num corpus pequeno a
+    #: varredura sequencial e correta. Sai na resposta para que "a busca esta
+    #: lenta" tenha onde ser respondido.
+    ann_index_present: bool = False
 
     @property
     def is_ready(self) -> bool:
@@ -171,6 +215,9 @@ class ActivationSnapshot:
     violations: tuple[dict[str, object], ...]
     actor: str | None
     reason: str | None
+    #: O indice ANN do espaco existe depois desta operacao? Falso no SQLite,
+    #: que nao tem ANN - e um fato observado, nao uma promessa.
+    ann_index_present: bool = False
 
 
 class EmbeddingActivationService:
@@ -245,6 +292,7 @@ class EmbeddingActivationService:
             )
 
         return ActivationReadiness(
+            ann_index_present=await self._ann_index_exists(space.id),
             space_id=space.id,
             policy=cobertura.policy,
             expected_population=expected_population,
@@ -309,6 +357,41 @@ class EmbeddingActivationService:
             allow_degraded=allow_degraded,
         )
 
+    async def ensure_ann_index(self, space_id: UUID) -> bool:
+        """Garante o indice ANN do espaco. Idempotente. Devolve se ele existe.
+
+        No SQLite nao existe ANN e a chamada e um no-op honesto: devolve
+        ``False`` em vez de fingir que criou algo.
+
+        E chamada automaticamente pela ativacao. Isso fecha a divergencia que
+        o passo 5 expos: um banco montado por ``Base.metadata.create_all`` -
+        que e como o corpus de avaliacao e TODOS os testes sao montados -
+        nao tinha indice ANN nenhum, enquanto um montado por migracao tinha.
+        O caminho de producao passava a existir so no banco que ninguem usava.
+
+        O preco, declarado: construir o indice acontece DENTRO da transacao
+        de ativacao e estende o seu bloqueio. No piloto, 5.911 vetores, isso
+        custa segundos. Num acervo muito maior, a construcao deve sair para
+        uma etapa propria antes da ativacao - que e exatamente por que este
+        metodo e publico.
+        """
+        if self._session.get_bind().dialect.name != "postgresql":
+            return False
+        space = await self._space(space_id)
+        await self._session.execute(text(ann_index_ddl(space.id, space.dimensions)))
+        return True
+
+    async def _ann_index_exists(self, space_id: UUID) -> bool:
+        if self._session.get_bind().dialect.name != "postgresql":
+            return False
+        return bool(
+            await self._session.scalar(
+                text(
+                    "SELECT 1 FROM pg_indexes WHERE indexname = :nome"
+                ).bindparams(nome=ann_index_name(space_id))
+            )
+        )
+
     async def history(self, *, limit: int = 50) -> tuple[ActivationSnapshot, ...]:
         rows = await self._session.scalars(
             select(KnowledgeEmbeddingActivation)
@@ -355,6 +438,11 @@ class EmbeddingActivationService:
             if not (action == ROLLBACK and allow_degraded):
                 raise EmbeddingNotReady(violations)
             degraded = True
+
+        # O indice ANN do espaco, ANTES da troca: um espaco so se torna
+        # buscavel ao ser ativado, e e nesse instante que ele precisa do
+        # indice. Idempotente - no-op se a migracao ja o criou.
+        ann_index = await self.ensure_ann_index(space_id)
 
         now = datetime.now(timezone.utc)
 
@@ -458,6 +546,7 @@ class EmbeddingActivationService:
             violations=tuple(violations),
             actor=actor,
             reason=reason,
+            ann_index_present=ann_index,
         )
 
     async def _lock(self, space_id: UUID) -> UUID | None:
