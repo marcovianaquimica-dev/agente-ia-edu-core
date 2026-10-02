@@ -155,3 +155,46 @@ deve usar **rank** e métricas agregadas, nunca igualdade de scores.
 Nenhuma consulta de avaliação foi executada contra este corpus. A única
 inspeção feita usou `SANITY_ONLY_QUERIES`, cuja exclusão permanente de
 Calibration e Evaluation é garantida por `tests/test_sanity_queries.py`.
+
+---
+
+## Adjudicação humana e qrels V2 — 2026-10-02
+
+A primeira medição contra os qrels V1 deu **P@10 = 0,2700**. A análise dos
+erros mostrou que **69 dos 73** resultados contados como falso positivo nunca
+tinham sido julgados: o pool que gerou a V1 foi construído com busca
+**lexical** e, por construção, não continha o que é semanticamente próximo e
+lexicalmente distante — que é exatamente o que a perna vetorial existe para
+achar. A limitação estava declarada desde `1d5ac9e`.
+
+67 julgamentos humanos, às cegas (sem rank, score, perna de origem ou
+sugestão da IA; ordem embaralhada). Resultado: 8 de grau 2, 24 de grau 1, 35
+de grau 0. `VECTOR_QRELS_V2` acrescenta os 32 de grau ≥ 1, **importando** a
+V1 em vez de copiá-la.
+
+| métrica | V1 | **V2** | Δ |
+|---|---:|---:|---:|
+| P@5 | 0,4400 | **0,6600** | +0,2200 |
+| P@10 | 0,2700 | **0,5900** | +0,3200 |
+| Recall@10 | 0,2308 | **0,3720** | +0,1412 |
+| MRR | 0,7750 | **0,8750** | +0,1000 |
+| nDCG@10 | 0,3754 | **0,5027** | +0,1273 |
+
+Mesmo ranking, mesma busca, mesmos embeddings. **O sistema não mudou; a régua
+estava errada.**
+
+Decomposição das 98 vagas do top-10 deduplicado: 27 acertos sob V1, 59 sob
+V2. **32 vagas eram ausência de julgamento; 39 permanecem erro real.** O
+baseline V1 continua reproduzível e congelado.
+
+### Dívida técnica — duplicação no chunking (não corrigida)
+
+13 chunks duplicados em 11 grupos, de **duas naturezas**:
+
+- **chunker** (corrigir): `c16370e435` 3× na p.304 (ordinais 1121, 1144,
+  1145) e `0fcbbf0023` 3× nas p.207–211. Mesmo texto emitido mais de uma vez
+  a partir da mesma região.
+- **repetição da obra** (não corrigir): nove grupos, com destaque para quatro
+  chunks consecutivos repetidos entre a p.9 e a p.445 do mesmo livro. O
+  original reproduz o bloco; apagar uma ocorrência quebraria a
+  rastreabilidade até a página. A regra R1 da avaliação já trata isso.
