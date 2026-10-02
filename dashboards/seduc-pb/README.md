@@ -32,7 +32,40 @@ momento atualiza o snapshot - e idempotente.
 
 ## Subir o app
 
+O app recusa subir (`RuntimeError` na importacao) sem uma chave de sessao -
+isso evita que o login fique forjavel por causa de uma chave padrao
+commitada no repo.
+
+Para rodar localmente, em modo dev (mais rapido para testar na sua
+maquina):
+
+    export SEDUC_DASHBOARD_DEV=1
+    .venv/bin/uvicorn app:app --reload
+
+Para qualquer coisa alem de um laptop (staging, producao, qualquer ambiente
+compartilhado), defina uma chave real em vez do modo dev:
+
     export SEDUC_DASHBOARD_SECRET_KEY="troque-por-uma-chave-aleatoria-em-producao"
     .venv/bin/uvicorn app:app --reload
 
 Acesse http://localhost:8000/login
+
+### Sintese executiva via IA
+
+As telas "Visao Geral" e "Escola" tentam gerar uma sintese executiva curta
+via IA (OpenAI). Isso exige `OPENAI_API_KEY` definida no ambiente (variavel
+padrao do SDK da OpenAI):
+
+    export OPENAI_API_KEY="sk-..."
+
+Sem essa chave (ou se a chamada falhar por qualquer motivo - rede, quota,
+modelo invalido), a tela continua funcionando normalmente e mostra o texto
+"Sintese executiva indisponivel no momento." no lugar - nunca um erro 500.
+
+### Cookies de sessao em producao
+
+A sessao usa um cookie com `max_age` de 8 horas e `same_site=lax`. Se for
+rodar atras de HTTPS em producao, considere tambem passar
+`https_only=True` para o `SessionMiddleware` em `app.py` (nao ligado por
+padrao aqui porque quebraria o fluxo local de `uvicorn --reload` em HTTP
+puro).

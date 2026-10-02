@@ -7,9 +7,15 @@
 <p>{{ sintese }}</p>
 <h2>Distribuicao por faixa</h2>
 <table>
-    <tr><th>Faixa</th><th>Quantidade</th></tr>
+    <tr><th>Faixa</th><th>Quantidade</th><th>Percentual</th></tr>
     {% for faixa, quantidade in metricas.distribuicao_faixas.items() %}
-    <tr><td>{{ faixa }}</td><td>{{ quantidade }}</td></tr>
+    <tr><td>{{ faixa }}</td><td>{{ quantidade }}</td><td>{{ metricas.distribuicao_faixas_pct[faixa] }}%</td></tr>
     {% endfor %}
 </table>
+<h2>Escolas</h2>
+<ul>
+    {% for escola in escolas %}
+    <li><a href="/escola/{{ escola.escola_id }}">{{ escola.escola_nome }}</a></li>
+    {% endfor %}
+</ul>
 {% endblock %}

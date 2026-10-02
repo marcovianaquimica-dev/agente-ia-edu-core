@@ -5,7 +5,13 @@
     <select name="escola_id">
         <option value="">Todas as escolas</option>
         {% for escola in escolas %}
-        <option value="{{ escola.escola_id }}">{{ escola.escola_nome }}</option>
+        <option value="{{ escola.escola_id }}" {% if escola_id == escola.escola_id %}selected{% endif %}>{{ escola.escola_nome }}</option>
+        {% endfor %}
+    </select>
+    <select name="turma_id">
+        <option value="">Todas as turmas</option>
+        {% for turma in turmas %}
+        <option value="{{ turma.turma_id }}" {% if turma_id == turma.turma_id %}selected{% endif %}>{{ turma.turma_nome }}</option>
         {% endfor %}
     </select>
     <select name="ordenar_por">
@@ -27,7 +33,7 @@
     <tr>
         <td>{{ linha.posicao_geral }}</td>
         <td>{{ linha.nome_aluno }}</td>
-        <td>{{ linha.escola_nome }}</td>
+        <td><a href="/escola/{{ linha.escola_id }}">{{ linha.escola_nome }}</a></td>
         <td>{{ linha.turma_nome or "-" }}</td>
         <td>{{ linha.nota_final }}</td>
         <td>{{ linha.c1 }}</td>

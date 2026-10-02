@@ -4,9 +4,12 @@ from consultas import (
     buscar_escolas,
     buscar_metricas_gerais,
     buscar_metricas_por_escola,
+    buscar_nome_escola,
     buscar_ranking,
     buscar_redacoes_por_turma,
     buscar_turmas_por_escola,
+    escola_existe,
+    turma_existe,
 )
 from snapshot_db import create_schema, get_connection, insert_redacoes
 
@@ -54,6 +57,24 @@ def test_buscar_metricas_gerais(conn):
     assert metricas["distribuicao_faixas"] == {
         "Muito alto": 1, "Adequado": 1, "Baixo": 1,
     }
+    assert metricas["distribuicao_faixas_pct"] == {
+        "Muito alto": pytest.approx(33.3, abs=0.1),
+        "Adequado": pytest.approx(33.3, abs=0.1),
+        "Baixo": pytest.approx(33.3, abs=0.1),
+    }
+
+
+def test_mediana_e_sempre_float_seja_par_ou_impar_a_quantidade(conn):
+    # Quantidade impar (3 redacoes): mediana vem direto do sqlite (int).
+    metricas_impar = buscar_metricas_gerais(conn)
+    assert isinstance(metricas_impar["mediana"], float)
+    assert metricas_impar["mediana"] == 700.0
+
+    # Quantidade par (2 redacoes de uma mesma escola): mediana vem de uma
+    # media de dois valores (ja era float antes da normalizacao).
+    metricas_par = buscar_metricas_por_escola(conn, "e1")
+    assert isinstance(metricas_par["mediana"], float)
+    assert metricas_par["mediana"] == pytest.approx(800.0, abs=0.1)
 
 
 def test_buscar_metricas_por_escola(conn):
@@ -72,7 +93,7 @@ def test_buscar_escolas(conn):
 
 def test_buscar_turmas_por_escola(conn):
     turmas = buscar_turmas_por_escola(conn, "e1")
-    assert turmas == [{"turma_id": "t1", "turma_nome": "Turma A"}]
+    assert turmas == [{"turma_id": "t1", "turma_nome": "Turma A", "media_nota": 800.0}]
 
 
 def test_buscar_ranking_filtra_por_escola_e_ordena(conn):
@@ -80,6 +101,28 @@ def test_buscar_ranking_filtra_por_escola_e_ordena(conn):
     assert [linha["nome_aluno"] for linha in linhas] == ["Aluno Um", "Aluno Dois"]
 
 
+def test_buscar_ranking_inclui_escola_id_para_permitir_link_na_tela(conn):
+    linhas = buscar_ranking(conn)
+    assert all("escola_id" in linha for linha in linhas)
+    primeira = next(linha for linha in linhas if linha["nome_aluno"] == "Aluno Um")
+    assert primeira["escola_id"] == "e1"
+
+
 def test_buscar_redacoes_por_turma(conn):
     alunos = buscar_redacoes_por_turma(conn, "t1")
     assert [a["nome_aluno"] for a in alunos] == ["Aluno Um", "Aluno Dois"]
+
+
+def test_escola_existe(conn):
+    assert escola_existe(conn, "e1") is True
+    assert escola_existe(conn, "nao-existe") is False
+
+
+def test_turma_existe(conn):
+    assert turma_existe(conn, "t1") is True
+    assert turma_existe(conn, "nao-existe") is False
+
+
+def test_buscar_nome_escola(conn):
+    assert buscar_nome_escola(conn, "e1") == "Escola Um"
+    assert buscar_nome_escola(conn, "nao-existe") is None

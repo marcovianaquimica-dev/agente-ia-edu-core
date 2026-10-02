@@ -13,7 +13,7 @@ from psycopg.rows import dict_row
 
 from faixas import classificar
 from ranking import calcular_ranking
-from snapshot_db import create_schema, get_connection, insert_redacoes, reset_redacoes
+from snapshot_db import create_schema, get_connection, substituir_redacoes
 
 QUERY_REDACOES_APROVADAS = """
     SELECT
@@ -82,8 +82,7 @@ def exportar(pg_conn: psycopg.Connection, sqlite_conn: sqlite3.Connection) -> in
         montar_redacao_snapshot(linha, ranking[str(linha["id_redacao"])]) for linha in linhas
     ]
     create_schema(sqlite_conn)
-    reset_redacoes(sqlite_conn)
-    insert_redacoes(sqlite_conn, redacoes)
+    substituir_redacoes(sqlite_conn, redacoes)
     return len(redacoes)
 
 

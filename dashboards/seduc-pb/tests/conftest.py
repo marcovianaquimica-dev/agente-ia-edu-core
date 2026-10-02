@@ -6,6 +6,16 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+# app.py recusa subir (RuntimeError) sem SEDUC_DASHBOARD_SECRET_KEY definida,
+# a menos que o modo dev esteja explicitamente ligado - ver finding #1 da
+# revisao final. Isso precisa ser setado aqui (nivel de modulo do conftest,
+# nao dentro de uma fixture) porque `import app` acontece na COLETA dos
+# testes (quando test_app.py roda `from app import app`), antes de qualquer
+# fixture ser executada - um monkeypatch dentro de uma fixture chegaria
+# tarde demais. O pytest sempre importa o conftest.py de um diretorio antes
+# de coletar os modulos de teste desse diretorio, entao isto roda a tempo.
+os.environ.setdefault("SEDUC_DASHBOARD_DEV", "1")
+
 TEST_DATABASE_URL = os.environ.get(
     "SEDUC_DASHBOARD_TEST_DATABASE_URL",
     "postgresql://agenteedu:agenteedu_dev@localhost:5433/agente_ia_edu",

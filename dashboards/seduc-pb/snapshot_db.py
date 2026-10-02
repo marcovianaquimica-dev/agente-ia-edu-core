@@ -76,3 +76,19 @@ def insert_redacoes(conn: sqlite3.Connection, redacoes: list[dict]) -> None:
         redacoes,
     )
     conn.commit()
+
+
+def substituir_redacoes(conn: sqlite3.Connection, redacoes: list[dict]) -> None:
+    """Substitui todo o conteudo da tabela redacoes em uma unica transacao
+    atomica (delete + insert). Usada pelo export job: se a insercao falhar
+    no meio do caminho, o delete tambem e revertido - o snapshot nunca fica
+    visivel com zero linhas por causa de uma falha parcial.
+    """
+    colunas = ", ".join(CAMPOS_REDACAO)
+    marcadores = ", ".join(f":{campo}" for campo in CAMPOS_REDACAO)
+    with conn:
+        conn.execute("DELETE FROM redacoes")
+        conn.executemany(
+            f"INSERT INTO redacoes ({colunas}) VALUES ({marcadores})",
+            redacoes,
+        )
