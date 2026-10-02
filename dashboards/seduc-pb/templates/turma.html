@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<h1>Turma</h1>
+<table>
+    <tr><th>Aluno</th><th>Nota</th><th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>Classificacao</th></tr>
+    {% for aluno in alunos %}
+    <tr>
+        <td>{{ aluno.nome_aluno }}</td>
+        <td>{{ aluno.nota_final }}</td>
+        <td>{{ aluno.c1 }}</td>
+        <td>{{ aluno.c2 }}</td>
+        <td>{{ aluno.c3 }}</td>
+        <td>{{ aluno.c4 }}</td>
+        <td>{{ aluno.c5 }}</td>
+        <td>{{ aluno.faixa_classificacao }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}

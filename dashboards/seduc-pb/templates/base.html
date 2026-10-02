@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard SEDUC-PB</title>
+    <style>
+        body { font-family: sans-serif; margin: 2rem; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+        th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; }
+        nav a { margin-right: 1rem; }
+    </style>
+</head>
+<body>
+    {% if login %}
+    <nav>
+        <a href="/">Visao Geral</a>
+        <a href="/ranking">Ranking</a>
+        <span style="float:right">{{ login }} | <a href="/logout">Sair</a></span>
+    </nav>
+    <hr>
+    {% endif %}
+    {% block conteudo %}{% endblock %}
+</body>
+</html>

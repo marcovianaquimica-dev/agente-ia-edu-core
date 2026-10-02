@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<h1>Ranking</h1>
+<form method="get" action="/ranking">
+    <select name="escola_id">
+        <option value="">Todas as escolas</option>
+        {% for escola in escolas %}
+        <option value="{{ escola.escola_id }}">{{ escola.escola_nome }}</option>
+        {% endfor %}
+    </select>
+    <select name="ordenar_por">
+        <option value="nota_final" {% if ordenar_por == "nota_final" %}selected{% endif %}>Nota</option>
+        <option value="c1" {% if ordenar_por == "c1" %}selected{% endif %}>C1</option>
+        <option value="c2" {% if ordenar_por == "c2" %}selected{% endif %}>C2</option>
+        <option value="c3" {% if ordenar_por == "c3" %}selected{% endif %}>C3</option>
+        <option value="c4" {% if ordenar_por == "c4" %}selected{% endif %}>C4</option>
+        <option value="c5" {% if ordenar_por == "c5" %}selected{% endif %}>C5</option>
+    </select>
+    <button type="submit">Filtrar</button>
+</form>
+<table>
+    <tr>
+        <th>Posicao</th><th>Aluno</th><th>Escola</th><th>Turma</th><th>Nota</th>
+        <th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th><th>Classificacao</th>
+    </tr>
+    {% for linha in linhas %}
+    <tr>
+        <td>{{ linha.posicao_geral }}</td>
+        <td>{{ linha.nome_aluno }}</td>
+        <td>{{ linha.escola_nome }}</td>
+        <td>{{ linha.turma_nome or "-" }}</td>
+        <td>{{ linha.nota_final }}</td>
+        <td>{{ linha.c1 }}</td>
+        <td>{{ linha.c2 }}</td>
+        <td>{{ linha.c3 }}</td>
+        <td>{{ linha.c4 }}</td>
+        <td>{{ linha.c5 }}</td>
+        <td>{{ linha.faixa_classificacao }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}

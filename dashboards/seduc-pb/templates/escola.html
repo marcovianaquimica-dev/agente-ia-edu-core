@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<h1>Escola</h1>
+<p>Total de redacoes: {{ metricas.total }}</p>
+<p>Media: {{ metricas.media }} | Mediana: {{ metricas.mediana }} | Desvio-padrao: {{ metricas.desvio_padrao }}</p>
+<h2>Sintese executiva</h2>
+<p>{{ sintese }}</p>
+<h2>Turmas</h2>
+<ul>
+    {% for turma in turmas %}
+    <li><a href="/turma/{{ turma.turma_id }}">{{ turma.turma_nome }}</a></li>
+    {% endfor %}
+</ul>
+{% endblock %}

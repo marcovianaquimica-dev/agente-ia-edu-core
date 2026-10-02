@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<h1>Visao Geral</h1>
+<p>Total de redacoes corrigidas: {{ metricas.total }}</p>
+<p>Media: {{ metricas.media }} | Mediana: {{ metricas.mediana }} | Desvio-padrao: {{ metricas.desvio_padrao }}</p>
+<h2>Sintese executiva</h2>
+<p>{{ sintese }}</p>
+<h2>Distribuicao por faixa</h2>
+<table>
+    <tr><th>Faixa</th><th>Quantidade</th></tr>
+    {% for faixa, quantidade in metricas.distribuicao_faixas.items() %}
+    <tr><td>{{ faixa }}</td><td>{{ quantidade }}</td></tr>
+    {% endfor %}
+</table>
+{% endblock %}
