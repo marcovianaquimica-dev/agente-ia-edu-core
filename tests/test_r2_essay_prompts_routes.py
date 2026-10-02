@@ -9,7 +9,10 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.api.app import create_app
 from agente_ia_edu.api.dependencies import get_session_factory, get_current_identity
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import AcademicYear, Class, GradeLevel, School, Segment, UserSchoolLink
+from agente_ia_edu.db.models import (
+    AcademicYear, Class, GradeLevel, Person, School, Segment, Student,
+    StudentEnrollment, UserSchoolLink,
+)
 from agente_ia_edu.identity import ExternalIdentityContext
 
 
@@ -72,6 +75,123 @@ class EssayPromptsRoutesTests(unittest.TestCase):
                 return school.id, klass.id
 
         return self.loop.run_until_complete(_seed())
+
+    def _seed_school_teacher_class_and_student(self, code: str):
+        """Mesma estrutura de `_seed_school_teacher_and_class`, acrescentando
+        um Person+Student com StudentEnrollment ACTIVE na turma criada -
+        para os testes de atribuicao combinada por student_ids e de busca
+        de alunos."""
+
+        async def _seed():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"EPRS-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(UserSchoolLink(
+                    external_user_id="prof_r2", school_id=school.id, role="TEACHER",
+                    scope_type="SCHOOL", active=True,
+                ))
+                segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEGS-{code}")
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="grade", external_id=f"GRADES-{code}",
+                )
+                year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id=f"YEARS-{code}")
+                session.add_all([grade, year])
+                await session.flush()
+                klass = Class(
+                    id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                    grade_level_id=grade.id, name="turma", external_id=f"TURMAS-{code}",
+                )
+                session.add(klass)
+                await session.flush()
+                person = Person(id=uuid.uuid4(), school_id=school.id, full_name="Aluno Teste")
+                session.add(person)
+                await session.flush()
+                student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id)
+                session.add(student)
+                await session.flush()
+                session.add(StudentEnrollment(
+                    id=uuid.uuid4(), school_id=school.id, student_id=student.id,
+                    class_id=klass.id, status="ACTIVE",
+                ))
+                await session.commit()
+                return school.id, klass.id, student.id
+
+        return self.loop.run_until_complete(_seed())
+
+    def test_combined_assignment_with_class_and_student_succeeds(self):
+        school_id, class_id, student_id = self._seed_school_teacher_class_and_student("12")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema combinado", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        response = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/combined",
+            json={
+                "class_ids": [], "grade_level_ids": [], "student_ids": [str(student_id)],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["created_count"], 1)
+        self.assertEqual(body["already_assigned_count"], 0)
+
+    def test_combined_assignment_with_empty_target_is_422(self):
+        school_id, class_id, student_id = self._seed_school_teacher_class_and_student("13")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        response = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/combined",
+            json={"class_ids": [], "grade_level_ids": [], "student_ids": []},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+
+    def test_students_search_filters_by_name(self):
+        school_id, class_id, student_id = self._seed_school_teacher_class_and_student("14")
+        self._as("prof_r2")
+
+        response = self.client.get(
+            "/api/v1/catalog/essay-prompts/students-search",
+            params={"class_ids": str(class_id), "q": "Aluno"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        names = [s["full_name"] for s in response.json()]
+        self.assertTrue(any("Aluno" in n for n in names))
+
+    def test_assignment_log_lists_one_entry_per_combined_call(self):
+        school_id, class_id, student_id = self._seed_school_teacher_class_and_student("15")
+        self._as("prof_r2")
+
+        create_resp = self.client.post(
+            "/api/v1/catalog/essay-prompts",
+            json={"title": "Tema", "statement": "Disserte.", "year": 2026},
+        )
+        prompt_id = create_resp.json()["id"]
+
+        combined_resp = self.client.post(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignments/combined",
+            json={"class_ids": [str(class_id)], "grade_level_ids": [], "student_ids": []},
+        )
+        self.assertEqual(combined_resp.status_code, 200, combined_resp.text)
+
+        response = self.client.get(
+            f"/api/v1/catalog/essay-prompts/{prompt_id}/assignment-log"
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()), 1)
 
     def test_full_management_flow(self):
         school_id, class_id = self._seed_school_teacher_and_class("1")
