@@ -2,34 +2,65 @@
 
 :root {
   --font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  
+
+  /* === Núcleo Edu 360° — tokens de marca (primitivos) ===
+     Paleta oficial do Manual da Marca. Não usar estes tokens diretamente
+     em componentes — prefira os tokens semânticos abaixo (--primary,
+     --accent, --bg-sidebar etc.). Estados funcionais (erro/alerta/
+     sucesso/info) nunca usam cor de marca — ver bloco "Estados
+     funcionais" mais abaixo. */
+  --brand-navy: #001b4d;
+  --brand-blue: #087ff5;
+  --brand-cyan: #00bfe8;
+  --brand-turquoise: #08d5bc;
+  --brand-white: #ffffff;
+  --gradient-brand: linear-gradient(90deg, var(--brand-blue), var(--brand-cyan), var(--brand-turquoise));
+
+  /* === Superfícies === */
   --bg-app: #f4f6fb;
   --bg-card: #ffffff;
-  --bg-sidebar: #0f172a;
-  
+  --surface: var(--bg-card);
+  --bg-sidebar: var(--brand-navy);
+
+  /* === Texto === */
   --text-main: #1e293b;
+  --text-primary: var(--text-main);
   --text-muted: #64748b;
+  --text-secondary: var(--text-muted);
   --text-white: #f8fafc;
-  
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --primary-light: #eef2ff;
-  
-  --accent: #06b6d4;
-  --accent-light: #ecfeff;
-  
+
+  /* === Ação primária (Azul tecnológico da marca) === */
+  --primary: var(--brand-blue);
+  --primary-action: var(--primary);
+  --primary-hover: color-mix(in srgb, var(--brand-blue) 82%, black);
+  --primary-light: color-mix(in srgb, var(--brand-blue) 12%, white);
+
+  /* === Acento (Ciano da marca) === */
+  --accent: var(--brand-cyan);
+  --accent-light: color-mix(in srgb, var(--brand-cyan) 12%, white);
+
+  /* === Estados funcionais — cores próprias, nunca a paleta de marca
+     (Manual da Marca: "não force as cores da marca em situações
+     semânticas inadequadas") === */
   --danger: #ef4444;
   --danger-light: #fef2f2;
   --warning: #f59e0b;
   --warning-light: #fffbeb;
   --success: #10b981;
   --success-light: #ecfdf5;
-  
+  --info: #3b82f6;
+  --info-light: #eff6ff;
+
+  /* === Bordas, foco, desabilitado === */
   --border-color: #e2e8f0;
+  --focus-ring: var(--brand-blue);
+  --disabled-bg: #f1f5f9;
+  --disabled-text: #94a3b8;
+
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
-  
+
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04);
   --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
