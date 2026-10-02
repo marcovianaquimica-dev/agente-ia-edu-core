@@ -447,7 +447,7 @@ body.sidebar-open {
 
 /* Banner Card */
 .banner-card {
-  background: linear-gradient(135deg, #1e1b4b, #312e81);
+  background: var(--gradient-brand);
   color: var(--text-white);
   border: none;
 }
@@ -459,7 +459,7 @@ body.sidebar-open {
 }
 
 .banner-content p {
-  color: #c7d2fe;
+  color: rgba(255, 255, 255, 0.85);
   font-size: 15px;
 }
 

@@ -289,7 +289,7 @@
 .tm-form[hidden] { display: none; }
 .tm-form-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .tm-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.tm-msg { margin: 4px 0 0; font-size: 0.85rem; color: #b3261e; }
+.tm-msg { margin: 4px 0 0; font-size: 0.85rem; color: var(--danger); }
 .tm-list { overflow-x: auto; }
 .tm-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .tm-table th, .tm-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border, #e2e6ee); }
