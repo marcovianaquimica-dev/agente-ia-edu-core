@@ -509,6 +509,94 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
                 status["needs_review_pages"][0]["ocr_name_raw"], "ALUNO TURMA B"
             )
 
+    async def test_student_with_only_a_direct_assignment_is_found(self):
+        """Aluno SEM a turma dele atribuida, mas com PromptAssignment.student_id
+        apontando direto pra ele - _assignment_for_student precisa achar essa
+        atribuicao pelo ramo novo, nao so pelo JOIN de turma.
+
+        Seed proprio (nao usa o _seed padrao): o _seed padrao SEMPRE cria uma
+        PromptAssignment por turma como parte do setup, o que tornaria
+        impossivel provar este cenario - aqui a cadeia inteira e montada mas
+        NENHUMA atribuicao de turma e criada, so a direta ao aluno.
+        """
+        async with self.session_factory() as session:
+            school = School(id=uuid.uuid4(), code="PB-DIRETO", name="Escola")
+            session.add(school)
+            await session.flush()
+            segment = Segment(
+                id=uuid.uuid4(), school_id=school.id, name="seg", external_id="SEG-PB-DIRETO"
+            )
+            session.add(segment)
+            await session.flush()
+            grade = GradeLevel(
+                id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                name="3a", external_id="GRADE-PB-DIRETO",
+            )
+            year = AcademicYear(
+                id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-PB-DIRETO"
+            )
+            session.add_all([grade, year])
+            await session.flush()
+            klass = Class(
+                id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                grade_level_id=grade.id, name="3A", external_id="TURMA-PB-DIRETO",
+            )
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                year=2026, created_by_external_identity="prof",
+            )
+            session.add_all([klass, prompt])
+            await session.flush()
+            person = Person(id=uuid.uuid4(), school_id=school.id, full_name="Aluno Direto")
+            session.add(person)
+            await session.flush()
+            student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id)
+            session.add(student)
+            await session.flush()
+            session.add(StudentEnrollment(
+                id=uuid.uuid4(), school_id=school.id, student_id=student.id,
+                class_id=klass.id, status="ACTIVE",
+            ))
+            # Nenhuma PromptAssignment por turma aqui - so a direta ao aluno,
+            # exatamente o cenario que este teste quer provar.
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id, class_id=None,
+                student_id=student.id, assigned_by_external_identity="prof",
+            ))
+            await session.commit()
+
+            service = EssayBatchService(session)
+            assignment = await service._assignment_for_student(
+                school_id=school.id, essay_prompt_id=prompt.id, student_id=student.id,
+            )
+            self.assertEqual(assignment.student_id, student.id)
+            self.assertIsNone(assignment.class_id)
+
+    async def test_student_with_both_class_and_direct_assignment_uses_class_one(self):
+        """Caso raro mas possivel: a mesma proposta tem atribuicao pra turma
+        do aluno E atribuicao direta a ele - a de turma vence (prioridade de
+        hoje, menor mudanca de comportamento). O _seed padrao ja cria a
+        atribuicao por turma; aqui so acrescenta a direta por cima."""
+        async with self.session_factory() as session:
+            school, klass, prompt, students = await self._seed(
+                session, [("Aluno Dois Vinculos", None)]
+            )
+            student_id = students["Aluno Dois Vinculos"]
+            session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id,
+                essay_prompt_id=prompt.id, class_id=None,
+                student_id=student_id, assigned_by_external_identity="prof",
+            ))
+            await session.commit()
+
+            service = EssayBatchService(session)
+            assignment = await service._assignment_for_student(
+                school_id=school.id, essay_prompt_id=prompt.id, student_id=student_id,
+            )
+            self.assertIsNotNone(assignment.class_id)
+            self.assertEqual(assignment.class_id, klass.id)
+
 
 if __name__ == "__main__":
     unittest.main()
