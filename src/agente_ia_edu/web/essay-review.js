@@ -542,6 +542,89 @@
     };
   }
 
+  async function renderPromptBankList() {
+    container.innerHTML = `${renderTabs('prompts')}<p class="empty-text">Carregando propostas...</p>`;
+    wireTabs();
+    try {
+      prompts = await reviewRequest('/api/v1/catalog/essay-prompts');
+    } catch (e) {
+      prompts = [];
+    }
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="card tm-form">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>Usar proposta do banco</h3>
+        <input id="er-bank-filter" class="text-input" placeholder="Filtrar por título...">
+        <ul id="er-bank-list" class="tm-table"></ul>
+      </div>`);
+    container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+
+    async function deletePrompt(btn) {
+      const prompt = prompts.find((p) => p.id === btn.dataset.deletePrompt);
+      if (!confirm(`Mover "${prompt ? prompt.title : 'esta proposta'}" para a lixeira? Ela ficará disponível para restaurar por 30 dias.`)) return;
+      btn.disabled = true;
+      try {
+        await reviewRequest(`/api/v1/catalog/essay-prompts/${btn.dataset.deletePrompt}`, { method: 'DELETE' });
+        renderPromptBankList();
+      } catch (e) {
+        alert(e.message);
+        btn.disabled = false;
+      }
+    }
+    function renderList(filterText) {
+      const list = container.querySelector('#er-bank-list');
+      const q = filterText.trim().toLowerCase();
+      const filtered = prompts.filter((p) => !q || p.title.toLowerCase().includes(q));
+      list.innerHTML = filtered.map((p) => `<li>
+        <button class="btn btn-secondary" type="button" data-pick-prompt="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})${p.is_platform ? ' <span class="er-platform-badge">Plataforma</span>' : ''}</button>
+        ${p.is_platform ? '' : `<button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>`}
+      </li>`).join('') || '<li class="empty-text">Nenhuma proposta encontrada.</li>';
+      list.querySelectorAll('[data-pick-prompt]').forEach((btn) => btn.addEventListener('click', () => renderBankAssignScreen(btn.dataset.pickPrompt)));
+      list.querySelectorAll('[data-delete-prompt]').forEach((btn) => btn.addEventListener('click', () => deletePrompt(btn)));
+    }
+    renderList('');
+    container.querySelector('#er-bank-filter').addEventListener('input', (ev) => renderList(ev.target.value));
+  }
+
+  async function renderBankAssignScreen(promptId) {
+    container.innerHTML = `${renderTabs('prompts')}<p class="empty-text">Carregando...</p>`;
+    wireTabs();
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="card tm-form">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>Atribuir proposta</h3>
+        <div id="er-bank-audience-container"></div>
+        <button class="btn btn-primary" type="button" id="er-bank-assign-btn">Atribuir</button>
+        <p id="er-bank-assign-msg" class="tm-msg" hidden></p>
+      </div>`);
+    container.querySelector('[data-back]').addEventListener('click', renderPromptBankList);
+
+    const audiencePicker = await renderAudiencePicker(container.querySelector('#er-bank-audience-container'));
+    container.querySelector('#er-bank-assign-btn').addEventListener('click', async () => {
+      const msg = container.querySelector('#er-bank-assign-msg');
+      const targets = audiencePicker.getTargets();
+      if (!targets.class_ids.length && !targets.grade_level_ids.length && !targets.student_ids.length) {
+        msg.hidden = false;
+        msg.textContent = 'Escolha pelo menos uma série, turma ou aluno.';
+        return;
+      }
+      try {
+        await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignments/combined`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(targets),
+        });
+        renderPromptDetail(promptId);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      }
+    });
+  }
+
   function renderNewPromptForm() {
     container.innerHTML = `
       ${renderTabs('prompts')}
@@ -677,6 +760,9 @@
         </form>
         <p id="er-assign-msg" class="tm-msg" hidden></p>
         <ul id="er-assign-failures" class="essay-assign-failures" hidden></ul>
+
+        <h4>Histórico de atribuições</h4>
+        <ul id="er-assignment-log-list"><li class="empty-text">Carregando...</li></ul>
       </div>`;
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
@@ -698,6 +784,19 @@
     }
 
     container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+    try {
+      const logs = await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignment-log`);
+      container.querySelector('#er-assignment-log-list').innerHTML = logs.map((log) => {
+        const turmas = log.target_summary.turmas || [];
+        const alunos = log.target_summary.alunos || [];
+        const partes = [];
+        if (turmas.length) partes.push(`${turmas.length} turma(s)`);
+        if (alunos.length) partes.push(`${alunos.length} aluno(s)`);
+        return `<li>${new Date(log.created_at).toLocaleString('pt-BR')} - ${partes.join(', ') || 'nenhum alvo'}</li>`;
+      }).join('') || '<li class="empty-text">Nenhuma atribuição registrada ainda.</li>';
+    } catch (e) {
+      container.querySelector('#er-assignment-log-list').innerHTML = '<li class="empty-text">Não foi possível carregar o histórico.</li>';
+    }
     const sheetMsg = container.querySelector('#er-sheet-msg');
     function showSheetMsg(text) {
       sheetMsg.hidden = false;
