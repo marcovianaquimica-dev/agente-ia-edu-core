@@ -148,6 +148,55 @@ molécula" e teve 1/10 contra 5/10.
 e sem controle, não há base para propor alteração de política, e nenhuma é
 proposta.
 
+### Correção de uma afirmação minha: o gabarito não domina o orçamento
+
+Afirmei, durante o piloto, que o gabarito "consome o orçamento", com base
+em átomo × molécula, onde as três evidências `ANSWER_KEY` ocuparam 4.973
+de 11.336 caracteres — **44%**. O número está certo para aquela execução.
+A generalização estava errada.
+
+Medindo as seis execuções com JSON:
+
+| papel | caracteres | % do orçamento gasto |
+|---|---:|---:|
+| `CONTENT` | 61.760 | **88,8%** |
+| `UNKNOWN` | 4.436 | 6,4% |
+| `ANSWER_KEY` | 3.383 | **4,9%** |
+
+Por execução:
+
+| | `CONTENT` | `ANSWER_KEY` | `UNKNOWN` |
+|---|---:|---:|---:|
+| P1 / P2 | 98,3% | 1,7% | — |
+| A | 55,0% | 6,3% | **38,6%** |
+| B | 93,7% | 6,3% | — |
+| C | 86,1% | 13,9% | — |
+| D | **100%** | — | — |
+
+**Átomo × molécula era o caso extremo, não o padrão.** Nas seis medidas, o
+gabarito é o menor dos três consumidores — abaixo até de `UNKNOWN`, que é
+elegível em **todos** os propósitos pela assimetria declarada na política e
+que ninguém estava observando.
+
+### O que realmente consome o orçamento: o tamanho de um chunk
+
+| | maior evidência | papel | % do contexto |
+|---|---|---|---:|
+| P1 / P2 | E5, p.170 | `CONTENT` | 27,4% |
+| A | E4, p.58 | `UNKNOWN` | **38,6%** |
+| B | E4, p.259 | `CONTENT` | 34,5% |
+| C | E2, p.24 | `CONTENT` | 26,7% |
+| D | E5, p.48 | `CONTENT` | 29,0% |
+
+**Uma única evidência ocupa entre 27% e 39% do contexto em todas as
+execuções**, e em cinco das seis ela é `CONTENT`. É a distribuição de
+tamanho dos chunks que decide quantas evidências cabem — não o papel
+editorial.
+
+Isso não é proposta de mudança. É a correção de um diagnóstico que eu
+tinha formulado mal, e a indicação de onde olhar se o orçamento voltar à
+pauta.
+
 ### O que é estável e merece observação futura
 
 Dois fatos se repetem em **todas** as execuções e não dependem da hipótese
@@ -156,7 +205,27 @@ acima:
 **1. `BUDGET_EXHAUSTED` corta metade do top-10, sempre.** Entre 4 e 5 dos 10
 hits ficam de fora em todas as sete execuções. O orçamento de 12.000
 caracteres admite consistentemente 5 ou 6 evidências de ~2.000 caracteres.
-Não é defeito demonstrado — é a constante estrutural do desenho atual.
+
+**E, nestas seis execuções, o corte não descartou nada que seria usado.**
+
+| | |
+|---|---|
+| citações totais | 14 |
+| **rank de recuperação máximo já citado** | **5** |
+| citações vindas das três primeiras evidências | 10 de 14 (71%) |
+
+Distribuição por rank citado: r1 ×5, r2 ×2, r3 ×3, r4 ×3, r5 ×1. **Nunca
+rank 6 a 10.**
+
+Não é só correlação. Em três execuções uma evidência de rank baixo
+**entrou** no contexto e foi ignorada assim mesmo: A `E5`=rank 7, B
+`E6`=rank 9, C `E5`=rank 10 — nenhuma citada. O modelo teve acesso e não
+usou.
+
+Isso **sustenta** a decisão de não mexer no orçamento: `BUDGET_EXHAUSTED`
+é observação, não defeito demonstrado. Com n=6 não é prova de que aumentar
+o orçamento nunca ajudaria — é prova de que, no material observado, não
+teria ajudado.
 
 **2. Concentração por página.** Em todas as execuções, de 2 a 3 hits do
 top-10 vêm da **mesma página impressa**. Em C, os ranks 1, 3 e 5 são todos

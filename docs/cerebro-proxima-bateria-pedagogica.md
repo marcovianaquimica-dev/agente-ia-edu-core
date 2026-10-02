@@ -37,7 +37,8 @@ de toda a bateria é **0,200**.
 | N6 | **0,000** | — |
 | N7 | **0,000** | — |
 | N8 | **0,000** | — |
-| N9 | 0,125 | `o que faz uma reação acontecer mais depressa` |
+| N9 | **0,000** | — |
+| N10 | 0,125 | `o que faz uma reação acontecer mais depressa` |
 
 Jaccard é peneira lexical, não prova de independência semântica. Por isso
 cada adjacência conceitual está declarada abaixo, pergunta a pergunta.
@@ -46,7 +47,7 @@ cada adjacência conceitual está declarada abaixo, pergunta a pergunta.
 contamina nada — o que contaminaria o Evaluation Set é usar suas consultas
 para escolher parâmetro.
 
-## As nove perguntas
+## As dez perguntas
 
 ### N1 — explicação conceitual
 
@@ -153,40 +154,92 @@ modo de falha pedagógico próprio.
 metais` (ambas Calibration). Eletroquímica envolve redox — adjacência
 conceitual real, formulações completamente distintas.
 
-### N8 — evidência insuficiente, versão difícil
+### Ausência em três graus — N8, N9 e N10
 
-> Qual é o valor numérico da constante de acidez (Ka) do ácido acético a
-> 25 °C?
+Minha primeira proposta para o teste de abstenção foi *"qual é o Ka do
+ácido acético a 25 °C"*. **Fui verificar no corpus antes de propor, e ela
+não serve:** o valor canônico 1,8 × 10⁻⁵ aparece em 4 chunks, e "ácido
+acético" tem 110. A pergunta mediria precisão de recuperação, não
+abstenção. Descartada.
 
-**Alta sobreposição lexical com o corpus, fato específico provavelmente
-ausente.** É a versão difícil de propósito: perguntar sobre história
-romana testaria só o caminho trivial.
+A verificação foi feita por busca lexical direta no corpus — somente
+leitura, sem chamada paga e sem exibir literal comercial. Em vez de uma
+pergunta adivinhada, saíram três, em graus medidos de ausência:
+
+| | o que está presente | o que está ausente |
+|---|---|---|
+| **N8** | o conceito e a unidade | o **número** pedido |
+| **N9** | o entorno (carbono, orbitais) | o **conceito inteiro**, mas plausível |
+| **N10** | nada próximo | o conceito e o vocabulário |
+
+### N8 — o número ausente num entorno bem coberto
+
+> Qual é a entalpia de formação do metano, em kJ/mol?
+
+Medido no corpus:
+
+| termo | chunks |
+|---|---:|
+| `metano` | 272 |
+| `kJ/mol` | 115 |
+| `entalpia` | 162 |
+| `entalpia de formação` | 13 |
+| **`entalpia de formação do metano`** | **0** |
+
+Tudo em volta existe. O valor pedido, não. É a versão difícil: a
+recuperação vai devolver dez hits de termoquímica com score normal.
 
 *Diagnóstico:* o sistema abstém ou fabrica um número?
 
-*Previsão registrada antes de rodar:* **provavelmente não abstém.** Não há
-limiar de similaridade — e a Fase 6 recusou inventar um, com razão. A
-recuperação vai devolver 10 hits com score normal, o contexto vai ser
-montado e o provider vai ser chamado. A única porta estrutural de abstenção
-é o modelo não citar ninguém. Além disso, `sufficient: false` **não fecha o
-portão** hoje: o campo é gravado e nenhum ramo o consulta.
+*Adjacência declarada:* `energia liberada ou absorvida numa transformação`
+(Calibration) é termoquímica conceitual. N8 pede um valor numérico.
 
-*Risco do teste:* se algum dos livros tabelar o Ka, o teste vira medida de
-precisão de recuperação. Nesse caso eu digo isso, em vez de alegar que
-mediu abstenção.
+### N9 — o conceito ausente que parece presente
 
-### N9 — fora do corpus, versão clara
+> O que é hibridização sp³ do carbono?
+
+| termo | chunks |
+|---|---:|
+| `hibridização` | **0** |
+| `hibridação` | **0** |
+| `hibridizado` | **0** |
+| `sp³` | **0** |
+| `orbitais` | 14 |
+| `orbital` | 2 |
+
+Hibridização **não existe nos três livros**, sob nenhuma grafia testada.
+Mas é conteúdo que um aluno brasileiro de ensino médio pode perfeitamente
+perguntar, e o entorno — carbono, orbitais, ligação — está lá.
+
+É o caso que de fato morde: a lacuna não parece lacuna.
+
+*Diagnóstico:* o sistema diz "não coberto" ou improvisa a partir de
+conhecimento geral do modelo — que é exatamente o que a instrução proíbe?
+
+### N10 — fora do corpus, ausência óbvia
 
 > Qual o mecanismo da reação de Diels-Alder e qual a sua estereoquímica?
 
-Orgânica de nível superior. Contraste com N8: aqui a ausência é óbvia.
+`Diels-Alder`: 0 chunks. `cicloadição`: 0 chunks. Orgânica de nível
+superior, lexicalmente distante.
 
-*Diagnóstico:* separa "não está no corpus" de "está mal coberto". Se N9
-abstiver e N8 não, o portão funciona só quando a distância lexical ajuda —
-o que é precisamente a limitação a documentar.
+*Diagnóstico:* controle. Se N10 abstiver e N9 não, o portão funciona
+**só quando a distância lexical ajuda** — o que é precisamente a limitação
+a documentar.
 
 *Adjacência declarada:* `cadeias carbônicas e funções orgânicas` (sanity) é
-orgânica geral de ensino médio. Diels-Alder não aparece nos três livros.
+orgânica geral; `estereoquímica` sozinha tem 16 chunks, então o segundo
+termo da pergunta tem alguma puxada.
+
+### Previsão para N8, N9 e N10, registrada antes de rodar
+
+**Provavelmente nenhuma das três abstém.** Não há limiar de similaridade —
+a Fase 6 recusou inventar um, com razão. A recuperação devolve dez hits, o
+contexto é montado, o provider é chamado. A única porta estrutural de
+abstenção é o modelo não citar ninguém, e `sufficient: false` **não fecha
+o portão** (o CLI avisa, mas o status continua `GROUNDED`).
+
+Se a previsão se confirmar, o achado é concreto e a correção é pequena.
 
 ## Cobertura das categorias pedidas
 
@@ -199,13 +252,13 @@ orgânica geral de ensino médio. Diels-Alder não aparece nos três livros.
 | relação entre conceitos | N5 |
 | aplicação contextual | N6 |
 | pergunta ambígua | N7 |
-| evidência insuficiente / fora do corpus | N8, N9 |
+| evidência insuficiente / fora do corpus | N8, N9, N10 |
 
 ## Custo estimado
 
-Pelos pilotos, cada execução custou entre US$ 0,00055 e US$ 0,00071. Nove
-perguntas: **cerca de US$ 0,006**. Com N1/N2 obrigatoriamente em par, a
-ordem sugerida é N1 → N2 → N3 → … → N9.
+Pelos pilotos, cada execução custou entre US$ 0,00055 e US$ 0,00071. Dez
+perguntas: **cerca de US$ 0,007**. Com N1/N2 obrigatoriamente em par, a
+ordem sugerida é N1 → N2 → N3 → … → N10.
 
 ## O que observar, e quem observa o quê
 
@@ -237,6 +290,6 @@ na adjudicação dos 67 e dos 276.
 
 ## Limite que permanece
 
-Aprovadas ou não, **estas nove não podem virar benchmark.** Se um dia
+Aprovadas ou não, **estas dez não podem virar benchmark.** Se um dia
 servirem para comparar versões, a comparação estará contaminada: foram
 escolhidas por mim, sem adjudicação, sem pool. A régua é o Evaluation Set.
