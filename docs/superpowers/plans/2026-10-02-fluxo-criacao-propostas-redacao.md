@@ -1617,15 +1617,15 @@ Expected: FAIL - as 3 rotas ainda não existem (404).
 
 - [ ] **Step 4: Escrever as rotas**
 
-Em `src/agente_ia_edu/api/routes/essay_prompts.py`, adicionar aos
-imports:
-
-```python
-from ...services.teacher_portal import TeacherPortalService
-```
-
-(confirme o nome real da classe/arquivo - já usada nesta sessão em
-`services/teacher_portal.py`, método `list_teacher_classrooms`.)
+Em `src/agente_ia_edu/api/routes/essay_prompts.py`, NÃO é preciso
+importar `TeacherPortalService` nem nada de `services/teacher_portal.py`
+nesta task - a rota nova de busca de alunos (`GET /students-search`)
+confia nos `class_ids` que recebe (ver `search_students_for_assignment`,
+já implementado na Task 5), sem resolver autorização de turma sozinha; é
+o FRONTEND (Task 7) quem resolve quais turmas o professor pode ver,
+reaproveitando `GET /api/v1/teacher/classrooms` que já existe, antes de
+mandar os `class_ids` pra esta rota nova. Não adicione nenhum import que
+não seja efetivamente usado no corpo das rotas abaixo.
 
 Adicionar os modelos Pydantic novos (perto dos outros `PromptAssignment*`
 já existentes):
