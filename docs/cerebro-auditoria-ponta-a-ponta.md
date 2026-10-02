@@ -230,6 +230,34 @@ Vale notar que isso também acopla o script a uma tabela de preços de um
 fornecedor — o que é tolerável num script de diagnóstico, mas não seria
 no core.
 
+## 4c. Os testes têm dentes? Mutação dirigida
+
+58 testes passando é barato. O que vale é falharem quando o código quebra.
+Quatro mutações, cada uma estragando **uma** propriedade:
+
+| mutação | resultado |
+|---|---|
+| orçamento corta um caractere cedo (`>` → `>=`) | **detectada** |
+| direitos liberam literal comercial em público | **detectada** |
+| marcador inválido deixa de derrubar a resposta | **detectada** |
+| regex de marcador deixa de ser ancorada | **detectada**, mas não pelos arquivos novos |
+
+A última merece explicação. Removendo `^…$` de `_MARCADOR_SOLTO`, os dois
+arquivos novos passaram inteiros — **58 de 58**. Parecia lacuna.
+
+Não é: quem pega é
+`MarkerNormalisationTests::test_arbitrary_text_does_not_become_a_marker`,
+no arquivo anterior, escrito junto com a própria correção de normalização
+em `174c7d8`. A propriedade está protegida; os arquivos novos apenas não a
+duplicam, o que é correto.
+
+Vale registrar o que isso valida de lado: o teste de regressão escrito para
+a correção dos marcadores **não é decorativo** — é o único ponto da suíte
+que impede o afrouxamento da ancoragem.
+
+Árvore restaurada e limpa após cada mutação, verificado por
+`git status`.
+
 ## 5. Direitos — não enfraquecidos
 
 As três zonas são perguntas distintas e testadas como tal:
