@@ -531,6 +531,7 @@ class EssayBatchService:
             .join(Person, Person.id == Student.person_id)
             .where(*condicoes)
             .order_by(Person.full_name)
+            .distinct()
         )).all()
         return [
             (student_id, full_name, document_number)
@@ -593,6 +594,7 @@ class EssayBatchService:
             for page in run:
                 page.status = "NEEDS_REVIEW"
                 page.essay_submission_id = None
+                page.matched_student_id = None
             return None
 
         student_id = run[0].matched_student_id
@@ -610,6 +612,7 @@ class EssayBatchService:
             for page in run:
                 page.status = "NEEDS_REVIEW"
                 page.essay_submission_id = None
+                page.matched_student_id = None
             return None
 
         existing_id = next(

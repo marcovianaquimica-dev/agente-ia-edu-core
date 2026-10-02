@@ -119,6 +119,31 @@ async def _authorize(identity: ExternalIdentityContext, session: AsyncSession) -
     return uuid.UUID(str(context.school_id))
 
 
+async def _require_school_wide_scope(
+    identity: ExternalIdentityContext, session: AsyncSession
+) -> None:
+    """Serie inteira e escola inteira expoem nome e CPF de alunos de
+    QUALQUER turma da escola - um TEACHER com escopo de uma unica turma
+    (scope_type CLASSROOM) nao tem hoje nenhum caminho pra ver isso, nem
+    pela tela de turma. Mesma regra de "autorizado em toda a escola" que
+    TeacherPortalService._teacher_is_school_wide_authorized ja usa:
+    DIRECTOR/COORDINATOR/PLATFORM_ADMIN sempre passam; TEACHER so passa com
+    escopo PLATFORM ou SCHOOL. Nao se aplica ao escopo de turma unica
+    (class_id) - so e chamada quando ele e None."""
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity)
+    if context.role.upper() in {"DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN"}:
+        return
+    if context.role.upper() == "TEACHER" and context.scope_type.upper() in {"PLATFORM", "SCHOOL"}:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Serie inteira ou escola inteira exige escopo de toda a escola "
+        "(diretor, coordenador, ou professor com abrangencia de escola) - "
+        "professor de turma unica so pode enviar por turma.",
+    )
+
+
 async def _batch_for_own_school_or_403(
     session: AsyncSession, *, batch_id: uuid.UUID, school_id: uuid.UUID
 ) -> EssayBatchUpload:
@@ -170,6 +195,8 @@ async def create_essay_batch(
         )
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        if class_id is None:
+            await _require_school_wide_scope(identity, session)
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="r4_batch_upload_"))
         try:
@@ -230,6 +257,7 @@ async def list_grade_levels_for_batch(
     pre-existente, fora de escopo desta rota)."""
     async with session_factory() as session:
         school_id = await _authorize(identity, session)
+        await _require_school_wide_scope(identity, session)
         rows = (await session.execute(
             select(GradeLevel.id, GradeLevel.name)
             .where(GradeLevel.school_id == school_id)

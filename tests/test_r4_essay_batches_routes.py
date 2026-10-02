@@ -470,6 +470,38 @@ class EssayBatchesRoutesTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422, response.text)
 
+    def _seed_classroom_scoped_teacher(self, school_id: str) -> None:
+        """Mesma escola de algum _seed/_seed_school_with_grade_level_no_class_assignment
+        anterior, mas um SEGUNDO professor (prof_turma_unica) com
+        scope_type=CLASSROOM - o caso que o gate da Fix 4 deve recusar pra
+        serie/escola."""
+        async def _run():
+            async with self.factory() as session:
+                session.add(UserSchoolLink(
+                    external_user_id="prof_turma_unica", school_id=uuid.UUID(school_id),
+                    role="TEACHER", scope_type="CLASSROOM", active=True,
+                ))
+                await session.commit()
+        self.loop.run_until_complete(_run())
+
+    def test_get_grade_levels_recusa_professor_de_turma_unica(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        self._seed_classroom_scoped_teacher(seed["school_id"])
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_turma_unica")
+        response = self.client.get("/api/v1/teacher/essay-batches/grade-levels")
+        self.assertEqual(response.status_code, 403, response.text)
+
+    def test_post_lote_com_grade_level_id_recusa_professor_de_turma_unica(self):
+        seed = self._seed_school_with_grade_level_no_class_assignment()
+        self._seed_classroom_scoped_teacher(seed["school_id"])
+        self.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_turma_unica")
+        response = self.client.post(
+            "/api/v1/teacher/essay-batches",
+            data={"essay_prompt_id": seed["prompt_id"], "grade_level_id": seed["grade_level_id"]},
+            files={"files": ("folha.png", self._fake_png_bytes(), "image/png")},
+        )
+        self.assertEqual(response.status_code, 403, response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

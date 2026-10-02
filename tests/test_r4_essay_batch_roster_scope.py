@@ -153,3 +153,22 @@ class RosterForBatchTests(unittest.IsolatedAsyncioTestCase):
             roster = await service.roster_for_batch(batch)
             ids = {student_id for student_id, _, _ in roster}
             self.assertNotIn(seed["student_inativo"], ids)
+
+    async def test_aluno_com_2_matriculas_ativas_aparece_1_vez_so_no_roster(self):
+        seed = await self._seed()
+        # Mesmo aluno, 2a matricula ACTIVE na Turma B (mesma serie) - estado
+        # que student_enrollment_resolution.py ja documenta como possivel.
+        self.session.add(StudentEnrollment(
+            id=uuid.uuid4(), school_id=seed["school"].id, student_id=seed["student_a"],
+            class_id=seed["class_b"].id, status="ACTIVE",
+        ))
+        await self.session.flush()
+        batch = EssayBatchUpload(
+            id=uuid.uuid4(), school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+            class_id=None, grade_level_id=seed["grade_x"].id,
+            uploaded_by_external_identity="prof", status="PROCESSING", total_pages=0,
+        )
+        service = EssayBatchService(self.session)
+        roster = await service.roster_for_batch(batch)
+        rows_for_student_a = [row for row in roster if row[0] == seed["student_a"]]
+        self.assertEqual(len(rows_for_student_a), 1)
