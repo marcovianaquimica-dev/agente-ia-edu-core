@@ -277,6 +277,98 @@ class EssaySubmissionAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(resubmit_resp.status_code, 403)
 
+    def _seed_direct_student_assignment(self, code: str):
+        """Escola com uma proposta atribuida DIRETO a um aluno, sem
+        nenhuma turma atribuida - o cenario que esta task resolve."""
+        async def _seed():
+            async with self.factory() as session:
+                school = School(id=uuid.uuid4(), code=f"AUT-{code}", name=f"school-{code}")
+                session.add(school)
+                await session.flush()
+                session.add(SchoolModule(
+                    id=uuid.uuid4(), school_id=school.id, module_key="REDACAO_IA", enabled=True,
+                ))
+                segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id=f"SEG-{code}")
+                session.add(segment)
+                await session.flush()
+                grade = GradeLevel(
+                    id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+                    name="grade", external_id=f"GRADE-{code}",
+                )
+                year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id=f"YEAR-{code}")
+                session.add_all([grade, year])
+                await session.flush()
+                klass = Class(
+                    id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+                    grade_level_id=grade.id, name="turma", external_id=f"TURMA-{code}",
+                )
+                session.add(klass)
+                await session.flush()
+                prompt = EssayPrompt(
+                    id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                    year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                )
+                session.add(prompt)
+                await session.flush()
+                person = Person(id=uuid.uuid4(), school_id=school.id, full_name="Aluno Direto")
+                session.add(person)
+                await session.flush()
+                student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id)
+                session.add(student)
+                await session.flush()
+                session.add(StudentEnrollment(
+                    id=uuid.uuid4(), school_id=school.id, student_id=student.id,
+                    class_id=klass.id, status="ACTIVE",
+                ))
+                assignment = PromptAssignment(
+                    id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                    class_id=None, student_id=student.id,
+                    assigned_by_external_identity="teacher:t", status="OPEN",
+                )
+                session.add(assignment)
+                session.add(UserSchoolLink(
+                    external_user_id="direct_student", school_id=school.id, role="STUDENT",
+                    scope_type="SCHOOL", active=True,
+                ))
+                session.add(User(
+                    id=uuid.uuid4(), school_id=school.id, person_id=person.id,
+                    external_identity_provider="test", external_user_id="direct_student",
+                ))
+                await session.commit()
+                return school.id, klass.id, assignment.id
+
+        return self.loop.run_until_complete(_seed())
+
+    def test_a_student_with_only_a_direct_assignment_can_submit(self):
+        """O ponto mais critico desta leva: o aluno atribuido direto
+        (sem a turma dele ter sido atribuida) PRECISA conseguir submeter -
+        sem isso a atribuicao individual e invisivel na pratica."""
+        _school_id, _class_id, assignment_id = self._seed_direct_student_assignment("8")
+        self._as("direct_student")
+        resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "TYPED", "text": "Minha redacao."},
+        )
+        self.assertEqual(resp.status_code, 201, resp.text)
+
+    def test_a_different_student_in_the_same_school_cannot_use_someone_elses_direct_assignment(self):
+        school_id, _class_id, assignment_id = self._seed_direct_student_assignment("9")
+        self._enroll_student(school_id, _class_id, "other_student")
+        self._as("other_student")
+        resp = self.client.post(
+            "/api/v1/student/essay-submissions",
+            json={"prompt_assignment_id": str(assignment_id), "mode": "TYPED", "text": "x"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_direct_assignment_appears_in_the_assigned_students_own_prompt_list(self):
+        _school_id, _class_id, _assignment_id = self._seed_direct_student_assignment("10")
+        self._as("direct_student")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200)
+        titles = [p["title"] for p in resp.json()]
+        self.assertIn("Tema", titles)
+
 
 if __name__ == "__main__":
     unittest.main()

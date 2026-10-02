@@ -21,7 +21,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
@@ -131,14 +131,21 @@ async def _resolve_enrollment_or_403(session: AsyncSession, *, school_id: uuid.U
 
 
 async def _assignment_for_own_class_or_403(
-    session: AsyncSession, *, prompt_assignment_id: uuid.UUID, school_id: uuid.UUID, class_id: uuid.UUID,
+    session: AsyncSession, *, prompt_assignment_id: uuid.UUID, school_id: uuid.UUID,
+    class_id: uuid.UUID, student_id: uuid.UUID,
 ) -> PromptAssignment:
     assignment = await session.get(PromptAssignment, prompt_assignment_id)
-    if (
-        assignment is None
-        or assignment.school_id != school_id
-        or assignment.class_id != class_id
-    ):
+    if assignment is None or assignment.school_id != school_id:
+        raise HTTPException(
+            status_code=403, detail="This proposal was not assigned to your class."
+        )
+    # Por turma (comportamento de sempre) OU direto a este aluno (R2
+    # passou a permitir atribuir uma proposta a um aluno especifico).
+    is_authorized = (
+        assignment.class_id == class_id
+        or assignment.student_id == student_id
+    )
+    if not is_authorized:
         raise HTTPException(
             status_code=403, detail="This proposal was not assigned to your class."
         )
@@ -210,6 +217,7 @@ async def create_essay_submission(
         assignment = await _assignment_for_own_class_or_403(
             session, prompt_assignment_id=request.prompt_assignment_id,
             school_id=school_id, class_id=enrollment.class_id,
+            student_id=enrollment.student_id,
         )
         if request.resubmit_essay_id is not None:
             await _resubmission_target_or_403(
@@ -770,7 +778,10 @@ async def list_essay_prompts_for_student(
                 .join(EssayPrompt, EssayPrompt.id == PromptAssignment.essay_prompt_id)
                 .where(
                     PromptAssignment.school_id == school_id,
-                    PromptAssignment.class_id == enrollment.class_id,
+                    or_(
+                        PromptAssignment.class_id == enrollment.class_id,
+                        PromptAssignment.student_id == enrollment.student_id,
+                    ),
                     PromptAssignment.status == "OPEN",
                 )
                 # "Tema livre" (EssayPrompt.is_free_theme) is pinned first,
