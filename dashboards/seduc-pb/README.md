@@ -3,6 +3,11 @@
 Dashboard gerencial pontual para o Simulado de Redacao da SEDUC-PB.
 Isolado do produto principal - nao importa nada de `src/agente_ia_edu`.
 
+Os graficos (Chart.js) sao carregados via CDN (`cdn.jsdelivr.net`) direto
+no navegador - sem build step, sem dependencia Python nova. Se a rede do
+usuario bloquear o CDN, as telas continuam funcionando normalmente (tabelas,
+filtros, sintese), so os graficos ficam em branco.
+
 ## Setup
 
     cd dashboards/seduc-pb

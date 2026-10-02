@@ -1,0 +1,19 @@
+<div class="chart-wrap"><canvas id="{{ canvas_id }}"></canvas></div>
+<script>
+    (function () {
+        const dados = {{ dados_comparacao | tojson }};
+        new Chart(document.getElementById("{{ canvas_id }}"), {
+            type: "bar",
+            data: {
+                labels: dados.labels,
+                datasets: dados.series.map(function (serie) {
+                    return { label: serie.nome, data: serie.valores, backgroundColor: serie.cor };
+                }),
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, max: 200 } },
+            },
+        });
+    })();
+</script>

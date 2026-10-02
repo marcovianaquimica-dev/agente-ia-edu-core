@@ -356,3 +356,72 @@ def test_escolas_com_metricas_identicas_recebem_sintese_diferente(snapshot_duas_
     assert "sintese para Escola Um" in resposta_e1.text
     assert "sintese para Escola Dois" in resposta_e2.text
     assert {chamada.get("escola_nome") for chamada in chamadas} == {"Escola Um", "Escola Dois"}
+
+
+# --- graficos (Chart.js): o servidor so precisa embutir os dados certos no
+# HTML - a renderizacao em si roda no navegador, fora do alcance do pytest.
+
+
+def test_visao_geral_embute_dados_do_grafico_de_distribuicao(snapshot_populado):
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/")
+    assert resposta.status_code == 200
+    assert 'id="grafico-distribuicao"' in resposta.text
+    assert '"labels": ["Alto"]' in resposta.text or '"Alto"' in resposta.text
+    assert '"quantidade": [1]' in resposta.text
+
+
+def test_visao_geral_embute_dados_do_grafico_de_competencia(snapshot_populado):
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/")
+    assert resposta.status_code == 200
+    assert 'id="grafico-competencia"' in resposta.text
+    assert '"valores": [160.0, 160.0, 160.0, 160.0, 160.0]' in resposta.text
+
+
+def test_escola_embute_grafico_de_comparacao_com_4_series(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/escola/e1")
+    assert resposta.status_code == 200
+    assert 'id="grafico-comparacao-escola"' in resposta.text
+    nomes_series = {"Escola Um", "Joao Pessoa", "1a GRE - Joao Pessoa", "Estado (Paraiba)"}
+    for nome in nomes_series:
+        assert nome in resposta.text
+
+
+def test_turma_embute_grafico_de_comparacao_com_3_series(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/turma/t1")
+    assert resposta.status_code == 200
+    assert 'id="grafico-comparacao-turma"' in resposta.text
+    assert '"nome": "Turma"' in resposta.text
+    assert '"nome": "Escola Um"' in resposta.text
+    assert '"nome": "Estado (Paraiba)"' in resposta.text
+
+
+def test_gres_embute_grafico_de_barras(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/gres")
+    assert resposta.status_code == 200
+    assert 'id="grafico-gres"' in resposta.text
+    assert "1a GRE - Joao Pessoa" in resposta.text
+    assert "3a GRE - Campina Grande" in resposta.text
+
+
+def test_municipios_embute_grafico_de_barras(snapshot_duas_escolas):
+    caminho, _ = snapshot_duas_escolas
+    cliente = TestClient(app)
+    cliente.post("/login", data={"login": "gestor", "senha": "senha-teste"})
+    resposta = cliente.get("/municipios")
+    assert resposta.status_code == 200
+    assert 'id="grafico-municipios"' in resposta.text
+    assert "Joao Pessoa" in resposta.text
+    assert "Campina Grande" in resposta.text

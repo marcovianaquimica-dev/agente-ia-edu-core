@@ -13,6 +13,13 @@
 </div>
 
 <div class="card">
+    <h2 class="card-title">Comparacao das competencias</h2>
+    <p class="card-subtitle">Turma comparada com a escola e o estado</p>
+    {% set canvas_id = "grafico-comparacao-turma" %}
+    {% include "_grafico_comparacao.html" %}
+</div>
+
+<div class="card">
     {% if alunos %}
     <div class="table-wrapper">
     <table>

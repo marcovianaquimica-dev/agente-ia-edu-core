@@ -37,6 +37,13 @@
 </div>
 
 <div class="card">
+    <h2 class="card-title">Comparacao das competencias</h2>
+    <p class="card-subtitle">{{ escola_nome }} comparada com o municipio, a GRE e o estado</p>
+    {% set canvas_id = "grafico-comparacao-escola" %}
+    {% include "_grafico_comparacao.html" %}
+</div>
+
+<div class="card">
     <h2 class="card-title">Turmas</h2>
     <p class="card-subtitle">Media da turma e acesso aos alunos</p>
     {% if turmas %}
