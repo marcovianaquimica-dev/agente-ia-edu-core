@@ -776,7 +776,7 @@ class EssayBatchService:
         batch = await self.session.get(EssayBatchUpload, batch_id)
         if batch is None:
             raise ValueError(f"EssayBatchUpload not found: {batch_id}")
-        roster = await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+        roster = await self.roster_for_batch(batch)
         pages = (await self.session.execute(
             select(EssayBatchPage)
             .where(EssayBatchPage.batch_id == batch_id)
@@ -857,13 +857,14 @@ class EssayBatchService:
             page.matched_student_id for page in pages
             if page.essay_submission_id is not None and page.matched_student_id is not None
         }
-        roster = await self.class_roster(school_id=batch.school_id, class_id=batch.class_id)
+        roster = await self.roster_for_batch(batch)
 
         return {
             "id": batch.id,
             "school_id": batch.school_id,
             "essay_prompt_id": batch.essay_prompt_id,
             "class_id": batch.class_id,
+            "grade_level_id": batch.grade_level_id,
             "status": batch.status,
             "total_pages": batch.total_pages,
             "matched_count": len(processed_pages) - len(needs_review),
