@@ -53,6 +53,13 @@
 
   /* === Bordas, foco, desabilitado === */
   --border-color: #e2e8f0;
+  /* Alias: várias regras em teacher.html/teacher.css/question-bank.css/
+     styles.css (módulo de redação) referenciam var(--border, #hex) com
+     um fallback hardcoded diferente em cada lugar, porque --border nunca
+     existiu de fato - o fallback hex sempre "ganhava" silenciosamente.
+     Declarar o alias aqui faz todos resolverem para o token real, sem
+     precisar editar cada local individualmente. */
+  --border: var(--border-color);
   --focus-ring: var(--brand-blue);
   --disabled-bg: #f1f5f9;
   --disabled-text: #94a3b8;
