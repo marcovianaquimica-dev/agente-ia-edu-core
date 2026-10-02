@@ -123,3 +123,54 @@ def max_excerpt_chars(rights_class: str) -> int | None:
     if not may_expose_literal_text(rights_class):
         return None
     return NON_COMMERCIAL_EXCERPT_LIMIT
+
+
+def may_use_literal_in_processing(rights_class: str) -> bool:
+    """O literal pode ser LIDO no processamento interno desta fonte?
+
+    TRES ZONAS, E ELAS NAO SE CONFUNDEM
+    ===================================
+
+    A politica de direitos do piloto distingue onde o texto da obra pode
+    estar. Confundir as zonas e o erro que vaza obra comercial, e por isso
+    cada uma tem a sua funcao:
+
+    1. PROCESSAMENTO INTERNO - extrator, chunker, indexador, embedder e o
+       construtor de contexto leem o literal. Sem isso nao ha corpus.
+       E esta funcao.
+
+    2. CHAMADA AO PROVIDER - o literal necessario a construcao do contexto
+       viaja para o fornecedor de IA, condicionado aos direitos e licencas
+       aplicaveis. Ver ``may_send_literal_to_provider``.
+
+    3. SAIDA PUBLICA - resposta de endpoint, artefato de inspecao, planilha,
+       relatorio, log nao protegido. Aqui obra comercial NUNCA aparece.
+       Ver ``may_expose_literal_text``.
+
+    Falha FECHADA: classe desconhecida nao autoriza leitura. Uma permissao
+    nunca nasce de omissao.
+    """
+    return rights_class in RIGHTS_CLASSES
+
+
+def may_send_literal_to_provider(rights_class: str) -> bool:
+    """O literal desta fonte pode ir ao fornecedor de IA?
+
+    DECISAO EXPLICITA DO PILOTO, e nao um efeito colateral.
+
+    Enviar texto de obra comercial a um terceiro e exposicao, e precisa ser
+    dita em voz alta em vez de acontecer por omissao. No piloto ela ja
+    ocorre desde a Fase 6 - os 5.911 embeddings foram gerados enviando o
+    ``canonical_text`` de todas as fontes ao provider -, e a construcao de
+    contexto para geracao repete exatamente o mesmo ato.
+
+    As quatro fontes do piloto admitem esse envio. A funcao existe separada
+    de ``may_use_literal_in_processing`` porque sao perguntas diferentes:
+    uma licenca pode permitir indexar localmente e proibir transmitir a
+    terceiro. Quando essa fonte existir, ela devolve False AQUI, e o
+    construtor de contexto passa a usar so metadados para ela - sem que
+    nenhuma outra camada precise mudar.
+
+    Falha FECHADA, pela mesma razao das demais.
+    """
+    return rights_class in RIGHTS_CLASSES
