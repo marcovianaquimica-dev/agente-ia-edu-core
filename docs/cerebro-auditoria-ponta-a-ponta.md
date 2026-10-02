@@ -23,7 +23,7 @@ Testes em [test_knowledge_end_to_end_audit.py](../tests/test_knowledge_end_to_en
 | normalização `[E1]`/`E1` coberta | **garantido** |
 | `INSUFFICIENT_EVIDENCE` falha fechado | **parcial — ver decisão em aberto** |
 | modo degradado observável | **garantido** |
-| custo/tokens/tempos auditáveis | **garantido** |
+| custo/tokens/tempos auditáveis | **tokens e tempos sim; dólares com ressalva** |
 | política de direitos não enfraquecida | **garantido** |
 
 ## 1. Literal comercial
@@ -203,6 +203,33 @@ aprovação:
   montante, não entrada legítima — mas excluir com motivo nomeado seria
   mudança de comportamento.
 
+## 4b. Custo: os tokens são medidos, os dólares são calculados
+
+Os **tokens e os tempos são reais** — vêm do provider e do relógio, e a
+regra de nunca apresentar estimativa como custo realizado está respeitada
+(sem uso reportado, o campo fica ausente, não vira zero).
+
+**Os dólares, não.** `scripts/cerebro_ask.py` traz três constantes fixas:
+
+```python
+PRECO_EMBEDDING = 0.02
+PRECO_ENTRADA   = 0.15
+PRECO_SAIDA     = 0.60
+```
+
+E o gerador é obtido com `build_text_provider()`, **sem passar modelo** —
+o factory escolhe. Ou seja: se o modelo padrão mudar, ou se o preço de
+tabela mudar, o número em dólares fica errado **em silêncio**, porque nada
+liga a constante ao modelo efetivamente usado.
+
+Não corrigi: amarrar preço a modelo é decisão de desenho (tabela
+versionada? preço vindo do provider? custo só em tokens?), não correção de
+defeito. Nos pilotos os valores estão corretos. Registrado como dívida.
+
+Vale notar que isso também acopla o script a uma tabela de preços de um
+fornecedor — o que é tolerável num script de diagnóstico, mas não seria
+no core.
+
 ## 5. Direitos — não enfraquecidos
 
 As três zonas são perguntas distintas e testadas como tal:
@@ -226,3 +253,4 @@ Rastreabilidade é idêntica para as duas classes: direitos governam o
 4. `raw_used_evidence` / `normalized_used_evidence` no relatório.
 5. `answer: ""` com estado de nome impreciso.
 6. Hit sem texto entra no contexto.
+7. Preço em dólares desacoplado do modelo usado.
