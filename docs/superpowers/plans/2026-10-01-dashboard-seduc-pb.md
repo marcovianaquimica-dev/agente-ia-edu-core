@@ -1423,7 +1423,10 @@ git commit -m "feat(seduc-pb): consultas de leitura do snapshot para as telas"
   `consultas.buscar_turmas_por_escola`, `consultas.buscar_ranking`,
   `consultas.buscar_redacoes_por_turma` (Task 8); `snapshot_db.get_connection`,
   `snapshot_db.create_schema`, `snapshot_db.insert_redacoes` (Task 1);
-  `auth.criar_usuario` (Task 6, usado só nos testes).
+  `auth.criar_usuario` (Task 6, usado só nos testes);
+  `ia_synthesis.obter_ou_gerar_sintese`, `ia_synthesis.gerar_sintese_via_openai`
+  (Task 7) - a Visão Geral e a tela de Escola exibem a síntese executiva,
+  conforme a spec (seção "Telas").
 - Produces: `app.app` (instância FastAPI, importável para testes e para
   `uvicorn app:app`).
 
@@ -1481,6 +1484,8 @@ git commit -m "feat(seduc-pb): consultas de leitura do snapshot para as telas"
 <h1>Visao Geral</h1>
 <p>Total de redacoes corrigidas: {{ metricas.total }}</p>
 <p>Media: {{ metricas.media }} | Mediana: {{ metricas.mediana }} | Desvio-padrao: {{ metricas.desvio_padrao }}</p>
+<h2>Sintese executiva</h2>
+<p>{{ sintese }}</p>
 <h2>Distribuicao por faixa</h2>
 <table>
     <tr><th>Faixa</th><th>Quantidade</th></tr>
@@ -1546,6 +1551,8 @@ git commit -m "feat(seduc-pb): consultas de leitura do snapshot para as telas"
 <h1>Escola</h1>
 <p>Total de redacoes: {{ metricas.total }}</p>
 <p>Media: {{ metricas.media }} | Mediana: {{ metricas.mediana }} | Desvio-padrao: {{ metricas.desvio_padrao }}</p>
+<h2>Sintese executiva</h2>
+<p>{{ sintese }}</p>
 <h2>Turmas</h2>
 <ul>
     {% for turma in turmas %}
@@ -1605,6 +1612,9 @@ REDACAO_EXEMPLO = {
 def snapshot_populado(tmp_path, monkeypatch):
     caminho = tmp_path / "snapshot.db"
     monkeypatch.setenv("SEDUC_DASHBOARD_SNAPSHOT_PATH", str(caminho))
+    # Troca o provider real de sintese por um stub - os testes nao podem
+    # depender de rede nem da API da OpenAI de verdade.
+    monkeypatch.setattr("app.gerar_sintese_via_openai", lambda dados: "sintese de teste")
     conn = get_connection(caminho)
     create_schema(conn)
     criar_usuario(conn, "gestor", "senha-teste")
@@ -1636,6 +1646,7 @@ def test_login_valido_permite_acessar_visao_geral(snapshot_populado):
     resposta = cliente.get("/")
     assert resposta.status_code == 200
     assert "Total de redacoes corrigidas: 1" in resposta.text
+    assert "sintese de teste" in resposta.text
 
 
 def test_ranking_lista_a_redacao_cadastrada(snapshot_populado):
@@ -1675,6 +1686,7 @@ from consultas import (
     buscar_redacoes_por_turma,
     buscar_turmas_por_escola,
 )
+from ia_synthesis import gerar_sintese_via_openai, obter_ou_gerar_sintese
 from snapshot_db import get_connection
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1738,8 +1750,11 @@ def visao_geral(
     if login is None:
         return RedirectResponse("/login", status_code=303)
     metricas = buscar_metricas_gerais(conn)
+    sintese = obter_ou_gerar_sintese(conn, "geral", metricas, gerar_sintese_via_openai)
     return templates.TemplateResponse(
-        request=request, name="visao_geral.html", context={"login": login, "metricas": metricas}
+        request=request,
+        name="visao_geral.html",
+        context={"login": login, "metricas": metricas, "sintese": sintese},
     )
 
 
@@ -1773,11 +1788,12 @@ def escola(
     if login is None:
         return RedirectResponse("/login", status_code=303)
     metricas = buscar_metricas_por_escola(conn, escola_id)
+    sintese = obter_ou_gerar_sintese(conn, f"escola:{escola_id}", metricas, gerar_sintese_via_openai)
     turmas = buscar_turmas_por_escola(conn, escola_id)
     return templates.TemplateResponse(
         request=request,
         name="escola.html",
-        context={"login": login, "metricas": metricas, "turmas": turmas},
+        context={"login": login, "metricas": metricas, "turmas": turmas, "sintese": sintese},
     )
 
 
