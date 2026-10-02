@@ -1,7 +1,7 @@
 /* Modern, Vibrant, High-School Friendly Student Portal CSS */
 
 :root {
-  --font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-family: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 
   /* === Núcleo Edu 360° — tokens de marca (primitivos) ===
      Paleta oficial do Manual da Marca. Não usar estes tokens diretamente
