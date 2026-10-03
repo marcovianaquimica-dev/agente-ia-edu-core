@@ -571,13 +571,16 @@ document.addEventListener('DOMContentLoaded', () => {
               <td>${formatDate(p.created_at)}</td>
               <td>${p.status === 'ACTIVE'
                 ? `<button class="btn btn-secondary" type="button" data-archive-platform-prompt="${esc(p.id)}">Arquivar</button>`
-                : ''}</td>
+                : `<button class="btn btn-secondary" type="button" data-unarchive-platform-prompt="${esc(p.id)}">Desarquivar</button>`}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>`;
     container.querySelectorAll('[data-archive-platform-prompt]').forEach((btn) => {
       btn.addEventListener('click', () => archivePlatformPrompt(btn.dataset.archivePlatformPrompt));
+    });
+    container.querySelectorAll('[data-unarchive-platform-prompt]').forEach((btn) => {
+      btn.addEventListener('click', () => unarchivePlatformPrompt(btn.dataset.unarchivePlatformPrompt));
     });
     container.querySelectorAll('[data-upload-material-btn]').forEach((btn) => {
       btn.addEventListener('click', () => uploadPlatformPromptMaterial(btn.dataset.uploadMaterialBtn));
@@ -623,6 +626,19 @@ document.addEventListener('DOMContentLoaded', () => {
       loadPlatformPrompts();
     } catch (err) {
       showAlert(`Não foi possível arquivar a proposta: ${err.message}`, 'error');
+    }
+  }
+
+  async function unarchivePlatformPrompt(promptId) {
+    try {
+      const res = await fetch(`${API}/platform-essay-prompts/${promptId}/unarchive`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      showAlert('✅ Proposta desarquivada.', 'success');
+      loadPlatformPrompts();
+    } catch (err) {
+      showAlert(`Não foi possível desarquivar a proposta: ${err.message}`, 'error');
     }
   }
 

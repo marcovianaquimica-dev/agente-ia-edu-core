@@ -92,6 +92,21 @@ class PlatformEssayPromptService:
         await self.session.flush()
         return prompt
 
+    async def unarchive_prompt(
+        self, *, platform_essay_prompt_id: uuid.UUID
+    ) -> PlatformEssayPrompt:
+        """Reverte uma proposta ARCHIVED pra ACTIVE - ela volta a aparecer na
+        lista de disponiveis para escolas que ainda nao a materializaram
+        (list_available_for_school filtra so por status == 'ACTIVE'). Escolas
+        que ja materializaram uma copia antes do arquivamento nao sao afetadas
+        de nenhum jeito, igual a archive_prompt."""
+        prompt = await self.session.get(PlatformEssayPrompt, platform_essay_prompt_id)
+        if prompt is None:
+            raise ValueError(f"PlatformEssayPrompt not found: {platform_essay_prompt_id}")
+        prompt.status = "ACTIVE"
+        await self.session.flush()
+        return prompt
+
     async def add_material(
         self,
         *,

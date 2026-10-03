@@ -144,6 +144,32 @@ async def archive_platform_essay_prompt(
 
 
 @admin_essay_prompts_router.post(
+    "/{platform_essay_prompt_id}/unarchive", response_model=PlatformEssayPromptResponse
+)
+async def unarchive_platform_essay_prompt(
+    platform_essay_prompt_id: UUID,
+    identity: ExternalIdentityContext = Depends(require_platform_admin),
+    session_factory=Depends(get_session_factory),
+) -> PlatformEssayPromptResponse:
+    async with session_factory() as session:
+        service = PlatformEssayPromptService(session)
+        try:
+            prompt = await service.unarchive_prompt(
+                platform_essay_prompt_id=platform_essay_prompt_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        counts = {p.id: count for p, count in await service.list_with_materialization_counts()}
+        response = PlatformEssayPromptResponse(
+            id=prompt.id, title=prompt.title, statement=prompt.statement,
+            status=prompt.status, created_at=prompt.created_at,
+            materialized_school_count=counts.get(prompt.id, 0),
+        )
+        await session.commit()
+        return response
+
+
+@admin_essay_prompts_router.post(
     "/{platform_essay_prompt_id}/materials/upload",
     status_code=201,
     response_model=PlatformPromptMaterialResponse,
