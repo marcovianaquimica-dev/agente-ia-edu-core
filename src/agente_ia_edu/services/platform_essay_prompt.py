@@ -149,6 +149,19 @@ class PlatformEssayPromptService:
         )
         return list(result.scalars().all())
 
+    async def count_materials_by_prompt(self) -> dict[uuid.UUID, int]:
+        """Quantos materiais cada proposta da plataforma ja tem anexado -
+        a tela do admin usa isso pra mostrar a contagem na listagem, mesmo
+        padrao de list_with_materialization_counts. Uma proposta sem
+        nenhum material anexado simplesmente nao aparece no dict (o
+        chamador trata ausencia como 0, igual a contagem de escolas)."""
+        result = await self.session.execute(
+            select(PromptMaterial.platform_essay_prompt_id, func.count())
+            .where(PromptMaterial.platform_essay_prompt_id.is_not(None))
+            .group_by(PromptMaterial.platform_essay_prompt_id)
+        )
+        return {prompt_id: count for prompt_id, count in result.all()}
+
     # ---- lado da materializacao por escola --------------------------------
 
     async def get_platform_prompt(

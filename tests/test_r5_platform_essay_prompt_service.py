@@ -220,6 +220,23 @@ class PlatformEssayPromptServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(copied_materials[0].material_type, "FILE")
             self.assertIsNone(copied_materials[0].platform_essay_prompt_id)
 
+    async def test_count_materials_by_prompt_counts_only_attached_ones(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            with_material = await svc.create_prompt(
+                title="Com material", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            without_material = await svc.create_prompt(
+                title="Sem material", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            await svc.add_material(
+                platform_essay_prompt_id=with_material.id, material_type="FILE",
+                storage_uri="a.pdf", position=0,
+            )
+            counts = await svc.count_materials_by_prompt()
+            self.assertEqual(counts.get(with_material.id), 1)
+            self.assertNotIn(without_material.id, counts)
+
     async def test_materialize_for_school_is_idempotent_and_does_not_duplicate_materials(self):
         async with self.session_factory() as session:
             svc = PlatformEssayPromptService(session)
