@@ -214,8 +214,8 @@ class EndToEndTests(unittest.IsolatedAsyncioTestCase):
                  "excerpt": h.excerpt}
                 for h in busca.hits
             ],
-            "context": contexto.public_payload(),
-            "answer": resposta.public_payload(),
+            "context": contexto.admin_payload(),
+            "answer": resposta.admin_payload(),
         }, default=str)
         self.assertNotIn(self.literal_comercial, publico)
         self.assertNotIn(self.literal_comercial[:30], publico)

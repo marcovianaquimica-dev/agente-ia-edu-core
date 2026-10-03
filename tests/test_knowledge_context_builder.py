@@ -164,7 +164,7 @@ class RightsTests(unittest.TestCase):
 
     def test_the_public_representation_never_carries_it(self):
         contexto, _ = self._contexto()
-        blob = json.dumps(contexto.public_payload(), default=str)
+        blob = json.dumps(contexto.admin_payload(), default=str)
         self.assertNotIn(self.LITERAL, blob)
         self.assertNotIn(self.LITERAL[:20], blob)
 

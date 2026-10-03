@@ -72,7 +72,7 @@ class SingleEvidenceTests(unittest.TestCase):
                      raw_text="peculiar unico")]
         ctx = ContextBuilder().build(hits, texts=_textos(hits))
         self.assertIn("peculiar unico", ctx.prompt_payload())
-        self.assertNotIn("peculiar unico", json.dumps(ctx.public_payload()))
+        self.assertNotIn("peculiar unico", json.dumps(ctx.admin_payload()))
         self.assertIsNone(ctx.evidences[0].excerpt)
 
 
@@ -148,7 +148,7 @@ class MixedRightsTests(unittest.TestCase):
                  raw_text="texto proprio liberado", titulo="Apostila propria"),
         ]
         ctx = ContextBuilder().build(hits, texts=_textos(hits))
-        publico = json.dumps(ctx.public_payload(), ensure_ascii=False)
+        publico = json.dumps(ctx.admin_payload(), ensure_ascii=False)
 
         # Ambos vao ao prompt - e a decisao explicita do piloto.
         self.assertIn("literal comercial proibido", ctx.prompt_payload())
@@ -286,7 +286,7 @@ class MalformedProviderOutputTests(unittest.IsolatedAsyncioTestCase):
         provider = _Roteiro(None, cru="isto nao e json")
         r = await _resp(provider)
         self.assertEqual(r.status, PROVIDER_INVALID_RESPONSE)
-        self.assertNotIn("isto nao e json", json.dumps(r.public_payload()))
+        self.assertNotIn("isto nao e json", json.dumps(r.admin_payload()))
         self.assertNotIn("isto nao e json", repr(r))
 
 
@@ -368,8 +368,8 @@ class SufficiencyGateTests(unittest.IsolatedAsyncioTestCase):
         provider = _Roteiro({"answer": "x [E1]", "used_evidence": ["E1"],
                              "sufficient": False})
         r = await _resp(provider)
-        self.assertIn("model_says_sufficient", r.public_payload())
-        self.assertFalse(r.public_payload()["model_says_sufficient"])
+        self.assertIn("model_says_sufficient", r.admin_payload())
+        self.assertFalse(r.admin_payload()["model_says_sufficient"])
 
     async def test_an_absent_sufficiency_flag_is_none_not_true(self):
         provider = _Roteiro({"answer": "x [E1]", "used_evidence": ["E1"]})

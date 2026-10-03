@@ -8,9 +8,21 @@ campo opcional.
 
     ``prompt_payload()``   tem o literal. Vai ao provider. Nao e serializado,
                            nao entra em ``repr``, nao aparece em log.
-    ``public_payload()``   nao tem literal de obra comercial. E o que a CLI
+    ``admin_payload()``    nao tem literal de obra comercial. E o que a CLI
                            imprime, o que vai ao relatorio, o que pode ser
                            logado.
+
+DOIS SENTIDOS DE "PUBLICO", E ELES NAO SAO O MESMO
+==================================================
+
+``admin_payload`` chamou-se ``public_payload`` ate perceber-se que o nome
+mentia sobre a audiencia. Ali "publico" significava SEM LITERAL COMERCIAL
+- propriedade de DIREITOS. Mas existe outra pergunta: sem o APARATO DE
+FUNDAMENTACAO - ``chunk_id``, ``text_hash``, pagina, score, marcadores -,
+que e propriedade de AUDIENCIA.
+
+Esta saida e segura na primeira e insegura na segunda: serve ao ADMIN, nao
+ao aluno. Quem precisa da saida de audiencia usa ``public_answer.py``.
 
 ``ContextEvidence`` nao TEM campo ``raw_text``. Nao e que ele venha vazio:
 ele nao existe, entao ninguem o preenche depois por distracao. O literal
@@ -116,7 +128,7 @@ class BuiltContext:
         """O texto das evidencias, com marcadores. VAI AO PROVIDER."""
         return "\n\n".join(self._blocks)
 
-    def public_payload(self) -> dict[str, Any]:
+    def admin_payload(self) -> dict[str, Any]:
         """Tudo que pode ser impresso, logado ou serializado."""
         return {
             "evidences": [

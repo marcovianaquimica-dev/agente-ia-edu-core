@@ -68,9 +68,9 @@ def _contexto_comercial(n=3):
 class CommercialLiteralNeverInPublicTests(unittest.IsolatedAsyncioTestCase):
     """O vazamento mais facil de cometer e o mais caro de descobrir."""
 
-    def test_the_context_public_payload_is_clean(self):
+    def test_the_context_admin_payload_is_clean(self):
         ctx = _contexto_comercial()
-        self.assertNotIn(LITERAL, json.dumps(ctx.public_payload(),
+        self.assertNotIn(LITERAL, json.dumps(ctx.admin_payload(),
                                              ensure_ascii=False))
 
     def test_the_context_repr_is_clean(self):
@@ -88,12 +88,12 @@ class CommercialLiteralNeverInPublicTests(unittest.IsolatedAsyncioTestCase):
         ctx = _contexto_comercial()
         self.assertIn(LITERAL, ctx.prompt_payload())
 
-    async def test_the_answer_public_payload_is_clean(self):
+    async def test_the_answer_admin_payload_is_clean(self):
         ctx = _contexto_comercial()
         provider = _Roteiro({"answer": "Resposta [E1].",
                              "used_evidence": ["E1"]})
         r = await GroundedAnswerer(provider=provider).answer("p", ctx)
-        self.assertNotIn(LITERAL, json.dumps(r.public_payload(),
+        self.assertNotIn(LITERAL, json.dumps(r.admin_payload(),
                                              ensure_ascii=False))
 
     async def test_the_diagnostic_raw_field_never_reaches_repr(self):
@@ -108,7 +108,7 @@ class CommercialLiteralNeverInPublicTests(unittest.IsolatedAsyncioTestCase):
         provider = _Roteiro(None, cru=f"nao e json {LITERAL}")
         r = await GroundedAnswerer(provider=provider).answer("p", ctx)
         self.assertNotIn(LITERAL, repr(r))
-        self.assertNotIn(LITERAL, json.dumps(r.public_payload(),
+        self.assertNotIn(LITERAL, json.dumps(r.admin_payload(),
                                              ensure_ascii=False))
 
     async def test_characterises_the_model_echoing_commercial_literal(self):
@@ -129,7 +129,7 @@ class CommercialLiteralNeverInPublicTests(unittest.IsolatedAsyncioTestCase):
                              "used_evidence": ["E1"]})
         r = await GroundedAnswerer(provider=provider).answer("p", ctx)
         self.assertIn(LITERAL, r.answer)
-        self.assertIn(LITERAL, json.dumps(r.public_payload(),
+        self.assertIn(LITERAL, json.dumps(r.admin_payload(),
                                           ensure_ascii=False))
 
     async def test_no_cited_evidence_carries_an_excerpt_for_commercial(self):
@@ -295,23 +295,23 @@ class GatesFailClosedTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ObservabilityTests(unittest.IsolatedAsyncioTestCase):
-    async def test_degradation_reasons_survive_to_the_public_payload(self):
+    async def test_degradation_reasons_survive_to_the_admin_payload(self):
         ctx = _contexto_comercial()
         provider = _Roteiro({"answer": "x [E1]", "used_evidence": ["E1"]})
         r = await GroundedAnswerer(provider=provider).answer(
             "p", ctx, retrieval_degraded=True, allow_degraded=True,
             degradation_reasons=("MISSING_EMBEDDINGS",),
         )
-        publico = r.public_payload()
+        publico = r.admin_payload()
         self.assertTrue(publico["degraded"])
         self.assertIn("MISSING_EMBEDDINGS", publico["degradation_reasons"])
 
-    async def test_real_token_counts_reach_the_public_payload(self):
+    async def test_real_token_counts_reach_the_admin_payload(self):
         ctx = _contexto_comercial()
         provider = _Roteiro({"answer": "x [E1]", "used_evidence": ["E1"]})
         r = await GroundedAnswerer(provider=provider).answer("p", ctx)
-        self.assertEqual(r.public_payload()["input_tokens"], 120)
-        self.assertEqual(r.public_payload()["output_tokens"], 40)
+        self.assertEqual(r.admin_payload()["input_tokens"], 120)
+        self.assertEqual(r.admin_payload()["output_tokens"], 40)
 
     def test_every_hit_is_accounted_for_as_included_or_excluded(self):
         """Nenhuma evidencia some em silencio - a conta tem de fechar."""
@@ -367,12 +367,12 @@ class NoLoggingYetTests(unittest.TestCase):
         )
 
 
-class CliDoesNotBypassThePublicPayloadTests(unittest.TestCase):
+class CliDoesNotBypassTheAdminPayloadTests(unittest.TestCase):
     """O CLI e hoje o unico consumidor, logo o unico vazamento possivel."""
 
-    def test_the_cli_builds_its_report_from_the_public_payloads(self):
+    def test_the_cli_builds_its_report_from_the_admin_payloads(self):
         texto = (RAIZ / "scripts" / "cerebro_ask.py").read_text(encoding="utf-8")
-        self.assertIn("public_payload()", texto)
+        self.assertIn("admin_payload()", texto)
         self.assertNotIn("prompt_payload()", texto)
 
     def test_the_cli_warns_when_the_model_declares_evidence_insufficient(self):

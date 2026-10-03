@@ -327,7 +327,7 @@ class RightsTests(unittest.IsolatedAsyncioTestCase):
         provider = _Roteiro({"answer": "Conforme [E1], a resposta e esta.",
                              "used_evidence": ["E1"]})
         r = await _responder(provider, contexto)
-        blob = json.dumps(r.public_payload(), default=str)
+        blob = json.dumps(r.admin_payload(), default=str)
         self.assertNotIn(literal, blob)
         self.assertNotIn(literal[:20], blob)
         self.assertNotIn(literal[:20], repr(r))
@@ -338,7 +338,7 @@ class RightsTests(unittest.IsolatedAsyncioTestCase):
         contexto = ContextBuilder().build(hits, texts=_textos(hits))
         provider = _Roteiro({"answer": "[E1]", "used_evidence": ["E1"]})
         r = await _responder(provider, contexto)
-        payload = r.public_payload()
+        payload = r.admin_payload()
         fonte = payload["cited_evidences"][0]
         self.assertEqual(fonte["page_start"], 314)
         self.assertEqual(fonte["source_title"], "Livro")

@@ -251,7 +251,7 @@ async def main() -> None:
                   f"p.{x['page_start']} {x['source_title'][:30]}")
     print(f"\n  orcamento {contexto.used_chars}/{contexto.budget_chars} chars"
           f"  |  {len(contexto.evidences)} evidencias")
-    relatorio["context"] = contexto.public_payload()
+    relatorio["context"] = contexto.admin_payload()
 
     if args.dry_run:
         print("\n  --dry-run: o gerador NAO foi chamado.")
@@ -308,7 +308,7 @@ async def main() -> None:
         print(f"  EVIDENCIA INSUFICIENTE — {resposta.status}")
         print("  A resposta acima, se houver, NAO esta fundamentada e nao"
               " deve ser usada.")
-    relatorio["answer"] = resposta.public_payload()
+    relatorio["answer"] = resposta.admin_payload()
 
     _gravar(args, relatorio, total_comeco, provider_emb, retrieval_ms,
             context_build_ms, generation_ms, resposta)

@@ -129,7 +129,7 @@ class GroundedAnswer:
     def is_grounded(self) -> bool:
         return self.status == GROUNDED
 
-    def public_payload(self) -> dict[str, Any]:
+    def admin_payload(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "is_grounded": self.is_grounded,
