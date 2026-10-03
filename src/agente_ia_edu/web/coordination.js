@@ -55,6 +55,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  document.getElementById('coord-essay-sheet-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('coord-essay-sheet-btn');
+    const msg = document.getElementById('coord-essay-sheet-msg');
+    msg.hidden = true;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/v1/catalog/essay-prompts/answer-sheet.pdf', {
+        headers: { 'Authorization': `Bearer ${state.coordinatorId}` },
+      });
+      if (!res.ok) throw new Error('Não foi possível gerar a folha de resposta.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'folha-de-redacao.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      msg.hidden = false;
+      msg.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   function switchView(viewName) {
     state.currentView = viewName;
     hideAlert();
@@ -84,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'contents': { title: 'Desempenho por Conteúdo no Escopo', sub: 'Domínio médio e contagem de alunos críticos por conteúdo' },
       'contexts': { title: 'Contexto Pedagógico e Orientações', sub: 'Registro de diretrizes da coordenação e acompanhamento de aulas' },
       'materials': { title: 'Materiais Publicados no Escopo', sub: 'Materiais teóricos autorados, no escopo de atuação da coordenação' },
+      'essay-sheet': { title: 'Folha de Redação', sub: 'Folha de resposta em branco, pronta pra imprimir' },
       'action-plan': { title: 'Plano de Ação Gerencial', sub: 'Ações prioritárias para elevar o domínio nas turmas' },
       'reports': { title: 'Relatórios Gerenciais', sub: 'Exportação executiva de relatórios pedagógicos em PDF e XLSX' },
       'study-sessions': { title: 'Momento de Aprendizado', sub: 'Programe a sessão de estudo de uma turma ou de um aluno' },

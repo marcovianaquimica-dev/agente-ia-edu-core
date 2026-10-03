@@ -47,6 +47,9 @@
         <button class="nav-item" data-view="materials">
           <span class="icon">📘</span> Materiais
         </button>
+        <button class="nav-item" data-view="essay-sheet">
+          <span class="icon">✍️</span> Redação
+        </button>
         <a class="nav-item" href="/question-bank" title="Criar listas de exercícios e distribuir para turmas ou alunos">
           <span class="icon">🗂️</span> Banco de Questões
         </a>
@@ -314,6 +317,19 @@
             <div id="coord-materials-container">
               <p class="empty-text">Carregando materiais...</p>
             </div>
+          </div>
+        </section>
+
+        <section id="view-essay-sheet" class="view-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>✍️ Folha de Redação</h3>
+            </div>
+            <p class="empty-text">Folha de resposta em branco, padrão pra qualquer proposta de redação - pronta pra imprimir e distribuir na escola.</p>
+            <div class="tm-form-actions">
+              <button class="btn btn-secondary" type="button" id="coord-essay-sheet-btn">Baixar folha de redação em branco</button>
+            </div>
+            <span id="coord-essay-sheet-msg" class="tm-msg" hidden></span>
           </div>
         </section>
 

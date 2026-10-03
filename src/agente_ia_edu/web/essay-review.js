@@ -134,10 +134,36 @@
         <div class="tm-form-actions">
           <button class="btn btn-primary" type="button" id="er-create-prompt-btn">Criar proposta</button>
           <button class="btn btn-secondary" type="button" id="er-use-bank-btn">Usar proposta do banco</button>
+          <button class="btn btn-secondary" type="button" id="er-generic-sheet-btn">Baixar folha de redação em branco</button>
         </div>
+        <span id="er-generic-sheet-msg" class="tm-msg" hidden></span>
       </div>`);
     container.querySelector('#er-create-prompt-btn').addEventListener('click', renderNewPromptForm);
     container.querySelector('#er-use-bank-btn').addEventListener('click', renderPromptBankList);
+    container.querySelector('#er-generic-sheet-btn').addEventListener('click', async () => {
+      const btn = container.querySelector('#er-generic-sheet-btn');
+      const msg = container.querySelector('#er-generic-sheet-msg');
+      msg.hidden = true;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/catalog/essay-prompts/answer-sheet.pdf', { headers: reviewHeaders() });
+        if (!res.ok) throw new Error('Não foi possível gerar a folha de resposta.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'folha-de-redacao.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   async function renderTrashTab() {

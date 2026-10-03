@@ -98,13 +98,44 @@
         }).join('')}</div>`
       : '<div class="card"><p class="empty-text">Nenhuma proposta de redação aberta para sua turma no momento.</p></div>';
 
-    container.innerHTML = `${promptsHtml}<div id="essay-evolution-section" class="essay-evolution-root"><p class="empty-text">Carregando evolução...</p></div>`;
+    container.innerHTML = `
+      <div class="tm-form-actions essay-toolbar">
+        <button class="btn btn-secondary" type="button" id="essay-generic-sheet-btn">Baixar folha de redação em branco</button>
+        <span id="essay-generic-sheet-msg" class="tm-msg" hidden></span>
+      </div>
+      ${promptsHtml}
+      <div id="essay-evolution-section" class="essay-evolution-root"><p class="empty-text">Carregando evolução...</p></div>`;
 
     container.querySelectorAll('[data-open-prompt]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const prompt = prompts.find((p) => p.prompt_assignment_id === btn.dataset.openPrompt);
         openPrompt(prompt);
       });
+    });
+
+    container.querySelector('#essay-generic-sheet-btn').addEventListener('click', async () => {
+      const btn = container.querySelector('#essay-generic-sheet-btn');
+      const msg = container.querySelector('#essay-generic-sheet-msg');
+      msg.hidden = true;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/student/essay-prompts/answer-sheet.pdf', { headers: essayHeaders() });
+        if (!res.ok) throw new Error('Não foi possível gerar a folha de resposta.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'folha-de-redacao.pdf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     loadEvolutionSection();
