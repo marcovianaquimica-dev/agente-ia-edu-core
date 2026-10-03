@@ -3,21 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Entrada</title>
+  <title>Núcleo Edu 360° — Entrada</title>
   <!-- served at /entrada but its static assets are mounted at
        /entrada/assets/ - resolve every relative asset there. API calls are
        absolute (/api/v1/...) and unaffected. -->
   <base href="/entrada/assets/">
+  <link rel="icon" type="image/x-icon" href="assets/brand/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/brand/favicon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="entrada.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body class="entrada-body">
   <main class="entrada-container">
-    <div class="entrada-brand">
-      <div class="brand-logo">🎓</div>
-      <div class="brand-text">AGENTE IA <span>EDU</span></div>
+    <div class="entrada-hero">
+      <img src="assets/brand/logo-horizontal.webp" alt="Núcleo Edu 360° — Inteligência que transforma." class="entrada-hero-logo">
     </div>
 
     <div class="card entrada-identity-box">
@@ -35,8 +38,8 @@
 
     <div id="entrada-cards" class="entrada-cards" style="display:none;">
       <button class="card entrada-card" type="button" data-env="agente">
-        <span class="entrada-card-icon">🎓</span>
-        <h2>Agente IA Edu</h2>
+        <span class="entrada-card-icon"><img src="assets/brand/icon-sidebar.png" alt=""></span>
+        <h2>Núcleo Edu 360°</h2>
         <p>Diagnóstico, trilha de estudos, prática e materiais.</p>
       </button>
       <button class="card entrada-card" type="button" data-env="redacao">

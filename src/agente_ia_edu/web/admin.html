@@ -3,20 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Administração</title>
+  <title>Núcleo Edu 360° — Administração</title>
   <base href="/admin/assets/">
+  <link rel="icon" type="image/x-icon" href="assets/brand/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/brand/favicon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="stylesheet" href="admin.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-layout">
     <main class="content-area admin-page">
       <header class="page-header">
         <div>
-          <h1 id="page-title">Administração da Plataforma</h1>
+          <h1 id="page-title" style="display:none;">Administração da Plataforma</h1>
           <p class="page-subtitle">Cadastro de escolas, módulos e permissões (Administrador da Plataforma)</p>
         </div>
         <div class="filter-group">
@@ -70,7 +74,7 @@
             <h4>Módulos</h4>
             <div id="school-modules" class="admin-modules-list"></div>
             <div id="school-disciplines-box" class="admin-disciplines-box" hidden>
-              <p class="admin-disciplines-label">Disciplinas incluídas no módulo AGENTE IA EDU</p>
+              <p class="admin-disciplines-label">Disciplinas incluídas no módulo Núcleo Edu 360°</p>
               <p class="empty-text">Todas vêm marcadas por padrão — desmarque as que esta escola não deve usar.</p>
               <div id="school-disciplines-list" class="admin-disciplines-list"></div>
             </div>

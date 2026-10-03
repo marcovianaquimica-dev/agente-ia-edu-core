@@ -779,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById('cs-msg');
     if (!text) { el.hidden = true; el.textContent = ''; return; }
     el.hidden = false; el.textContent = text;
-    el.style.color = ok ? '#1a7f37' : '#b3261e';
+    el.style.color = ok ? 'var(--success)' : 'var(--danger)';
   }
 
   function csUpdateSummary() {

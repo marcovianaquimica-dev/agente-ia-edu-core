@@ -50,7 +50,7 @@ def create_app() -> FastAPI:
     # test suite leave it unset, so this never changes their behaviour.
     configure_identity_provider_from_env()
 
-    app = FastAPI(title="AGENTE IA EDU")
+    app = FastAPI(title="Núcleo Edu 360°")
     app.include_router(health_router)
     reception_only_guard = [Depends(reject_reception_only_role)]
     app.include_router(questions_router, dependencies=reception_only_guard)

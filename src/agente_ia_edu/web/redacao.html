@@ -3,21 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Redação</title>
+  <title>Núcleo Edu 360° — Redação</title>
   <!-- served at /redacao but its static assets are mounted at
        /redacao/assets/ - resolve every relative asset there. API calls are
        absolute (/api/v1/...) and unaffected. -->
   <base href="/redacao/assets/">
+  <link rel="icon" type="image/x-icon" href="assets/brand/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/brand/favicon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="redacao.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
   <header class="redacao-header">
     <div class="redacao-brand">
-      <span class="brand-logo">📝</span>
-      <span class="brand-text">AGENTE IA <span>EDU</span> — Redação</span>
+      <span class="brand-logo"><img src="assets/brand/icon-sidebar.png" alt="Núcleo Edu 360°"></span>
+      <span class="brand-text">Núcleo <span>Edu 360°</span> — Redação</span>
     </div>
     <a href="/entrada" class="btn btn-secondary redacao-switch-link">🔀 Trocar de ambiente</a>
   </header>

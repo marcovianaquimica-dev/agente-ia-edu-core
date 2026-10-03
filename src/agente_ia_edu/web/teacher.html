@@ -3,15 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Portal do Professor e Coordenação</title>
+  <title>Núcleo Edu 360° — Portal do Professor e Coordenação</title>
   <!-- The teacher portal is served at /teacher but its static assets are mounted
        at /teacher/assets/ - resolve every relative asset there. API calls are
        absolute (/api/v1/...) and unaffected. -->
   <base href="/teacher/assets/">
+  <link rel="icon" type="image/x-icon" href="assets/brand/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/brand/favicon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-layout">
@@ -19,8 +23,7 @@
     <aside class="sidebar">
       <button class="mobile-drawer-close" id="teacher-mobile-menu-close" aria-label="Fechar menu">×</button>
       <div class="brand">
-        <div class="brand-logo">🎓</div>
-        <div class="brand-text">AGENTE IA <span>EDU</span></div>
+        <img src="assets/brand/logo-horizontal-dark.webp" alt="Núcleo Edu 360° — Inteligência que transforma." class="brand-lockup">
       </div>
 
       <nav class="nav-menu" id="teacher-navigation">
@@ -85,7 +88,7 @@
         <div class="mobile-header-row">
           <button class="mobile-menu-toggle" id="teacher-mobile-menu-toggle" aria-label="Abrir menu" aria-expanded="false" aria-controls="teacher-navigation">☰</button>
           <div class="page-title-box">
-            <h1 id="page-title">Dashboard do Professor</h1>
+            <h1 id="page-title" style="display:none;">Dashboard do Professor</h1>
             <p id="page-subtitle" class="subtitle">Acompanhamento pedagógico e orientação para turmas</p>
           </div>
         </div>
