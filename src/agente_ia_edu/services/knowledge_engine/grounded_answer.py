@@ -86,6 +86,11 @@ SUFFICIENCY_UNDECLARED = "SUFFICIENCY_UNDECLARED"
 #: rotulo custariam mais que um nome comprido.
 EVIDENCE_DECLARED_INSUFFICIENT = "EVIDENCE_DECLARED_INSUFFICIENT"
 SANITIZATION_FAILED = "SANITIZATION_FAILED"
+#: Nao sobrou texto para mostrar. Acontece quando o modelo devolve
+#: ``answer: ""`` mas cita no campo ``used_evidence`` - o grounding fica
+#: legitimamente GROUNDED, e sem este portao a saida publica entregaria
+#: string vazia como se fosse resposta bem-sucedida.
+EMPTY_PUBLIC_ANSWER = "EMPTY_PUBLIC_ANSWER"
 
 _MARCADOR = re.compile(r"\[(E\d+)\]")
 
@@ -203,15 +208,17 @@ class GroundedAnswer:
     def delivery_block_reason(self) -> str | None:
         """Por que esta resposta NAO pode ser mostrada, se for o caso.
 
-        Precedencia declarada: grounding, depois suficiencia, depois
+        Precedencia declarada: grounding, suficiencia, texto vazio,
         sanitizacao. O determinístico vem primeiro porque e o que se pode
-        afirmar; os outros dois sao, respectivamente, auto-relato do
-        modelo e dano colateral da apresentacao.
+        afirmar; os demais sao auto-relato do modelo e defeitos de
+        apresentacao.
         """
         if self.status != GROUNDED:
             return self.status
         if self.sufficiency == SUFFICIENCY_DENIED:
             return EVIDENCE_DECLARED_INSUFFICIENT
+        if not (self.answer_text_public or "").strip():
+            return EMPTY_PUBLIC_ANSWER
         if self.stripping_artifacts:
             return SANITIZATION_FAILED
         return None
