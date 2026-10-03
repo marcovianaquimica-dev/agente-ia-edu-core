@@ -154,3 +154,58 @@ As três alternativas tratam do **caminho de resposta**, que é só uma
 parte do que será congelado como MVP v1. Nada aqui depende de retrieval,
 corpus, chunking ou política editorial, que seguem intocados desde a
 Fase 6.
+
+---
+
+# Atualização — a adjudicação dos 30 voltou
+
+O dado que faltava para comparar A e B chegou. Ver
+[cerebro-adjudicacao-30-spans.md](cerebro-adjudicacao-30-spans.md).
+
+| | |
+|---|---|
+| `SUSTENTA_INTEGRALMENTE` | 9 |
+| `SUSTENTA_PARCIALMENTE` | 21 |
+| `NAO_SUSTENTA` | **0** |
+| `CONTRADIZ` | **0** |
+| afirmações apoiadas num único parcial | **nenhuma** |
+
+**Nos quatro casos, há agora antes e depois na mesma pergunta:** o
+caminho antigo atribuiu mal nos quatro; o estruturado produziu 30 spans
+que um humano confirma sustentarem.
+
+## O que muda na comparação
+
+**B ganha o argumento que lhe faltava.** A dúvida registrada era: "se
+muitos forem `NAO_SUSTENTA`, B verifica existência e pouco mais, e o
+custo fica difícil de justificar". Foram **zero**. Nesta amostra, o span
+verificado coincidiu com suporte real em 30 de 30.
+
+**A perde força na mesma medida.** Não é hipótese: nas mesmas quatro
+perguntas, o caminho atual entregou atribuições que a adjudicação já
+havia julgado erradas.
+
+**C continua sem critério.** A adjudicação não produziu nenhum sinal
+*a priori* que separe perguntas que precisam de B das que não precisam —
+e sem isso o híbrido é um roteador sem régua, que é o que a Fase 7
+encerrou com resultado negativo.
+
+## O que ainda falta, e não mudou
+
+1. **Nenhuma observação real de `DERIVATION_VERIFIED`.** Existe em teste
+   unitário, não em chamada paga.
+2. **Taxa de erro desconhecida.** Os 30 vêm de 4 perguntas em que B
+   funcionou; não há na amostra nenhum caso em que ele falhou, porque
+   não se procurou por eles.
+3. **Os três vetores de fuga seguem abertos** e não apareceram — o que
+   não é evidência de que não ocorram.
+4. **+59% de custo e 2,4× de latência** continuam sendo decisão de
+   produto, não técnica.
+
+## Estado da decisão
+
+Com os 30 adjudicados, **A e B já podem ser comparados com dado**; **C
+não**, porque depende de um critério que ninguém mediu.
+
+A escolha continua sendo sua. O que mudou é que ela agora pode ser feita
+sobre evidência, e não sobre expectativa.
