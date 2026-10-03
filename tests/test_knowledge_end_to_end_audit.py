@@ -375,16 +375,40 @@ class CliDoesNotBypassTheAdminPayloadTests(unittest.TestCase):
         self.assertIn("admin_payload()", texto)
         self.assertNotIn("prompt_payload()", texto)
 
-    def test_the_cli_warns_when_the_model_declares_evidence_insufficient(self):
-        """O sinal e consultivo, e tem de continuar visivel.
+    def test_the_cli_surfaces_the_delivery_decision_and_both_axes(self):
+        """O sinal deixou de ser consultivo.
 
-        ``sufficient: false`` nao altera o status - decisao em aberto -, mas
-        some do relatorio seria pior: quem le passaria a nao ter como saber.
-        Este teste existe para que a remocao do aviso seja deliberada.
+        Quando este teste nasceu, o CLI so imprimia um aviso de que o
+        modelo declarara as evidencias insuficientes - e o status seguia
+        ``GROUNDED``. A Etapa C tornou ``DENIED`` bloqueante, entao o que
+        precisa continuar visivel e outra coisa: os dois eixos, a decisao
+        de entrega e a marcacao para revisao humana.
         """
         texto = (RAIZ / "scripts" / "cerebro_ask.py").read_text(encoding="utf-8")
-        self.assertIn("model_says_sufficient is False", texto)
-        self.assertIn("INSUFICIENTES", texto)
+        for esperado in ("resposta.grounding", "resposta.sufficiency",
+                         "resposta.deliverable",
+                         "resposta.delivery_block_reason",
+                         "resposta.needs_human_review",
+                         "REVISAO HUMANA"):
+            with self.subTest(esperado=esperado):
+                self.assertIn(esperado, texto)
+
+    def test_the_cli_shows_what_the_ordinary_user_would_receive(self):
+        """As duas visoes lado a lado sao o ponto da Etapa E.
+
+        Sem isso, um defeito de sanitizacao so apareceria em teste - nunca
+        numa execucao real, que e onde o texto de verdade passa.
+        """
+        texto = (RAIZ / "scripts" / "cerebro_ask.py").read_text(encoding="utf-8")
+        self.assertIn("to_public(resposta)", texto)
+        self.assertIn("O QUE O USUARIO RECEBERIA", texto)
+        self.assertIn('relatorio["public"]', texto)
+
+    def test_the_cli_shows_raw_and_normalised_used_evidence(self):
+        """A divida de observabilidade paga, visivel na execucao real."""
+        texto = (RAIZ / "scripts" / "cerebro_ask.py").read_text(encoding="utf-8")
+        self.assertIn("resposta.raw_used_evidence", texto)
+        self.assertIn("resposta.normalized_used_evidence", texto)
 
     def test_the_cli_reads_raw_text_only_to_feed_the_builder(self):
         """Ler o literal e permitido no processamento interno; imprimi-lo

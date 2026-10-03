@@ -32,7 +32,6 @@ import json
 import os
 import sys
 import time
-import uuid
 from pathlib import Path
 
 if __package__ is None:
@@ -62,7 +61,10 @@ from agente_ia_edu.services.knowledge_engine.embedding_activation import (  # no
     EmbeddingActivationService,
 )
 from agente_ia_edu.services.knowledge_engine.grounded_answer import (  # noqa: E402
-    GROUNDED, GroundedAnswerer,
+    GroundedAnswerer,
+)
+from agente_ia_edu.services.knowledge_engine.public_answer import (  # noqa: E402
+    to_public,
 )
 from agente_ia_edu.services.knowledge_engine.vector_search import (  # noqa: E402
     VectorSearcher,
@@ -273,8 +275,19 @@ async def main() -> None:
     )
     generation_ms = (time.perf_counter() - comeco) * 1000
 
-    _rule("5. RESPOSTA")
-    print(f"  status: {resposta.status}   fundamentada: {resposta.is_grounded}")
+    _rule("5. RESPOSTA (VISAO ADMIN - texto CRU, com marcadores)")
+    print(f"  grounding   : {resposta.grounding}   "
+          f"is_grounded={resposta.is_grounded}")
+    print(f"  suficiencia : {resposta.sufficiency}")
+    print(f"  ENTREGAVEL  : {resposta.deliverable}"
+          + (f"   bloqueio={resposta.delivery_block_reason}"
+             if not resposta.deliverable else ""))
+    if resposta.needs_human_review:
+        print("  >>> MARCADA PARA REVISAO HUMANA: o modelo declarou as"
+              " evidencias insuficientes.")
+    if resposta.stripping_artifacts:
+        print(f"  >>> DEFEITO NA SANITIZACAO: "
+              f"{list(resposta.stripping_artifacts)}")
     if resposta.answer:
         print()
         for linha in resposta.answer.split("\n"):
@@ -282,7 +295,7 @@ async def main() -> None:
     if resposta.error:
         print(f"  erro: {resposta.error}")
 
-    _rule("6. FONTES CITADAS NA RESPOSTA")
+    _rule("6. FONTES CITADAS NA RESPOSTA (SO ADMIN)")
     if resposta.cited_evidences:
         for e in resposta.cited_evidences:
             print(f"  [{e.marker}] {e.source_title} — pagina {e.page_start} "
@@ -296,19 +309,34 @@ async def main() -> None:
         print("  nenhuma")
     if resposta.invalid_markers:
         print(f"\n  MARCADORES INVENTADOS: {list(resposta.invalid_markers)}")
+    print(f"\n  used_evidence BRUTO      : {resposta.raw_used_evidence!r}")
+    print(f"  used_evidence NORMALIZADO: "
+          f"{list(resposta.normalized_used_evidence)}")
 
     # -- 10. suficiencia --------------------------------------------------
     _rule("10. SUFICIENCIA DA EVIDENCIA")
-    if resposta.status == GROUNDED:
+    if resposta.deliverable:
         print("  Evidencia suficiente para fundamentar a resposta.")
-        if resposta.model_says_sufficient is False:
-            print("  ATENCAO: o modelo declarou as evidencias INSUFICIENTES"
-                  " mesmo citando-as.")
     else:
-        print(f"  EVIDENCIA INSUFICIENTE — {resposta.status}")
-        print("  A resposta acima, se houver, NAO esta fundamentada e nao"
-              " deve ser usada.")
+        print(f"  NAO ENTREGAVEL — {resposta.delivery_block_reason}")
+        print("  A resposta acima, se houver, NAO vai ao usuario.")
     relatorio["answer"] = resposta.admin_payload()
+
+    # -- o outro lado ----------------------------------------------------
+    publico = to_public(resposta)
+    _rule("O QUE O USUARIO RECEBERIA (aluno / professor)")
+    print(f"  outcome            : {publico.outcome}")
+    print(f"  unavailable_reason : {publico.unavailable_reason}")
+    if publico.answer_text:
+        print()
+        for linha in publico.answer_text.split("\n"):
+            print(f"  {linha}")
+    else:
+        print("\n  (nenhum texto de resposta e entregue)")
+    print("\n  Sem marcadores, sem fonte, sem pagina, sem chunk_id, sem"
+          " score.")
+    print("  Se algo disso aparecer acima, e defeito - nao estilo.")
+    relatorio["public"] = publico.payload()
 
     _gravar(args, relatorio, total_comeco, provider_emb, retrieval_ms,
             context_build_ms, generation_ms, resposta)
