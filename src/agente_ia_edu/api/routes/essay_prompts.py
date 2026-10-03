@@ -646,8 +646,9 @@ async def get_essay_prompt_answer_sheet(
     O teto de 60 copias e o mesmo teto de paginas de um lote: mais folhas do que
     cabem num envio nao teriam pra onde ir.
 
-    Logo nao cadastrada nunca bloqueia a geracao (spec s7) - a folha sai sem
-    logo, exatamente como sairia se o arquivo tivesse sumido do disco.
+    Logo nao cadastrada (ou ilegivel) nunca bloqueia a geracao (spec s7) - a
+    folha sai com a logo do Nucleo Edu 360 no lugar, em vez de ficar em
+    branco (services/essay_answer_sheet.py e o dono dessa regra).
     """
     if not answer_sheet_available():
         raise HTTPException(
@@ -660,9 +661,7 @@ async def get_essay_prompt_answer_sheet(
         )
         school = await session.get(School, school_id)
         logo_path = school.logo_storage_uri if school is not None else None
-        data = render_answer_sheet_pdf(
-            prompt_title=prompt.title, logo_path=logo_path, copies=copies
-        )
+        data = render_answer_sheet_pdf(logo_path=logo_path, copies=copies)
         safe_title = "".join(
             c if c.isalnum() or c in " -_" else "_" for c in prompt.title
         ).strip() or "redacao"

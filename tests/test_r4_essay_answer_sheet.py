@@ -5,6 +5,10 @@ HEADER_REGION_FRACTION da altura da pagina, e e essa mesma fracao que
 services/essay_batch.py recorta depois pra ler nome e CPF por OCR. Se a
 geometria mudar sem a fracao mudar junto, o OCR passa a ler o lugar errado -
 por isso os testes abaixo checam posicao, nao so "gerou algum PDF".
+
+Folha e generica (nao menciona o tema da proposta) e sempre mostra uma logo
+no cabecalho - a da escola, ou a do Nucleo Edu 360 quando a escola nao tem
+uma cadastrada (decisao do usuario, 2026-10-03).
 """
 
 import unittest
@@ -25,14 +29,14 @@ class AnswerSheetTests(unittest.TestCase):
         return pymupdf.open(stream=data, filetype="pdf")
 
     def test_one_page_per_copy(self):
-        doc = self._open(render_answer_sheet_pdf(prompt_title="Tema X", copies=3))
+        doc = self._open(render_answer_sheet_pdf(copies=3))
         try:
             self.assertEqual(doc.page_count, 3)
         finally:
             doc.close()
 
     def test_defaults_to_one_copy(self):
-        doc = self._open(render_answer_sheet_pdf(prompt_title="Tema X"))
+        doc = self._open(render_answer_sheet_pdf())
         try:
             self.assertEqual(doc.page_count, 1)
         finally:
@@ -40,12 +44,10 @@ class AnswerSheetTests(unittest.TestCase):
 
     def test_rejects_non_positive_copies(self):
         with self.assertRaises(ValueError):
-            render_answer_sheet_pdf(prompt_title="Tema X", copies=0)
+            render_answer_sheet_pdf(copies=0)
 
     def test_header_labels_and_title_are_inside_the_header_region(self):
-        data = render_answer_sheet_pdf(
-            prompt_title="Os desafios da mobilidade urbana no Brasil"
-        )
+        data = render_answer_sheet_pdf()
         doc = self._open(data)
         try:
             page = doc[0]
@@ -57,14 +59,22 @@ class AnswerSheetTests(unittest.TestCase):
                     max(rect.y1 for rect in hits), header_bottom,
                     f"{needle!r} vazou para fora da regiao de cabecalho",
                 )
-            title_hits = page.search_for("Os desafios da mobilidade")
-            self.assertTrue(title_hits)
-            self.assertLess(max(r.y1 for r in title_hits), header_bottom)
+        finally:
+            doc.close()
+
+    def test_title_is_horizontally_centered(self):
+        doc = self._open(render_answer_sheet_pdf())
+        try:
+            page = doc[0]
+            hits = page.search_for("FOLHA DE REDAÇÃO")
+            self.assertTrue(hits, "titulo nao encontrado na folha")
+            center_x = (min(r.x0 for r in hits) + max(r.x1 for r in hits)) / 2
+            self.assertAlmostEqual(center_x, page.rect.width / 2, delta=2.0)
         finally:
             doc.close()
 
     def test_numbered_lines_start_below_the_header_region(self):
-        doc = self._open(render_answer_sheet_pdf(prompt_title="Tema X"))
+        doc = self._open(render_answer_sheet_pdf())
         try:
             page = doc[0]
             header_bottom = page.rect.height * HEADER_REGION_FRACTION
@@ -77,16 +87,16 @@ class AnswerSheetTests(unittest.TestCase):
         finally:
             doc.close()
 
-    def test_renders_without_a_logo(self):
-        data = render_answer_sheet_pdf(prompt_title="Tema X", logo_path=None)
+    def test_falls_back_to_the_nucleo_edu_logo_when_the_school_has_none(self):
+        data = render_answer_sheet_pdf(logo_path=None)
         doc = self._open(data)
         try:
             self.assertEqual(doc.page_count, 1)
-            self.assertEqual(len(doc[0].get_images(full=True)), 0)
+            self.assertEqual(len(doc[0].get_images(full=True)), 1)
         finally:
             doc.close()
 
-    def test_embeds_the_logo_when_one_is_given(self):
+    def test_embeds_the_school_logo_when_one_is_given(self):
         import tempfile
         from pathlib import Path
 
@@ -100,30 +110,20 @@ class AnswerSheetTests(unittest.TestCase):
         page.get_pixmap(dpi=150).save(str(logo_path))
         source.close()
 
-        doc = self._open(
-            render_answer_sheet_pdf(prompt_title="Tema X", logo_path=str(logo_path))
-        )
+        doc = self._open(render_answer_sheet_pdf(logo_path=str(logo_path)))
         try:
+            # Exatamente uma logo - a da escola, nunca as duas juntas.
             self.assertEqual(len(doc[0].get_images(full=True)), 1)
         finally:
             doc.close()
 
-    def test_a_missing_logo_file_never_blocks_generation(self):
+    def test_a_missing_logo_file_falls_back_to_the_nucleo_edu_logo(self):
         doc = self._open(
-            render_answer_sheet_pdf(
-                prompt_title="Tema X", logo_path="/caminho/que/nao/existe/logo.png"
-            )
+            render_answer_sheet_pdf(logo_path="/caminho/que/nao/existe/logo.png")
         )
         try:
             self.assertEqual(doc.page_count, 1)
-            self.assertEqual(len(doc[0].get_images(full=True)), 0)
-        finally:
-            doc.close()
-
-    def test_accented_title_survives(self):
-        doc = self._open(render_answer_sheet_pdf(prompt_title="Educação e cidadania"))
-        try:
-            self.assertTrue(doc[0].search_for("Educação e cidadania"))
+            self.assertEqual(len(doc[0].get_images(full=True)), 1)
         finally:
             doc.close()
 

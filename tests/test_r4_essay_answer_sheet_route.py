@@ -87,7 +87,6 @@ class AnswerSheetRouteTests(unittest.TestCase):
         doc = pymupdf.open(stream=response.content, filetype="pdf")
         try:
             self.assertEqual(doc.page_count, 4)
-            self.assertTrue(doc[0].search_for("Os desafios da mobilidade"))
         finally:
             doc.close()
 
@@ -155,7 +154,9 @@ class AnswerSheetRouteTests(unittest.TestCase):
         )
         doc = pymupdf.open(stream=without_logo.content, filetype="pdf")
         try:
-            self.assertEqual(len(doc[0].get_images(full=True)), 0)
+            # Sem logo da escola, a folha sai com a logo do Nucleo Edu 360 no
+            # lugar - nunca em branco.
+            self.assertEqual(len(doc[0].get_images(full=True)), 1)
         finally:
             doc.close()
 
