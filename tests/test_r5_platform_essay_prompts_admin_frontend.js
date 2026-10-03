@@ -94,3 +94,17 @@ test('o upload de material manda multipart pra rota certa', () => {
   assert.match(js, /formData\.append\('position', '0'\)/);
   assert.match(js, /formData\.append\('file', /);
 });
+
+test('admin.html tem o input de material na tela de criar proposta', () => {
+  assert.ok(html.includes('id="platform-prompt-material"'), 'admin.html nao tem id="platform-prompt-material"');
+});
+
+test('criar proposta anexa o material escolhido (se houver) antes de recarregar a listagem', () => {
+  const createHandler = js.slice(
+    js.indexOf("$('platform-prompt-form').addEventListener('submit'"),
+    js.indexOf('// ---------- Audit log'),
+  );
+  assert.match(createHandler, /\$\('platform-prompt-material'\)\.files\[0\]/);
+  assert.match(createHandler, /uploadMaterialFile\(prompt\.id, materialFile\)/);
+  assert.match(createHandler, /loadPlatformPrompts\(\);/);
+});

@@ -584,6 +584,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  async function uploadMaterialFile(promptId, file) {
+    const formData = new FormData();
+    formData.append('position', '0');
+    formData.append('file', file);
+    const res = await fetch(`${API}/platform-essay-prompts/${promptId}/materials/upload`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${state.identity}` }, body: formData,
+    });
+    if (!res.ok) throw new Error(await errorDetail(res));
+  }
+
   async function uploadPlatformPromptMaterial(promptId) {
     const input = document.querySelector(`[data-upload-material-input="${promptId}"]`);
     const file = input && input.files[0];
@@ -591,14 +601,8 @@ document.addEventListener('DOMContentLoaded', () => {
       showAlert('Escolha um arquivo antes de anexar.', 'error');
       return;
     }
-    const formData = new FormData();
-    formData.append('position', '0');
-    formData.append('file', file);
     try {
-      const res = await fetch(`${API}/platform-essay-prompts/${promptId}/materials/upload`, {
-        method: 'POST', headers: { 'Authorization': `Bearer ${state.identity}` }, body: formData,
-      });
-      if (!res.ok) throw new Error(await errorDetail(res));
+      await uploadMaterialFile(promptId, file);
       showAlert('✅ Material anexado.', 'success');
       loadPlatformPrompts();
     } catch (err) {
@@ -642,9 +646,19 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await errorDetail(res));
+      const prompt = await res.json();
+      const materialFile = $('platform-prompt-material').files[0];
+      let materialMsg = '';
+      if (materialFile) {
+        try {
+          await uploadMaterialFile(prompt.id, materialFile);
+        } catch (err) {
+          materialMsg = ` Mas não foi possível anexar o material: ${err.message}`;
+        }
+      }
       $('platform-prompt-form').hidden = true;
       $('platform-prompt-form').reset();
-      showAlert(`✅ Proposta "${body.title}" publicada para todas as escolas.`, 'success');
+      showAlert(`✅ Proposta "${body.title}" publicada para todas as escolas.${materialMsg}`, materialMsg ? 'error' : 'success');
       loadPlatformPrompts();
     } catch (err) {
       formMsg('platform-prompt-form-msg', `Não foi possível criar a proposta: ${err.message}`, false);
