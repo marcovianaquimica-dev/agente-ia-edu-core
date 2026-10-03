@@ -552,7 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     container.innerHTML = `
       <table class="data-table">
-        <thead><tr><th>Título</th><th>Enunciado</th><th>Status</th><th>Escolas que já usaram</th><th>Criada em</th><th></th></tr></thead>
+        <thead><tr><th>Título</th><th>Enunciado</th><th>Status</th><th>Escolas que já usaram</th><th>Materiais</th><th>Criada em</th><th></th></tr></thead>
         <tbody>
           ${state.platformPrompts.map((p) => `
             <tr>
@@ -560,6 +560,14 @@ document.addEventListener('DOMContentLoaded', () => {
               <td>${esc(String(p.statement || '').slice(0, 120))}${String(p.statement || '').length > 120 ? '…' : ''}</td>
               <td>${esc(PLATFORM_PROMPT_STATUS_LABELS[p.status] || p.status)}</td>
               <td>${p.materialized_school_count}</td>
+              <td>
+                ${p.material_count} anexo(s)
+                ${p.status === 'ACTIVE' ? `
+                  <div class="admin-platform-prompt-material-upload">
+                    <input type="file" data-upload-material-input="${esc(p.id)}">
+                    <button class="btn btn-secondary" type="button" data-upload-material-btn="${esc(p.id)}">Anexar</button>
+                  </div>` : ''}
+              </td>
               <td>${formatDate(p.created_at)}</td>
               <td>${p.status === 'ACTIVE'
                 ? `<button class="btn btn-secondary" type="button" data-archive-platform-prompt="${esc(p.id)}">Arquivar</button>`
@@ -571,6 +579,31 @@ document.addEventListener('DOMContentLoaded', () => {
     container.querySelectorAll('[data-archive-platform-prompt]').forEach((btn) => {
       btn.addEventListener('click', () => archivePlatformPrompt(btn.dataset.archivePlatformPrompt));
     });
+    container.querySelectorAll('[data-upload-material-btn]').forEach((btn) => {
+      btn.addEventListener('click', () => uploadPlatformPromptMaterial(btn.dataset.uploadMaterialBtn));
+    });
+  }
+
+  async function uploadPlatformPromptMaterial(promptId) {
+    const input = document.querySelector(`[data-upload-material-input="${promptId}"]`);
+    const file = input && input.files[0];
+    if (!file) {
+      showAlert('Escolha um arquivo antes de anexar.', 'error');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('position', '0');
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API}/platform-essay-prompts/${promptId}/materials/upload`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${state.identity}` }, body: formData,
+      });
+      if (!res.ok) throw new Error(await errorDetail(res));
+      showAlert('✅ Material anexado.', 'success');
+      loadPlatformPrompts();
+    } catch (err) {
+      showAlert(`Não foi possível anexar o material: ${err.message}`, 'error');
+    }
   }
 
   async function archivePlatformPrompt(promptId) {
