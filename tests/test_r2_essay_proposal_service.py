@@ -2,11 +2,15 @@ import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import AcademicYear, Class, GradeLevel, School, Segment
+from agente_ia_edu.db.models import (
+    AcademicYear, Class, EssayPrompt, GradeLevel, Person, PromptAssignment,
+    School, Segment, Student, StudentEnrollment,
+)
 from agente_ia_edu.services.essay_proposal import EssayProposalService
 
 
@@ -400,6 +404,159 @@ class EssayProposalServiceTests(unittest.IsolatedAsyncioTestCase):
                     school_id=school.id, essay_prompt_id=prompt.id, class_id=klass.id,
                     assigned_by_external_identity="teacher:p17",
                 )
+
+    async def _seed_two_classes_same_grade(self, session):
+        """2 turmas da mesma serie (A, B) + 1 turma de outra serie (C),
+        1 aluno ativo em cada - mesmo padrao do envio em lote, pra testar
+        expansao de serie->turmas."""
+        school = School(id=uuid.uuid4(), code="PR-SERIE", name="Escola")
+        session.add(school)
+        await session.flush()
+        segment = Segment(id=uuid.uuid4(), school_id=school.id, name="seg", external_id="SEG-PR")
+        session.add(segment)
+        await session.flush()
+        grade_x = GradeLevel(
+            id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+            name="Serie X", external_id="GRADE-PR-X",
+        )
+        grade_y = GradeLevel(
+            id=uuid.uuid4(), school_id=school.id, segment_id=segment.id,
+            name="Serie Y", external_id="GRADE-PR-Y",
+        )
+        year = AcademicYear(id=uuid.uuid4(), school_id=school.id, year=2026, external_id="YEAR-PR")
+        session.add_all([grade_x, grade_y, year])
+        await session.flush()
+        class_a = Class(
+            id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+            grade_level_id=grade_x.id, name="Turma A", external_id="TURMA-PR-A",
+        )
+        class_b = Class(
+            id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+            grade_level_id=grade_x.id, name="Turma B", external_id="TURMA-PR-B",
+        )
+        class_c = Class(
+            id=uuid.uuid4(), school_id=school.id, academic_year_id=year.id,
+            grade_level_id=grade_y.id, name="Turma C", external_id="TURMA-PR-C",
+        )
+        prompt = EssayPrompt(
+            id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+            year=2026, created_by_external_identity="prof",
+        )
+        session.add_all([class_a, class_b, class_c, prompt])
+        await session.flush()
+
+        def _make_student(nome, klass):
+            person = Person(id=uuid.uuid4(), school_id=school.id, full_name=nome)
+            session.add(person)
+            student = Student(id=uuid.uuid4(), school_id=school.id, person_id=person.id)
+            session.add(student)
+            session.add(StudentEnrollment(
+                id=uuid.uuid4(), school_id=school.id, student_id=student.id,
+                class_id=klass.id, status="ACTIVE",
+            ))
+            return student.id
+
+        student_a = _make_student("Aluno Turma A", class_a)
+        student_c = _make_student("Aluno Turma C", class_c)
+        await session.flush()
+        return {
+            "school": school, "prompt": prompt, "grade_x": grade_x,
+            "class_a": class_a, "class_b": class_b, "class_c": class_c,
+            "student_a": student_a, "student_c": student_c,
+        }
+
+    async def test_resolve_assignment_targets_expands_grade_into_its_classes(self):
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            service = EssayProposalService(session)
+            result = await service.resolve_assignment_targets(
+                school_id=seed["school"].id, class_ids=[], grade_level_ids=[seed["grade_x"].id],
+                student_ids=[],
+            )
+            self.assertEqual(result["class_ids"], {seed["class_a"].id, seed["class_b"].id})
+
+    async def test_resolve_assignment_targets_does_not_duplicate_class_in_both_sets(self):
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            service = EssayProposalService(session)
+            result = await service.resolve_assignment_targets(
+                school_id=seed["school"].id, class_ids=[seed["class_a"].id],
+                grade_level_ids=[seed["grade_x"].id], student_ids=[],
+            )
+            self.assertEqual(result["class_ids"], {seed["class_a"].id, seed["class_b"].id})
+
+    async def test_create_assignments_combined_creates_class_and_student_targets(self):
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            service = EssayProposalService(session)
+            result = await service.create_assignments_combined(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_ids=[seed["class_b"].id], grade_level_ids=[],
+                student_ids=[seed["student_c"]],
+                assigned_by_external_identity="prof",
+            )
+            self.assertEqual(result["created_count"], 2)
+            self.assertEqual(result["already_assigned_count"], 0)
+
+            rows = (await session.execute(
+                select(PromptAssignment).where(PromptAssignment.essay_prompt_id == seed["prompt"].id)
+            )).scalars().all()
+            self.assertEqual(
+                {(r.class_id, r.student_id) for r in rows},
+                {(seed["class_b"].id, None), (None, seed["student_c"])},
+            )
+
+    async def test_create_assignments_combined_is_idempotent_for_already_assigned_targets(self):
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            service = EssayProposalService(session)
+            await service.create_assignments_combined(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_ids=[seed["class_a"].id], grade_level_ids=[], student_ids=[],
+                assigned_by_external_identity="prof",
+            )
+            result = await service.create_assignments_combined(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_ids=[seed["class_a"].id], grade_level_ids=[], student_ids=[seed["student_c"]],
+                assigned_by_external_identity="prof",
+            )
+            self.assertEqual(result["created_count"], 1)
+            self.assertEqual(result["already_assigned_count"], 1)
+            rows = (await session.execute(
+                select(PromptAssignment).where(
+                    PromptAssignment.essay_prompt_id == seed["prompt"].id,
+                    PromptAssignment.class_id == seed["class_a"].id,
+                )
+            )).scalars().all()
+            self.assertEqual(len(rows), 1)
+
+    async def test_create_assignments_combined_writes_one_log_per_call(self):
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            service = EssayProposalService(session)
+            await service.create_assignments_combined(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id,
+                class_ids=[seed["class_a"].id, seed["class_b"].id], grade_level_ids=[],
+                student_ids=[seed["student_c"]],
+                assigned_by_external_identity="prof",
+            )
+            logs = await service.list_assignment_log(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id
+            )
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(len(logs[0].target_summary["turmas"]), 2)
+            self.assertEqual(len(logs[0].target_summary["alunos"]), 1)
+
+    async def test_search_students_for_assignment_restricted_to_given_class_ids(self):
+        async with self.session_factory() as session:
+            seed = await self._seed_two_classes_same_grade(session)
+            service = EssayProposalService(session)
+            results = await service.search_students_for_assignment(
+                school_id=seed["school"].id, class_ids=[seed["class_a"].id], query="Aluno"
+            )
+            ids = {r[0] for r in results}
+            self.assertEqual(ids, {seed["student_a"]})
+            self.assertNotIn(seed["student_c"], ids)
 
 
 if __name__ == "__main__":

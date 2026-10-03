@@ -126,55 +126,18 @@
   async function renderPromptsList() {
     container.innerHTML = `${renderTabs('prompts')}<p class="empty-text">Carregando propostas...</p>`;
     wireTabs();
-    try {
-      prompts = await reviewRequest('/api/v1/catalog/essay-prompts');
-    } catch (e) {
-      container.innerHTML = `${renderTabs('prompts')}<p class="empty-text">${tmEsc(e.message)}</p>`;
-      wireTabs();
-      return;
-    }
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
     tabsEl.insertAdjacentHTML('afterend', `
-      <div class="tm-form-actions" style="margin: 12px 0;">
-        <button class="btn btn-primary" type="button" id="er-new-prompt-btn">Nova proposta</button>
-      </div>
-      <div class="tm-table-wrap" style="overflow-x:auto;">
-        <table class="tm-table">
-          <thead><tr><th>Título</th><th>Ano</th><th>Status</th><th></th></tr></thead>
-          <tbody id="er-prompts-body">
-            ${prompts.map((p) => `
-              <tr>
-                <td>${tmEsc(p.title)}${p.is_platform ? ' <span class="er-platform-badge">Plataforma</span>' : ''}</td>
-                <td>${p.year}</td><td>${tmEsc(statusLabel(p.status))}</td>
-                <td>
-                  <button class="btn btn-secondary" type="button" data-open-prompt="${tmEsc(p.id)}">Abrir</button>
-                  ${p.is_platform ? '' : `<button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>`}
-                </td>
-              </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhuma proposta criada ainda.</td></tr>'}
-          </tbody>
-        </table>
+      <div class="card tm-form" id="er-prompt-entry">
+        <h3>Propostas de redação</h3>
+        <div class="tm-form-actions">
+          <button class="btn btn-primary" type="button" id="er-create-prompt-btn">Criar proposta</button>
+          <button class="btn btn-secondary" type="button" id="er-use-bank-btn">Usar proposta do banco</button>
+        </div>
       </div>`);
-
-    container.querySelector('#er-new-prompt-btn').addEventListener('click', renderNewPromptForm);
-    container.querySelectorAll('[data-open-prompt]').forEach((btn) => {
-      btn.addEventListener('click', () => renderPromptDetail(btn.dataset.openPrompt));
-    });
-    container.querySelectorAll('[data-delete-prompt]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const prompt = prompts.find((p) => p.id === btn.dataset.deletePrompt);
-        const title = prompt ? prompt.title : 'esta proposta';
-        if (!confirm(`Mover "${title}" para a lixeira? Ela ficará disponível para restaurar por 30 dias.`)) return;
-        btn.disabled = true;
-        try {
-          await reviewRequest(`/api/v1/catalog/essay-prompts/${btn.dataset.deletePrompt}`, { method: 'DELETE' });
-          renderPromptsList();
-        } catch (e) {
-          alert(e.message);
-          btn.disabled = false;
-        }
-      });
-    });
+    container.querySelector('#er-create-prompt-btn').addEventListener('click', renderNewPromptForm);
+    container.querySelector('#er-use-bank-btn').addEventListener('click', renderPromptBankList);
   }
 
   async function renderTrashTab() {
@@ -472,6 +435,196 @@
     });
   }
 
+  // Seletor de publico combinado (series + turmas + alunos) reaproveitado
+  // pela tela de criar proposta E pela tela de usar proposta do banco.
+  // Devolve {getTargets} - o form que o usa le getTargets() no submit.
+  async function renderAudiencePicker(container) {
+    let gradeLevels = [];
+    let classrooms = [];
+    try {
+      gradeLevels = await reviewRequest('/api/v1/teacher/essay-batches/grade-levels');
+    } catch (e) {
+      gradeLevels = [];
+    }
+    try {
+      classrooms = await reviewRequest(
+        `/api/v1/teacher/classrooms?school_id=${encodeURIComponent(schoolId)}&academic_year=2026`,
+      );
+    } catch (e) {
+      classrooms = [];
+    }
+    const assignableClassrooms = classrooms.filter((c) => c.class_id);
+    const selectedStudents = new Map();
+
+    container.innerHTML = `
+      <div class="form-group">
+        <label>Séries</label>
+        <div id="er-audience-series" class="essay-class-checklist">
+          ${gradeLevels.map((g) => `<label class="essay-class-check"><input type="checkbox" data-grade-id="${tmEsc(g.id)}"> ${tmEsc(g.name)}</label>`).join('') || '<p class="empty-text">Nenhuma série disponível.</p>'}
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Turmas</label>
+        <div id="er-audience-classes" class="essay-class-checklist">
+          ${assignableClassrooms.map((c) => `<label class="essay-class-check"><input type="checkbox" data-class-id="${tmEsc(c.class_id)}"> ${tmEsc(c.name)}</label>`).join('') || '<p class="empty-text">Nenhuma turma disponível.</p>'}
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="er-audience-students-search">Alunos específicos</label>
+        <input id="er-audience-students-search" class="text-input" placeholder="Buscar aluno por nome...">
+        <div id="er-audience-students-results"></div>
+        <div id="er-audience-students-selected"></div>
+      </div>`;
+
+    function renderSelectedStudents() {
+      const box = container.querySelector('#er-audience-students-selected');
+      box.innerHTML = Array.from(selectedStudents.values()).map((s) => `
+        <span class="er-chip" data-selected-student-id="${tmEsc(s.student_id)}">
+          ${tmEsc(s.full_name)} (${tmEsc(s.class_name)}) <button type="button" data-remove-student="${tmEsc(s.student_id)}">&times;</button>
+        </span>`).join('');
+      box.querySelectorAll('[data-remove-student]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          selectedStudents.delete(btn.dataset.removeStudent);
+          renderSelectedStudents();
+        });
+      });
+    }
+
+    function currentClassIds() {
+      return Array.from(container.querySelectorAll('#er-audience-classes input:checked'))
+        .map((el) => el.dataset.classId);
+    }
+
+    container.querySelector('#er-audience-students-search').addEventListener('input', async (ev) => {
+      const q = ev.target.value.trim();
+      const resultsBox = container.querySelector('#er-audience-students-results');
+      if (!q) {
+        resultsBox.innerHTML = '';
+        return;
+      }
+      const classIdsParam = assignableClassrooms.map((c) => c.class_id)
+        .concat(currentClassIds())
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+      const params = new URLSearchParams();
+      classIdsParam.forEach((id) => params.append('class_ids', id));
+      params.set('q', q);
+      let results = [];
+      try {
+        results = await reviewRequest(`/api/v1/catalog/essay-prompts/students-search?${params.toString()}`);
+      } catch (e) {
+        results = [];
+      }
+      resultsBox.innerHTML = results.map((s) => `
+        <button type="button" class="btn btn-secondary" data-pick-student="${tmEsc(s.student_id)}"
+          data-pick-name="${tmEsc(s.full_name)}" data-pick-class="${tmEsc(s.class_name)}">
+          ${tmEsc(s.full_name)} (${tmEsc(s.class_name)})
+        </button>`).join('');
+      resultsBox.querySelectorAll('[data-pick-student]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          selectedStudents.set(btn.dataset.pickStudent, {
+            student_id: btn.dataset.pickStudent, full_name: btn.dataset.pickName,
+            class_name: btn.dataset.pickClass,
+          });
+          renderSelectedStudents();
+          resultsBox.innerHTML = '';
+          container.querySelector('#er-audience-students-search').value = '';
+        });
+      });
+    });
+
+    return {
+      getTargets: () => ({
+        grade_level_ids: Array.from(container.querySelectorAll('#er-audience-series input:checked'))
+          .map((el) => el.dataset.gradeId),
+        class_ids: currentClassIds(),
+        student_ids: Array.from(selectedStudents.keys()),
+      }),
+    };
+  }
+
+  async function renderPromptBankList() {
+    container.innerHTML = `${renderTabs('prompts')}<p class="empty-text">Carregando propostas...</p>`;
+    wireTabs();
+    try {
+      prompts = await reviewRequest('/api/v1/catalog/essay-prompts');
+    } catch (e) {
+      prompts = [];
+    }
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="card tm-form">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>Usar proposta do banco</h3>
+        <input id="er-bank-filter" class="text-input" placeholder="Filtrar por título...">
+        <ul id="er-bank-list" class="tm-table"></ul>
+      </div>`);
+    container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+
+    async function deletePrompt(btn) {
+      const prompt = prompts.find((p) => p.id === btn.dataset.deletePrompt);
+      if (!confirm(`Mover "${prompt ? prompt.title : 'esta proposta'}" para a lixeira? Ela ficará disponível para restaurar por 30 dias.`)) return;
+      btn.disabled = true;
+      try {
+        await reviewRequest(`/api/v1/catalog/essay-prompts/${btn.dataset.deletePrompt}`, { method: 'DELETE' });
+        renderPromptBankList();
+      } catch (e) {
+        alert(e.message);
+        btn.disabled = false;
+      }
+    }
+    function renderList(filterText) {
+      const list = container.querySelector('#er-bank-list');
+      const q = filterText.trim().toLowerCase();
+      const filtered = prompts.filter((p) => !q || p.title.toLowerCase().includes(q));
+      list.innerHTML = filtered.map((p) => `<li>
+        <button class="btn btn-secondary" type="button" data-pick-prompt="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})${p.is_platform ? ' <span class="er-platform-badge">Plataforma</span>' : ''}</button>
+        ${p.is_platform ? '' : `<button class="btn btn-secondary" type="button" data-delete-prompt="${tmEsc(p.id)}" title="Mover para a lixeira">🗑️</button>`}
+      </li>`).join('') || '<li class="empty-text">Nenhuma proposta encontrada.</li>';
+      list.querySelectorAll('[data-pick-prompt]').forEach((btn) => btn.addEventListener('click', () => renderBankAssignScreen(btn.dataset.pickPrompt)));
+      list.querySelectorAll('[data-delete-prompt]').forEach((btn) => btn.addEventListener('click', () => deletePrompt(btn)));
+    }
+    renderList('');
+    container.querySelector('#er-bank-filter').addEventListener('input', (ev) => renderList(ev.target.value));
+  }
+
+  async function renderBankAssignScreen(promptId) {
+    container.innerHTML = `${renderTabs('prompts')}<p class="empty-text">Carregando...</p>`;
+    wireTabs();
+    const tabsEl = container.querySelector('.essay-review-tabs');
+    if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    tabsEl.insertAdjacentHTML('afterend', `
+      <div class="card tm-form">
+        <button class="btn btn-secondary" type="button" data-back>&larr; Voltar</button>
+        <h3>Atribuir proposta</h3>
+        <div id="er-bank-audience-container"></div>
+        <button class="btn btn-primary" type="button" id="er-bank-assign-btn">Atribuir</button>
+        <p id="er-bank-assign-msg" class="tm-msg" hidden></p>
+      </div>`);
+    container.querySelector('[data-back]').addEventListener('click', renderPromptBankList);
+
+    const audiencePicker = await renderAudiencePicker(container.querySelector('#er-bank-audience-container'));
+    container.querySelector('#er-bank-assign-btn').addEventListener('click', async () => {
+      const msg = container.querySelector('#er-bank-assign-msg');
+      const targets = audiencePicker.getTargets();
+      if (!targets.class_ids.length && !targets.grade_level_ids.length && !targets.student_ids.length) {
+        msg.hidden = false;
+        msg.textContent = 'Escolha pelo menos uma série, turma ou aluno.';
+        return;
+      }
+      try {
+        await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignments/combined`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(targets),
+        });
+        renderPromptDetail(promptId);
+      } catch (e) {
+        msg.hidden = false;
+        msg.textContent = e.message;
+      }
+    });
+  }
+
   function renderNewPromptForm() {
     container.innerHTML = `
       ${renderTabs('prompts')}
@@ -482,17 +635,32 @@
           <div class="form-group"><label for="er-title">Título</label><input id="er-title" class="text-input" required></div>
           <div class="form-group"><label for="er-statement">Enunciado</label><textarea id="er-statement" class="textarea-input" rows="6" required></textarea></div>
           <div class="form-group"><label for="er-year">Ano</label><input id="er-year" class="text-input" type="number" value="2026" required></div>
-          <button class="btn btn-primary" type="submit">Criar proposta</button>
+          <div class="form-group"><label for="er-material-file">Texto motivador (PDF, opcional)</label><input id="er-material-file" class="text-input" type="file"></div>
+          <div id="er-audience-container"></div>
+          <button class="btn btn-primary" type="submit">Criar e atribuir</button>
           <p id="er-new-prompt-msg" class="tm-msg" hidden></p>
         </form>
       </div>`;
     wireTabs();
     container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+
+    let audiencePicker = null;
+    renderAudiencePicker(container.querySelector('#er-audience-container')).then((p) => {
+      audiencePicker = p;
+    });
+
     container.querySelector('#er-new-prompt-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const msg = container.querySelector('#er-new-prompt-msg');
       const submitBtn = ev.target.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
+      const targets = audiencePicker ? audiencePicker.getTargets() : { class_ids: [], grade_level_ids: [], student_ids: [] };
+      if (!targets.class_ids.length && !targets.grade_level_ids.length && !targets.student_ids.length) {
+        msg.hidden = false;
+        msg.textContent = 'Escolha pelo menos uma série, turma ou aluno.';
+        submitBtn.disabled = false;
+        return;
+      }
       try {
         const prompt = await reviewRequest('/api/v1/catalog/essay-prompts', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -501,6 +669,19 @@
             statement: container.querySelector('#er-statement').value.trim(),
             year: Number(container.querySelector('#er-year').value),
           }),
+        });
+        const fileInput = container.querySelector('#er-material-file');
+        if (fileInput.files && fileInput.files[0]) {
+          const formData = new FormData();
+          formData.append('position', '0');
+          formData.append('file', fileInput.files[0]);
+          await reviewRequest(`/api/v1/catalog/essay-prompts/${prompt.id}/materials/upload`, {
+            method: 'POST', body: formData,
+          });
+        }
+        await reviewRequest(`/api/v1/catalog/essay-prompts/${prompt.id}/assignments/combined`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(targets),
         });
         renderPromptDetail(prompt.id);
       } catch (e) {
@@ -564,7 +745,7 @@
         <p id="er-material-msg" class="tm-msg" hidden></p>
 
         <h4>Turmas atribuídas</h4>
-        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
+        <ul id="er-assignments-list">${detail.assignments.map((a) => `<li>${tmEsc(a.class_id ? (classNameById.get(a.class_id) || a.class_id) : 'Aluno específico')} — ${tmEsc(statusLabel(a.status))}</li>`).join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>'}</ul>
         <form id="er-assign-form" class="tm-form-row">
           <div class="form-group">
             <label>Turmas (selecione uma ou mais)</label>
@@ -579,6 +760,9 @@
         </form>
         <p id="er-assign-msg" class="tm-msg" hidden></p>
         <ul id="er-assign-failures" class="essay-assign-failures" hidden></ul>
+
+        <h4>Histórico de atribuições</h4>
+        <ul id="er-assignment-log-list"><li class="empty-text">Carregando...</li></ul>
       </div>`;
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
@@ -600,6 +784,19 @@
     }
 
     container.querySelector('[data-back]').addEventListener('click', renderPromptsList);
+    try {
+      const logs = await reviewRequest(`/api/v1/catalog/essay-prompts/${promptId}/assignment-log`);
+      container.querySelector('#er-assignment-log-list').innerHTML = logs.map((log) => {
+        const turmas = log.target_summary.turmas || [];
+        const alunos = log.target_summary.alunos || [];
+        const partes = [];
+        if (turmas.length) partes.push(`${turmas.length} turma(s)`);
+        if (alunos.length) partes.push(`${alunos.length} aluno(s)`);
+        return `<li>${new Date(log.created_at).toLocaleString('pt-BR')} - ${partes.join(', ') || 'nenhum alvo'}</li>`;
+      }).join('') || '<li class="empty-text">Nenhuma atribuição registrada ainda.</li>';
+    } catch (e) {
+      container.querySelector('#er-assignment-log-list').innerHTML = '<li class="empty-text">Não foi possível carregar o histórico.</li>';
+    }
     const sheetMsg = container.querySelector('#er-sheet-msg');
     function showSheetMsg(text) {
       sheetMsg.hidden = false;
@@ -714,7 +911,7 @@
         });
         detail.assignments = detail.assignments.concat(result.assigned);
         container.querySelector('#er-assignments-list').innerHTML = detail.assignments
-          .map((a) => `<li>${tmEsc(classNameById.get(a.class_id) || a.class_id)} — ${tmEsc(statusLabel(a.status))}</li>`)
+          .map((a) => `<li>${tmEsc(a.class_id ? (classNameById.get(a.class_id) || a.class_id) : 'Aluno específico')} — ${tmEsc(statusLabel(a.status))}</li>`)
           .join('') || '<li class="empty-text">Nenhuma turma atribuída ainda.</li>';
         container.querySelectorAll('[data-assign-class-id]:checked').forEach((cb) => { cb.checked = false; });
         const failureEntries = Object.entries(result.failures || {});

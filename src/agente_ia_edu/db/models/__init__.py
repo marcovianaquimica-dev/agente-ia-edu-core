@@ -131,6 +131,7 @@ from .essay_proposal import (
     EssayPrompt,
     PromptMaterial,
     PromptAssignment,
+    PromptAssignmentLog,
     EssaySubmission,
     EssaySubmissionPage,
 )
@@ -228,6 +229,7 @@ __all__ = [
     "EssayPrompt",
     "PromptMaterial",
     "PromptAssignment",
+    "PromptAssignmentLog",
     "EssaySubmission",
     "EssaySubmissionPage",
     "EssayCorrection",

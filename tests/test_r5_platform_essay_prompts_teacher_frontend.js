@@ -15,8 +15,8 @@ const css = fs.readFileSync('src/agente_ia_edu/web/teacher.css', 'utf8');
 
 test('a lista estampa o selo Plataforma nos itens com is_platform', () => {
   const list = js.slice(
-    js.indexOf('async function renderPromptsList'),
-    js.indexOf('async function renderTrashTab'),
+    js.indexOf('async function renderPromptBankList'),
+    js.indexOf('async function renderBankAssignScreen'),
   );
   assert.match(list, /p\.is_platform/);
   assert.match(list, /er-platform-badge/);
@@ -27,8 +27,8 @@ test('o botao de lixeira nunca aparece numa proposta da plataforma', () => {
   // Decisao 3 da spec: o professor nunca edita nem exclui uma proposta da
   // plataforma - so usa.
   const list = js.slice(
-    js.indexOf('async function renderPromptsList'),
-    js.indexOf('async function renderTrashTab'),
+    js.indexOf('async function renderPromptBankList'),
+    js.indexOf('async function renderBankAssignScreen'),
   );
   assert.match(list, /p\.is_platform\s*\?\s*''\s*:\s*`<button[^`]*data-delete-prompt/);
 });

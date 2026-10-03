@@ -139,7 +139,7 @@ class EssayDashboardPolicy:
 class StudentSubmissionRow(BaseModel):
     student_id: uuid.UUID
     student_name: str
-    class_id: uuid.UUID
+    class_id: Optional[uuid.UUID] = None
     submitted: bool
     essay_submission_id: Optional[uuid.UUID] = None
     correction_status: Optional[str] = None
@@ -187,7 +187,26 @@ async def build_essay_prompt_dashboard(
         if class_id is None or a.class_id == class_id
         if grade_level_id is None or grade_level == grade_level_id
     ]
-    if not assignments:
+
+    # Atribuicoes diretas a um aluno especifico (R2) nao tem class_id - nao
+    # pertencem administrativamente a nenhuma turma/serie, entao so entram
+    # na visao SEM filtro de turma/serie (a visao "a proposta inteira").
+    direct_assignments: list[PromptAssignment] = []
+    if class_id is None and grade_level_id is None:
+        direct_rows = (
+            await session.execute(
+                select(PromptAssignment).where(
+                    PromptAssignment.essay_prompt_id == essay_prompt_id,
+                    PromptAssignment.student_id.isnot(None),
+                )
+            )
+        ).scalars().all()
+        direct_assignments = [
+            a for a in direct_rows
+            if student_id is None or a.student_id == student_id
+        ]
+
+    if not assignments and not direct_assignments:
         return EssayDashboardResponse(
             essay_prompt_id=prompt.id, essay_prompt_title=prompt.title,
             total_students=0, submitted_count=0, submitted_percentage=0.0,
@@ -196,24 +215,50 @@ async def build_essay_prompt_dashboard(
     assignment_by_class = {a.class_id: a for a in assignments}
     class_ids = list(assignment_by_class.keys())
 
-    enrollment_query = select(StudentEnrollment, Person.full_name).join(
-        Student, Student.id == StudentEnrollment.student_id
-    ).join(Person, Person.id == Student.person_id).where(
-        StudentEnrollment.class_id.in_(class_ids),
-        StudentEnrollment.status == "ACTIVE",
-    )
-    if student_id is not None:
-        enrollment_query = enrollment_query.where(StudentEnrollment.student_id == student_id)
-    enrollment_rows = (await session.execute(enrollment_query)).all()
+    # roster: (student_id, nome, class_id_pra_exibicao_ou_None, atribuicao)
+    roster: list[tuple[uuid.UUID, str, uuid.UUID | None, PromptAssignment]] = []
+    if class_ids:
+        enrollment_query = select(StudentEnrollment, Person.full_name).join(
+            Student, Student.id == StudentEnrollment.student_id
+        ).join(Person, Person.id == Student.person_id).where(
+            StudentEnrollment.class_id.in_(class_ids),
+            StudentEnrollment.status == "ACTIVE",
+        )
+        if student_id is not None:
+            enrollment_query = enrollment_query.where(StudentEnrollment.student_id == student_id)
+        enrollment_rows = (await session.execute(enrollment_query)).all()
+        for enrollment, full_name in enrollment_rows:
+            roster.append((
+                enrollment.student_id, full_name, enrollment.class_id,
+                assignment_by_class[enrollment.class_id],
+            ))
 
-    if not enrollment_rows:
+    if direct_assignments:
+        direct_student_ids = [a.student_id for a in direct_assignments]
+        name_rows = (
+            await session.execute(
+                select(Student.id, Person.full_name)
+                .join(Person, Person.id == Student.person_id)
+                .where(Student.id.in_(direct_student_ids))
+            )
+        ).all()
+        name_by_student = {sid: name for sid, name in name_rows}
+        for assignment in direct_assignments:
+            roster.append((
+                assignment.student_id,
+                name_by_student.get(assignment.student_id, str(assignment.student_id)),
+                None,
+                assignment,
+            ))
+
+    if not roster:
         return EssayDashboardResponse(
             essay_prompt_id=prompt.id, essay_prompt_title=prompt.title,
             total_students=0, submitted_count=0, submitted_percentage=0.0,
         )
 
-    student_ids = [enrollment.student_id for enrollment, _name in enrollment_rows]
-    assignment_ids = [a.id for a in assignments]
+    student_ids = [row[0] for row in roster]
+    assignment_ids = list({row[3].id for row in roster})
 
     submission_rows = (
         await session.execute(
@@ -252,9 +297,8 @@ async def build_essay_prompt_dashboard(
     per_competency_scores: dict[str, list[int]] = {code: [] for code in COMPETENCY_CODES}
     submitted_count = 0
 
-    for enrollment, full_name in enrollment_rows:
-        assignment = assignment_by_class[enrollment.class_id]
-        submission = latest_submission.get((enrollment.student_id, assignment.id))
+    for student_id_, full_name, display_class_id, assignment in roster:
+        submission = latest_submission.get((student_id_, assignment.id))
         submitted = submission is not None and submission.status == "SUBMITTED"
         if submitted:
             submitted_count += 1
@@ -277,14 +321,14 @@ async def build_essay_prompt_dashboard(
                     per_competency_scores[code].append(per_competency[code])
 
         students.append(StudentSubmissionRow(
-            student_id=enrollment.student_id, student_name=full_name,
-            class_id=enrollment.class_id, submitted=submitted,
+            student_id=student_id_, student_name=full_name,
+            class_id=display_class_id, submitted=submitted,
             essay_submission_id=submission.id if submission else None,
             correction_status=correction_status,
             total_score=total_score, per_competency=per_competency,
         ))
 
-    total_students = len(enrollment_rows)
+    total_students = len(roster)
     submitted_percentage = (submitted_count / total_students * 100) if total_students else 0.0
     average_total = (sum(total_scores) / len(total_scores)) if total_scores else None
     average_per_competency = (

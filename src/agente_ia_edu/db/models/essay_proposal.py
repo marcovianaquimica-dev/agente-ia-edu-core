@@ -24,10 +24,12 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -137,9 +139,10 @@ class PromptMaterial(Base):
 
 
 class PromptAssignment(Base):
-    """Assigns a proposal to a class. Authorization for essay submission
-    checks against this table directly - a student only submits to a
-    proposal their own class actually received."""
+    """Assigns a proposal to a class OR to a specific student (mutually
+    exclusive) - authorization for essay submission checks against this
+    table directly, either via the student's own class or via a direct
+    student_id grant."""
 
     __tablename__ = "prompt_assignments"
     __table_args__ = (
@@ -155,20 +158,40 @@ class PromptAssignment(Base):
             ondelete="RESTRICT",
             name="fk_prompt_assignments_school_class",
         ),
+        ForeignKeyConstraint(
+            ["school_id", "student_id"],
+            ["students.school_id", "students.id"],
+            ondelete="RESTRICT",
+            name="fk_prompt_assignments_school_student",
+        ),
         UniqueConstraint("school_id", "id", name="uq_prompt_assignments_school_id_id"),
         UniqueConstraint(
             "essay_prompt_id", "class_id", name="uq_prompt_assignments_prompt_class"
+        ),
+        Index(
+            "uq_prompt_assignments_prompt_student",
+            "essay_prompt_id", "student_id",
+            unique=True,
+            postgresql_where=text("student_id IS NOT NULL"),
+            sqlite_where=text("student_id IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "(class_id IS NOT NULL AND student_id IS NULL) OR "
+            "(class_id IS NULL AND student_id IS NOT NULL)",
+            name="ck_prompt_assignments_target",
         ),
         CheckConstraint("status IN ('OPEN', 'CLOSED')", name="ck_prompt_assignments_status"),
         Index("ix_prompt_assignments_school_id", "school_id"),
         Index("ix_prompt_assignments_essay_prompt_id", "essay_prompt_id"),
         Index("ix_prompt_assignments_class_id", "class_id"),
+        Index("ix_prompt_assignments_student_id", "student_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     school_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     essay_prompt_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    class_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    class_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    student_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     assigned_by_external_identity: Mapped[str] = mapped_column(String(255), nullable=False)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     validation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -176,6 +199,34 @@ class PromptAssignment(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
+
+
+class PromptAssignmentLog(Base):
+    """1 linha por clique em "atribuir" (nao por turma/aluno dentro da
+    mesma atribuicao) - um retrato historico de quem foi alcancado, nao
+    uma referencia viva: sobrevive a turma renomeada, aluno transferido ou
+    desatribuido depois. Visivel so pro professor que atribuiu (nenhuma
+    visao de coordenacao/direcao nesta leva)."""
+
+    __tablename__ = "prompt_assignment_logs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["school_id", "essay_prompt_id"],
+            ["essay_prompts.school_id", "essay_prompts.id"],
+            ondelete="RESTRICT",
+            name="fk_prompt_assignment_logs_school_prompt",
+        ),
+        Index("ix_prompt_assignment_logs_essay_prompt_id", "essay_prompt_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    essay_prompt_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    assigned_by_external_identity: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    target_summary: Mapped[dict] = mapped_column(JSON, nullable=False)
 
 
 class EssaySubmission(Base):

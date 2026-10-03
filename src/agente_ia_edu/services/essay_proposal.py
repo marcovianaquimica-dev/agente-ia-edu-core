@@ -15,7 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Class, EssayPrompt, PromptAssignment, PromptMaterial
+from ..db.models import (
+    Class, EssayPrompt, GradeLevel, Person, PromptAssignment, PromptAssignmentLog,
+    PromptMaterial, Student, StudentEnrollment,
+)
 from .institution_settings import InstitutionSettingsService
 
 
@@ -199,6 +202,204 @@ class EssayProposalService:
             except ValueError as exc:
                 failures[class_id] = str(exc)
         return assigned, failures
+
+    async def resolve_assignment_targets(
+        self, *, school_id: uuid.UUID, class_ids: list[uuid.UUID],
+        grade_level_ids: list[uuid.UUID], student_ids: list[uuid.UUID],
+    ) -> dict:
+        """Expande serie em turmas reais (Class.grade_level_id), junta com
+        as turmas escolhidas direto sem duplicar, e resolve os nomes pra um
+        retrato pronto pro PromptAssignmentLog."""
+        final_class_ids: set[uuid.UUID] = set(class_ids)
+        series_summary = []
+        if grade_level_ids:
+            grade_classes = (await self.session.execute(
+                select(Class.id, Class.name, Class.grade_level_id)
+                .where(
+                    Class.school_id == school_id,
+                    Class.grade_level_id.in_(grade_level_ids),
+                )
+            )).all()
+            by_grade: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+            for class_id, class_name, grade_level_id in grade_classes:
+                final_class_ids.add(class_id)
+                by_grade.setdefault(grade_level_id, []).append((class_id, class_name))
+            grade_rows = (await self.session.execute(
+                select(GradeLevel.id, GradeLevel.name).where(GradeLevel.id.in_(grade_level_ids))
+            )).all()
+            grade_names = {gid: name for gid, name in grade_rows}
+            for grade_id, classes in by_grade.items():
+                series_summary.append({
+                    "grade_level_id": str(grade_id),
+                    "name": grade_names.get(grade_id, str(grade_id)),
+                    "turmas_expandidas": [
+                        {"class_id": str(cid), "name": cname} for cid, cname in classes
+                    ],
+                })
+
+        class_names: dict[uuid.UUID, str] = {}
+        if final_class_ids:
+            rows = (await self.session.execute(
+                select(Class.id, Class.name).where(Class.id.in_(final_class_ids))
+            )).all()
+            class_names = {cid: name for cid, name in rows}
+
+        student_names: dict[uuid.UUID, str] = {}
+        if student_ids:
+            rows = (await self.session.execute(
+                select(Student.id, Person.full_name)
+                .join(Person, Person.id == Student.person_id)
+                .where(Student.id.in_(student_ids))
+            )).all()
+            student_names = {sid: name for sid, name in rows}
+
+        # "turmas" lista TODAS as turmas finais (as escolhidas direto +
+        # as expandidas de serie), uma vez cada, com o nome resolvido -
+        # final_class_ids ja e a uniao sem duplicar (e um set).
+        target_summary = {
+            "turmas": [
+                {"class_id": str(cid), "name": class_names.get(cid, str(cid))}
+                for cid in sorted(final_class_ids, key=str)
+            ],
+            "series": series_summary,
+            "alunos": [
+                {"student_id": str(sid), "name": student_names.get(sid, str(sid))}
+                for sid in sorted(student_ids, key=str)
+            ],
+        }
+
+        return {
+            "class_ids": final_class_ids,
+            "student_ids": set(student_ids),
+            "target_summary": target_summary,
+        }
+
+    async def create_assignments_combined(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID,
+        class_ids: list[uuid.UUID], grade_level_ids: list[uuid.UUID],
+        student_ids: list[uuid.UUID], assigned_by_external_identity: str,
+        due_at: datetime | None = None, validation_enabled: bool = True,
+    ) -> dict:
+        """Atribui a proposta ao publico combinado (turmas + series
+        expandidas + alunos especificos) numa chamada so. Idempotente: um
+        alvo que ja tinha essa proposta e pulado silenciosamente (pre-
+        consulta ANTES de inserir, nunca deixa o IntegrityError da unique
+        estourar), mas o log registra a tentativa inteira - inclusive os
+        alvos que ja existiam - porque ele retrata a ACAO do professor, nao
+        so o que mudou no banco."""
+        if not class_ids and not grade_level_ids and not student_ids:
+            raise ValueError("Escolha pelo menos uma serie, turma ou aluno.")
+
+        prompt = await self._active_prompt_or_raise(
+            school_id=school_id, essay_prompt_id=essay_prompt_id
+        )
+        resolved = await self.resolve_assignment_targets(
+            school_id=school_id, class_ids=class_ids,
+            grade_level_ids=grade_level_ids, student_ids=student_ids,
+        )
+        final_class_ids = resolved["class_ids"]
+        final_student_ids = resolved["student_ids"]
+
+        existing_classes = set()
+        if final_class_ids:
+            rows = (await self.session.execute(
+                select(PromptAssignment.class_id).where(
+                    PromptAssignment.essay_prompt_id == essay_prompt_id,
+                    PromptAssignment.class_id.in_(final_class_ids),
+                )
+            )).scalars().all()
+            existing_classes = set(rows)
+        existing_students = set()
+        if final_student_ids:
+            rows = (await self.session.execute(
+                select(PromptAssignment.student_id).where(
+                    PromptAssignment.essay_prompt_id == essay_prompt_id,
+                    PromptAssignment.student_id.in_(final_student_ids),
+                )
+            )).scalars().all()
+            existing_students = set(rows)
+
+        created_count = 0
+        for class_id in final_class_ids - existing_classes:
+            self.session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
+                class_id=class_id, student_id=None,
+                assigned_by_external_identity=assigned_by_external_identity,
+                due_at=due_at, validation_enabled=validation_enabled, status="OPEN",
+            ))
+            created_count += 1
+        for student_id in final_student_ids - existing_students:
+            self.session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
+                class_id=None, student_id=student_id,
+                assigned_by_external_identity=assigned_by_external_identity,
+                due_at=due_at, validation_enabled=validation_enabled, status="OPEN",
+            ))
+            created_count += 1
+
+        already_assigned_count = len(existing_classes) + len(existing_students)
+
+        if prompt.status == "DRAFT" and created_count > 0:
+            prompt.status = "ACTIVE"
+
+        log = PromptAssignmentLog(
+            id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
+            assigned_by_external_identity=assigned_by_external_identity,
+            target_summary=resolved["target_summary"],
+        )
+        self.session.add(log)
+        await self.session.flush()
+
+        return {
+            "created_count": created_count,
+            "already_assigned_count": already_assigned_count,
+            "log_id": log.id,
+        }
+
+    async def search_students_for_assignment(
+        self, *, school_id: uuid.UUID, class_ids: list[uuid.UUID], query: str,
+    ) -> list[tuple[uuid.UUID, str, str | None, str]]:
+        """(student_id, full_name, document_number, class_name) de alunos
+        ativos nas turmas dadas (o chamador ja resolveu quais turmas o
+        professor esta autorizado a ver, via
+        TeacherPortalService.list_teacher_classrooms - este metodo nao
+        resolve autorizacao, so filtra pelo escopo que recebe) cujo nome
+        bate com a busca."""
+        if not class_ids:
+            return []
+        q_clean = query.strip().lower()
+        rows = (await self.session.execute(
+            select(
+                Student.id, Person.full_name, Person.document_number, Class.name,
+            )
+            .join(Person, Person.id == Student.person_id)
+            .join(StudentEnrollment, StudentEnrollment.student_id == Student.id)
+            .join(Class, Class.id == StudentEnrollment.class_id)
+            .where(
+                StudentEnrollment.school_id == school_id,
+                StudentEnrollment.class_id.in_(class_ids),
+                StudentEnrollment.status == "ACTIVE",
+            )
+            .order_by(Person.full_name)
+        )).all()
+        return [
+            (student_id, full_name, document_number, class_name)
+            for student_id, full_name, document_number, class_name in rows
+            if not q_clean or q_clean in full_name.lower()
+        ]
+
+    async def list_assignment_log(
+        self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID,
+    ) -> list[PromptAssignmentLog]:
+        result = await self.session.execute(
+            select(PromptAssignmentLog)
+            .where(
+                PromptAssignmentLog.school_id == school_id,
+                PromptAssignmentLog.essay_prompt_id == essay_prompt_id,
+            )
+            .order_by(PromptAssignmentLog.created_at.desc())
+        )
+        return list(result.scalars().all())
 
     async def soft_delete_prompt(
         self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID,

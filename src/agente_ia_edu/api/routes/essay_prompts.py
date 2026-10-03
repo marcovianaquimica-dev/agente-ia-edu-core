@@ -99,7 +99,8 @@ class PromptAssignmentResponse(BaseModel):
     id: UUID
     school_id: UUID
     essay_prompt_id: UUID
-    class_id: UUID
+    class_id: Optional[UUID] = None
+    student_id: Optional[UUID] = None
     status: str
     validation_enabled: bool
 
@@ -113,6 +114,34 @@ class PromptAssignmentBulkCreateRequest(BaseModel):
 class PromptAssignmentBulkCreateResponse(BaseModel):
     assigned: list[PromptAssignmentResponse]
     failures: dict[str, str]
+
+
+class PromptAssignmentCombinedRequest(BaseModel):
+    class_ids: list[UUID] = Field(default_factory=list)
+    grade_level_ids: list[UUID] = Field(default_factory=list)
+    student_ids: list[UUID] = Field(default_factory=list)
+    due_at: Optional[datetime] = None
+    validation_enabled: bool = True
+
+
+class PromptAssignmentCombinedResponse(BaseModel):
+    created_count: int
+    already_assigned_count: int
+    log_id: UUID
+
+
+class StudentSearchResultResponse(BaseModel):
+    student_id: UUID
+    full_name: str
+    document_number: Optional[str] = None
+    class_name: str
+
+
+class PromptAssignmentLogResponse(BaseModel):
+    id: UUID
+    created_at: datetime
+    assigned_by_external_identity: str
+    target_summary: dict
 
 
 async def _authorize(
@@ -407,6 +436,128 @@ async def create_prompt_assignments_bulk(
         )
 
 
+async def _require_school_wide_scope_for_series(
+    identity: ExternalIdentityContext, session: AsyncSession
+) -> None:
+    """Atribuir a uma serie inteira expande pra TODAS as turmas dela,
+    potencialmente fora do escopo de um professor de turma unica - mesma
+    regra que api/routes/essay_batches.py's _require_school_wide_scope ja
+    usa pro mesmo risco no envio em lote: DIRECTOR/COORDINATOR/PLATFORM_ADMIN
+    sempre passam; TEACHER so passa com escopo PLATFORM ou SCHOOL. So e
+    chamada quando grade_level_ids nao esta vazio - escopo de turma/aluno
+    direto continua sem esse gate (mesmo nivel de exposicao que
+    assignments/bulk ja tem hoje pra class_ids, pre-existente, fora do
+    escopo desta correcao)."""
+    authz = AuthorizationService(session)
+    context = await authz.resolve_context(identity)
+    if context.role.upper() in {"DIRECTOR", "COORDINATOR", "PLATFORM_ADMIN"}:
+        return
+    if context.role.upper() == "TEACHER" and context.scope_type.upper() in {"PLATFORM", "SCHOOL"}:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Atribuir a uma serie inteira exige escopo de toda a escola "
+        "(diretor, coordenador, ou professor com abrangencia de escola).",
+    )
+
+
+@essay_prompts_router.post(
+    "/{essay_prompt_id}/assignments/combined",
+    response_model=PromptAssignmentCombinedResponse,
+)
+async def create_prompt_assignments_combined(
+    essay_prompt_id: UUID,
+    request: PromptAssignmentCombinedRequest,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> PromptAssignmentCombinedResponse:
+    """Atribui a proposta a um publico combinado - series inteiras
+    (expandidas em turmas reais), turmas inteiras e alunos especificos,
+    tudo numa chamada so. Idempotente: reatribuir um alvo que ja tinha
+    essa proposta nao e erro."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        if request.grade_level_ids:
+            await _require_school_wide_scope_for_series(identity, session)
+        essay_prompt_id = await _materialize_if_platform_prompt(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id,
+            created_by_external_identity=identity.external_user_id,
+        )
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        service = EssayProposalService(session)
+        try:
+            result = await service.create_assignments_combined(
+                school_id=school_id, essay_prompt_id=essay_prompt_id,
+                class_ids=request.class_ids, grade_level_ids=request.grade_level_ids,
+                student_ids=request.student_ids,
+                assigned_by_external_identity=identity.external_user_id,
+                due_at=request.due_at, validation_enabled=request.validation_enabled,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        response = PromptAssignmentCombinedResponse(**result)
+        await session.commit()
+        return response
+
+
+@essay_prompts_router.get("/students-search", response_model=list[StudentSearchResultResponse])
+async def search_prompt_assignment_students(
+    class_ids: list[UUID] = Query(default_factory=list),
+    q: str = Query(""),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[StudentSearchResultResponse]:
+    """Busca de alunos pro seletor de publico - restrita as turmas que o
+    CHAMADOR ja confirmou estarem no escopo autorizado do professor
+    (TeacherPortalService.list_teacher_classrooms, a mesma rota que ja
+    preenche o seletor de Turma hoje); esta rota nao resolve autorizacao
+    de turma sozinha, so confia nos class_ids que recebe - um class_id de
+    fora da escola do professor simplesmente nao aparece no resultado
+    porque o filtro ja inclui school_id."""
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        service = EssayProposalService(session)
+        results = await service.search_students_for_assignment(
+            school_id=school_id, class_ids=class_ids, query=q,
+        )
+        return [
+            StudentSearchResultResponse(
+                student_id=student_id, full_name=full_name,
+                document_number=document_number, class_name=class_name,
+            )
+            for student_id, full_name, document_number, class_name in results
+        ]
+
+
+@essay_prompts_router.get(
+    "/{essay_prompt_id}/assignment-log", response_model=list[PromptAssignmentLogResponse]
+)
+async def get_prompt_assignment_log(
+    essay_prompt_id: UUID,
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> list[PromptAssignmentLogResponse]:
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        service = EssayProposalService(session)
+        logs = await service.list_assignment_log(
+            school_id=school_id, essay_prompt_id=essay_prompt_id
+        )
+        return [
+            PromptAssignmentLogResponse(
+                id=log.id, created_at=log.created_at,
+                assigned_by_external_identity=log.assigned_by_external_identity,
+                target_summary=log.target_summary,
+            )
+            for log in logs
+        ]
+
+
 @essay_prompts_router.get("/{essay_prompt_id}/dashboard", response_model=EssayDashboardResponse)
 async def get_essay_prompt_dashboard(
     essay_prompt_id: UUID,
@@ -692,7 +843,8 @@ async def get_essay_prompt_detail(
             assignments=[
                 PromptAssignmentResponse(
                     id=a.id, school_id=a.school_id, essay_prompt_id=a.essay_prompt_id,
-                    class_id=a.class_id, status=a.status, validation_enabled=a.validation_enabled,
+                    class_id=a.class_id, student_id=a.student_id,
+                    status=a.status, validation_enabled=a.validation_enabled,
                 )
                 for a in assignments
             ],

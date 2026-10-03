@@ -541,14 +541,17 @@ class EssayBatchService:
     async def _assignment_for_student(
         self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID, student_id: uuid.UUID
     ) -> PromptAssignment:
-        """A atribuicao desta proposta a turma ATIVA do aluno.
+        """A atribuicao desta proposta ao aluno: por turma ATIVA dele
+        (ramo 1, prioridade - igual sempre foi) OU diretamente a ele
+        (ramo 2, novo - R2 passou a permitir atribuir uma proposta a um
+        aluno especifico, independente da turma dele ter sido atribuida).
 
         Nao e simplesmente a turma do lote: a spec s7 decide que a turma da
         submissao final vem do ALUNO, nao do class_id escolhido no upload -
         entao um aluno resolvido manualmente que esteja em outra turma recebe a
         atribuicao da turma DELE. Pro caminho automatico isso cai naturalmente
         na atribuicao do proprio lote, ja que o match so olha alunos daquela
-        turma.
+        turma (ou da serie/escola, nos escopos mais amplos).
         """
         assignment = await self.session.scalar(
             select(PromptAssignment)
@@ -564,9 +567,20 @@ class EssayBatchService:
             )
             .order_by(PromptAssignment.created_at)
         )
+        if assignment is not None:
+            return assignment
+
+        assignment = await self.session.scalar(
+            select(PromptAssignment).where(
+                PromptAssignment.school_id == school_id,
+                PromptAssignment.essay_prompt_id == essay_prompt_id,
+                PromptAssignment.student_id == student_id,
+            )
+        )
         if assignment is None:
             raise ValueError(
-                "Esta proposta nao esta atribuida a nenhuma turma ativa deste aluno."
+                "Esta proposta nao esta atribuida a nenhuma turma ativa nem "
+                "diretamente a este aluno."
             )
         return assignment
 
