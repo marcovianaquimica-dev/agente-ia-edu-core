@@ -158,3 +158,58 @@ qual seria o bom.
 
 Os 9 casos não foram adicionados a nenhum conjunto congelado, e nenhuma
 alteração de código foi feita.
+
+---
+
+# Adendo — mudança de contrato, não erro de julgamento
+
+Registrado em 2026-10-03, depois da adoção do contrato de âncora por span.
+
+**O rótulo histórico de `FID-2FE1F9` (`V-N8`) permanece
+`MISATTRIBUTED`.** Não foi alterado e não deve ser.
+
+O que mudou foi o **contrato**, não o julgamento.
+
+## O contrato sob o qual o caso foi adjudicado
+
+A planilha apresentou `EVIDENCIA_ATRIBUIDA` como um bloco único, e a
+pergunta era se aquela evidência sustentava a afirmação. Sob essa
+leitura, a resposta correta é a que o adjudicador deu: o bloco atribuído
+não contém todos os dados necessários à derivação, e parte do suporte
+está em outra evidência disponível.
+
+## O contrato adotado depois
+
+A Decisão 1 estabeleceu **contribuição complementar**: a unidade de
+suporte é a **afirmação**, e várias evidências podem sustentá-la em
+conjunto, desde que cada uma tenha contribuição declarada e verificável.
+
+Sob esse contrato:
+
+| | contribuição |
+|---|---|
+| `E4` p.88 | contém **"lei de Hess"** — nomeia o método |
+| `E5` p.240 | contém −394, −286, −891 — os insumos |
+
+Cada uma tem contribuição própria e verificável por span. **Sob o
+contrato novo, `V-N8` seria aceito.**
+
+## Por que isso não torna o julgamento anterior errado
+
+O adjudicador respondeu corretamente à pergunta que lhe foi feita. A
+pergunta mudou depois. Reetiquetar silenciosamente apagaria a evidência
+de que o critério evoluiu — e é justamente esse registro que permite,
+mais tarde, saber **sob qual regra** cada rótulo foi dado.
+
+É a mesma disciplina de `method_version` nos registros e de `v1`/`v2` nas
+políticas: a norma antiga não é corrigida, é **versionada**.
+
+## Consequência prática para a regressão
+
+`FID-2FE1F9` **não** entra como teste de regressão de
+`MISATTRIBUTED` sob o contrato novo. Ele fica marcado como
+**divergente por mudança de contrato**, e precisa de nova adjudicação sob
+a regra de contribuição complementar antes de voltar a ser critério.
+
+Os outros 8 casos permanecem válidos como regressão: nenhum deles depende
+da leitura conjuntiva estrita.
