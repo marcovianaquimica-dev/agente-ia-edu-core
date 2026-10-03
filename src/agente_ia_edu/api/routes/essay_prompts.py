@@ -646,8 +646,9 @@ async def get_essay_prompt_answer_sheet(
     O teto de 60 copias e o mesmo teto de paginas de um lote: mais folhas do que
     cabem num envio nao teriam pra onde ir.
 
-    Logo nao cadastrada nunca bloqueia a geracao (spec s7) - a folha sai sem
-    logo, exatamente como sairia se o arquivo tivesse sumido do disco.
+    Logo nao cadastrada (ou ilegivel) nunca bloqueia a geracao (spec s7) - a
+    folha sai com a logo do Nucleo Edu 360 no lugar, em vez de ficar em
+    branco (services/essay_answer_sheet.py e o dono dessa regra).
     """
     if not answer_sheet_available():
         raise HTTPException(
@@ -660,9 +661,7 @@ async def get_essay_prompt_answer_sheet(
         )
         school = await session.get(School, school_id)
         logo_path = school.logo_storage_uri if school is not None else None
-        data = render_answer_sheet_pdf(
-            prompt_title=prompt.title, logo_path=logo_path, copies=copies
-        )
+        data = render_answer_sheet_pdf(logo_path=logo_path, copies=copies)
         safe_title = "".join(
             c if c.isalnum() or c in " -_" else "_" for c in prompt.title
         ).strip() or "redacao"
@@ -670,6 +669,34 @@ async def get_essay_prompt_answer_sheet(
         return Response(
             content=data, media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+
+@essay_prompts_router.get("/answer-sheet.pdf")
+async def get_generic_answer_sheet(
+    copies: int = Query(1, ge=1, le=60),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    """A folha de resposta em branco, independente de proposta - a folha e
+    generica (nao menciona tema nenhum, services/essay_answer_sheet.py), entao
+    nao ha motivo pra exigir que o professor/coordenador escolha uma proposta
+    so pra baixar a mesma folha que qualquer outra proposta geraria. Mesma
+    autorizacao de get_essay_prompt_answer_sheet (_authorize), so sem o lookup
+    de uma proposta especifica.
+    """
+    if not answer_sheet_available():
+        raise HTTPException(
+            status_code=503, detail="PDF export requires the 'pymupdf' package"
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        school = await session.get(School, school_id)
+        logo_path = school.logo_storage_uri if school is not None else None
+        data = render_answer_sheet_pdf(logo_path=logo_path, copies=copies)
+        return Response(
+            content=data, media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="folha-de-redacao.pdf"'},
         )
 
 

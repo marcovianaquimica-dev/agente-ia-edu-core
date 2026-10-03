@@ -18,17 +18,18 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_identity, get_session_factory
-from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment
+from ...db.models import EssayCorrection, EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment, School
 from ...identity import ExternalIdentityContext
 from ...services.admin import PlatformModuleKey
 from ...services.authorization import AuthorizationService
+from ...services.essay_answer_sheet import answer_sheet_available, render_answer_sheet_pdf
 from ...services.essay_correction import EssayCorrectionService
 from ...services.essay_evolution import EssayEvolutionResponse, build_evolution
 from ...services.essay_pdf_export import build_render_model, filename_for_title, pdf_available, render_pdf
@@ -861,6 +862,35 @@ async def list_essay_prompts_for_student(
                 )
             )
         return results
+
+
+@essay_student_prompts_router.get("/answer-sheet.pdf")
+async def get_student_answer_sheet(
+    copies: int = Query(1, ge=1, le=60),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    """A folha de resposta em branco, pra o aluno imprimir por conta propria -
+    independente de proposta (a folha e generica, services/essay_answer_sheet.py),
+    entao nao precisa escolher uma atribuicao especifica so pra baixar a
+    mesma folha que qualquer uma geraria. Mesma autorizacao de
+    list_essay_prompts_for_student (_authorize_student), so sem o lookup de
+    matricula/turma, que so importa pra filtrar propostas por turma.
+    """
+    if not answer_sheet_available():
+        raise HTTPException(
+            status_code=503, detail="PDF export requires the 'pymupdf' package"
+        )
+    async with session_factory() as session:
+        context = await _authorize_student(identity, session)
+        school_id = uuid.UUID(str(context.school_id))
+        school = await session.get(School, school_id)
+        logo_path = school.logo_storage_uri if school is not None else None
+        data = render_answer_sheet_pdf(logo_path=logo_path, copies=copies)
+        return Response(
+            content=data, media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="folha-de-redacao.pdf"'},
+        )
 
 
 essay_evolution_student_router = APIRouter(

@@ -21,13 +21,22 @@ PyMuPDF que essay_pdf_export.py::render_pdf ja usa pras paginas de imagem
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Logo da propria plataforma - cai no espaco reservado da logo quando a
+# escola nao tem uma cadastrada (ou a dela nao pode ser lida), pra esse
+# espaco nunca sair em branco (decisao do usuario, 2026-10-03).
+_FALLBACK_LOGO_PATH = Path(__file__).parent / "assets" / "nucleo_edu_logo.png"
+
 # Fracao da ALTURA da pagina ocupada pelo cabecalho (logo + titulo + caixas de
-# NOME e CPF). Mesma proporcao da folha oficial do ENEM que serviu de
-# referencia visual. services/essay_batch.py importa esta constante.
-HEADER_REGION_FRACTION = 0.22
+# NOME e CPF). Ajustada pra sobrar so um respiro pequeno abaixo da caixa de
+# CPF (nao a folga grande que a versao com subtitulo de tema precisava).
+# services/essay_batch.py importa esta constante, entao mudar o valor aqui
+# ja mantem o recorte de OCR em sincronia - so NAO deixe o conteudo real do
+# cabecalho (caixas de NOME/CPF) ultrapassar essa fracao.
+HEADER_REGION_FRACTION = 0.18
 
 # Linhas numeradas pra redacao. 30 e o que cabe confortavelmente numa A4 abaixo
 # do cabecalho (passo de ~20pt, validado renderizando de verdade).
@@ -67,7 +76,24 @@ def _draw_char_boxes(page, pymupdf, *, x: float, y: float, width: float, count: 
         )
 
 
-def _draw_sheet(page, pymupdf, *, prompt_title: str, logo_path: str | None) -> None:
+def _draw_logo(page, pymupdf, *, logo_rect, logo_path: str | None) -> None:
+    """Desenha a logo da escola se houver e for legivel; senao cai pra logo
+    do Nucleo Edu 360 - o espaco reservado nunca fica vazio. Arquivo sumido
+    ou corrompido tem o mesmo fallback, nunca bloqueia a geracao da folha
+    (spec s7)."""
+    for candidate in (logo_path, str(_FALLBACK_LOGO_PATH)):
+        if not candidate:
+            continue
+        try:
+            page.insert_image(logo_rect, filename=candidate, keep_proportion=True)
+            return
+        except Exception:
+            if candidate == logo_path:
+                logger.warning("logo da escola nao pode ser desenhada: %s", logo_path)
+    logger.warning("nem a logo da escola nem o fallback do Nucleo Edu puderam ser desenhadas")
+
+
+def _draw_sheet(page, pymupdf, *, logo_path: str | None) -> None:
     width, height = page.rect.width, page.rect.height
     header_bottom = height * HEADER_REGION_FRACTION
     inner_left = _MARGIN + 6
@@ -77,20 +103,14 @@ def _draw_sheet(page, pymupdf, *, prompt_title: str, logo_path: str | None) -> N
         color=_FRAME_COLOR, width=0.8,
     )
 
-    if logo_path:
-        try:
-            page.insert_image(
-                pymupdf.Rect(inner_left, _MARGIN + 6, inner_left + 64, _MARGIN + 40),
-                filename=logo_path, keep_proportion=True,
-            )
-        except Exception:
-            # Logo ilegivel/apagada do disco nunca bloqueia a geracao da folha
-            # (spec s7) - a folha sai sem logo, igual a uma escola que nunca
-            # cadastrou uma.
-            logger.warning("logo da escola nao pode ser desenhada: %s", logo_path)
+    logo_rect = pymupdf.Rect(inner_left, _MARGIN + 6, inner_left + 100, _MARGIN + 40)
+    _draw_logo(page, pymupdf, logo_rect=logo_rect, logo_path=logo_path)
 
-    page.insert_text((inner_left + 74, _MARGIN + 22), "FOLHA DE REDAÇÃO", fontsize=12, fontname="hebo")
-    page.insert_text((inner_left + 74, _MARGIN + 36), prompt_title[:70], fontsize=9)
+    title_rect = pymupdf.Rect(_MARGIN, _MARGIN + 8, width - _MARGIN, _MARGIN + 34)
+    page.insert_textbox(
+        title_rect, "FOLHA DE REDAÇÃO", fontsize=14, fontname="hebo",
+        align=pymupdf.TEXT_ALIGN_CENTER,
+    )
 
     usable = width - 2 * _MARGIN - 12
     name_top = _MARGIN + 52
@@ -115,10 +135,10 @@ def _draw_sheet(page, pymupdf, *, prompt_title: str, logo_path: str | None) -> N
         )
 
 
-def render_answer_sheet_pdf(
-    *, prompt_title: str, logo_path: str | None = None, copies: int = 1
-) -> bytes:
-    """``copies`` folhas identicas, uma por pagina do PDF gerado."""
+def render_answer_sheet_pdf(*, logo_path: str | None = None, copies: int = 1) -> bytes:
+    """``copies`` folhas identicas, uma por pagina do PDF gerado. Folha padrao
+    e generica - nao menciona o tema da proposta (decisao do usuario,
+    2026-10-03: uma unica folha serve pra qualquer proposta)."""
     if copies < 1:
         raise ValueError(f"copies must be at least 1, got {copies}")
 
@@ -129,7 +149,7 @@ def render_answer_sheet_pdf(
     try:
         for _ in range(copies):
             page = doc.new_page(width=mediabox.width, height=mediabox.height)
-            _draw_sheet(page, pymupdf, prompt_title=prompt_title or "", logo_path=logo_path)
+            _draw_sheet(page, pymupdf, logo_path=logo_path)
         # deflate+garbage pelo mesmo motivo documentado em
         # essay_pdf_export.render_pdf: sem eles o stream da logo embutida vai
         # sem compressao nenhuma.

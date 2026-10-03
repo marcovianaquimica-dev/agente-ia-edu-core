@@ -20,6 +20,11 @@ test('a tela inicial de propostas tem os 2 botoes de entrada', () => {
   assert.match(promptsListFn, /Usar proposta do banco/);
 });
 
+test('a tela inicial tem um botao avulso pra baixar a folha padrao, sem escolher proposta', () => {
+  assert.match(promptsListFn, /Baixar folha de redação em branco/);
+  assert.match(promptsListFn, /fetch\('\/api\/v1\/catalog\/essay-prompts\/answer-sheet\.pdf', \{ headers: reviewHeaders\(\) \}\)/);
+});
+
 test('a tela inicial nao mostra nenhum campo de tema antes da escolha', () => {
   assert.doesNotMatch(promptsListFn, /id="er-title"/);
   assert.doesNotMatch(promptsListFn, /id="er-statement"/);
