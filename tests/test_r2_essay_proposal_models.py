@@ -14,6 +14,7 @@ from agente_ia_edu.db.models import (
     EssaySubmission,
     EssaySubmissionPage,
     GradeLevel,
+    PlatformEssayPrompt,
     PromptAssignment,
     PromptAssignmentLog,
     PromptMaterial,
@@ -268,6 +269,76 @@ class EssayProposalModelTests(unittest.IsolatedAsyncioTestCase):
             refreshed = await session.get(PromptAssignmentLog, log.id)
             self.assertEqual(refreshed.target_summary["turmas"][0]["name"], "Turma A")
             self.assertEqual(refreshed.target_summary["series"], [])
+
+    async def test_prompt_material_with_platform_essay_prompt_id_and_no_essay_prompt_id_succeeds(self):
+        async with self.session_factory() as session:
+            platform_prompt = PlatformEssayPrompt(
+                id=uuid.uuid4(), title="Tema plataforma", statement="Disserte.",
+                created_by_external_identity="user:ADMIN",
+            )
+            session.add(platform_prompt)
+            await session.flush()
+            material = PromptMaterial(
+                id=uuid.uuid4(), essay_prompt_id=None, platform_essay_prompt_id=platform_prompt.id,
+                material_type="FILE", storage_uri="var/materials/x.pdf", position=0,
+            )
+            session.add(material)
+            await session.commit()
+            refreshed = await session.get(PromptMaterial, material.id)
+            self.assertIsNone(refreshed.essay_prompt_id)
+            self.assertEqual(refreshed.platform_essay_prompt_id, platform_prompt.id)
+
+    async def test_prompt_material_with_both_essay_prompt_id_and_platform_essay_prompt_id_violates_check(self):
+        async with self.session_factory() as session:
+            school = School(id=uuid.uuid4(), code="PM-1", name="Escola")
+            session.add(school)
+            await session.flush()
+            prompt = EssayPrompt(
+                id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
+                year=2026, created_by_external_identity="prof",
+            )
+            platform_prompt = PlatformEssayPrompt(
+                id=uuid.uuid4(), title="Tema plataforma", statement="Disserte.",
+                created_by_external_identity="user:ADMIN",
+            )
+            session.add_all([prompt, platform_prompt])
+            await session.flush()
+            session.add(PromptMaterial(
+                id=uuid.uuid4(), essay_prompt_id=prompt.id,
+                platform_essay_prompt_id=platform_prompt.id,
+                material_type="FILE", storage_uri="var/materials/x.pdf", position=0,
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+
+    async def test_prompt_material_with_neither_essay_prompt_id_nor_platform_essay_prompt_id_violates_check(self):
+        async with self.session_factory() as session:
+            session.add(PromptMaterial(
+                id=uuid.uuid4(), essay_prompt_id=None, platform_essay_prompt_id=None,
+                material_type="FILE", storage_uri="var/materials/x.pdf", position=0,
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
+
+    async def test_same_position_twice_for_the_same_platform_prompt_violates_unique(self):
+        async with self.session_factory() as session:
+            platform_prompt = PlatformEssayPrompt(
+                id=uuid.uuid4(), title="Tema plataforma", statement="Disserte.",
+                created_by_external_identity="user:ADMIN",
+            )
+            session.add(platform_prompt)
+            await session.flush()
+            session.add(PromptMaterial(
+                id=uuid.uuid4(), platform_essay_prompt_id=platform_prompt.id,
+                material_type="TEXT", content="a", position=0,
+            ))
+            await session.commit()
+            session.add(PromptMaterial(
+                id=uuid.uuid4(), platform_essay_prompt_id=platform_prompt.id,
+                material_type="TEXT", content="b", position=0,
+            ))
+            with self.assertRaises(IntegrityError):
+                await session.commit()
 
 
 if __name__ == "__main__":

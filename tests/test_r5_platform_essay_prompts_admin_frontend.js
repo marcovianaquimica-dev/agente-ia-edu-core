@@ -57,9 +57,9 @@ test('403 na listagem vira a mesma mensagem de acesso negado das escolas', () =>
 test('a secao carrega no boot e recarrega quando a identidade muda', () => {
   const boot = js.slice(js.indexOf("// ---------- Identity ----------"));
   assert.match(boot, /loadPlatformPrompts\(\);/);
-  // Quatro ocorrencias no arquivo: apos arquivar, apos criar, no handler de
-  // troca de identidade e no boot.
-  assert.equal((js.match(/loadPlatformPrompts\(\);/g) || []).length, 4);
+  // Cinco ocorrencias no arquivo: apos arquivar, apos criar, apos anexar
+  // material, no handler de troca de identidade e no boot.
+  assert.equal((js.match(/loadPlatformPrompts\(\);/g) || []).length, 5);
 });
 
 test('todo texto vindo da API passa por esc() antes de virar HTML', () => {
@@ -69,4 +69,42 @@ test('todo texto vindo da API passa por esc() antes de virar HTML', () => {
   );
   assert.match(render, /esc\(p\.title\)/);
   assert.doesNotMatch(render, /\$\{p\.title\}/);
+});
+
+test('a listagem mostra a contagem de materiais anexados', () => {
+  const render = js.slice(
+    js.indexOf('function renderPlatformPrompts'),
+    js.indexOf('async function archivePlatformPrompt'),
+  );
+  assert.match(render, /material_count/);
+});
+
+test('cada proposta ACTIVE tem um input de arquivo pra anexar material', () => {
+  const render = js.slice(
+    js.indexOf('function renderPlatformPrompts'),
+    js.indexOf('async function archivePlatformPrompt'),
+  );
+  assert.match(render, /data-upload-material-input="\$\{esc\(p\.id\)\}"/);
+  assert.match(render, /data-upload-material-btn="\$\{esc\(p\.id\)\}"/);
+});
+
+test('o upload de material manda multipart pra rota certa', () => {
+  assert.match(js, /fetch\(`\$\{API\}\/platform-essay-prompts\/\$\{promptId\}\/materials\/upload`, \{\s*method: 'POST'/);
+  assert.match(js, /FormData\(\)/);
+  assert.match(js, /formData\.append\('position', '0'\)/);
+  assert.match(js, /formData\.append\('file', /);
+});
+
+test('admin.html tem o input de material na tela de criar proposta', () => {
+  assert.ok(html.includes('id="platform-prompt-material"'), 'admin.html nao tem id="platform-prompt-material"');
+});
+
+test('criar proposta anexa o material escolhido (se houver) antes de recarregar a listagem', () => {
+  const createHandler = js.slice(
+    js.indexOf("$('platform-prompt-form').addEventListener('submit'"),
+    js.indexOf('// ---------- Audit log'),
+  );
+  assert.match(createHandler, /\$\('platform-prompt-material'\)\.files\[0\]/);
+  assert.match(createHandler, /uploadMaterialFile\(prompt\.id, materialFile\)/);
+  assert.match(createHandler, /loadPlatformPrompts\(\);/);
 });

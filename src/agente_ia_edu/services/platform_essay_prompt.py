@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import EssayPrompt, PlatformEssayPrompt
+from ..db.models import EssayPrompt, PlatformEssayPrompt, PromptMaterial
 
 
 def materialization_year() -> int:
@@ -91,6 +91,76 @@ class PlatformEssayPromptService:
         prompt.status = "ARCHIVED"
         await self.session.flush()
         return prompt
+
+    async def add_material(
+        self,
+        *,
+        platform_essay_prompt_id: uuid.UUID,
+        material_type: str,
+        position: int,
+        content: str | None = None,
+        storage_uri: str | None = None,
+    ) -> PromptMaterial:
+        """Anexa material de apoio (texto motivador) a uma proposta da
+        plataforma - espelha EssayProposalService.add_material, mas sem a
+        checagem de status=DRAFT daquele: uma proposta da plataforma nasce
+        direto ACTIVE (nao tem fase de rascunho), e anexar material aqui
+        nao e "editar" a proposta (titulo/enunciado continuam imutaveis) -
+        e o passo seguinte natural de cadastro, mesmo depois de ACTIVE.
+        Escolas que ja materializaram uma copia ANTES deste anexo nao sao
+        afetadas - a copia delas ja esta congelada com o que existia na
+        hora da materializacao."""
+        prompt = await self.session.get(PlatformEssayPrompt, platform_essay_prompt_id)
+        if prompt is None:
+            raise ValueError(f"PlatformEssayPrompt not found: {platform_essay_prompt_id}")
+        if material_type == "TEXT" and not content:
+            raise ValueError("material_type=TEXT requires content")
+        if material_type in ("IMAGE", "FILE") and not storage_uri:
+            raise ValueError(f"material_type={material_type} requires storage_uri")
+        if material_type not in ("TEXT", "IMAGE", "FILE"):
+            raise ValueError(f"Unknown material_type: {material_type!r}")
+
+        material = PromptMaterial(
+            id=uuid.uuid4(),
+            platform_essay_prompt_id=platform_essay_prompt_id,
+            material_type=material_type,
+            content=content,
+            storage_uri=storage_uri,
+            position=position,
+        )
+        self.session.add(material)
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise ValueError(
+                f"PlatformEssayPrompt {platform_essay_prompt_id} already has a "
+                f"material at position {position}"
+            ) from exc
+        return material
+
+    async def list_materials(
+        self, *, platform_essay_prompt_id: uuid.UUID
+    ) -> list[PromptMaterial]:
+        result = await self.session.execute(
+            select(PromptMaterial)
+            .where(PromptMaterial.platform_essay_prompt_id == platform_essay_prompt_id)
+            .order_by(PromptMaterial.position)
+        )
+        return list(result.scalars().all())
+
+    async def count_materials_by_prompt(self) -> dict[uuid.UUID, int]:
+        """Quantos materiais cada proposta da plataforma ja tem anexado -
+        a tela do admin usa isso pra mostrar a contagem na listagem, mesmo
+        padrao de list_with_materialization_counts. Uma proposta sem
+        nenhum material anexado simplesmente nao aparece no dict (o
+        chamador trata ausencia como 0, igual a contagem de escolas)."""
+        result = await self.session.execute(
+            select(PromptMaterial.platform_essay_prompt_id, func.count())
+            .where(PromptMaterial.platform_essay_prompt_id.is_not(None))
+            .group_by(PromptMaterial.platform_essay_prompt_id)
+        )
+        return {prompt_id: count for prompt_id, count in result.all()}
 
     # ---- lado da materializacao por escola --------------------------------
 
@@ -175,6 +245,27 @@ class PlatformEssayPromptService:
             if existing is None:
                 raise
             return existing
+
+        # Copia os materiais anexados na origem pra copia da escola - mesmo
+        # storage_uri (o storage e content-addressed, reaproveitar a
+        # referencia e seguro, nao precisa duplicar o arquivo fisico).
+        # Nenhum material anexado DEPOIS desta materializacao e copiado - a
+        # copia da escola fica congelada no que existia neste momento, mesma
+        # filosofia de title/statement acima.
+        origin_materials = await self.list_materials(
+            platform_essay_prompt_id=origin.id
+        )
+        for material in origin_materials:
+            self.session.add(PromptMaterial(
+                id=uuid.uuid4(),
+                essay_prompt_id=copy.id,
+                material_type=material.material_type,
+                content=material.content,
+                storage_uri=material.storage_uri,
+                position=material.position,
+            ))
+        if origin_materials:
+            await self.session.flush()
         return copy
 
     async def list_available_for_school(

@@ -107,9 +107,11 @@ class EssayPrompt(Base):
 
 
 class PromptMaterial(Base):
-    """Support material for a proposal. Single parent (EssayPrompt), so a
-    plain FK is enough - no separate school_id, matching
-    EssayRubricCompetency -> EssayRubric."""
+    """Support material for a proposal - either a normal school EssayPrompt
+    OR a platform-wide PlatformEssayPrompt (mutually exclusive). Plain FKs
+    are enough for both - no separate school_id, matching
+    EssayRubricCompetency -> EssayRubric (EssayPrompt is already
+    school-scoped, and PlatformEssayPrompt is deliberately global)."""
 
     __tablename__ = "prompt_materials"
     __table_args__ = (
@@ -123,12 +125,28 @@ class PromptMaterial(Base):
             "(material_type IN ('IMAGE', 'FILE')) = (storage_uri IS NOT NULL)",
             name="ck_prompt_materials_image_has_storage_uri",
         ),
+        CheckConstraint(
+            "(essay_prompt_id IS NOT NULL AND platform_essay_prompt_id IS NULL) OR "
+            "(essay_prompt_id IS NULL AND platform_essay_prompt_id IS NOT NULL)",
+            name="ck_prompt_materials_target",
+        ),
+        Index(
+            "uq_prompt_materials_platform_position",
+            "platform_essay_prompt_id", "position",
+            unique=True,
+            postgresql_where=text("platform_essay_prompt_id IS NOT NULL"),
+            sqlite_where=text("platform_essay_prompt_id IS NOT NULL"),
+        ),
         Index("ix_prompt_materials_essay_prompt_id", "essay_prompt_id"),
+        Index("ix_prompt_materials_platform_essay_prompt_id", "platform_essay_prompt_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    essay_prompt_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("essay_prompts.id", ondelete="RESTRICT"), nullable=False
+    essay_prompt_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("essay_prompts.id", ondelete="RESTRICT"), nullable=True
+    )
+    platform_essay_prompt_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("platform_essay_prompts.id", ondelete="RESTRICT"), nullable=True
     )
     material_type: Mapped[str] = mapped_column(String(10), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)

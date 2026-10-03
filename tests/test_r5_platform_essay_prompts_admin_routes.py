@@ -126,6 +126,67 @@ class PlatformEssayPromptsAdminRoutesTests(unittest.TestCase):
                     self.client.post(f"{BASE}/{created['id']}/archive").status_code, 403
                 )
 
+    def test_upload_material_attaches_a_file_to_the_platform_prompt(self):
+        created = self._create()
+        upload_resp = self.client.post(
+            f"{BASE}/{created['id']}/materials/upload",
+            data={"position": "0"},
+            files={"file": ("texto-motivador.pdf", b"conteudo qualquer de exemplo", "application/pdf")},
+        )
+        self.assertEqual(upload_resp.status_code, 201, upload_resp.text)
+        body = upload_resp.json()
+        self.assertEqual(body["material_type"], "FILE")
+        self.assertTrue(body["storage_uri"])
+        self.assertTrue(body["storage_uri"].endswith("texto-motivador.pdf"))
+
+    def test_upload_material_to_unknown_prompt_is_404(self):
+        response = self.client.post(
+            f"{BASE}/{uuid.uuid4()}/materials/upload",
+            data={"position": "0"},
+            files={"file": ("x.pdf", b"x", "application/pdf")},
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_get_materials_lists_what_was_uploaded(self):
+        created = self._create()
+        self.client.post(
+            f"{BASE}/{created['id']}/materials/upload",
+            data={"position": "0"},
+            files={"file": ("texto-motivador.pdf", b"conteudo", "application/pdf")},
+        )
+        response = self.client.get(f"{BASE}/{created['id']}/materials")
+        self.assertEqual(response.status_code, 200, response.text)
+        materials = response.json()
+        self.assertEqual(len(materials), 1)
+        self.assertEqual(materials[0]["material_type"], "FILE")
+
+    def test_list_prompts_includes_material_count(self):
+        created = self._create()
+        self.client.post(
+            f"{BASE}/{created['id']}/materials/upload",
+            data={"position": "0"},
+            files={"file": ("texto-motivador.pdf", b"conteudo", "application/pdf")},
+        )
+        response = self.client.get(BASE)
+        self.assertEqual(response.status_code, 200, response.text)
+        listed = next(p for p in response.json() if p["id"] == created["id"])
+        self.assertEqual(listed["material_count"], 1)
+
+    def test_materials_routes_require_platform_admin(self):
+        created = self._create()
+        for role in ("TEACHER", "DIRECTOR", "COORDINATOR"):
+            with self.subTest(role=role):
+                self.as_identity(external_user_id=f"user-{role.lower()}", roles=(role,))
+                self.assertEqual(self.client.get(f"{BASE}/{created['id']}/materials").status_code, 403)
+                self.assertEqual(
+                    self.client.post(
+                        f"{BASE}/{created['id']}/materials/upload",
+                        data={"position": "0"},
+                        files={"file": ("x.pdf", b"x", "application/pdf")},
+                    ).status_code,
+                    403,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
