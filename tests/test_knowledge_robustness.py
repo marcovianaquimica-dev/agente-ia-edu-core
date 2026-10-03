@@ -336,22 +336,25 @@ class ProviderErrorTests(unittest.IsolatedAsyncioTestCase):
 
 class SufficiencyGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_characterises_sufficient_false_with_valid_citations(self):
-        """DECISAO EM ABERTO - e a mais importante deste arquivo.
+        """RESOLVIDO na Etapa C - mas o eixo de GROUNDING nao mudou.
 
-        O modelo declara que a evidencia NAO basta, cita corretamente, e a
-        resposta sai ``GROUNDED`` com ``is_grounded = True``. Os tres ramos
-        do servico sao marcador invalido, nenhum marcador, e caso contrario
-        fundamentada - nenhum deles olha ``sufficient``.
+        Quando este teste foi escrito, ``sufficient: false`` nao tinha
+        efeito algum. Hoje ele bloqueia a ENTREGA (``deliverable`` falso,
+        ``delivery_block_reason = EVIDENCE_DECLARED_INSUFFICIENT``) - ver
+        ``test_knowledge_two_axes``.
 
-        O sinal nao e silencioso: o CLI avisa "o modelo declarou as
-        evidencias INSUFICIENTES mesmo citando-as". Ele e CONSULTIVO, nao
-        vinculante. Quem ler o relatorio ve; quem consumir ``is_grounded``
-        programaticamente, nao.
+        O que este teste continua garantindo e que o bloqueio NAO mentiu
+        sobre grounding: a resposta segue ``GROUNDED`` com
+        ``is_grounded = True``, porque as citacoes conferem. Separar os
+        dois eixos era exatamente o ponto.
 
-        Nao alterei. Fazer ``sufficient: false`` fechar o portao e mudanca
-        de comportamento do sistema - exatamente o tipo de decisao que nao
-        cabe a mim tomar sozinho. Fica registrado com teste para que a
-        escolha seja deliberada.
+        O que havia antes, para registro: nenhum dos tres ramos do
+        servico olhava ``sufficient``, e o unico lugar que o mencionava
+        era um aviso do CLI - consultivo, nao vinculante. Quem lesse o
+        relatorio via; quem consumisse ``is_grounded``, nao.
+
+        A Etapa A fechou a duvida com dado real: em 9 execucoes,
+        ``sufficient: false`` apareceu 2 vezes e nas duas estava certo.
         """
         provider = _Roteiro({
             "answer": "O material nao cobre bem isto, mas ha indicio [E1].",

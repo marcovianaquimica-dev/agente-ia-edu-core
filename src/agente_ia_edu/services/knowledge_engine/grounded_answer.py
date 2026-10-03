@@ -51,6 +51,7 @@ from ...providers.contracts import TextGenerationProvider
 from ...providers.errors import ProviderError
 from ...providers.models import TextGenerationRequest
 from .context_builder import BuiltContext, ContextEvidence
+from .sanitize import strip_markers
 
 GROUNDED = "GROUNDED"
 NO_EVIDENCE = "NO_EVIDENCE"
@@ -59,6 +60,32 @@ ANSWER_WITHOUT_CITATION = "ANSWER_WITHOUT_CITATION"
 INVALID_EVIDENCE_REFERENCE = "INVALID_EVIDENCE_REFERENCE"
 PROVIDER_FAILED = "PROVIDER_FAILED"
 PROVIDER_INVALID_RESPONSE = "PROVIDER_INVALID_RESPONSE"
+
+#: Os tres resultados do eixo GROUNDING - determinístico, verificado pelo
+#: codigo contra as evidencias realmente entregues.
+GROUNDING_OUTCOMES: tuple[str, ...] = (
+    GROUNDED, ANSWER_WITHOUT_CITATION, INVALID_EVIDENCE_REFERENCE,
+)
+
+#: O eixo SUFICIENCIA - DECLARADO pelo modelo, nao verificavel.
+#:
+#: Sao perguntas de naturezas diferentes: "a resposta esta apoiada no que
+#: citou?" o codigo responde; "essas evidencias bastam?" so o modelo diz.
+#: Colapsar as duas num campo faria o verificavel herdar a confiabilidade
+#: do nao-verificavel - foi o que havia antes, e o que a Etapa A flagrou.
+SUFFICIENCY_AFFIRMED = "SUFFICIENCY_AFFIRMED"
+SUFFICIENCY_DENIED = "SUFFICIENCY_DENIED"
+SUFFICIENCY_UNDECLARED = "SUFFICIENCY_UNDECLARED"
+
+#: Motivos de BLOQUEIO DE ENTREGA que nao sao estados de grounding.
+#:
+#: ``EVIDENCE_DECLARED_INSUFFICIENT`` e deliberadamente diferente de
+#: ``INSUFFICIENT_EVIDENCE``, que ja existe no projeto com outro
+#: significado - ``evidence_state`` do mastery (migracao 029) e ``status``
+#: do diagnostico inicial (migracao 013). Dois conceitos sob o mesmo
+#: rotulo custariam mais que um nome comprido.
+EVIDENCE_DECLARED_INSUFFICIENT = "EVIDENCE_DECLARED_INSUFFICIENT"
+SANITIZATION_FAILED = "SANITIZATION_FAILED"
 
 _MARCADOR = re.compile(r"\[(E\d+)\]")
 
@@ -91,6 +118,22 @@ def _normalizar_marcador(valor: object) -> str | None:
     casou = _MARCADOR_SOLTO.match(valor.strip())
     return casou.group(1) if casou else None
 
+
+def _classificar_suficiencia(valor: object) -> str:
+    """``True``/``False`` viram os dois polos; QUALQUER outra coisa vira
+    ``UNDECLARED``.
+
+    ``"false"`` em string NAO vira ``DENIED``. Adivinhar intencao a partir
+    de tipo errado e precisamente o que esta validacao existe para nao
+    fazer, e um provider que manda string quando o contrato pede booleano
+    esta fora do contrato - "nao declarou" e a leitura honesta.
+    """
+    if valor is True:
+        return SUFFICIENCY_AFFIRMED
+    if valor is False:
+        return SUFFICIENCY_DENIED
+    return SUFFICIENCY_UNDECLARED
+
 INSTRUCAO = """Voce responde perguntas de Quimica do ensino medio usando
 EXCLUSIVAMENTE as evidencias numeradas abaixo. Regras:
 
@@ -121,23 +164,87 @@ class GroundedAnswer:
     input_tokens: int | None
     output_tokens: int | None
     error: str | None
+    #: O eixo declarado. Ver as constantes ``SUFFICIENCY_*``.
+    sufficiency: str = SUFFICIENCY_UNDECLARED
+    #: Resposta sem os marcadores. DERIVADA - ``answer`` continua sendo a
+    #: prova de que a citacao existe.
+    answer_text_public: str | None = None
+    #: Defeitos que a remocao dos marcadores encontrou. Ver ``sanitize``.
+    stripping_artifacts: tuple[str, ...] = ()
+    #: A grafia EXATA devolvida pelo provider, antes de normalizar. Sem
+    #: isto nao se sabe, pelo relatorio, se a normalizacao atuou - foi a
+    #: lacuna que a Etapa A so contornou com um gravador por fora.
+    raw_used_evidence: Any = None
+    #: O resultado de normalizar APENAS o campo ``used_evidence``.
+    normalized_used_evidence: tuple[str, ...] = ()
     #: Texto cru do provider, so para diagnostico. ``repr=False`` porque ele
     #: pode ecoar trecho de evidencia comercial.
     _raw: str | None = field(default=None, repr=False)
 
     @property
     def is_grounded(self) -> bool:
+        """SIGNIFICADO PRESERVADO: grounding, nao entrega.
+
+        Mudar isto em silencio quebraria quem ja consome. Quem quer saber
+        se pode mostrar usa ``deliverable``.
+        """
         return self.status == GROUNDED
+
+    @property
+    def grounding(self) -> str | None:
+        """O eixo determinístico, ou ``None`` se nao houve resposta.
+
+        Sem resposta nao ha o que fundamentar, e ``None`` diz isso melhor
+        que qualquer valor do eixo.
+        """
+        return self.status if self.status in GROUNDING_OUTCOMES else None
+
+    @property
+    def delivery_block_reason(self) -> str | None:
+        """Por que esta resposta NAO pode ser mostrada, se for o caso.
+
+        Precedencia declarada: grounding, depois suficiencia, depois
+        sanitizacao. O determinístico vem primeiro porque e o que se pode
+        afirmar; os outros dois sao, respectivamente, auto-relato do
+        modelo e dano colateral da apresentacao.
+        """
+        if self.status != GROUNDED:
+            return self.status
+        if self.sufficiency == SUFFICIENCY_DENIED:
+            return EVIDENCE_DECLARED_INSUFFICIENT
+        if self.stripping_artifacts:
+            return SANITIZATION_FAILED
+        return None
+
+    @property
+    def deliverable(self) -> bool:
+        return self.delivery_block_reason is None
+
+    @property
+    def needs_human_review(self) -> bool:
+        """``DENIED`` foi observado 2 vezes em 9 execucoes reais, e nas
+        duas estava certo. Duas observacoes nao fazem uma taxa de erro:
+        o portao bloqueia E marca para conferencia humana."""
+        return self.sufficiency == SUFFICIENCY_DENIED
 
     def admin_payload(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "is_grounded": self.is_grounded,
+            "grounding": self.grounding,
+            "sufficiency": self.sufficiency,
+            "deliverable": self.deliverable,
+            "delivery_block_reason": self.delivery_block_reason,
+            "needs_human_review": self.needs_human_review,
             "question": self.question,
             "answer": self.answer,
+            "answer_text_public": self.answer_text_public,
+            "stripping_artifacts": list(self.stripping_artifacts),
             "cited_markers": list(self.cited_markers),
             "invalid_markers": list(self.invalid_markers),
             "available_markers": list(self.available_markers),
+            "raw_used_evidence": self.raw_used_evidence,
+            "normalized_used_evidence": list(self.normalized_used_evidence),
             "model_says_sufficient": self.model_says_sufficient,
             "degraded": self.degraded,
             "degradation_reasons": list(self.degradation_reasons),
@@ -234,23 +341,30 @@ class GroundedAnswerer:
         # conferida contra as evidencias que o modelo de fato recebeu - a
         # validacao cruzada que torna a rastreabilidade verificavel em vez
         # de declarada.
+        bruto = corpo.get("used_evidence")
+        iteravel = bruto if isinstance(bruto, (list, tuple)) else ()
         do_campo = [
-            m for m in (
-                _normalizar_marcador(v)
-                for v in (corpo.get("used_evidence") or [])
-            ) if m
+            m for m in (_normalizar_marcador(v) for v in iteravel) if m
         ]
         citados = list(dict.fromkeys(_MARCADOR.findall(texto) + do_campo))
         invalidos = tuple(m for m in citados if m not in disponiveis)
         validos = tuple(m for m in citados if m in disponiveis)
         por_marcador = {e.marker: e for e in context.evidences}
 
+        # A remocao acontece AQUI, depois de extrair, normalizar e conferir
+        # os marcadores. Antes disso ela destruiria a prova.
+        publico, artefatos = strip_markers(texto)
+
         comum = dict(
             question=question, answer=texto,
+            answer_text_public=publico, stripping_artifacts=artefatos,
             cited_markers=tuple(citados), invalid_markers=invalidos,
             cited_evidences=tuple(por_marcador[m] for m in validos),
             available_markers=disponiveis,
             model_says_sufficient=corpo.get("sufficient"),
+            sufficiency=_classificar_suficiencia(corpo.get("sufficient")),
+            raw_used_evidence=bruto,
+            normalized_used_evidence=tuple(dict.fromkeys(do_campo)),
             degraded=retrieval_degraded,
             degradation_reasons=tuple(degradation_reasons),
             input_tokens=resultado.input_tokens,
