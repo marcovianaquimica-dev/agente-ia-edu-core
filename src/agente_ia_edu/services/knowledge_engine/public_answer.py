@@ -49,11 +49,17 @@ from typing import Any
 
 from .grounded_answer import (
     ANSWER_WITHOUT_CITATION,
+    DEGRADED_RETRIEVAL,
+    EMPTY_PUBLIC_ANSWER,
     EVIDENCE_DECLARED_INSUFFICIENT,
     GroundedAnswer,
     INVALID_EVIDENCE_REFERENCE,
     NO_EVIDENCE,
+    PROVIDER_FAILED,
+    PROVIDER_INVALID_RESPONSE,
+    SANITIZATION_FAILED,
 )
+
 
 ANSWERED = "ANSWERED"
 UNAVAILABLE = "UNAVAILABLE"
@@ -69,15 +75,31 @@ UNAVAILABLE_REASONS: tuple[str, ...] = (
     NO_ANSWER_FROM_CORPUS, TEMPORARILY_UNAVAILABLE,
 )
 
-#: Bloqueios que sao sobre o ACERVO. Todo o resto e operacional - a
-#: escolha por lista explicita, e nao por "tudo que nao for X", e para que
-#: um estado novo precise de decisao em vez de cair num padrao.
+#: Bloqueios que sao sobre o ACERVO: o material nao sustenta a resposta.
 _RAZOES_DE_CORPUS = frozenset({
     NO_EVIDENCE,
     ANSWER_WITHOUT_CITATION,
     INVALID_EVIDENCE_REFERENCE,
     EVIDENCE_DECLARED_INSUFFICIENT,
 })
+
+#: Bloqueios OPERACIONAIS: o acervo nao esta em questao, alguma coisa
+#: falhou. ``EMPTY_PUBLIC_ANSWER`` esta aqui porque resposta vazia e
+#: desvio de contrato do provider, nao afirmacao sobre o corpus.
+_RAZOES_OPERACIONAIS = frozenset({
+    DEGRADED_RETRIEVAL,
+    PROVIDER_FAILED,
+    PROVIDER_INVALID_RESPONSE,
+    SANITIZATION_FAILED,
+    EMPTY_PUBLIC_ANSWER,
+})
+
+#: Todo motivo de bloqueio tem de estar classificado em UM dos dois. Um
+#: motivo novo que nao esteja em nenhum cai no padrao operacional e
+#: dispara este teste, para que a classificacao seja decisao e nao
+#: omissao - foi exatamente o que aconteceu com EMPTY_PUBLIC_ANSWER na
+#: primeira versao.
+KNOWN_BLOCK_REASONS: frozenset[str] = _RAZOES_DE_CORPUS | _RAZOES_OPERACIONAIS
 
 #: Nomes que JAMAIS podem aparecer na saida publica. Fonte unica de
 #: verdade, consumida pelos testes - o mesmo padrao de

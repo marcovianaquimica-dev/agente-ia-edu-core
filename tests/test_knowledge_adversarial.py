@@ -314,6 +314,43 @@ class PublicShapeInvariantTests(unittest.IsolatedAsyncioTestCase):
                 _, p = await _par(payload)
                 self.assertIn(p.outcome, {ANSWERED, UNAVAILABLE})
 
+    def test_every_block_reason_is_explicitly_classified(self):
+        """Nenhum motivo pode cair no padrao por omissao.
+
+        ``EMPTY_PUBLIC_ANSWER`` caiu, na primeira versao: eu o criei e
+        esqueci de classifica-lo, e ele virou operacional sem ninguem
+        decidir. O desenho dizia que isso nao deveria ser possivel - este
+        teste e o que torna a promessa verificavel.
+        """
+        from agente_ia_edu.services.knowledge_engine import (
+            grounded_answer, public_answer,
+        )
+
+        motivos = {
+            grounded_answer.NO_EVIDENCE,
+            grounded_answer.DEGRADED_RETRIEVAL,
+            grounded_answer.ANSWER_WITHOUT_CITATION,
+            grounded_answer.INVALID_EVIDENCE_REFERENCE,
+            grounded_answer.PROVIDER_FAILED,
+            grounded_answer.PROVIDER_INVALID_RESPONSE,
+            grounded_answer.EVIDENCE_DECLARED_INSUFFICIENT,
+            grounded_answer.SANITIZATION_FAILED,
+            grounded_answer.EMPTY_PUBLIC_ANSWER,
+        }
+        self.assertEqual(motivos - public_answer.KNOWN_BLOCK_REASONS, set())
+        self.assertEqual(public_answer.KNOWN_BLOCK_REASONS - motivos, set())
+
+    async def test_an_empty_answer_is_operational_not_a_corpus_statement(self):
+        """Resposta vazia e desvio de contrato do provider. Dizer ao aluno
+        que "o acervo nao cobre" seria afirmar algo que nao foi medido."""
+        from agente_ia_edu.services.knowledge_engine.public_answer import (
+            TEMPORARILY_UNAVAILABLE,
+        )
+
+        _, p = await _par({"answer": "", "used_evidence": ["E1"],
+                           "sufficient": True})
+        self.assertEqual(p.unavailable_reason, TEMPORARILY_UNAVAILABLE)
+
     async def test_an_unknown_future_block_reason_fails_safe(self):
         """Se alguem criar um motivo novo e esquecer de classifica-lo, a
         saida tem de ser INDISPONIVEL - nunca entregar por omissao."""
