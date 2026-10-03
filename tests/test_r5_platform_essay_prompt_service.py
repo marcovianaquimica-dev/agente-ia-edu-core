@@ -124,6 +124,23 @@ class PlatformEssayPromptServiceTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await svc.archive_prompt(platform_essay_prompt_id=uuid.uuid4())
 
+    async def test_unarchive_prompt_flips_status_back_to_active(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            origin = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            await svc.archive_prompt(platform_essay_prompt_id=origin.id)
+
+            restored = await svc.unarchive_prompt(platform_essay_prompt_id=origin.id)
+            self.assertEqual(restored.status, "ACTIVE")
+
+    async def test_unarchive_unknown_prompt_raises_value_error(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            with self.assertRaises(ValueError):
+                await svc.unarchive_prompt(platform_essay_prompt_id=uuid.uuid4())
+
     async def test_materialization_year_is_the_current_utc_year(self):
         self.assertEqual(materialization_year(), datetime.now(timezone.utc).year)
 

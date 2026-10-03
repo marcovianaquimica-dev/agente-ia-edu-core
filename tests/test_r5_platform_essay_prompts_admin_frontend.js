@@ -48,6 +48,11 @@ test('o botao arquivar so aparece em proposta ACTIVE', () => {
   assert.match(js, /p\.status === 'ACTIVE'\s*\?[\s\S]{0,200}data-archive-platform-prompt/);
 });
 
+test('uma proposta arquivada mostra o botao desarquivar no lugar do arquivar', () => {
+  assert.match(js, /p\.status === 'ACTIVE'\s*\?[\s\S]{0,200}data-archive-platform-prompt[\s\S]{0,200}data-unarchive-platform-prompt/);
+  assert.match(js, /fetch\(`\$\{API\}\/platform-essay-prompts\/\$\{promptId\}\/unarchive`, \{\s*method: 'POST'/);
+});
+
 test('403 na listagem vira a mesma mensagem de acesso negado das escolas', () => {
   const platformSection = js.slice(js.indexOf('async function loadPlatformPrompts'));
   assert.match(platformSection, /res\.status === 403/);
@@ -57,9 +62,10 @@ test('403 na listagem vira a mesma mensagem de acesso negado das escolas', () =>
 test('a secao carrega no boot e recarrega quando a identidade muda', () => {
   const boot = js.slice(js.indexOf("// ---------- Identity ----------"));
   assert.match(boot, /loadPlatformPrompts\(\);/);
-  // Cinco ocorrencias no arquivo: apos arquivar, apos criar, apos anexar
-  // material, no handler de troca de identidade e no boot.
-  assert.equal((js.match(/loadPlatformPrompts\(\);/g) || []).length, 5);
+  // Seis ocorrencias no arquivo: apos arquivar, apos desarquivar, apos
+  // criar, apos anexar material, no handler de troca de identidade e no
+  // boot.
+  assert.equal((js.match(/loadPlatformPrompts\(\);/g) || []).length, 6);
 });
 
 test('todo texto vindo da API passa por esc() antes de virar HTML', () => {

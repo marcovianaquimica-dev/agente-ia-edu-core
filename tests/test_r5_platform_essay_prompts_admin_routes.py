@@ -112,6 +112,21 @@ class PlatformEssayPromptsAdminRoutesTests(unittest.TestCase):
         response = self.client.post(f"{BASE}/{uuid.uuid4()}/archive")
         self.assertEqual(response.status_code, 404, response.text)
 
+    def test_unarchive_flips_the_status_back_to_active_and_is_listed_as_active(self):
+        created = self._create()
+        self.client.post(f"{BASE}/{created['id']}/archive")
+
+        response = self.client.post(f"{BASE}/{created['id']}/unarchive")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "ACTIVE")
+
+        listed = self.client.get(BASE).json()
+        self.assertEqual(listed[0]["status"], "ACTIVE")
+
+    def test_unarchive_unknown_prompt_returns_404(self):
+        response = self.client.post(f"{BASE}/{uuid.uuid4()}/unarchive")
+        self.assertEqual(response.status_code, 404, response.text)
+
     def test_teacher_director_and_coordinator_are_all_denied(self):
         created = self._create()
         for role in ("TEACHER", "DIRECTOR", "COORDINATOR"):
@@ -124,6 +139,9 @@ class PlatformEssayPromptsAdminRoutesTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     self.client.post(f"{BASE}/{created['id']}/archive").status_code, 403
+                )
+                self.assertEqual(
+                    self.client.post(f"{BASE}/{created['id']}/unarchive").status_code, 403
                 )
 
     def test_upload_material_attaches_a_file_to_the_platform_prompt(self):
