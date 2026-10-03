@@ -64,7 +64,7 @@ from agente_ia_edu.services.knowledge_engine.grounded_answer import (  # noqa: E
     GroundedAnswerer,
 )
 from agente_ia_edu.services.knowledge_engine.public_answer import (  # noqa: E402
-    to_public,
+    structured_to_public, to_public,
 )
 from agente_ia_edu.services.knowledge_engine.structured_answer import (  # noqa: E402
     StructuredAnswerer,
@@ -385,9 +385,23 @@ async def main() -> None:
                 for s in d.inputs:
                     print(f"         insumo {s.evidence_marker} "
                           f"[{s.status}] {s.span_text[:60]!r}")
-        print(f"\n  TEXTO MONTADO: {estruturada.answer_text}")
+        print(f"\n  TEXTO MONTADO (ADMIN): {estruturada.answer_text}")
+
+        pub_est = structured_to_public(estruturada)
+        _rule("O QUE O USUARIO RECEBERIA - caminho estruturado")
+        print(f"  outcome            : {pub_est.outcome}")
+        print(f"  unavailable_reason : {pub_est.unavailable_reason}")
+        if pub_est.answer_text:
+            print()
+            for linha in pub_est.answer_text.split("\n"):
+                print(f"  {linha}")
+        else:
+            print("\n  (nenhum texto de resposta e entregue)")
+        print("\n  Sem span, sem evidencia, sem fonte, sem estado interno.")
+
         relatorio["structured"] = estruturada.admin_payload()
         relatorio["structured"]["generation_ms"] = round(estruturada_ms, 1)
+        relatorio["structured_public"] = pub_est.payload()
 
     _gravar(args, relatorio, total_comeco, provider_emb, retrieval_ms,
             context_build_ms, generation_ms, resposta)

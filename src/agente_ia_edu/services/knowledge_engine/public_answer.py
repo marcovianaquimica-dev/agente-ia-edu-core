@@ -59,6 +59,10 @@ from .grounded_answer import (
     PROVIDER_INVALID_RESPONSE,
     SANITIZATION_FAILED,
 )
+from .structured_answer import (
+    STRUCTURED_CONTRACT_VIOLATION,
+    STRUCTURED_UNVERIFIED_CLAIM,
+)
 
 
 ANSWERED = "ANSWERED"
@@ -81,17 +85,21 @@ _RAZOES_DE_CORPUS = frozenset({
     ANSWER_WITHOUT_CITATION,
     INVALID_EVIDENCE_REFERENCE,
     EVIDENCE_DECLARED_INSUFFICIENT,
+    # o caminho estruturado: afirmacao que o acervo nao sustenta
+    STRUCTURED_UNVERIFIED_CLAIM,
 })
 
 #: Bloqueios OPERACIONAIS: o acervo nao esta em questao, alguma coisa
-#: falhou. ``EMPTY_PUBLIC_ANSWER`` esta aqui porque resposta vazia e
-#: desvio de contrato do provider, nao afirmacao sobre o corpus.
+#: falhou. ``EMPTY_PUBLIC_ANSWER`` e ``STRUCTURED_CONTRACT_VIOLATION``
+#: estao aqui porque sao desvio de contrato do provider, nao afirmacao
+#: sobre o corpus.
 _RAZOES_OPERACIONAIS = frozenset({
     DEGRADED_RETRIEVAL,
     PROVIDER_FAILED,
     PROVIDER_INVALID_RESPONSE,
     SANITIZATION_FAILED,
     EMPTY_PUBLIC_ANSWER,
+    STRUCTURED_CONTRACT_VIOLATION,
 })
 
 #: Todo motivo de bloqueio tem de estar classificado em UM dos dois. Um
@@ -151,6 +159,31 @@ def to_public(answer: GroundedAnswer) -> PublicAnswer:
             outcome=ANSWERED,
             unavailable_reason=None,
         )
+    return PublicAnswer(
+        answer_text=None,
+        outcome=UNAVAILABLE,
+        unavailable_reason=(
+            NO_ANSWER_FROM_CORPUS if motivo in _RAZOES_DE_CORPUS
+            else TEMPORARILY_UNAVAILABLE
+        ),
+    )
+
+
+def structured_to_public(answer: Any) -> PublicAnswer:
+    """A UNICA porta de audiencia do caminho estruturado.
+
+    Mesmo contrato e mesmo tipo de retorno de ``to_public``: tres campos,
+    e os administrativos nao existem neles. O span - que E literal da
+    obra - fica no canal ADMIN e nunca chega aqui.
+
+    ``answer_text`` so sai quando TODAS as afirmacoes estao verificadas.
+    Entregar a parte boa e omitir a ruim seria apresentar como valida uma
+    resposta que o sistema nao conseguiu sustentar inteira.
+    """
+    motivo = answer.delivery_block_reason
+    if motivo is None:
+        return PublicAnswer(answer_text=answer.answer_text,
+                            outcome=ANSWERED, unavailable_reason=None)
     return PublicAnswer(
         answer_text=None,
         outcome=UNAVAILABLE,

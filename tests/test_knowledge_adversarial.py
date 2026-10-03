@@ -323,7 +323,7 @@ class PublicShapeInvariantTests(unittest.IsolatedAsyncioTestCase):
         teste e o que torna a promessa verificavel.
         """
         from agente_ia_edu.services.knowledge_engine import (
-            grounded_answer, public_answer,
+            grounded_answer, public_answer, structured_answer,
         )
 
         motivos = {
@@ -336,6 +336,11 @@ class PublicShapeInvariantTests(unittest.IsolatedAsyncioTestCase):
             grounded_answer.EVIDENCE_DECLARED_INSUFFICIENT,
             grounded_answer.SANITIZATION_FAILED,
             grounded_answer.EMPTY_PUBLIC_ANSWER,
+            # o caminho estruturado acrescentou dois, e precisam estar
+            # classificados tambem - foi este teste que pegou a omissao
+            # quando eles entraram.
+            structured_answer.STRUCTURED_UNVERIFIED_CLAIM,
+            structured_answer.STRUCTURED_CONTRACT_VIOLATION,
         }
         self.assertEqual(motivos - public_answer.KNOWN_BLOCK_REASONS, set())
         self.assertEqual(public_answer.KNOWN_BLOCK_REASONS - motivos, set())
