@@ -123,10 +123,26 @@ class BuiltContext:
     #: log de diagnostico - o vazamento mais facil de cometer - nao exponha
     #: texto de obra comercial.
     _blocks: tuple[str, ...] = field(default=(), repr=False)
+    #: O literal de CADA evidencia, na ordem dos marcadores. Mesma
+    #: disciplina de ``_blocks``: ``repr=False``, fora de
+    #: ``admin_payload``, nunca serializado.
+    #:
+    #: Existe para a verificacao de span, que precisa procurar o trecho
+    #: NAQUELE chunk - procurar no prompt inteiro transformaria "quotou
+    #: daquela evidencia" em "quotou de alguma", que e exatamente a
+    #: diferenca que a ma atribuicao explora.
+    _evidence_texts: tuple[str, ...] = field(default=(), repr=False)
 
     def prompt_payload(self) -> str:
         """O texto das evidencias, com marcadores. VAI AO PROVIDER."""
         return "\n\n".join(self._blocks)
+
+    def evidence_text(self, marker: str) -> str:
+        """O literal de UMA evidencia. Uso interno de verificacao."""
+        for e, texto in zip(self.evidences, self._evidence_texts):
+            if e.marker == marker:
+                return texto
+        return ""
 
     def admin_payload(self) -> dict[str, Any]:
         """Tudo que pode ser impresso, logado ou serializado."""
@@ -181,6 +197,7 @@ class ContextBuilder:
         no processamento interno, por ``chunk_id``."""
         evidencias: list[ContextEvidence] = []
         blocos: list[str] = []
+        literais: list[str] = []
         excluidas: list[dict[str, Any]] = []
         usados = 0
 
@@ -205,6 +222,7 @@ class ContextBuilder:
 
             usados += len(bloco)
             blocos.append(bloco)
+            literais.append(texto)
             evidencias.append(
                 ContextEvidence(
                     marker=marcador,
@@ -235,6 +253,7 @@ class ContextBuilder:
             used_chars=usados,
             max_evidences=self._max,
             _blocks=tuple(blocos),
+            _evidence_texts=tuple(literais),
         )
 
     @staticmethod

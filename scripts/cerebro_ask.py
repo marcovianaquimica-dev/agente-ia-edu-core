@@ -66,6 +66,9 @@ from agente_ia_edu.services.knowledge_engine.grounded_answer import (  # noqa: E
 from agente_ia_edu.services.knowledge_engine.public_answer import (  # noqa: E402
     to_public,
 )
+from agente_ia_edu.services.knowledge_engine.structured_answer import (  # noqa: E402
+    StructuredAnswerer,
+)
 from agente_ia_edu.services.knowledge_engine.vector_search import (  # noqa: E402
     VectorSearcher,
 )
@@ -113,6 +116,9 @@ async def main() -> None:
     p.add_argument("--dry-run", action="store_true",
                    help="recupera e monta o contexto, NAO chama o gerador")
     p.add_argument("--json", type=Path, help="grava o relatorio completo")
+    p.add_argument("--structured", action="store_true",
+                   help="roda TAMBEM o StructuredAnswerer sobre o MESMO "
+                        "contexto, sem nova recuperacao")
     args = p.parse_args()
 
     user = os.getenv("POSTGRES_USER", "agenteedu")
@@ -337,6 +343,51 @@ async def main() -> None:
           " score.")
     print("  Se algo disso aparecer acima, e defeito - nao estilo.")
     relatorio["public"] = publico.payload()
+
+    # -- caminho paralelo, sobre o MESMO contexto ------------------------
+    if args.structured:
+        comeco = time.perf_counter()
+        estruturada = await StructuredAnswerer(
+            provider=build_text_provider()
+        ).answer(
+            args.pergunta, contexto,
+            retrieval_degraded=busca.degraded,
+            degradation_reasons=busca.degradation_reasons,
+            allow_degraded=args.allow_degraded,
+        )
+        estruturada_ms = (time.perf_counter() - comeco) * 1000
+        _rule("PARALELO: StructuredAnswerer (MESMO contexto, sem nova busca)")
+        print(f"  status      : {estruturada.status}")
+        print(f"  entregavel  : {estruturada.deliverable}"
+              + (f"   bloqueio={estruturada.delivery_block_reason}"
+                 if not estruturada.deliverable else ""))
+        print(f"  suficiencia : {estruturada.sufficiency}")
+        print(f"  afirmacoes  : {estruturada.factual_count} factual, "
+              f"{estruturada.meta_count} meta, "
+              f"{estruturada.connective_count} conectiva")
+        print(f"  caixa       : {estruturada.span_case_mismatches} "
+              f"SPAN_CASE_MISMATCH")
+        if estruturada.contract_errors:
+            print(f"  CONTRATO    : {list(estruturada.contract_errors)}")
+        for c in estruturada.claims:
+            print(f"\n  [{c.index}] {c.kind}  verificada={c.verified}"
+                  + (f"  motivos={list(c.unverified_reasons)}"
+                     if not c.verified else ""))
+            print(f"      {c.text}")
+            for s in c.support:
+                print(f"      <- {s.evidence_marker} [{s.status}] "
+                      f"papel={s.role!r}")
+                print(f"         span: {s.span_text[:90]!r}")
+            if c.derivation:
+                d = c.derivation
+                print(f"      derivacao [{d.status}] {d.expression!r} "
+                      f"= {d.declared_result} (calculado={d.computed})")
+                for s in d.inputs:
+                    print(f"         insumo {s.evidence_marker} "
+                          f"[{s.status}] {s.span_text[:60]!r}")
+        print(f"\n  TEXTO MONTADO: {estruturada.answer_text}")
+        relatorio["structured"] = estruturada.admin_payload()
+        relatorio["structured"]["generation_ms"] = round(estruturada_ms, 1)
 
     _gravar(args, relatorio, total_comeco, provider_emb, retrieval_ms,
             context_build_ms, generation_ms, resposta)
