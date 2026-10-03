@@ -35,7 +35,6 @@ nao se procurou por eles.
 from __future__ import annotations
 
 import json
-import os
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -98,6 +97,38 @@ class FixtureShapeTests(unittest.TestCase):
                 self.assertGreater(p["span_length"], 0)
                 self.assertTrue(p["chunk_id"])
 
+    def test_this_module_never_writes_to_the_process_environment(self):
+        """Guarda contra o defeito que este arquivo ja causou uma vez.
+
+        Variavel de ambiente e estado global do processo: um teste que a
+        escreve quebra testes alheios. Aconteceu - seis testes de
+        redacao pararam de falhar porque a chave da API vazou do .env
+        para o ambiente do pytest.
+
+        A checagem e por ARVORE SINTATICA, nao por texto: a primeira
+        versao procurava a string no arquivo e se auto-detectou nesta
+        propria docstring.
+        """
+        import ast
+
+        arvore = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        ofensas = []
+        for no in ast.walk(arvore):
+            # os.environ.setdefault(...) / .update(...) / .pop(...)
+            if (isinstance(no, ast.Call)
+                    and isinstance(no.func, ast.Attribute)
+                    and isinstance(no.func.value, ast.Attribute)
+                    and no.func.value.attr == "environ"):
+                ofensas.append(f"os.environ.{no.func.attr}()")
+            # os.environ[...] = ...
+            if isinstance(no, ast.Assign):
+                for alvo in no.targets:
+                    if (isinstance(alvo, ast.Subscript)
+                            and isinstance(alvo.value, ast.Attribute)
+                            and alvo.value.attr == "environ"):
+                        ofensas.append("os.environ[...] = ...")
+        self.assertEqual(ofensas, [])
+
     def test_the_fixture_carries_no_commercial_literal(self):
         """O span e a evidencia nao podem estar no repositorio. So
         identificadores, deslocamentos e hashes."""
@@ -111,9 +142,7 @@ class FixtureShapeTests(unittest.TestCase):
         self.assertNotIn("span_text", bruto)
 
 
-@unittest.skipUnless(os.getenv("POSTGRES_USER")
-                     or Path("/Users/marcoviana/agente-ia-edu-core/"
-                             ".claude/worktrees/cerebro-fase1/.env").exists(),
+@unittest.skipUnless((Path(__file__).resolve().parents[1] / ".env").exists(),
                      "precisa do banco do corpus")
 class SpanStillVerifiesTests(unittest.IsolatedAsyncioTestCase):
     """O coracao da regressao: cada regiao continua verificando.
@@ -122,22 +151,45 @@ class SpanStillVerifiesTests(unittest.IsolatedAsyncioTestCase):
     exatamente a troca que a politica de direitos impoe.
     """
 
+    @staticmethod
+    def _env_local() -> dict[str, str]:
+        """Le o ``.env`` para um dicionario LOCAL.
+
+        NAO escreve em ``os.environ``. A primeira versao usava
+        ``setdefault`` e poluiu o processo inteiro do pytest: os testes
+        de transcricao e correcao de redacao verificam que o provider
+        FALHA quando ``OPENAI_API_KEY`` nao esta configurada, e com a
+        chave vazada do ``.env`` eles passaram a encontrar configuracao
+        e pararam de falhar. Seis testes alheios quebraram por causa
+        deste arquivo.
+
+        Variavel de ambiente e estado global do processo. Um teste que a
+        escreve nao testa so a si mesmo.
+        """
+        raiz = Path(__file__).resolve().parents[1]
+        env: dict[str, str] = {}
+        caminho = raiz / ".env"
+        if caminho.exists():
+            for linha in caminho.read_text().splitlines():
+                if "=" in linha and not linha.lstrip().startswith("#"):
+                    k, _, v = linha.partition("=")
+                    env[k.strip()] = v.strip()
+        return env
+
     async def _chunks(self):
         import sys
         raiz = Path(__file__).resolve().parents[1]
-        sys.path.insert(0, str(raiz / "src"))
-        for linha in (raiz / ".env").read_text().splitlines():
-            if "=" in linha and not linha.lstrip().startswith("#"):
-                k, _, v = linha.partition("=")
-                os.environ.setdefault(k.strip(), v.strip())
+        if str(raiz / "src") not in sys.path:
+            sys.path.insert(0, str(raiz / "src"))
+        env = self._env_local()
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import (
             AsyncSession, async_sessionmaker, create_async_engine,
         )
         from agente_ia_edu.db.models import KnowledgeChunk
 
-        user = os.getenv("POSTGRES_USER", "agenteedu")
-        senha = os.getenv("POSTGRES_PASSWORD", "agenteedu_dev")
+        user = env.get("POSTGRES_USER", "agenteedu")
+        senha = env.get("POSTGRES_PASSWORD", "agenteedu_dev")
         engine = create_async_engine(
             f"postgresql+psycopg://{user}:{senha}@localhost:5433/"
             f"agente_ia_edu_fase6_vetorial")
