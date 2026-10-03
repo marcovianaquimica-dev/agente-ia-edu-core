@@ -7,11 +7,12 @@ import unittest
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import EssayPrompt, School
+from agente_ia_edu.db.models import EssayPrompt, PromptMaterial, School
 from agente_ia_edu.services.platform_essay_prompt import (
     PlatformEssayPromptService,
     materialization_year,
@@ -125,6 +126,124 @@ class PlatformEssayPromptServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_materialization_year_is_the_current_utc_year(self):
         self.assertEqual(materialization_year(), datetime.now(timezone.utc).year)
+
+    async def test_add_material_attaches_a_file_to_the_platform_prompt(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            prompt = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            material = await svc.add_material(
+                platform_essay_prompt_id=prompt.id, material_type="FILE",
+                storage_uri="var/materials/x.pdf", position=0,
+            )
+            self.assertEqual(material.platform_essay_prompt_id, prompt.id)
+            self.assertIsNone(material.essay_prompt_id)
+            self.assertEqual(material.storage_uri, "var/materials/x.pdf")
+
+    async def test_add_material_rejects_text_without_content(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            prompt = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            with self.assertRaises(ValueError):
+                await svc.add_material(
+                    platform_essay_prompt_id=prompt.id, material_type="TEXT", position=0,
+                )
+
+    async def test_add_material_to_unknown_prompt_raises_value_error(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            with self.assertRaises(ValueError):
+                await svc.add_material(
+                    platform_essay_prompt_id=uuid.uuid4(), material_type="FILE",
+                    storage_uri="x.pdf", position=0,
+                )
+
+    async def test_add_material_twice_at_the_same_position_raises_value_error(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            prompt = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            await svc.add_material(
+                platform_essay_prompt_id=prompt.id, material_type="FILE",
+                storage_uri="a.pdf", position=0,
+            )
+            with self.assertRaises(ValueError):
+                await svc.add_material(
+                    platform_essay_prompt_id=prompt.id, material_type="FILE",
+                    storage_uri="b.pdf", position=0,
+                )
+
+    async def test_list_materials_returns_them_ordered_by_position(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            prompt = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            await svc.add_material(
+                platform_essay_prompt_id=prompt.id, material_type="FILE",
+                storage_uri="b.pdf", position=1,
+            )
+            await svc.add_material(
+                platform_essay_prompt_id=prompt.id, material_type="FILE",
+                storage_uri="a.pdf", position=0,
+            )
+            materials = await svc.list_materials(platform_essay_prompt_id=prompt.id)
+            self.assertEqual([m.storage_uri for m in materials], ["a.pdf", "b.pdf"])
+
+    async def test_materialize_for_school_copies_the_platform_prompts_materials(self):
+        """A copia da escola precisa ver o mesmo material anexado na origem -
+        reaproveita o mesmo storage_uri (storage e content-addressed, nao
+        precisa duplicar o arquivo fisico), nao os IDs das linhas."""
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            origin = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            await svc.add_material(
+                platform_essay_prompt_id=origin.id, material_type="FILE",
+                storage_uri="var/materials/origem.pdf", position=0,
+            )
+            school = await self._school(session, "MAT")
+            copy = await svc.materialize_for_school(
+                platform_essay_prompt_id=origin.id, school_id=school.id,
+                created_by_external_identity="teacher:p1",
+            )
+            copied_materials = (await session.execute(
+                select(PromptMaterial).where(PromptMaterial.essay_prompt_id == copy.id)
+            )).scalars().all()
+            self.assertEqual(len(copied_materials), 1)
+            self.assertEqual(copied_materials[0].storage_uri, "var/materials/origem.pdf")
+            self.assertEqual(copied_materials[0].material_type, "FILE")
+            self.assertIsNone(copied_materials[0].platform_essay_prompt_id)
+
+    async def test_materialize_for_school_is_idempotent_and_does_not_duplicate_materials(self):
+        async with self.session_factory() as session:
+            svc = PlatformEssayPromptService(session)
+            origin = await svc.create_prompt(
+                title="Tema", statement="s", created_by_external_identity="user:ADMIN"
+            )
+            await svc.add_material(
+                platform_essay_prompt_id=origin.id, material_type="FILE",
+                storage_uri="var/materials/origem.pdf", position=0,
+            )
+            school = await self._school(session, "IDEMP")
+            first = await svc.materialize_for_school(
+                platform_essay_prompt_id=origin.id, school_id=school.id,
+                created_by_external_identity="teacher:p1",
+            )
+            second = await svc.materialize_for_school(
+                platform_essay_prompt_id=origin.id, school_id=school.id,
+                created_by_external_identity="teacher:p1",
+            )
+            self.assertEqual(first.id, second.id)
+            copied_materials = (await session.execute(
+                select(PromptMaterial).where(PromptMaterial.essay_prompt_id == first.id)
+            )).scalars().all()
+            self.assertEqual(len(copied_materials), 1)
 
 
 if __name__ == "__main__":
