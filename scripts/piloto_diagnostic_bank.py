@@ -116,7 +116,7 @@ async def _persistir(s: AsyncSession, itens: list[ItemCandidato]) -> list[str]:
         s.add(fisico); await s.flush()
     esteq = await s.scalar(select(CatalogNode).where(CatalogNode.code == ESTEQ))
     if esteq is None:
-        esteq = CatalogNode(code=ESTEQ, name="Estequiometria e calculos quimicos",
+        esteq = CatalogNode(code=ESTEQ, name="Estequiometria e cálculos químicos",
                             node_type="CONTENT", position=1, parent_id=fisico.id,
                             root_id=disc.root_id or disc.id, active=True)
         s.add(esteq); await s.flush()

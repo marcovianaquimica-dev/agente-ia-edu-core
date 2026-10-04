@@ -423,5 +423,100 @@ class PilotoZeroTests(unittest.TestCase):
             self.app.dependency_overrides[get_current_authenticated_context] = _ctx
 
 
+    # -- o ciclo nao se repete (teste humano, 2026-10-04) -------------------
+
+    def test_k_errar_a_base_leva_a_PRATICAR_nao_a_rediagnosticar(self):
+        """O bug principal que o teste humano encontrou.
+
+        O aluno errou as tres perguntas de Balanceamento. O backend decidia
+        PREPARE_PREREQUISITE - certo - e a prontidao da atividade continuava
+        DIAGNOSTIC apontando para o MESMO conteudo. "Continuar" abria outro
+        microdiagnostico de Balanceamento. E outro.
+
+        O microdiagnostico COLETA EVIDENCIA PARA DECIDIR. Depois que decidiu,
+        repeti-lo nao acrescenta nada.
+        """
+        antes = self._readiness()
+        self.assertEqual(antes["next_step"]["kind"], "DIAGNOSTIC")
+        alvo = antes["target_content_code"]
+        self.assertEqual(alvo, BALANC)
+
+        d = self._abrir_diagnostico(alvo)
+        self._responder(d["assignment_id"], acertos=0)
+
+        depois = self._readiness()
+        self.assertEqual(depois["readiness_route"], ROTA_PREPARACAO, depois)
+        self.assertEqual(depois["next_step"]["kind"], "PRACTICE",
+                         f"o aluno foi mandado a rediagnosticar o que ja foi "
+                         f"medido: {depois['next_step']}")
+        self.assertEqual(depois["next_step"]["content_code"], BALANC,
+                         "a pratica deve ser do conteudo que ficou fraco")
+
+    def test_l_acertar_a_base_faz_o_alvo_AVANCAR(self):
+        """O outro lado: a decisao muda de verdade, nao so de texto."""
+        alvo = self._readiness()["target_content_code"]
+        d = self._abrir_diagnostico(alvo)
+        self._responder(d["assignment_id"])
+
+        depois = self._readiness()
+        self.assertEqual(depois["next_step"]["content_code"], ESTEQ,
+                         f"dominou a base e o alvo nao avancou: {depois['next_step']}")
+
+    def test_m_o_proximo_passo_SEMPRE_existe_e_e_acionavel(self):
+        """Nunca um estado sem saida: ou ha passo com conteudo, ou ha motivo."""
+        for rodada in range(3):
+            p = self._readiness()
+            passo = p["next_step"]
+            with self.subTest(rodada=rodada, kind=passo["kind"]):
+                self.assertIn(passo["kind"],
+                              ("DIAGNOSTIC", "PRACTICE", "ACTIVITY", "NONE"))
+                if passo["kind"] == "NONE":
+                    self.assertTrue(passo.get("reason"),
+                                    "sem passo E sem motivo: a tela fica muda")
+                else:
+                    self.assertTrue(passo.get("content_code"),
+                                    "passo acionavel sem conteudo alvo")
+            if passo["kind"] == "DIAGNOSTIC":
+                d = self._abrir_diagnostico(passo["content_code"])
+                if not d.get("sufficient"):
+                    break
+                self._responder(d["assignment_id"], acertos=0)
+            else:
+                break
+
+    def test_n_o_feedback_vem_do_backend_e_depende_do_resultado(self):
+        """Ate 2026-10-04 o texto era montado no JavaScript, e dizia 'agora
+        falta Balanceamento' a quem acabara de demonstrar Balanceamento."""
+        alvo = self._readiness()["target_content_code"]
+        d = self._abrir_diagnostico(alvo)
+        self._responder(d["assignment_id"])
+
+        r = self.client.get(
+            f"/api/v1/student/micro-diagnostic/{d['assignment_id']}/decision",
+            params={"content_code": alvo,
+                    "objective_assignment_id": self.atividade})
+        self.assertEqual(r.status_code, 200, r.text)
+        fb = r.json().get("feedback")
+        self.assertIsNotNone(fb, "o backend nao devolveu feedback")
+        self.assertEqual(fb["tom"], "BOM")
+        texto = (fb["titulo"] + " " + fb["detalhe"]).lower()
+        self.assertNotIn("falta", texto,
+                         "chamou de falta o que o aluno acabou de demonstrar")
+
+    def test_o_quem_erra_NAO_recebe_texto_de_dominio(self):
+        alvo = self._readiness()["target_content_code"]
+        d = self._abrir_diagnostico(alvo)
+        self._responder(d["assignment_id"], acertos=0)
+
+        fb = self.client.get(
+            f"/api/v1/student/micro-diagnostic/{d['assignment_id']}/decision",
+            params={"content_code": alvo,
+                    "objective_assignment_id": self.atividade}).json()["feedback"]
+        self.assertEqual(fb["tom"], "REVISAR")
+        texto = (fb["titulo"] + " " + fb["detalhe"]).lower()
+        for palavra in ("bom domínio", "muito bem", "você domina"):
+            self.assertNotIn(palavra, texto, f"afirmou dominio: {palavra!r}")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

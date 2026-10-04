@@ -104,6 +104,7 @@ class ReadinessRouteService:
         from agente_ia_edu.services.adaptive_learning_path import (
             AdaptiveLearningPathService,
         )
+        from agente_ia_edu.services.proximo_passo import passo_para
 
         # `student_activities` ja resolve as duas coisas de que precisamos: a
         # AUTORIZACAO (so devolve o que e desta pessoa) e os `content_codes`
@@ -141,14 +142,23 @@ class ReadinessRouteService:
                 "content_name": ((c or {}).get("content_name")
                                  or nomes.get(codigo) or codigo),
                 "content_state": (c or {}).get("content_state") or "INSUFFICIENT_EVIDENCE",
+                "answered": (c or {}).get("questions_answered") or 0,
+                "accuracy": (c or {}).get("accuracy"),
                 "unsatisfied_prerequisites": (c or {}).get("unsatisfied_prerequisites", []),
                 "prerequisites": (c or {}).get("prerequisites")
                                  or await self._prereqs_do_catalogo(
                                      planejador, codigo, requester, por_conteudo),
             })
 
-        rota = rota_de_estados([d["content_state"] for d in detalhes])
-        codigo_alvo, nome_alvo = self._alvo(rota, detalhes)
+        # A ROTA SAI DO PROXIMO PASSO, nao o contrario.
+        #
+        # Antes a rota era calculada dos estados e o alvo escolhido depois, o
+        # que deixava um buraco: com evidencia FRACA sobre a base, a rota dava
+        # DIAGNOSTIC e o alvo voltava a ser a base - o aluno rediagnosticava o
+        # que ja tinha sido medido, para sempre. Agora quem decide e
+        # `proximo_passo`, que olha a evidencia, e a rota e consequencia.
+        passo = passo_para(detalhes)
+        rota = passo["readiness_route"]
 
         return {
             "assignment_id": str(assignment_id),
@@ -156,8 +166,10 @@ class ReadinessRouteService:
             "student_external_id": student_external_id,
             "readiness_route": rota,
             "required_contents": detalhes,
-            "target_content_code": codigo_alvo,
-            "target_content_name": nome_alvo,
+            "target_content_code": passo.get("content_code"),
+            "target_content_name": passo.get("content_name"),
+            # O passo concreto. O frontend TRADUZ isto; nao decide nada.
+            "next_step": passo,
             # a atividade NAO foi concluida por preparar-se para ela
             "objective_assignment_id": str(assignment_id),
             "objective_completed": False,
@@ -173,9 +185,15 @@ class ReadinessRouteService:
             return []
         saida = []
         for p in resolvido.get("prerequisites") or []:
-            estado = (por_conteudo.get(p["code"]) or {}).get("content_state")
+            c = por_conteudo.get(p["code"]) or {}
+            # `answered` e `accuracy` viajam junto porque e com eles que
+            # `proximo_passo` distingue "ainda nao sei" de "ja medi, e falta".
+            # Sem isso o aluno era mandado a rediagnosticar o que ja foi medido.
             saida.append({"code": p["code"], "name": p.get("name"),
-                          "mastered": estado == "MASTERED"})
+                          "mastered": c.get("content_state") == "MASTERED",
+                          "content_state": c.get("content_state"),
+                          "answered": c.get("questions_answered") or 0,
+                          "accuracy": c.get("accuracy")})
         return saida
 
     async def _nomes_do_catalogo(self, codigos: Sequence[str]) -> dict[str, str]:

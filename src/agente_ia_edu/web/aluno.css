@@ -444,3 +444,104 @@ p  { margin: 0 0 .75rem; }
   font-weight: 700;
   color: var(--primaria);
 }
+
+
+/* ======================================= PILOTO ZERO: busca e progresso ===
+   O campo "O que voce precisa agora?" tinha texto e nenhuma forma de enviar -
+   observado no teste humano de 2026-10-04. */
+
+.botao-enviar {
+  flex: 0 0 auto;
+  padding: 0 1rem;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.busca-resultado { margin-top: .75rem; }
+
+.busca-titulo {
+  margin: 0 0 .5rem;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+.busca-lista {
+  margin: 0 0 .5rem;
+  padding-left: 1.1rem;
+  color: var(--tinta-fraca);
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+/* --- Meu Progresso: um cartao por conteudo, com o estado visivel --------
+   Os dados ja eram reais; o que faltava era hierarquia. A cor nao carrega
+   sozinha o significado - o estado tambem esta escrito, para quem nao
+   distingue as cores. */
+
+.fatos { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+
+.cartao-faixa {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .85rem 1rem;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-left-width: 4px;
+  border-radius: 12px;
+}
+
+.faixa-icone {
+  flex: 0 0 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 700;
+  background: var(--fundo);
+  color: var(--tinta-fraca);
+}
+
+.faixa-corpo { flex: 1 1 auto; display: flex; flex-direction: column; }
+.faixa-conteudo { font-weight: 600; color: var(--tinta); line-height: 1.3; }
+.faixa-estado { font-size: .8rem; color: var(--tinta-fraca); }
+
+.faixa-bom { border-left-color: var(--sucesso); }
+.faixa-bom .faixa-icone { background: var(--sucesso-claro); color: var(--sucesso); }
+
+.faixa-meio { border-left-color: var(--alerta); }
+.faixa-meio .faixa-icone { background: var(--alerta-claro); color: var(--alerta); }
+
+.faixa-atencao { border-left-color: var(--primaria); }
+.faixa-atencao .faixa-icone { background: var(--primaria-clara); color: var(--primaria); }
+
+.botao-pequeno {
+  flex: 0 0 auto;
+  padding: .45rem .75rem;
+  font-size: .85rem;
+  min-height: 40px;
+}
+
+.vazio { color: var(--tinta-fraca); list-style: none; }
+
+/* tom do cartao de resultado do diagnostico */
+.cartao-bom { border-left: 4px solid var(--sucesso); }
+.cartao-revisar { border-left: 4px solid var(--primaria); }
+
+
+/* ========================================= PILOTO ZERO: icones das abas ===
+   SVG tracejado, nao emoji: o desenho e o tamanho de 🏠 e 📈 mudam entre
+   sistemas, e a barra saia desalinhada. `currentColor` faz o icone seguir o
+   estado ativo sem uma segunda regra de cor. */
+
+.aba-icone {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+  margin: 0 auto .15rem;
+}

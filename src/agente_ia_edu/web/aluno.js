@@ -134,58 +134,69 @@
       </div>`;
   }
 
+  // ================================== o cartao OBEDECE o proximo passo ====
+  // Nada aqui decide pedagogia. `next_step.kind` vem do backend
+  // (services/proximo_passo.py) e esta funcao so escolhe as palavras.
+  const ACOES = {
+    DIAGNOSTIC: { acao: 'diagnosticar', rotulo: 'Responder' },
+    PRACTICE: { acao: 'praticar', rotulo: 'Revisar agora' },
+    ACTIVITY: { acao: 'abrir-tarefa', rotulo: 'Começar' },
+  };
+
+  function explicacao(passo, tarefa) {
+    const alvo = esc(passo.content_name);
+    const para = passo.for_content_name ? esc(passo.for_content_name) : null;
+    if (passo.kind === 'DIAGNOSTIC') {
+      return para && para !== alvo
+        ? `Antes de começar, três perguntas rápidas sobre <strong>${alvo}</strong>
+           — é a base de ${para}. Isto não vale nota.`
+        : `Antes de começar, três perguntas rápidas sobre <strong>${alvo}</strong>.
+           Isto não vale nota.`;
+    }
+    if (passo.kind === 'PRACTICE') {
+      return para && para !== alvo
+        ? `Vamos firmar <strong>${alvo}</strong> antes de seguir — é a base
+           de ${para}. A atividade continua te esperando.`
+        : `Vamos praticar <strong>${alvo}</strong> um pouco.`;
+    }
+    if (passo.kind === 'ACTIVITY') {
+      return `${tarefa.question_count} ${tarefa.question_count === 1 ? 'questão' : 'questões'}.`;
+    }
+    return '';
+  }
+
   function cartaoDaTarefa(t, p) {
-    // O cartao muda conforme a PRONTIDAO - que veio do servidor, nao daqui.
     const prazo = t.due_at
       ? `<span class="selo selo-prazo">Entrega ${esc(t.due_at.slice(0, 10))}</span>` : '';
+    const passo = (p && p.next_step) || { kind: 'NONE' };
+    const cfg = ACOES[passo.kind];
+    const ola = `<p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>`;
 
-    if (p && p.readiness_route === DIAGNOSTICO && p.target_content_code) {
+    // Sem acao possivel: dizemos o motivo em vez de oferecer um botao morto.
+    if (!cfg) {
       return `
         <div class="contexto">
-          <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
+          ${ola}
           ${prazo}
           <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
-          <p class="detalhe">Antes de começar, três perguntas rápidas sobre
-             <strong>${esc(p.target_content_name)}</strong> — assim eu descubro
-             por onde te ajudar. Isto não vale nota.</p>
-          <button class="botao botao-principal" data-acao="diagnosticar">Responder</button>
+          <p class="indisponivel">${esc(passo.reason
+            || 'Ainda não sei o que esta atividade exige, então não vou te mandar para dentro dela às cegas.')}</p>
         </div>`;
     }
 
-    if (p && p.readiness_route === PREPARACAO && p.target_content_code) {
-      return `
-        <div class="contexto">
-          <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
-          ${prazo}
-          <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
-          <p class="detalhe"><strong>${esc(p.target_content_name)}</strong> vem antes
-             dela. Vamos firmar isso primeiro — a atividade continua te esperando.</p>
-          <button class="botao botao-principal" data-acao="diagnosticar">Começar por aí</button>
-        </div>`;
-    }
+    const selo = passo.kind === 'ACTIVITY'
+      ? '<span class="selo selo-bom">Pronto para começar</span>' : '';
+    const id = passo.kind === 'ACTIVITY' ? ` data-id="${esc(t.assignment_id)}"` : '';
+    const codigo = passo.content_code ? ` data-conteudo="${esc(passo.content_code)}"` : '';
 
-    if (p && p.readiness_route === DIRETO) {
-      return `
-        <div class="contexto">
-          <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
-          ${prazo}
-          <span class="selo selo-bom">Pronto para começar</span>
-          <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
-          <p class="detalhe">${t.question_count} ${t.question_count === 1 ? 'questão' : 'questões'}.</p>
-          <button class="botao botao-principal" data-acao="abrir-tarefa"
-                  data-id="${esc(t.assignment_id)}">Começar</button>
-        </div>`;
-    }
-
-    // Prontidao pede diagnostico mas nao ha o que perguntar: dizemos isso em
-    // vez de oferecer um botao que nao faz nada.
     return `
       <div class="contexto">
-        <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
+        ${ola}
         ${prazo}
+        ${selo}
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
-        <p class="indisponivel">Ainda não sei o que esta atividade exige, então
-           não vou te mandar para dentro dela às cegas. Avise sua escola.</p>
+        <p class="detalhe">${explicacao(passo, t)}</p>
+        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${cfg.rotulo}</button>
       </div>`;
   }
 
@@ -342,11 +353,15 @@
     try {
       await api(`/api/v1/student/activities/${d.assignment_id}/attempt/complete`,
                 { method: 'POST' });
-      await api(`/api/v1/student/activities/${d.assignment_id}/attempt/correct`,
-                { method: 'POST' });
-      d.decisao = await api(
-        `/api/v1/student/micro-diagnostic/${d.assignment_id}/decision`
-        + `?content_code=${encodeURIComponent(d.content_code)}`);
+      d.resultado = await api(
+        `/api/v1/student/activities/${d.assignment_id}/attempt/correct`,
+        { method: 'POST' });
+      if (!d.pratica) {
+        const obj = d.objetivo ? `&objective_assignment_id=${encodeURIComponent(d.objetivo.assignment_id)}` : '';
+        d.decisao = await api(
+          `/api/v1/student/micro-diagnostic/${d.assignment_id}/decision`
+          + `?content_code=${encodeURIComponent(d.content_code)}${obj}`);
+      }
       // A prontidao e relida do estado NOVO - nao reaproveitamos a de antes.
       if (d.objetivo) {
         app.prontidao = await api(
@@ -365,39 +380,105 @@
   function pintarResultado() {
     const d = app.diagnostico;
     const dec = d.decisao || {};
-    const rota = app.prontidao && app.prontidao.readiness_route;
+    // O TEXTO E DO BACKEND (services/feedback_pedagogico.py). Esta funcao nao
+    // escolhe palavra nenhuma sobre desempenho: ate 2026-10-04 ela montava a
+    // frase num `switch` e dizia "agora falta Balanceamento" a quem acabara de
+    // demonstrar Balanceamento.
+    // Na PRATICA nao ha decisao de microdiagnostico - ha desempenho. O texto
+    // entao reporta o que aconteceu, sem concluir nada sobre dominio: quem
+    // conclui e a politica, no proximo recalculo de prontidao.
+    const fb = d.pratica ? resumoDaPratica(d) : (dec.feedback || {});
+    const passo = (d.pratica ? null : dec.next_step)
+                  || (app.prontidao && app.prontidao.next_step) || {};
+    const cfg = ACOES[passo.kind];
     $('sessao-resumo').textContent = 'Pronto';
 
-    // A decisao e sobre o conteudo DIAGNOSTICADO; a rota e sobre a ATIVIDADE.
-    // Elas nao coincidem, e a tela nao pode fingir que sim: dominar o
-    // pre-requisito nao produz evidencia nenhuma sobre o conteudo da tarefa.
-    // Dizer "voce esta pronto para a atividade" e nao oferecer caminho nenhum
-    // foi o primeiro defeito que esta tela mostrou no navegador.
-    const proximo = app.prontidao && app.prontidao.target_content_name;
-    const mensagem = {
-      PROCEED_TO_ACTIVITY: rota === DIRETO
-        ? 'Você está pronto para a atividade.'
-        : `Essa parte você sabe. Agora falta ${proximo || 'o resto'}.`,
-      PREPARE_PREREQUISITE: 'Vamos firmar essa base antes de seguir.',
-      INSUFFICIENT_EVIDENCE: 'Ainda não deu para concluir — precisamos de mais um pouco.',
-    }[dec.decision] || 'Resposta registrada.';
-
-    const seguir = (rota === DIRETO && d.objetivo)
-      ? `<button class="botao botao-principal" data-acao="abrir-tarefa"
-                 data-id="${esc(d.objetivo.assignment_id)}">Ir para a atividade</button>`
-      : (app.prontidao && app.prontidao.target_content_code
-          ? '<button class="botao botao-principal" data-acao="diagnosticar">Continuar</button>'
-          : '');
+    const seguir = cfg
+      ? `<button class="botao botao-principal" data-acao="${cfg.acao}"
+                 ${passo.kind === 'ACTIVITY' && d.objetivo
+                   ? `data-id="${esc(d.objetivo.assignment_id)}"` : ''}
+                 ${passo.content_code ? `data-conteudo="${esc(passo.content_code)}"` : ''}
+                 >${esc(cfg.kindRotulo || cfg.rotulo)}</button>`
+      : '';
 
     $('bloco').innerHTML = `
-      <div class="cartao-bloco">
-        <p class="bloco-etiqueta">Diagnóstico concluído</p>
-        <p class="bloco-titulo">${esc(mensagem)}</p>
+      <div class="cartao-bloco cartao-${esc((fb.tom || 'NEUTRO').toLowerCase())}">
+        <p class="bloco-etiqueta">${d.pratica ? 'Prática concluída' : 'Diagnóstico concluído'}</p>
+        <p class="bloco-titulo">${esc(fb.titulo || 'Resposta registrada.')}</p>
+        ${fb.detalhe ? `<p class="bloco-porque">${esc(fb.detalhe)}</p>` : ''}
         <p class="detalhe">Isto não vale nota e não conta como atividade
-           entregue — serve só para eu saber por onde te ajudar.</p>
+           entregue — ${d.pratica
+             ? 'serve para firmar o conteúdo e ajustar seu próximo passo.'
+             : 'serve só para eu saber por onde te ajudar.'}</p>
         ${seguir}
         <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
       </div>`;
+  }
+
+  function resumoDaPratica(d) {
+    // Os numeros ficam em `result`, um nivel abaixo do envelope devolvido por
+    // /attempt/correct — ler do envelope dava undefined e a tela caia no
+    // texto generico "suas respostas foram registradas".
+    const r = (d.resultado && d.resultado.result) || {};
+    const acertos = r.correct_count;
+    const total = r.question_count;
+    if (acertos === undefined || total === undefined) {
+      return { tom: 'NEUTRO', titulo: 'Prática concluída.',
+               detalhe: 'Suas respostas foram registradas.' };
+    }
+    return {
+      tom: 'NEUTRO',
+      titulo: `Você acertou ${acertos} de ${total}.`,
+      // Deliberadamente NAO diz "voce ja domina": quem decide isso e a
+      // politica, no proximo calculo de prontidao, e o botao abaixo leva
+      // exatamente para o que ela decidir.
+      detalhe: 'Isso entra no seu progresso e ajusta o próximo passo.',
+    };
+  }
+
+  // ======================================================= a preparacao ===
+  // PRATICA de um conteudo, pelo AdaptivePracticeService que ja existe. Nao ha
+  // segundo motor: e a mesma selecao que o microdiagnostico usa, com origem
+  // PRACTICE em vez de MICRO_DIAGNOSTIC.
+  async function praticar(contentCode) {
+    const codigo = contentCode
+      || (app.prontidao && app.prontidao.next_step && app.prontidao.next_step.content_code);
+    if (!codigo) return;
+    irPara('sessao');
+    $('bloco').innerHTML = aviso('Preparando…');
+
+    let pr;
+    try {
+      pr = await api('/api/v1/student/practice', {
+        method: 'POST',
+        body: JSON.stringify({ content_code: codigo, question_count: 5 }),
+      });
+    } catch (e) {
+      const corpo = e.corpo || {};
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-etiqueta">Ainda não dá</p>
+        <p class="bloco-titulo">Não tenho questões suficientes sobre isso</p>
+        ${aviso(corpo.available_questions !== undefined
+          ? `Precisava de ${corpo.requested_questions}, tenho ${corpo.available_questions}.`
+          : (corpo.message || `Erro ${e.status || ''}.`))}
+        <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
+      </div>`;
+      return;
+    }
+
+    const estado = await api(
+      `/api/v1/student/activities/${pr.assignment_id}/attempt`, { method: 'POST' });
+    app.diagnostico = {
+      assignment_id: pr.assignment_id,
+      content_code: codigo,
+      objetivo: app.prontidao,
+      titulo: pr.title || 'Vamos praticar',
+      pratica: true,
+      questoes: estado.questions || [],
+      pos: 0,
+      escolhas: {},
+    };
+    pintarSessao();
   }
 
   // ===================================================== a atividade ======
@@ -427,26 +508,89 @@
     }
   }
 
+  // ========================================================= a busca ======
+  // GET /api/v1/student/search EXISTE e devolve questoes de verdade. O que
+  // ainda NAO existe e abrir uma questao avulsa fora de uma atividade - entao
+  // a tela mostra o que encontrou e diz isso, em vez de oferecer um link que
+  // nao leva a lugar nenhum. Nao ha chat, e nada aqui e simulado.
+  async function buscar(termo) {
+    const q = (termo || '').trim();
+    const caixa = $('resultado-busca');
+    if (!q) { caixa.innerHTML = ''; caixa.hidden = true; return; }
+    caixa.hidden = false;
+    caixa.innerHTML = aviso('Procurando…');
+    try {
+      const r = await api(`/api/v1/student/search?q=${encodeURIComponent(q)}&limit=5`);
+      const achadas = ((r.results || {}).questions) || [];
+      if (!achadas.length) {
+        caixa.innerHTML = `<p class="detalhe">Não encontrei nada sobre
+          <strong>${esc(q)}</strong> no acervo.</p>`;
+        return;
+      }
+      caixa.innerHTML = `
+        <p class="busca-titulo">${achadas.length} ${achadas.length === 1
+          ? 'questão encontrada' : 'questões encontradas'} sobre ${esc(q)}</p>
+        <ul class="busca-lista">
+          ${achadas.map((x) => `<li>${esc((x.title || '').slice(0, 120))}…</li>`).join('')}
+        </ul>
+        <p class="indisponivel">Abrir uma questão avulsa ainda não está
+           disponível. Por enquanto elas chegam pelas atividades e pelas
+           práticas.</p>`;
+    } catch (e) {
+      caixa.innerHTML = `<p class="detalhe">Não consegui buscar agora
+        (erro ${esc(e.status || '')}).</p>`;
+    }
+  }
+
   // ===================================================== progresso ========
   // Tudo aqui vem de GET /api/v1/student/progress, que ja devolve as faixas
   // prontas, traduzidas de PerformanceThresholdPolicy - a unica fonte dos
   // cortes no sistema. A tela so desenha o que recebe.
 
+  // As faixas vem prontas de GET /student/progress, ja traduzidas de
+  // PerformanceThresholdPolicy. Esta tela NAO calcula faixa nenhuma - so
+  // escolhe o icone e decide se ha acao real para oferecer.
+  const FAIXAS = {
+    'Consolidado': { icone: '✓', classe: 'faixa-bom' },
+    'Em desenvolvimento': { icone: '◐', classe: 'faixa-meio' },
+    'Precisa de atenção': { icone: '!', classe: 'faixa-atencao' },
+  };
+
   async function pintarProgresso() {
     if (!identidade()) { $('fatos').innerHTML = ''; return; }
-    $('fatos').innerHTML = '';
-    $('panorama-corpo').innerHTML = aviso('Carregando…');
+    $('fatos').innerHTML = aviso('Carregando…');
     try {
       const j = await api('/api/v1/student/progress');
       const faixas = j.faixas || [];
       if (!faixas.length) {
-        $('fatos').innerHTML =
-          '<li>Assim que você responder alguma coisa, seu progresso aparece aqui.</li>';
+        $('fatos').innerHTML = `<li class="vazio">Assim que você responder
+          alguma coisa, seu progresso aparece aqui.</li>`;
         $('panorama-corpo').innerHTML = '';
         return;
       }
-      $('fatos').innerHTML = faixas.map((f) => `
-        <li><strong>${esc(f.faixa)}</strong>: ${esc((f.itens || []).join(', '))}</li>`).join('');
+      // O conteudo que o sistema quer que ele veja agora - unica fonte de
+      // "Revisar agora". Botao so existe onde ha rota de verdade.
+      const alvo = (app.prontidao && app.prontidao.next_step) || {};
+      const podeRevisar = alvo.kind === 'PRACTICE' ? alvo.content_name : null;
+
+      $('fatos').innerHTML = faixas.flatMap((f) => {
+        const cfg = FAIXAS[f.faixa] || { icone: '·', classe: '' };
+        return (f.itens || []).map((item) => {
+          const acao = (item === podeRevisar)
+            ? `<button class="botao botao-secundario botao-pequeno"
+                       data-acao="praticar" data-conteudo="${esc(alvo.content_code)}"
+               >Revisar agora</button>` : '';
+          return `
+            <li class="cartao-faixa ${cfg.classe}">
+              <span class="faixa-icone" aria-hidden="true">${cfg.icone}</span>
+              <span class="faixa-corpo">
+                <span class="faixa-conteudo">${esc(item)}</span>
+                <span class="faixa-estado">${esc(f.faixa)}</span>
+              </span>
+              ${acao}
+            </li>`;
+        });
+      }).join('');
       $('panorama-corpo').innerHTML = faixas.map((f) => `
         <div class="faixa">
           <h3>${esc(f.faixa)}</h3>
@@ -486,6 +630,7 @@
 
     switch (alvo.dataset.acao) {
       case 'diagnosticar': abrirDiagnostico(); return;
+      case 'praticar': praticar(alvo.dataset.conteudo); return;
       case 'avancar': avancar(); return;
       case 'abrir-tarefa': abrirTarefa(alvo.dataset.id); return;
       case 'inicio': app.diagnostico = null; irPara('inicio'); return;
@@ -509,7 +654,11 @@
     irPara('inicio');
   });
 
-  $('form-perguntar').addEventListener('submit', (e) => e.preventDefault());
+  // Enter ja dispara submit; o botao Enviar e o mesmo caminho.
+  $('form-perguntar').addEventListener('submit', (e) => {
+    e.preventDefault();
+    buscar($('campo-duvida').value);
+  });
 
   irPara('inicio');
 })();

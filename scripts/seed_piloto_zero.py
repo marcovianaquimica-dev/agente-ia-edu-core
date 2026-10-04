@@ -72,6 +72,7 @@ from agente_ia_edu.services.activity_assignment_store import (  # noqa: E402
 from agente_ia_edu.services.curriculum_domain_map import (  # noqa: E402
     ORIGIN_OFFICIAL_ACTIVITY,
 )
+from agente_ia_edu.services.formula_quimica import subscrever  # noqa: E402
 from agente_ia_edu.services.list_generator import ListConfiguration  # noqa: E402
 from agente_ia_edu.services.question_list_store import (  # noqa: E402
     QuestionListStore, Requester,
@@ -348,8 +349,14 @@ async def garantir_diagnostic_bank(s: AsyncSession) -> int:
                                 "equacoes": item["equacoes"]})
         s.add(q)
         await s.flush()
+        # NOTACAO QUIMICA, uma so. Dos 14 itens, 4 nasceram com formula ASCII
+        # (`H2 + O2`) e 10 com subscrito Unicode: o gerador nao foi instruido a
+        # padronizar, e o aluno via as duas notacoes nas MESMAS tres perguntas.
+        # `subscrever` distingue indice de coeficiente e e idempotente, entao os
+        # 10 que ja estavam certos nao mudam.
+        enunciado = subscrever(item["stem"])
         v = QuestionVersion(question_id=q.id, version_kind="official_original",
-                            canonical_text=item["stem"], statement=item["stem"],
+                            canonical_text=enunciado, statement=enunciado,
                             content_hash=str(_uuid.uuid4()), is_immutable=True,
                             recommended_difficulty=item["difficulty"])
         s.add(v)
@@ -357,7 +364,7 @@ async def garantir_diagnostic_bank(s: AsyncSession) -> int:
         opcoes = {}
         for pos, letra in enumerate(LETRAS, start=1):
             o = QuestionOption(question_version_id=v.id, option_key=letra,
-                               position=pos, text=item["options"][letra],
+                               position=pos, text=subscrever(item["options"][letra]),
                                is_valid_option=(letra == item["correct_answer"]))
             s.add(o)
             await s.flush()
@@ -387,6 +394,59 @@ async def garantir_diagnostic_bank(s: AsyncSession) -> int:
                                   question_version_id=v.id))
     print(f"[diagnostic-bank] {len(itens)} itens AI_VERIFIED carregados")
     return len(itens)
+
+
+
+async def normalizar_formulas(s: AsyncSession) -> int:
+    """Uma notacao quimica so, nos itens que o Nucleo mesmo gerou.
+
+    POR QUE ISTO EXISTE SEPARADO DO CARREGAMENTO
+    =============================================
+    `garantir_diagnostic_bank` e idempotente e PULA quando os itens ja estao
+    la - entao normalizar na escrita (o que ele passou a fazer) nao alcanca os
+    14 que ja foram gravados com a notacao mista. Esta funcao alcanca.
+
+    O QUE ELA PODE TOCAR, E SO ISSO
+    ================================
+    `metadata_->bank == nucleo-diagnostic-bank-v1`. Nunca questao importada:
+    reescrever o enunciado de uma questao do ENEM seria falsificar a fonte.
+
+    SOBRE A IMUTABILIDADE
+    =====================
+    `QuestionVersion.is_immutable` existe para impedir que o enunciado de uma
+    prova mude por baixo de quem ja respondeu. Aqui a troca e `H2` -> `H₂`: nao
+    muda a quimica, nao muda qual alternativa esta certa, nao muda o gabarito.
+    E uma correcao de NOTACAO em item de autoria propria, e fica registrada no
+    metadata para que ninguem precise descobrir isso lendo o diff.
+    """
+    linhas = (await s.execute(
+        select(QuestionVersion, Question)
+        .join(Question, Question.id == QuestionVersion.question_id)
+        .where(Question.metadata_["bank"].as_string() == BANK_TAG)
+    )).all()
+    tocados = 0
+    for v, q in linhas:
+        antes = (v.statement, v.canonical_text)
+        v.statement = subscrever(v.statement)
+        v.canonical_text = subscrever(v.canonical_text)
+        mudou = (v.statement, v.canonical_text) != antes
+
+        opcoes = (await s.execute(select(QuestionOption).where(
+            QuestionOption.question_version_id == v.id))).scalars().all()
+        for o in opcoes:
+            novo = subscrever(o.text)
+            if novo != o.text:
+                o.text = novo
+                mudou = True
+
+        if mudou:
+            q.metadata_ = {**(q.metadata_ or {}), "notation_normalised": True}
+            tocados += 1
+    if tocados:
+        print(f"[formulas] notacao normalizada em {tocados} iten(s)")
+    else:
+        print("[formulas] ja padronizadas")
+    return tocados
 
 
 # ------------------------------------------- a atividade real da escola ----
@@ -497,6 +557,8 @@ async def main() -> None:
             await garantir_aluno(s, turma)
             await s.commit()
             await garantir_diagnostic_bank(s)
+            await s.commit()
+            await normalizar_formulas(s)
             await s.commit()
             await garantir_atividade(s, turma)
             await s.commit()

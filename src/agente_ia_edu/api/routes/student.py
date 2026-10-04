@@ -1006,6 +1006,7 @@ from ...services.micro_diagnostic import (  # noqa: E402
     DECISION_INSUFFICIENT,
     MicroDiagnosticService,
 )
+from ...services.feedback_pedagogico import feedback_do_diagnostico  # noqa: E402
 from ...services.readiness_route import (  # noqa: E402
     AtividadeNaoVisivel,
     ReadinessRouteService,
@@ -1064,6 +1065,7 @@ async def start_micro_diagnostic(
 async def get_micro_diagnostic_decision(
     assignment_id: _UUID,
     content_code: str,
+    objective_assignment_id: str | None = None,
     ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
     session_factory=Depends(get_session_factory),
 ) -> dict:
@@ -1107,8 +1109,31 @@ async def get_micro_diagnostic_decision(
         decisao = MicroDiagnosticService(session).decidir(
             answered=respondidas, accuracy=acerto, prerequisito_em_falta=faltando)
         decisao["content_code"] = content_code
+        decisao["content_name"] = (conteudo.get("content_name") or content_code)
         decisao["assignment_id"] = str(assignment_id)
         decisao["evidence_origin"] = "MICRO_DIAGNOSTIC"
         # Diagnostico NAO conclui a tarefa da escola.
         decisao["objective_completed"] = False
+
+        # O TEXTO E DAQUI, nao do JavaScript. Ate 2026-10-04 a tela montava a
+        # frase num `switch` sobre a decisao, e dizia "agora falta
+        # Balanceamento" a quem acabara de demonstrar Balanceamento.
+        objetivo_nome = None
+        proximo = None
+        if objective_assignment_id:
+            try:
+                prontidao = await ReadinessRouteService(session).para_atividade(
+                    _UUID(objective_assignment_id), aluno, requester=requester)
+                objetivo_nome = ((prontidao.get("next_step") or {}).get("for_content_name")
+                                 or prontidao.get("title"))
+                proximo = prontidao.get("next_step")
+            except Exception:  # noqa: BLE001 - sem objetivo visivel, segue sem ele
+                objetivo_nome = None
+
+        decisao["feedback"] = feedback_do_diagnostico(
+            decision=decisao["decision"], band=decisao["band"],
+            content_name=decisao["content_name"], objective_name=objetivo_nome)
+        # O proximo passo ja recalculado sobre o estado NOVO, para a tela nao
+        # precisar de uma segunda chamada nem adivinhar.
+        decisao["next_step"] = proximo
         return decisao
