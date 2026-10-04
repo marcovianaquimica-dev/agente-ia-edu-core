@@ -13,6 +13,9 @@
      GET  /api/v1/student/activities      -> due_at, availability
      GET  /api/v1/student/dashboard       -> welcome_message, has_data
      GET  /api/v1/student/learning-path   -> estado do aluno por conteudo
+     GET  /api/v1/student/progress        -> as tres faixas de Meu Progresso
+                                            (CONSUMIDO DE VERDADE por
+                                            pintarProgresso, nao e mock)
    O planejador ja monta blocos STUDY/PRACTICE/REVIEW/BREAK e ja reparte o
    tempo conforme o estado (INSUFFICIENT_EVIDENCE, BLOCKED_BY_PREREQUISITE...).
 
@@ -76,7 +79,6 @@
     // preenche isto para demonstrar o estado D.
     interrompida: null,
 
-    prova: { disciplina: 'Matemática', quando: 'sexta-feira' },   // MOCK
     dificuldade: { assunto: 'Soluções', minutos: 20 },
 
     progresso: {
@@ -85,11 +87,6 @@
         'Soluções está ficando mais forte',
         'Você avançou em 4 habilidades',
       ],
-      panorama: [
-        { faixa: 'Precisa de atenção', itens: 'Estequiometria' },
-        { faixa: 'Em desenvolvimento', itens: 'Soluções, Cinética' },
-        { faixa: 'Consolidado', itens: 'Tabela periódica, Ligações' },
-      ],
     },
   };
 
@@ -97,9 +94,12 @@
   // Requisito 6 atualizado: a tarefa da escola e o OBJETIVO, nao
   // necessariamente o primeiro passo. Os tres caminhos correspondem 1:1 a
   // estados que o planejador do backend JA usa.
-  const DIRETO = 'DIRECT';        // READY / MASTERED / RECOMMENDED
-  const DIAGNOSTICO = 'DIAGNOSED'; // INSUFFICIENT_EVIDENCE
-  const PREPARACAO = 'PREPARED';   // BLOCKED_BY_PREREQUISITE
+  // Os tres valores sao o contrato persistido em study_sessions.readiness_route
+  // (migration 064), travado la por CheckConstraint. Se mudarem aqui sem mudar
+  // la, a escrita e rejeitada pelo banco - que e o comportamento desejado.
+  const DIRETO = 'DIRECT';                            // READY / MASTERED / RECOMMENDED
+  const DIAGNOSTICO = 'DIAGNOSTIC';                   // INSUFFICIENT_EVIDENCE
+  const PREPARACAO = 'PREREQUISITE_PREPARATION';      // BLOCKED_BY_PREREQUISITE
 
   function rotaDeProntidao(conteudos) {
     const estados = conteudos.map((c) => MOCK.dominio[c] || 'INSUFFICIENT_EVIDENCE');
@@ -126,7 +126,6 @@
     if (!MOCK.aluno.temHistorico && MOCK.semHistorico) return 'A';
     if (MOCK.interrompida) return 'D';
     if (MOCK.tarefas.length && MOCK.tarefas[0].due_at === 'amanhã') return 'B';
-    if (MOCK.prova) return 'E';
     if (MOCK.dificuldade) return 'F';
     if (!MOCK.tarefas.length) return MOCK.aluno.temEscola ? 'H' : 'G';
     return 'C';
@@ -197,15 +196,6 @@
         <button class="ligacao" data-acao="escolher">Começar outra coisa</button>
       </div>`,
 
-    E: () => `
-      <div class="contexto">
-        ${ola()}
-        <span class="selo selo-prazo">Prova ${esc(MOCK.prova.quando)}</span>
-        <p class="chamada">Sua prova de <strong>${esc(MOCK.prova.disciplina)}</strong> está chegando.</p>
-        <button class="botao botao-principal" data-acao="revisar-prova">Revisar para a prova</button>
-        <button class="ligacao" data-acao="escolher">Estudar outra coisa</button>
-      </div>`,
-
     F: () => `
       <div class="contexto">
         ${ola()}
@@ -260,15 +250,15 @@
     if (rota === PREPARACAO) {
       const pre = (MOCK.prerequisitos[conteudos[0]] || [])[0];
       blocos.push({
-        tipo: 'STUDY', etiqueta: 'Preparação', minutos: Math.max(8, Math.round(minutos * 0.35)),
+        tipo: 'STUDY', etiqueta: 'Antes da tarefa', minutos: Math.max(8, Math.round(minutos * 0.35)),
         titulo: pre ? pre.nome : 'Uma ideia que vem antes',
-        porque: 'Isso vai te ajudar a resolver a tarefa.',
+        porque: 'Isso vai facilitar a atividade.',
         acao: 'Começar', disponivel: true,
       });
       blocos.push({
-        tipo: 'PRACTICE', etiqueta: 'Praticar a base', minutos: Math.max(5, Math.round(minutos * 0.15)),
+        tipo: 'PRACTICE', etiqueta: 'Para firmar', minutos: Math.max(5, Math.round(minutos * 0.15)),
         titulo: 'Testar o que acabou de ver',
-        porque: 'Poucas questões, só para firmar.',
+        porque: 'Poucas questões, para a ideia fixar.',
         acao: 'Praticar', disponivel: true,
       });
     }
@@ -290,7 +280,7 @@
     });
 
     blocos.push({
-      tipo: 'REVIEW', etiqueta: 'Fechamento', minutos: FECHAMENTO,
+      tipo: 'REVIEW', etiqueta: 'Para fechar', minutos: FECHAMENTO,
       titulo: 'Revisar o que ficou',
       // o backend marca review_action_available = False: nao inventamos botao
       porque: '', disponivel: false,
@@ -388,14 +378,41 @@
   }
 
   // ===================================================== progresso ========
-  function pintarProgresso() {
+
+  // O panorama vem do BACKEND, de GET /api/v1/student/progress. Aquele
+  // endpoint ja devolve as faixas prontas, traduzidas de
+  // PerformanceThresholdPolicy - a unica fonte dos cortes no sistema.
+  //
+  // Por isso NAO ha nenhum 0.6, 0.8 nem contagem de amostra nesta tela: se
+  // houvesse, existiriam duas definicoes do que significa saber alguma
+  // coisa, e elas divergiriam no dia em que alguem ajustasse uma delas.
+  // A tela so desenha o que recebe.
+  function desenharPanorama(faixas) {
+    if (!faixas.length) {
+      $('panorama-corpo').innerHTML =
+        '<p class="detalhe">Assim que você estudar um pouco, seu panorama aparece aqui.</p>';
+      return;
+    }
+    $('panorama-corpo').innerHTML = faixas.map((f) => `
+      <div class="faixa">
+        <h3>${esc(f.faixa)}</h3>
+        <p>${esc(f.itens.join(', '))}</p>
+      </div>`).join('');
+  }
+
+  async function pintarProgresso() {
     $('fatos').innerHTML = MOCK.progresso.fatos
       .map((f) => `<li>${esc(f)}</li>`).join('');
-    $('panorama-corpo').innerHTML = MOCK.progresso.panorama.map((p) => `
-      <div class="faixa">
-        <h3>${esc(p.faixa)}</h3>
-        <p>${esc(p.itens)}</p>
-      </div>`).join('');
+    try {
+      const r = await fetch('/api/v1/student/progress');
+      if (!r.ok) throw new Error(String(r.status));
+      desenharPanorama((await r.json()).faixas || []);
+    } catch (e) {
+      // Nao inventa faixa nenhuma. Dizer "Consolidado" sem ter lido o
+      // dominio seria pior que nao dizer nada.
+      $('panorama-corpo').innerHTML =
+        '<p class="detalhe">Não consegui carregar seu panorama agora.</p>';
+    }
   }
 
   // ===================================================== navegacao ========
@@ -489,9 +506,6 @@
       case 'dificuldade':
         comecarSessao({ conteudos: ['CHEMISTRY-SOLUTIONS'], minutos: MOCK.dificuldade.minutos });
         break;
-      case 'revisar-prova':
-        comecarSessao({ conteudos: ['CHEMISTRY-SOLUTIONS'], minutos: 30 });
-        break;
       case 'retomar':
         comecarSessao({ conteudos: ['CHEMISTRY-SOLUTIONS'], minutos: MOCK.interrompida.faltam });
         break;
@@ -557,7 +571,7 @@
   (function montarSeletor() {
     const nomes = {
       A: 'primeira entrada', B: 'tarefa pendente', C: 'sem tarefa',
-      D: 'sessão interrompida', E: 'prova próxima', F: 'dificuldade',
+      D: 'sessão interrompida', F: 'dificuldade',
       G: 'sem escola', H: 'tudo em dia',
     };
     $('estados').innerHTML = Object.keys(nomes).map((k) => `

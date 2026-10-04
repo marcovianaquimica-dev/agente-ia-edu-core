@@ -504,6 +504,33 @@ async def get_curriculum_domain(
             raise _map_domain_error(exc) from exc
 
 
+@student_router.get("/progress",
+                    summary="Meu Progresso - the student's own domain map, in three plain bands")
+async def get_student_progress(
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """The same Domain Map as ``/domain``, translated for the student.
+
+    ``/domain`` is the engine's view: accuracy, sample size, evidence state,
+    origin breakdown, curriculum codes. Useful for the teacher, wrong for a
+    15-year-old - a number next to his name invites him to read it as a grade.
+
+    This returns only band names and content names. No cut-off is decided
+    here: the bands come from PerformanceThresholdPolicy, the single source of
+    truth the whole engine already uses. See services/student_progress.py.
+    """
+    from ...services.student_progress import panorama_do_aluno  # noqa: PLC0415
+
+    async with session_factory() as session:
+        svc = CurriculumDomainMapService(session)
+        try:
+            mapa = await svc.get_map(_me(ctx), requester=_student_requester(ctx))
+        except Exception as exc:  # noqa: BLE001
+            raise _map_domain_error(exc) from exc
+    return panorama_do_aluno(mapa)
+
+
 @student_router.post("/domain/rebuild",
                      summary="Recompute the caller's own Domain Map from the ActivityResult history (idempotent)")
 async def rebuild_curriculum_domain(

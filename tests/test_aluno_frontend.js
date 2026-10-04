@@ -68,19 +68,28 @@ test('as três telas existem e só uma fica visível por vez', () => {
 
 // ------------------------------------------------------- estados da Home --
 
-test('os oito estados de Home A..H existem', () => {
-  'ABCDEFGH'.split('').forEach((k) => {
+test('os sete estados de Home do MVP existem — e E NAO existe', () => {
+  // 'E' (prova próxima) saiu do escopo funcional do MVP: nao ha entidade de
+  // avaliacao com data, e inventar uma so para a Home seria mock virando
+  // arquitetura. Fica documentado como evolucao futura no relatorio s7.2.
+  // As letras das outras NAO foram renumeradas de proposito: elas sao
+  // identificador de rastreio em tres documentos ja revisados.
+  'ABCDFGH'.split('').forEach((k) => {
     assert.match(js, new RegExp(`\\n    ${k}: \\(\\)`), `falta o estado ${k}`);
   });
+  assert.doesNotMatch(js, /\n    E: \(\)/, 'o estado E voltou sem decisao');
+  assert.doesNotMatch(js, /MOCK\.prova|revisar-prova/,
+    'sobrou codigo do estado de prova');
 });
 
 test('a precedência entre estados é explícita e determinística', () => {
   const bloco = js.slice(js.indexOf('function estadoDaHome'),
                          js.indexOf('// ==================================================== Home: renderers'));
-  // retomar vem antes de tarefa; tarefa antes de prova
+  // retomar vem antes de tarefa; tarefa antes de dificuldade
   assert.ok(bloco.indexOf("return 'D'") < bloco.indexOf("return 'B'"),
     'terminar o que começou deve vir antes de começar outra coisa');
-  assert.ok(bloco.indexOf("return 'B'") < bloco.indexOf("return 'E'"));
+  assert.ok(bloco.indexOf("return 'B'") < bloco.indexOf("return 'F'"),
+    'a tarefa da escola tem precedencia sobre a dificuldade detectada');
 });
 
 test('tarefa pendente mostra disciplina, prazo e UMA ação principal', () => {
@@ -134,9 +143,12 @@ test('o contrato real do backend está citado para a troca ser direta', () => {
 // ============================ REQUISITO 6 ATUALIZADO: prontidão ===========
 
 test('os três caminhos de prontidão existem e espelham os estados do planejador', () => {
+  // Os literais sao o contrato de study_sessions.readiness_route, travado
+  // por CheckConstraint na migration 064. Divergir aqui faz o banco recusar
+  // a escrita - este teste avisa antes.
   assert.match(js, /const DIRETO = 'DIRECT'/);
-  assert.match(js, /const DIAGNOSTICO = 'DIAGNOSED'/);
-  assert.match(js, /const PREPARACAO = 'PREPARED'/);
+  assert.match(js, /const DIAGNOSTICO = 'DIAGNOSTIC'/);
+  assert.match(js, /const PREPARACAO = 'PREREQUISITE_PREPARATION'/);
   // os estados são os reais do backend, não inventados
   assert.match(js, /BLOCKED_BY_PREREQUISITE/);
   assert.match(js, /INSUFFICIENT_EVIDENCE/);
@@ -164,7 +176,7 @@ test('a atividade continua sendo o OBJETIVO mesmo quando não é o primeiro pass
 
 test('a preparação é explicada como ajuda, nunca como falta do aluno', () => {
   const m = js.slice(js.indexOf('function montarSessao'), js.indexOf('function pintarSessao'));
-  assert.match(m, /Isso vai te ajudar a resolver a tarefa/);
+  assert.match(m, /Isso vai facilitar a atividade/);
   assert.ok(!/você não sabe|não domina|deficiência|fraco/i.test(m),
     'a linguagem não pode culpar o aluno');
 });

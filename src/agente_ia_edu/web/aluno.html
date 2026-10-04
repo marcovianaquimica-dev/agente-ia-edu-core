@@ -42,10 +42,16 @@
     <div id="home" aria-live="polite"></div>
 
     <form class="perguntar" id="form-perguntar">
-      <label class="perguntar-rotulo" for="campo-duvida">O que você quer estudar?</label>
+      <!-- Entrada universal do Nucleo: duvida, conteudo, questao, revisao ou
+           objetivo de estudo. A universalidade mora no ROTULO, que tem a
+           largura toda; o placeholder fica curto porque no telefone sobram
+           ~155px uteis depois dos tres botoes de icone - medido, nao
+           suposto, e "Uma duvida, um assunto, uma questao..." era cortado no
+           meio. Hoje NAO ha interpretacao: ver nota-perguntar abaixo. -->
+      <label class="perguntar-rotulo" for="campo-duvida">O que você precisa agora?</label>
       <div class="perguntar-linha">
         <input class="perguntar-campo" id="campo-duvida" type="text" autocomplete="off"
-               placeholder="Digite sua dúvida...">
+               placeholder="Dúvida, assunto...">
         <button class="icone" type="button" disabled
                 title="Enviar foto — em breve" aria-label="Enviar foto (em breve)">📷</button>
         <button class="icone" type="button" disabled

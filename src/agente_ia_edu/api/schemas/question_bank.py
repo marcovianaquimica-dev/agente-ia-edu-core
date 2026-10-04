@@ -324,6 +324,12 @@ class QBStudentActivity(BaseModel):
     status: str
     availability: str
     target_type: str
+    # Conteudos que esta atividade exige, agregados da classificacao das suas
+    # questoes (content_question_links -> catalog_nodes.code). Mesmo
+    # vocabulario de /learning-path e domain_content_mastery, para que o
+    # cliente consiga cruzar atividade x dominio do aluno sem traducao.
+    # Vazio = questoes ainda nao classificadas, nao "sem conteudo".
+    content_codes: list[str] = []
 
 
 class QBStudentActivityListResponse(BaseModel):

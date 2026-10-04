@@ -146,7 +146,25 @@ class AdaptivePracticeService:
 
     async def create_practice(self, student_external_id: str, *, requester: Requester,
                               content_code: str, mode: str = MODE_CONTENT,
-                              question_count: int = 10) -> dict:
+                              question_count: int = 10,
+                              origin: str = ORIGIN_PRACTICE,
+                              metadata_extra: dict | None = None,
+                              title: str | None = None,
+                              instructions: str | None = None) -> dict:
+        """Build a question set for one content and distribute it to the student.
+
+        ``origin`` / ``metadata_extra`` / ``title`` / ``instructions`` exist so a
+        DIFFERENT PURPOSE can reuse this exact selection without a second
+        engine - today, the micro-diagnostic (see services/micro_diagnostic.py).
+        Everything that makes the selection trustworthy is shared: same bank,
+        same deterministic policy, same exclusions, same refusal to invent
+        questions. What changes is only where the evidence is filed and what
+        the student is told it is for.
+
+        A caller passing a new ``origin`` MUST register it in
+        curriculum_domain_map._KNOWN_ORIGINS, or the evidence lands in the
+        UNKNOWN_ORIGIN quarantine bucket instead of its own.
+        """
         self._authz_self(student_external_id, requester)
         mode = (mode or MODE_CONTENT).upper()
         if mode not in SUPPORTED_MODES:
@@ -219,8 +237,9 @@ class AdaptivePracticeService:
                           school_id=requester.school_id, role=requester.role,
                           is_platform_admin=requester.is_platform_admin)
         config = ListConfiguration(
-            title=f"Prática — {content_name}",
-            instructions="Prática de estudo. Este resultado não é uma nota escolar.",
+            title=title or f"Prática — {content_name}",
+            instructions=instructions
+            or "Prática de estudo. Este resultado não é uma nota escolar.",
             answer_key_presentation="KEY_AT_END",
         )
         summary = await self._lists.create(
@@ -234,15 +253,18 @@ class AdaptivePracticeService:
         view, _existed = await self._assignments.create(
             list_id, requester=owner,
             target_type="STUDENT", target_id=student_external_id,
-            origin=ORIGIN_PRACTICE,
-            extra_metadata={"practice": True, "mode": mode, "content_code": content_code},
+            origin=origin,
+            extra_metadata={"practice": True, "mode": mode, "content_code": content_code,
+                            **(metadata_extra or {})},
         )
         return {
             "practice_id": view.id,
             "assignment_id": view.id,
             "student_external_id": student_external_id,
             "mode": mode,
-            "origin": ORIGIN_PRACTICE,
+            "origin": origin,
+            "title": config.title,
+            "instructions": config.instructions,
             "content_code": content_code,
             "content_name": content_name,
             "state": STATE_CREATED,

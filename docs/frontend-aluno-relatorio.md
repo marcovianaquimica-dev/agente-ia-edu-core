@@ -100,7 +100,7 @@ sessão** em vez de virar menu.
 
 ---
 
-## 6. A Home, oito estados
+## 6. A Home, sete estados
 
 Um estado por contexto, escolhido por precedência determinística, cada um com
 **uma pergunta e uma ação principal**:
@@ -109,7 +109,7 @@ Um estado por contexto, escolhido por precedência determinística, cada um com
 A  primeira entrada     "Ainda não nos conhecemos."      -> Vamos lá
 D  sessão interrompida  "Você parou em X."               -> Continuar
 B  tarefa pendente      "Atividade de Química, amanhã."  -> Começar
-E  prova próxima        "Prova sexta."                   -> Revisar
+E  (retirado do MVP em 2026-10-04 — ver 7.2)
 F  dificuldade          "X está custando mais."          -> Vamos lá
 H  tudo em dia          "Nenhuma tarefa pendente 🎉"      -> Avançar | Revisar
 C  padrão com escola    "Vamos estudar?"                 -> 15/30/45/1h+
@@ -117,7 +117,8 @@ G  padrão sem escola    "O que vamos estudar hoje?"      -> 15/30/45/1h+
 ```
 
 **A precedência importa e está testada:** retomar vem antes de tarefa, tarefa
-antes de prova. Terminar o que se começou vem antes de começar outra coisa.
+antes de dificuldade. Terminar o que se começou vem antes de começar outra
+coisa; a tarefa da escola vem antes do que o sistema detectou por conta.
 
 **Estado A não mostra nenhum número.** Há teste que falha se alguém colocar
 uma métrica zerada lá.
@@ -222,6 +223,136 @@ campos a informação de *como* o aluno chegou à tarefa não existiria depois.
 a mesma regra que o planejador já aplica no backend com
 `action_available=False`.
 
+### 7.2 "Prova próxima" saiu do MVP (decisão 4, aprovada)
+
+O estado E da Home — *"sua prova de Matemática está chegando"* — **foi
+retirado do escopo funcional**. Ele dependia de uma entidade de avaliação com
+data que não existe no schema, e mantê-lo significaria deixar um mock
+parecendo produto até alguém decidir criá-la.
+
+O que ficou registrado para quando a decisão vier: a Home precisa saber
+*disciplina* + *quando*. Se a escola registrar calendário de provas no
+Núcleo, a fonte natural é uma entidade própria; se não registrar, a
+alternativa é derivar de atividades marcadas como prova, com `due_at` — mais
+barato e menos fiel. **Nenhuma das duas foi implementada.**
+
+As outras letras **não foram renumeradas**. A lacuna entre D e F é
+deliberada: as letras são identificador de rastreio em três documentos já
+revisados, e renumerar criaria churn de leitura sem nenhum ganho.
+
+### 7.3 O gatilho real do diagnóstico (decisão 6, investigada)
+
+Na auditoria visual ficou claro que a rota `INSUFFICIENT_EVIDENCE` existia,
+estava testada, renderizava — e **nenhum caminho do protótipo chegava nela**.
+A pergunta certa não era "como fazer aparecer", era "qual é o gatilho real".
+
+**Resposta medida, em `adaptive_learning_path.py`:** o estado é produzido por
+`elif not observed:`, e `observed` é `evidence_state == STATE_OBSERVED`. Ou
+seja — **o aluno nunca respondeu nenhuma questão daquele conteúdo**. Isso não
+tem nada de artificial: é a situação normal de todo conteúdo novo que a
+escola passa a cobrar.
+
+Então a cadeia do diagnóstico é esta, e cada elo foi verificado:
+
+| elo | estado |
+|---|---|
+| atividade → conteúdos exigidos | **fechado neste bloco** (§7.4) |
+| conteúdo → evidência do aluno | já existe — `/learning-path` |
+| evidência ausente → `INSUFFICIENT_EVIDENCE` | já existe — regra acima |
+| `INSUFFICIENT_EVIDENCE` → rota `DIAGNOSTIC` | já existe — protótipo |
+| rota `DIAGNOSTIC` → **diagnóstico curto de 3 perguntas** | **NÃO EXISTE** |
+
+**O elo que falta é o último, e é só ele.** O único diagnóstico no sistema é
+`InitialDiagnostic`: uma sessão adaptativa única, de onboarding, que estima o
+mapa de domínio inteiro do aluno. Não é um check de três perguntas sobre um
+conteúdo. O próprio planejador declara isso — `ACTION_DIAGNOSE` está fora de
+`practice_available`, com o comentário *"diagnostic is a separate flow"*.
+
+**Não inventei condição para a rota aparecer.** Com §7.4 no lugar, ela passa a
+ser alcançável sozinha, pelo motivo certo: basta a escola distribuir uma
+atividade sobre conteúdo que o aluno ainda não praticou. A UX fica preparada;
+o que falta é a experiência de diagnóstico curto, que é decisão de produto,
+não de implementação.
+
+### 7.4 A cadeia fechada: atividade → conteúdo → domínio → prontidão → sessão
+
+Era o elo apontado como faltante em §10. **Fechado neste bloco, só com
+leitura** — nenhuma tabela nova, nenhuma coluna nova, nada tocado no
+Question Bank:
+
+```
+ActivityAssignment.assessment_version_id
+  → assessment_items          quais questões a lista tem
+  → content_question_links    a classificação de cada questão
+  → catalog_nodes.code        o código de conteúdo
+```
+
+O achado que tornou isso barato: **`catalog_nodes.code` é o mesmo vocabulário
+que `/learning-path` e `domain_content_mastery` já usam.** A informação
+existia inteira; estava espalhada por tabelas que não se falavam. Não houve
+tradução no meio, nem campo novo para manter em sincronia.
+
+`QBStudentActivity` ganhou `content_codes: list[str]`. Uma consulta em lote
+para todas as atividades do aluno, não uma por atividade — essa agregação roda
+na tela inicial dele, a requisição mais quente do perfil, e há teste que falha
+se voltar a ser N+1.
+
+**Lista vazia é um fato, não um erro:** significa *"as questões desta
+atividade ainda não foram classificadas"*, que é o estado da maior parte do
+acervo hoje. O cliente trata como evidência ausente — o que, não por acaso,
+leva exatamente à rota de diagnóstico de §7.3.
+
+### 7.5 A rota pedagógica agora é persistível (decisão 3, aprovada)
+
+Migration **064**, aditiva: três colunas em `study_sessions`.
+
+| coluna | para quê |
+|---|---|
+| `readiness_route` | `DIRECT` · `DIAGNOSTIC` · `PREREQUISITE_PREPARATION` |
+| `objective_assignment_id` | qual tarefa da escola era o objetivo |
+| `objective_completed` | se chegou ao fim dela |
+
+**Por que coluna e não um campo no JSON que já existe.** A pergunta que
+Professor e Coordenação vão fazer é de agregação sobre a turma: *"quantos
+alunos ainda não fizeram a tarefa de Estequiometria, e destes, quantos estão
+se preparando para ela?"*. Em JSON isso é varredura; em coluna indexada é
+consulta comum. Há teste que roda essa consulta exata.
+
+`readiness_route` tem **CheckConstraint** com os três valores em vez de
+`String` livre: o conjunto é fechado por definição, e um quarto valor deve
+entrar junto com a decisão de produto que o criou, não por um typo. `NULL`
+continua válido, para sessões anteriores à migration.
+
+**Sem ForeignKey em `objective_assignment_id`, de propósito.** A sessão é
+registro histórico: apagar a atividade não pode apagar nem travar o fato de
+que o aluno estudou para ela.
+
+**Isto é irreversível no que importa.** Em DDL não é — `downgrade` existe e é
+testado. Mas a rota só pode ser gravada no instante em que a sessão é montada,
+porque é o resultado de uma decisão tomada sobre o estado de domínio *daquele
+momento*. Não se reconstrói depois. Cada mês sem as colunas é um mês de dado
+que não existe.
+
+### 7.6 Microcopy revisada (decisões adicionais de UX)
+
+Layout, cores e estrutura intocados. Só texto:
+
+| onde | antes | agora |
+|---|---|---|
+| entrada universal | "O que você quer estudar?" | "O que você precisa agora?" |
+| placeholder | "Digite sua dúvida..." | "Uma dúvida, um assunto, uma questão..." |
+| bloco de preparação | "PREPARAÇÃO" | "ANTES DA TAREFA" |
+| bloco de prática | "PRATICAR A BASE" | "PARA FIRMAR" |
+| bloco final | "FECHAMENTO" | "PARA FECHAR" |
+
+Os conceitos internos **não mudaram**: os `tipo` dos blocos continuam
+`DIAGNOSE` / `STUDY` / `PRACTICE` / `OBJECTIVE` / `REVIEW`, que é o
+vocabulário compartilhado com o planejador. O que mudou é só a `etiqueta` — o
+único desses campos que o aluno vê. Ele não precisa conhecer a arquitetura
+pedagógica para usá-la.
+
+A navegação inferior continua com **dois itens**. Nada foi acrescentado.
+
 ---
 
 ## 8. Mobile
@@ -241,18 +372,30 @@ um dashboard.
 
 ## 9. O que foi implementado
 
-| arquivo | linhas |
+| arquivo | tamanho |
 |---|---:|
-| `web/aluno.html` | 125 |
-| `web/aluno.js` | 546 |
-| `web/aluno.css` | 385 |
-| `tests/test_aluno_frontend.js` | 41 testes |
+| `web/aluno.html` | 131 linhas |
+| `web/aluno.js` | 560 linhas |
+| `web/aluno.css` | 395 linhas |
+| `tests/test_aluno_frontend.js` | 48 testes (estáticos) |
+| `tests/test_aluno_comportamento.js` | 9 testes (comportamentais) |
 
-Servido pelo mount existente: **`/student/aluno.html`**. Nenhuma rota nova,
-nenhum arquivo de backend tocado.
+Servido pelo mount existente: **`/student/aluno.html`**. Nenhuma rota nova.
 
-A folha de perfil traz um **seletor de estados A–H** para você percorrer os
-oito contextos sem precisar forjar dados.
+**No bloco de consolidação de 2026-10-04 o backend passou a ser tocado**, pela
+primeira vez neste trabalho, nos três pontos que as decisões 2 e 3 aprovaram:
+
+| arquivo | o quê |
+|---|---|
+| `services/activity_assignment_store.py` | agregação dos `content_codes` (leitura) |
+| `api/schemas/question_bank.py` | campo `content_codes` em `QBStudentActivity` |
+| `db/models/study_session.py` | três colunas novas |
+| `migrations/versions/064_study_session_readiness.py` | a migration aditiva |
+| `tests/test_aluno_cadeia_conteudos.py` | 12 testes |
+| `tests/test_aluno_migration_064.py` | 8 testes, contra PostgreSQL real |
+
+A folha de perfil traz um **seletor de estados** para percorrer os contextos
+sem forjar dados. São sete: A, B, C, D, F, G, H — ver §7.2 sobre a lacuna.
 
 ---
 
@@ -264,24 +407,27 @@ oito contextos sem precisar forjar dados.
 | plano por blocos | **real** — planejador |
 | pré-requisito bloqueando | **real** — `BLOCKED_BY_PREREQUISITE` |
 | tarefa com prazo | **real** — `due_at` |
-| **conteúdos exigidos pela tarefa** | **mock — é o elo que falta** |
-| prova próxima (estado E) | mock — não há entidade de prova |
+| **conteúdos exigidos pela tarefa** | **IMPLEMENTADO neste bloco** — §7.4 |
+| rota pedagógica persistível | **IMPLEMENTADO neste bloco** — migration 064 |
+| prova próxima (estado E) | **retirado do MVP** — §7.2 |
 | texto livre → assunto | mock — não há interpretação |
 | foto, arquivo, voz | **desabilitados**, sem ação |
 
-**O único elo faltante para o requisito 6 funcionar de verdade:**
+**O elo faltante foi fechado** (§7.4). A cadeia hoje:
 
 ```
-atividade ──[?]──> conteúdos exigidos ──> estado do aluno ──> sessão
-  existe        NÃO EXPOSTO             /learning-path    target_content_codes
-                                           existe             existe
+atividade ──> conteúdos exigidos ──> estado do aluno ──> sessão
+  existe      content_codes          /learning-path    target_content_codes
+              IMPLEMENTADO              existe             existe
 ```
 
-`QBStudentActivity` traz `assignment_id`, `title`, `question_count`,
-`due_at`, `status`, `availability`, `target_type` — e **nenhum conteúdo**. As
-questões têm `content_code` pela classificação, então o servidor consegue
-agregar. É **adição de leitura**, não mudança de arquitetura — mas é contrato
-de backend, e por isso não a fiz.
+**O que ainda falta, e é outro elo:** a experiência de *diagnóstico curto*
+para a qual a rota `DIAGNOSTIC` aponta. O gatilho é real e já computado; a
+tela de três perguntas não existe. Detalhe em §7.3.
+
+**E falta o frontend consumir `content_codes` de verdade** — o protótipo
+continua lendo `MOCK.tarefas[].conteudos`. O campo existe no contrato agora,
+mas trocar o mock por `fetch()` é o passo seguinte, não este.
 
 ---
 
@@ -304,17 +450,36 @@ bloco sem ação falsa · retomada · progresso sem gráfico · controles
 desabilitados · mocks identificados · marcos e `aria-live` · foco · 44 px ·
 `prefers-reduced-motion` · mobile first · **contraste AA medido**.
 
-**Dois registros honestos sobre estes testes:**
+**Depois do bloco de consolidação (2026-10-04):**
 
-1. **44 deles são estáticos** (regex sobre o fonte), no mesmo padrão dos outros
-   11 arquivos de frontend do projeto. Isso os torna baratos e frágeis ao mesmo
-   tempo: eles acoplam o teste ao markup e **não conseguem ver aritmética**.
-   Foram incapazes de detectar o estouro de orçamento descrito em §7.1.
-2. **4 são de execução real** — recortam `montarSessao` do fonte, injetam as
-   dependências e varrem 3 rotas × 9 orçamentos. Foram escritos *depois* de o
-   bug aparecer, e encontraram sozinhos um segundo caso que eu não tinha
-   previsto. **Esta é a direção certa para o resto da suíte**, e está anotada
-   como dívida em §13.
+| | frontend (JS) | backend (Python) |
+|---|---:|---:|
+| antes do bloco | 331 | — |
+| agora | **340** | **+21 novos** |
+
+Os 9 testes novos de frontend estão em `test_aluno_comportamento.js`, e
+nenhum deles é asserção sobre texto:
+
+- **Cascata de CSS calculada.** O defeito do banner vazio era de
+  *especificidade* — o JS estava certo. O teste monta as regras de
+  `aluno.css`, calcula origem + especificidade + ordem para **todo elemento
+  da página** e pergunta qual `display` vence com `hidden` posto. Há um teste
+  que reconstrói o CSS antigo e **exige que o avaliador reprove**: teste que
+  nunca falha não prova nada.
+- **Contrato entre JS e banco.** Lê as três rotas de `aluno.js` e as do
+  `CheckConstraint` da migration 064, e compara os conjuntos. São dois
+  arquivos em duas linguagens que precisam concordar, e nada além deste teste
+  os liga.
+- **Orçamento de pixel do placeholder** — ver §7.6.
+
+No backend, `test_aluno_migration_064.py` **constrói um PostgreSQL
+descartável pela cadeia real de migrations**, testa, e derruba. Não depende
+do banco de desenvolvimento estar em head e não escreve nele.
+
+**O limite que permanece:** a avaliação de cascata é simulação, não render.
+Um DOM de verdade (jsdom) mediria melhor, mas o projeto não tem nenhuma
+dependência Node — introduzir uma seria mudança de infraestrutura, não
+correção de defeito. Fica como dívida 6.
 
 ---
 
@@ -343,28 +508,58 @@ comparar: a tarefa vive em `Menu > Atividades > Pendentes`)*
    da aplicação dá **4,40** — reprova em AA para texto normal. O protótipo usa
    `#5b6b82` (5,02). **O portal atual continua com o valor que reprova**, e
    isso não foi corrigido porque exigiria tocar `styles.css`.
-2. **Estados E e F** dependem de dados que não existem ou são parciais.
-3. **Entrada multimodal** é UX preparada, sem backend.
-4. **A suíte de frontend do projeto é quase toda estática.** Mantive o padrão
+2. **O protótipo ainda lê mock, não o contrato novo.** `content_codes` existe
+   em `QBStudentActivity` a partir deste bloco, mas `aluno.js` continua usando
+   `MOCK.tarefas[].conteudos`. Trocar por `fetch()` é o passo seguinte.
+3. **A gravação de `readiness_route` ainda não acontece.** A migration 064
+   criou as colunas e o frontend já produz o valor; falta o serviço de sessão
+   escrever. Preparado, não ligado — foi o que a decisão 3 pediu.
+4. **Estado F** depende de dados parciais.
+5. **Entrada multimodal** é UX preparada, sem backend. A microcopy já aceita
+   dúvida, conteúdo, questão, revisão ou objetivo — a interpretação não
+   existe.
+6. **A suíte de frontend do projeto é quase toda estática.** Mantive o padrão
    para não introduzir uma segunda forma de testar, mas **§7.1 mostrou o custo
    disso**: um bug de orçamento sobreviveu a 41 asserções porque nenhuma linha
    estava errada — a soma estava. Os 4 testes de execução real que adicionei
    são o caminho; estendê-los exigiria uma camada de DOM (jsdom ou similar),
    que é uma decisão de projeto, não minha.
-5. **1 teste de frontend falhando**, pré-existente, no portal do professor.
+7. **1 teste de frontend falhando**, pré-existente, no portal do professor.
 
 ---
 
 ## 14. Decisões que precisam de você
 
-1. **Promover `/student/aluno.html` a Home padrão do aluno.** O protótipo é
-   reversível: são três arquivos novos.
-2. **`content_codes` em `QBStudentActivity`** — o elo do §10. Sem ele, o
-   requisito 6 funciona só com mock.
-3. **`readiness_route` persistido na sessão** — barato agora, caro depois.
-4. **Estado E** exige uma entidade de avaliação com data. Vale criar?
-5. **Meu Domínio** saiu do MVP do aluno. Se tiver valor para ele, e não só
-   para o professor, isso precisa ser dito.
+**Resolvidas na revisão de produto de 2026-10-04:**
+
+| # | decisão | resultado |
+|---|---|---|
+| 2 | `content_codes` em `QBStudentActivity` | **aprovada e implementada** (§7.4) |
+| 3 | `readiness_route` persistido | **aprovada e implementada** (§7.5) |
+| 4 | entidade de avaliação com data | **recusada** — estado E saiu do MVP (§7.2) |
+| 5 | expor o mapa de domínio ao aluno | **recusada** — ficam as três faixas |
+
+Sobre a 5: o panorama continua em *Precisa de atenção · Em desenvolvimento ·
+Consolidado*. Não virou nota, ranking nem boletim, e os dados dele continuam
+mock — os estados reais existem em `/learning-path`, falta a agregação.
+Mantive a redação atual em vez de trocar para "precisa reforçar": as duas
+servem, e o pedido veio como exemplo, não como texto fechado. Se preferir a
+outra, é uma linha.
+
+**Ainda pendentes:**
+
+1. **Promover `/student/aluno.html` a Home padrão.** Segue **não autorizado**.
+   Antes disso faz sentido: trocar o mock pelo contrato novo (dívida 2),
+   ligar a gravação da rota (dívida 3) e testar com aluno real.
+2. **O diagnóstico curto de três perguntas não existe** (§7.3). O gatilho é
+   real; a experiência é decisão de produto. Enquanto não vier, a rota
+   `DIAGNOSTIC` leva a um bloco que anuncia algo que o sistema não entrega —
+   hoje isso está contido porque o protótipo não alcança a rota, mas deixará
+   de estar no momento em que ele consumir `content_codes` de verdade.
+3. **Quem escreve `readiness_route`?** O serviço de sessão é o lugar natural,
+   mas isso toca um fluxo que já está em produção. Vale um passo próprio.
+4. **A agregação do panorama de progresso** — três faixas a partir de
+   `domain_content_mastery`. Barato, e tira a última tela de mock puro.
 
 ---
 

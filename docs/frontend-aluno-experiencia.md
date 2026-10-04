@@ -57,7 +57,7 @@ Quando mais de um estado se aplica, vale o primeiro:
 A  sem histórico            -> não há o que retomar nem propor
 D  sessão interrompida      -> terminar o que começou vem antes de começar outra
 B  tarefa com prazo <= 48h  -> compromisso com a escola
-E  prova <= 7 dias          -> compromisso com data
+E  prova <= 7 dias          -> RETIRADO DO MVP (2026-10-04)
 F  dificuldade detectada    -> o sistema viu algo que o aluno não viu
 H  tudo em dia              -> celebrar e oferecer escolha
 C  padrão com escola        -> perguntar o tempo
@@ -109,7 +109,8 @@ Faltavam 12 minutos.
 [ Continuar ]                      Começar outra coisa
 ```
 
-**E — prova próxima.**
+**E — prova próxima. ⚠️ RETIRADO DO ESCOPO FUNCIONAL DO MVP em 2026-10-04** (decisão 4). O desenho abaixo fica registrado para quando existir uma entidade de avaliação com data; hoje não há, e o estado foi removido de `aluno.js`. Ver relatório §7.2.
+
 
 ```
 Sua prova de Matemática é sexta-feira.
@@ -462,7 +463,7 @@ previsível · marcos (`header`/`main`/`nav`) e um `h1` por tela ·
 | **conteúdos exigidos pela tarefa** | **não exposto** | **mock** — ver §3.1 |
 | roteamento por prontidão | estados existem no planejador | **mock** — falta o elo acima |
 | retomar sessão | **sim** — `study-session/today` | — |
-| prova próxima (estado E) | **não** | **mock** — não há entidade de prova |
+| prova próxima (estado E) | — | **retirado do MVP** — relatório §7.2 |
 | dificuldade detectada (estado F) | parcial | derivável de `learning-path` |
 | texto livre → assunto | **não** | **mock** — não há interpretação |
 | foto, arquivo, voz | **não** | **UX desabilitada**, sem ação |
@@ -476,7 +477,7 @@ o controle nasce desabilitado e dito.
 
 1. **Promover a nova Home a padrão.** O protótipo nasce em `/aluno`, com o
    `/` atual intacto. Trocar é decisão sua.
-2. **Estado E (prova próxima)** exige uma entidade de avaliação com data que
+2. **Estado E (prova próxima) — RESOLVIDO: retirado.** Exigia uma entidade de avaliação com data que
    não existe. Vale criar?
 3. **Texto livre → assunto** exige interpretação de linguagem natural. Fora
    do MVP determinístico; entra quando houver decisão sobre IA aqui.

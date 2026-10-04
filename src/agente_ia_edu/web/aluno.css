@@ -108,8 +108,18 @@ p  { margin: 0 0 .75rem; }
 }
 
 /* palco e telas --------------------------------------------------------- */
+
+/* O atributo `hidden` do HTML esconde via `display: none` da folha do
+   NAVEGADOR, que qualquer regra nossa de `display` vence por especificidade.
+   Foi assim que o banner de objetivo apareceu vazio ("🎯 Para:" sem texto):
+   o JS fazia `hidden = true` corretamente e o `.objetivo { display: flex }`
+   anulava. Esta regra fecha a classe inteira do problema - vale para todo
+   elemento que o JS esconde, hoje e depois - em vez de remendar caso a caso.
+   `!important` e deliberado: `hidden` e uma afirmacao sobre a existencia do
+   elemento na interface, nao uma preferencia de estilo. */
+[hidden] { display: none !important; }
+
 .palco { padding: 0 1.25rem; }
-.tela[hidden] { display: none; }
 
 /* --------------------------------------------------- cartao de contexto */
 .contexto {
