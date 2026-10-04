@@ -38,6 +38,11 @@ from agente_ia_edu.db.models.assessments import (
     AssessmentVersion,
 )
 from agente_ia_edu.db.models.catalog import CatalogNode, ContentQuestionLink
+
+# Mesmo valor de `curriculum_domain_map.ORIGIN_OFFICIAL_ACTIVITY`, repetido
+# aqui porque importar aquele modulo deste cria ciclo (ele importa este). Ha
+# teste amarrando os dois: se divergirem, ele falha.
+ORIGIN_OFFICIAL_ACTIVITY = "OFFICIAL_ACTIVITY"
 from agente_ia_edu.services.question_list_store import (
     LIST_MATERIAL_TYPE,
     ListAuthorizationError,
@@ -379,9 +384,18 @@ class ActivityAssignmentStore:
         )
         rows = list((await self._session.scalars(q)).all())
         # "Atividades" is documented to the student as work distributed by
-        # their teachers - a self-initiated PHASE 22 practice (origin=PRACTICE,
-        # distributed to oneself via this same store) is not that.
-        rows = [r for r in rows if (r.metadata_ or {}).get("origin") != "PRACTICE"]
+        # their teachers. Anything the student (or the system) started for
+        # themselves through this same store - a PHASE 22 practice, a
+        # micro-diagnostic - is not that.
+        #
+        # This filter used to EXCLUDE origin == "PRACTICE". The day the
+        # micro-diagnostic arrived with an origin of its own, it silently
+        # started showing up as homework: a deny-list only knows the origins
+        # that existed when it was written. It is an allow-list now, so a new
+        # origin defaults to "not school work" and has to be let in on purpose.
+        rows = [r for r in rows
+                if ((r.metadata_ or {}).get("origin") or ORIGIN_OFFICIAL_ACTIVITY)
+                == ORIGIN_OFFICIAL_ACTIVITY]
         if schools:
             rows = [r for r in rows if r.school_id is None or str(r.school_id) in schools]
         if not rows:

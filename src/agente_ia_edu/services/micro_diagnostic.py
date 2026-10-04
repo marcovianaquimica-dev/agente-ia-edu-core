@@ -171,13 +171,25 @@ class MicroDiagnosticService:
         The bands come from PerformanceThresholdPolicy - no cut-off is decided
         here. PONTO_FORTE and DESEMPENHO_INTERMEDIARIO both mean "go": the
         micro-diagnostic asks whether he can START the activity, not whether he
-        has mastered the content. Only weak evidence sends him to prepare, and
-        only when there is in fact a prerequisite to prepare.
+        has mastered the content.
+
+        WEAK EVIDENCE ALWAYS MEANS PREPARE
+        -----------------------------------
+        This used to read ``banda == BAND_IMPROVEMENT and prerequisito_em_falta``
+        - weak evidence only sent the student to prepare when some OTHER content
+        was named as the thing to prepare. The case it missed is the one the
+        Piloto Zero hits first: when the content being diagnosed IS the base
+        (Balanceamento has no prerequisite of its own), a student who got every
+        question wrong came out as PROCEED_TO_ACTIVITY. Measured, not imagined:
+        accuracy 0.0, band PONTO_MELHORIA, decision "go ahead".
+
+        ``prerequisite_code`` stays None in that case, and it means something
+        precise: what needs preparing is this content itself, not an earlier one.
         """
         banda = self._thresholds.band(answered=answered, accuracy=accuracy)
         if banda in (BAND_INSUFFICIENT, BAND_NO_DATA):
             decisao = DECISION_INSUFFICIENT
-        elif banda == BAND_IMPROVEMENT and prerequisito_em_falta:
+        elif banda == BAND_IMPROVEMENT:
             decisao = DECISION_PREPARE
         else:
             decisao = DECISION_PROCEED

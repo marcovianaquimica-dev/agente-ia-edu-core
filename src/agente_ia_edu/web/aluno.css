@@ -393,3 +393,54 @@ p  { margin: 0 0 .75rem; }
   /* largura maxima de LEITURA. Nao vira dashboard: a coluna nao se divide. */
   .palco, .topo, .abas { max-width: 760px; }
 }
+
+
+/* ===================================== PILOTO ZERO: responder a questao ===
+   O enunciado e as alternativas do microdiagnostico. Alvo de toque de 44px
+   em diante (a alternativa inteira e o botao, nao so a letra), porque no
+   telefone errar o alvo durante um diagnostico registra a resposta errada
+   como se fosse a escolha do aluno. */
+
+.bloco-enunciado {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--tinta);
+}
+
+.alternativas {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: 1rem;
+}
+
+.alternativa {
+  display: flex;
+  align-items: flex-start;
+  gap: .75rem;
+  width: 100%;
+  min-height: 44px;
+  padding: .75rem;
+  text-align: left;
+  font: inherit;
+  line-height: 1.4;
+  color: var(--tinta);
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.alternativa:hover { border-color: var(--primaria); }
+
+.alternativa-escolhida {
+  border-color: var(--primaria);
+  box-shadow: inset 0 0 0 1px var(--primaria);
+}
+
+.alternativa-letra {
+  flex: 0 0 1.5rem;
+  font-weight: 700;
+  color: var(--primaria);
+}

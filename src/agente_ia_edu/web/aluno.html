@@ -16,6 +16,9 @@
     Duas telas de navegacao permanente (Inicio, Meu progresso) contra as 13
     do portal atual. Mobile first. Nenhum controle sem funcao: o que ainda
     nao tem backend nasce desabilitado e dito.
+
+    PILOTO ZERO: o conteudo pedagogico desta pagina vem todo do servidor.
+    Ver o cabecalho de aluno.js.
   -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -86,9 +89,6 @@
   <section id="tela-progresso" class="tela" aria-labelledby="h-progresso" hidden>
     <h1 id="h-progresso">Meu progresso</h1>
     <ul class="fatos" id="fatos"></ul>
-    <button class="botao botao-principal" id="btn-proximo-passo" type="button">
-      Próximo passo
-    </button>
 
     <details class="panorama">
       <summary>ver panorama completo</summary>
@@ -120,8 +120,7 @@
   <a class="ligacao" href="/entrada">Trocar de ambiente</a>
 
   <hr class="divisor">
-  <p class="nota"><strong>Protótipo</strong> — ver a Home em cada contexto:</p>
-  <div class="estados" id="estados"></div>
+  <button class="ligacao" data-acao="sair" type="button">Sair desta identidade</button>
 
   <button class="botao botao-secundario" data-fechar-folha type="button">Fechar</button>
 </dialog>

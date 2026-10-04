@@ -1,417 +1,462 @@
 /* =========================================================================
-   PROTOTIPO DO PERFIL ALUNO.
+   PERFIL ALUNO - PILOTO ZERO.
 
    O portal atual (index.html + app.js) continua intacto. Este arquivo nao o
    importa nem o altera.
 
-   O QUE E REAL E O QUE E MOCK
-   ---------------------------
-   Real no backend hoje (ver docs/frontend-aluno-auditoria.md s2):
-     POST /api/v1/student/study-session  -> available_minutes, no_timer,
-                                            target_content_codes
-     GET  /api/v1/student/study-session/today
-     GET  /api/v1/student/activities      -> due_at, availability
-     GET  /api/v1/student/dashboard       -> welcome_message, has_data
-     GET  /api/v1/student/learning-path   -> estado do aluno por conteudo
-     GET  /api/v1/student/progress        -> as tres faixas de Meu Progresso
-                                            (CONSUMIDO DE VERDADE por
-                                            pintarProgresso, nao e mock)
-   O planejador ja monta blocos STUDY/PRACTICE/REVIEW/BREAK e ja reparte o
-   tempo conforme o estado (INSUFFICIENT_EVIDENCE, BLOCKED_BY_PREREQUISITE...).
+   O QUE MUDOU NESTE BLOCO
+   -----------------------
+   Ate aqui esta tela era um prototipo: desenhava oito estados de Home a
+   partir de um objeto MOCK, e a decisao pedagogica central - se o aluno pode
+   comecar a tarefa da escola - era calculada AQUI, em quatro linhas de
+   JavaScript sobre dados inventados.
 
-   Mock aqui, porque NAO existe contrato:
-     - conteudos exigidos por uma atividade (QBStudentActivity nao expoe)
-     - prova proxima (nao ha entidade de avaliacao com data)
-     - interpretacao de texto livre -> assunto
-     - foto / arquivo / voz (controles nascem DESABILITADOS)
+   Agora tudo o que e pedagogico vem do servidor:
 
-   Regra que este arquivo respeita em todo lugar: nenhum botao que nao leva
-   a lugar nenhum. Bloco sem experiencia executavel aparece com a nota e SEM
-   botao - como o proprio planejador ja faz no backend.
+     GET  /api/v1/student/activities                      tarefas da escola
+     GET  /api/v1/student/activities/{id}/readiness       pode comecar?
+     POST /api/v1/student/micro-diagnostic                abre o diagnostico
+     POST /api/v1/student/activities/{id}/attempt         player (ja existia)
+     PUT  .../attempt/answers/{vid}                       resposta
+     POST .../attempt/complete  +  .../attempt/correct    correcao
+     GET  /api/v1/student/micro-diagnostic/{id}/decision  decisao nova
+     GET  /api/v1/student/progress                        Meu Progresso
+
+   O QUE AINDA E ESTATICO, E ESTA DITO NA TELA
+   --------------------------------------------
+     - foto / arquivo / voz: os controles nascem DESABILITADOS;
+     - interpretacao de texto livre: o campo existe, e a nota diz que ainda
+       nao interpreta;
+     - "fatos" de Meu Progresso: SAIRAM. Eram tres frases inventadas
+       ("Voce estudou 3 dias esta semana") que pareciam medidas e nao eram.
+
+   Regra que este arquivo respeita em todo lugar: nenhum botao que nao leva a
+   lugar nenhum, e nenhum numero pedagogico que nao tenha vindo do servidor.
+   Em particular NAO ha aqui 0.6, 0.8 nem "3 questoes": esses cortes sao de
+   PerformanceThresholdPolicy, no backend, e uma segunda copia seria uma
+   segunda definicao do que significa saber alguma coisa.
    ========================================================================= */
 
 (() => {
   'use strict';
 
-  // ===================================================== MOCK =============
-  // Trocar por fetch() quando os contratos existirem. Ver secao 10 de
-  // docs/frontend-aluno-experiencia.md.
-  const MOCK = {
-    aluno: { nome: 'Pedro', inicial: 'P', temEscola: true },
+  // ===================================================== identidade =======
+  // Mesmo mecanismo DEV dos outros portais: a identidade digitada vai como
+  // Bearer e o TestExternalIdentityProvider a resolve. Nao ha senha, e nao
+  // ha autenticacao nova neste bloco - de proposito.
+  const CHAVE = 'nucleo.aluno.identidade';
+  const identidade = () => (localStorage.getItem(CHAVE) || '').trim();
 
-    // GET /api/v1/student/activities  (real, menos `conteudos`)
-    tarefas: [
-      {
-        assignment_id: 'a1', title: 'Atividade de Estequiometria',
-        disciplina: 'Química', question_count: 12,
-        due_at: 'amanhã', availability: 'OPEN',
-        conteudos: ['CHEMISTRY-PHYSICAL-STOICHIOMETRY'],   // MOCK
+  async function api(caminho, opcoes = {}) {
+    const quem = identidade();
+    const r = await fetch(caminho, {
+      ...opcoes,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(quem ? { Authorization: `Bearer ${quem}` } : {}),
+        ...(opcoes.headers || {}),
       },
-      {
-        assignment_id: 'a2', title: 'Lista de Soluções',
-        disciplina: 'Química', question_count: 8,
-        due_at: 'sexta-feira', availability: 'OPEN',
-        conteudos: ['CHEMISTRY-SOLUTIONS'],                // MOCK
-      },
-    ],
-
-    // GET /api/v1/student/learning-path  (estados sao os reais do planejador)
-    dominio: {
-      'CHEMISTRY-PHYSICAL-STOICHIOMETRY': 'BLOCKED_BY_PREREQUISITE',
-      'CHEMISTRY-SOLUTIONS': 'READY',
-      'CHEMISTRY-GENERAL-BALANCING': 'INSUFFICIENT_EVIDENCE',
-    },
-
-    prerequisitos: {
-      'CHEMISTRY-PHYSICAL-STOICHIOMETRY': [
-        { codigo: 'CHEMISTRY-GENERAL-BALANCING', nome: 'Balanceamento de equações' },
-      ],
-    },
-
-    nomes: {
-      'CHEMISTRY-PHYSICAL-STOICHIOMETRY': 'Estequiometria',
-      'CHEMISTRY-SOLUTIONS': 'Soluções',
-      'CHEMISTRY-GENERAL-BALANCING': 'Balanceamento de equações',
-    },
-
-    // GET /api/v1/student/study-session/today
-    // null = nao ha sessao em aberto. O seletor de estados do protótipo
-    // preenche isto para demonstrar o estado D.
-    interrompida: null,
-
-    dificuldade: { assunto: 'Soluções', minutos: 20 },
-
-    progresso: {
-      fatos: [
-        'Você estudou 3 dias esta semana',
-        'Soluções está ficando mais forte',
-        'Você avançou em 4 habilidades',
-      ],
-    },
-  };
-
-  // ============================================ roteamento por prontidao ==
-  // Requisito 6 atualizado: a tarefa da escola e o OBJETIVO, nao
-  // necessariamente o primeiro passo. Os tres caminhos correspondem 1:1 a
-  // estados que o planejador do backend JA usa.
-  // Os tres valores sao o contrato persistido em study_sessions.readiness_route
-  // (migration 064), travado la por CheckConstraint. Se mudarem aqui sem mudar
-  // la, a escrita e rejeitada pelo banco - que e o comportamento desejado.
-  const DIRETO = 'DIRECT';                            // READY / MASTERED / RECOMMENDED
-  const DIAGNOSTICO = 'DIAGNOSTIC';                   // INSUFFICIENT_EVIDENCE
-  const PREPARACAO = 'PREREQUISITE_PREPARATION';      // BLOCKED_BY_PREREQUISITE
-
-  function rotaDeProntidao(conteudos) {
-    const estados = conteudos.map((c) => MOCK.dominio[c] || 'INSUFFICIENT_EVIDENCE');
-    if (estados.includes('BLOCKED_BY_PREREQUISITE')) return PREPARACAO;
-    if (estados.includes('INSUFFICIENT_EVIDENCE')) return DIAGNOSTICO;
-    return DIRETO;
+    });
+    if (!r.ok) {
+      const erro = new Error(`${r.status} ${caminho}`);
+      erro.status = r.status;
+      try { erro.corpo = await r.json(); } catch (_) { /* resposta sem JSON */ }
+      throw erro;
+    }
+    return r.status === 204 ? null : r.json();
   }
 
-  // ======================================================= estado da tela =
+  // As tres rotas de prontidao. Valores identicos aos do CheckConstraint de
+  // study_sessions (migration 064) e aos de services/readiness_route.py.
+  const DIRETO = 'DIRECT';
+  const DIAGNOSTICO = 'DIAGNOSTIC';
+  const PREPARACAO = 'PREREQUISITE_PREPARATION';
+
   const app = {
     tela: 'inicio',
-    homeForcada: null,   // so o seletor de protótipo usa
-    sessao: null,
+    aluno: null,          // {nome}
+    tarefas: [],
+    prontidao: null,      // resposta de /readiness
+    diagnostico: null,    // {assignment_id, questions, pos, respostas}
   };
 
   const $ = (id) => document.getElementById(id);
-  const esc = (t) => String(t).replace(/[&<>"']/g,
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  // =============================================== qual estado da Home ====
-  // Precedencia declarada em docs/frontend-aluno-experiencia.md s2.
-  function estadoDaHome() {
-    if (app.homeForcada) return app.homeForcada;
-    if (!MOCK.aluno.temHistorico && MOCK.semHistorico) return 'A';
-    if (MOCK.interrompida) return 'D';
-    if (MOCK.tarefas.length && MOCK.tarefas[0].due_at === 'amanhã') return 'B';
-    if (MOCK.dificuldade) return 'F';
-    if (!MOCK.tarefas.length) return MOCK.aluno.temEscola ? 'H' : 'G';
-    return 'C';
-  }
+  const aviso = (texto) => `<p class="detalhe">${esc(texto)}</p>`;
 
-  // ==================================================== Home: renderers ===
-  function ola() {
-    return `<p class="saudacao">Olá, ${esc(MOCK.aluno.nome)} 👋</p>`;
-  }
+  // ==================================================== Home: entrada =====
 
-  function blocoDeTempo(rotulo) {
-    return `
-      <p class="tempo-rotulo">${esc(rotulo)}</p>
-      <div class="tempos">
-        ${[15, 30, 45, 60].map((m) => `
-          <button class="tempo" type="button" data-minutos="${m}">
-            ${m === 60 ? '1h+' : `${m}&nbsp;min`}
-          </button>`).join('')}
-      </div>
-      <button class="ligacao" type="button" data-minutos="0">Sem tempo definido</button>`;
-  }
-
-  const HOMES = {
-    A: () => `
+  function pedirIdentidade(erro) {
+    $('home').innerHTML = `
       <div class="contexto">
-        ${ola()}
-        <p class="chamada">Ainda não nos conhecemos.</p>
-        <p class="detalhe">Em 10 minutos eu descubro por onde você deve começar.</p>
-        <button class="botao botao-principal" data-acao="diagnostico">Vamos lá</button>
-        <button class="ligacao" data-acao="escolher">Prefiro escolher eu mesmo</button>
-      </div>`,
-
-    B: () => {
-      const t = MOCK.tarefas[0];
-      return `
-      <div class="contexto">
-        ${ola()}
-        <span class="selo selo-prazo">Para ${esc(t.due_at)}</span>
-        <p class="chamada">Você tem uma atividade de <strong>${esc(t.disciplina)}</strong>.</p>
-        <p class="detalhe">${esc(t.title)} · ${t.question_count} questões</p>
-        <button class="botao botao-principal" data-acao="tarefa" data-id="${esc(t.assignment_id)}">
-          Começar
-        </button>
-        <button class="ligacao" data-acao="escolher">Prefiro estudar outra coisa</button>
-        ${MOCK.tarefas.length > 1
-          ? `<button class="ligacao" data-acao="tarefas">${
-               MOCK.tarefas.length === 2
-                 ? 'Ver a outra tarefa'
-                 : `Ver as outras ${MOCK.tarefas.length - 1} tarefas`
-             }</button>`
-          : ''}
+        <p class="chamada">Entrar</p>
+        <p class="detalhe">Ambiente de desenvolvimento: digite sua identidade.</p>
+        <form class="perguntar" id="form-entrar">
+          <label class="perguntar-rotulo" for="campo-identidade">Identidade</label>
+          <div class="perguntar-linha">
+            <input class="perguntar-campo" id="campo-identidade" type="text"
+                   autocomplete="off" placeholder="student:aluno_teste_a">
+          </div>
+          <button class="botao botao-principal" type="submit">Entrar</button>
+        </form>
+        ${erro ? aviso(erro) : ''}
       </div>`;
-    },
+    const form = $('form-entrar');
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const valor = $('campo-identidade').value.trim();
+      if (!valor) return;
+      localStorage.setItem(CHAVE, valor);
+      pintarHome();
+    });
+  }
 
-    C: () => `
-      <div class="contexto">
-        ${ola()}
-        <p class="chamada">Vamos estudar?</p>
-        ${blocoDeTempo('Quanto tempo você tem hoje?')}
-      </div>`,
+  function carregando() {
+    $('home').innerHTML = `<div class="contexto">${aviso('Carregando…')}</div>`;
+  }
 
-    D: () => `
-      <div class="contexto">
-        <span class="selo selo-neutro">Continuar</span>
-        <p class="chamada">Você parou em <strong>${esc(MOCK.interrompida.assunto)}</strong>.</p>
-        <p class="detalhe">Faltavam ${MOCK.interrompida.faltam} minutos.</p>
-        <button class="botao botao-principal" data-acao="retomar">Continuar</button>
-        <button class="ligacao" data-acao="escolher">Começar outra coisa</button>
-      </div>`,
+  // ===================================================== Home: estados ====
 
-    F: () => `
-      <div class="contexto">
-        ${ola()}
-        <p class="chamada"><strong>${esc(MOCK.dificuldade.assunto)}</strong> está custando mais que o resto.</p>
-        <p class="detalhe">Que tal ${MOCK.dificuldade.minutos} minutos nisso hoje?</p>
-        <button class="botao botao-principal" data-acao="dificuldade">Vamos lá</button>
-        <button class="ligacao" data-acao="escolher">Prefiro outro assunto</button>
-      </div>`,
+  function nomeDoAluno() {
+    const bruto = identidade().replace(/^student:/, '');
+    return (app.aluno && app.aluno.nome) || bruto;
+  }
 
-    G: () => `
+  function cartaoSemTarefa() {
+    return `
       <div class="contexto">
-        ${ola()}
-        <p class="chamada">O que vamos estudar hoje?</p>
-        ${blocoDeTempo('Quanto tempo você tem?')}
-      </div>`,
-
-    H: () => `
-      <div class="contexto">
+        <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
         <span class="selo selo-bom">Tudo em dia</span>
         <p class="chamada">Nenhuma tarefa pendente 🎉</p>
-        <p class="detalhe">Quer avançar ou revisar o que já viu?</p>
-        <div class="dupla">
-          <button class="botao botao-principal" data-acao="avancar">Avançar</button>
-          <button class="botao botao-secundario" data-acao="revisar">Revisar</button>
-        </div>
-      </div>`,
-  };
-
-  function pintarHome() {
-    const estado = estadoDaHome();
-    $('home').innerHTML = (HOMES[estado] || HOMES.C)();
-    $('home').dataset.estado = estado;
+        <p class="detalhe">Quando sua escola enviar uma atividade, ela aparece aqui.</p>
+      </div>`;
   }
 
-  // ======================================================= a sessao =======
-  // Monta o plano. No produto isto vem de POST /study-session; aqui o
-  // formato espelha o do planejador (block_type, estimated_minutes,
-  // action_available) para a troca ser direta.
-  function montarSessao({ objetivo, conteudos, minutos }) {
-    const rota = rotaDeProntidao(conteudos);
-    const blocos = [];
+  function cartaoDaTarefa(t, p) {
+    // O cartao muda conforme a PRONTIDAO - que veio do servidor, nao daqui.
+    const prazo = t.due_at
+      ? `<span class="selo selo-prazo">Entrega ${esc(t.due_at.slice(0, 10))}</span>` : '';
 
-    if (rota === DIAGNOSTICO) {
-      blocos.push({
-        tipo: 'DIAGNOSE', etiqueta: 'Antes de começar', minutos: 4,
-        titulo: 'Três perguntas rápidas',
-        porque: 'Assim eu descubro por onde te ajudar melhor.',
-        acao: 'Responder', disponivel: true,
+    if (p && p.readiness_route === DIAGNOSTICO && p.target_content_code) {
+      return `
+        <div class="contexto">
+          <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
+          ${prazo}
+          <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
+          <p class="detalhe">Antes de começar, três perguntas rápidas sobre
+             <strong>${esc(p.target_content_name)}</strong> — assim eu descubro
+             por onde te ajudar. Isto não vale nota.</p>
+          <button class="botao botao-principal" data-acao="diagnosticar">Responder</button>
+        </div>`;
+    }
+
+    if (p && p.readiness_route === PREPARACAO && p.target_content_code) {
+      return `
+        <div class="contexto">
+          <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
+          ${prazo}
+          <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
+          <p class="detalhe"><strong>${esc(p.target_content_name)}</strong> vem antes
+             dela. Vamos firmar isso primeiro — a atividade continua te esperando.</p>
+          <button class="botao botao-principal" data-acao="diagnosticar">Começar por aí</button>
+        </div>`;
+    }
+
+    if (p && p.readiness_route === DIRETO) {
+      return `
+        <div class="contexto">
+          <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
+          ${prazo}
+          <span class="selo selo-bom">Pronto para começar</span>
+          <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
+          <p class="detalhe">${t.question_count} ${t.question_count === 1 ? 'questão' : 'questões'}.</p>
+          <button class="botao botao-principal" data-acao="abrir-tarefa"
+                  data-id="${esc(t.assignment_id)}">Começar</button>
+        </div>`;
+    }
+
+    // Prontidao pede diagnostico mas nao ha o que perguntar: dizemos isso em
+    // vez de oferecer um botao que nao faz nada.
+    return `
+      <div class="contexto">
+        <p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>
+        ${prazo}
+        <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
+        <p class="indisponivel">Ainda não sei o que esta atividade exige, então
+           não vou te mandar para dentro dela às cegas. Avise sua escola.</p>
+      </div>`;
+  }
+
+  async function pintarHome() {
+    if (!identidade()) return pedirIdentidade();
+    carregando();
+    try {
+      const lista = await api('/api/v1/student/activities');
+      app.tarefas = lista.items || [];
+      if (!app.tarefas.length) {
+        $('home').innerHTML = cartaoSemTarefa();
+        return;
+      }
+      const t = app.tarefas[0];
+      app.prontidao = await api(
+        `/api/v1/student/activities/${t.assignment_id}/readiness`);
+      $('home').innerHTML = cartaoDaTarefa(t, app.prontidao);
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) {
+        localStorage.removeItem(CHAVE);
+        return pedirIdentidade('Não reconheci essa identidade. Tente de novo.');
+      }
+      $('home').innerHTML = `
+        <div class="contexto">
+          <p class="chamada">Não consegui carregar suas tarefas.</p>
+          ${aviso(`Erro ${e.status || ''}. Tente recarregar a página.`)}
+        </div>`;
+    }
+  }
+
+  // ================================================== o microdiagnostico ==
+
+  async function abrirDiagnostico() {
+    const p = app.prontidao;
+    if (!p || !p.target_content_code) return;
+    $('bloco').innerHTML = aviso('Preparando…');
+    irPara('sessao');
+
+    let d;
+    try {
+      d = await api('/api/v1/student/micro-diagnostic', {
+        method: 'POST',
+        body: JSON.stringify({
+          content_code: p.target_content_code,
+          objective_assignment_id: p.assignment_id,
+        }),
       });
+    } catch (e) {
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-titulo">Não deu para começar agora</p>
+        ${aviso((e.corpo && e.corpo.message) || 'Tente de novo mais tarde.')}
+      </div>`;
+      return;
     }
 
-    if (rota === PREPARACAO) {
-      const pre = (MOCK.prerequisitos[conteudos[0]] || [])[0];
-      blocos.push({
-        tipo: 'STUDY', etiqueta: 'Antes da tarefa', minutos: Math.max(8, Math.round(minutos * 0.35)),
-        titulo: pre ? pre.nome : 'Uma ideia que vem antes',
-        porque: 'Isso vai facilitar a atividade.',
-        acao: 'Começar', disponivel: true,
-      });
-      blocos.push({
-        tipo: 'PRACTICE', etiqueta: 'Para firmar', minutos: Math.max(5, Math.round(minutos * 0.15)),
-        titulo: 'Testar o que acabou de ver',
-        porque: 'Poucas questões, para a ideia fixar.',
-        acao: 'Praticar', disponivel: true,
-      });
+    if (!d.sufficient) {
+      // O banco nao tem questoes suficientes. Dizer isso e honesto; concluir
+      // "voce esta pronto" a partir de uma questao nao seria.
+      const s = d.selection || {};
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-etiqueta">Ainda não dá</p>
+        <p class="bloco-titulo">Não tenho perguntas suficientes sobre isso</p>
+        ${aviso(`Precisava de ${s.requested_questions ?? d.question_count}, `
+                + `tenho ${s.available_questions ?? 0}. Não vou adivinhar seu nível `
+                + `com menos que isso.`)}
+        <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
+      </div>`;
+      return;
     }
 
-    const FECHAMENTO = 4;
-    const gasto = blocos.reduce((s, b) => s + b.minutos, 0);
-    const paraObjetivo = Math.max(5, minutos - gasto - FECHAMENTO);
+    const estado = await api(
+      `/api/v1/student/activities/${d.assignment_id}/attempt`, { method: 'POST' });
 
-    blocos.push({
-      tipo: 'OBJECTIVE', etiqueta: 'A atividade', minutos: paraObjetivo,
-      titulo: objetivo ? objetivo.title : 'Praticar',
-      porque: objetivo
-        ? (gasto > 0
-            ? 'Agora sim, com a base pronta.'
-            : 'O que a escola pediu.')
-        : 'Questões no seu nível.',
-      acao: 'Abrir', disponivel: true,
-      parcial: Boolean(objetivo) && gasto > 0,
-    });
-
-    blocos.push({
-      tipo: 'REVIEW', etiqueta: 'Para fechar', minutos: FECHAMENTO,
-      titulo: 'Revisar o que ficou',
-      // o backend marca review_action_available = False: nao inventamos botao
-      porque: '', disponivel: false,
-      nota: 'A revisão guiada ainda não está disponível. Vamos marcar o que você errou para a próxima.',
-    });
-
-    // CABER NO TEMPO QUE O ALUNO TEM.
-    // Os pisos de cada bloco (8 + 5 + 5 + 4 = 22) nao cabem em 15 minutos.
-    // O certo nao e inflar o tempo pedido - e fazer MENOS e dizer. Blocos
-    // que nao cabem saem do fim para o comeco, porque a preparacao e o que
-    // torna o resto possivel.
-    const cabem = [];
-    let acumulado = 0;
-    for (const b of blocos) {
-      if (acumulado + b.minutos > minutos && cabem.length) break;
-      cabem.push(b);
-      acumulado += b.minutos;
-    }
-    // Caso-limite: nem o PRIMEIRO bloco cabe (5 minutos contra um piso de 8).
-    // Mantemos o bloco — ficar sem nada a fazer e pior — mas encurtado ao
-    // tempo real e marcado como parcial, em vez de prometer 8 e gastar 8.
-    if (cabem.length === 1 && cabem[0].minutos > minutos) {
-      cabem[0] = { ...cabem[0], minutos, parcial: true };
-    }
-
-    const ficaramDeFora = blocos.slice(cabem.length);
-    const objetivoFicouDeFora = ficaramDeFora.some((b) => b.tipo === 'OBJECTIVE');
-
-    return {
-      objetivo, rota, minutos, blocos: cabem, atual: 0,
-      objetivoFicouDeFora,
-      // dado que Professor/Coordenacao vao precisar depois (s3.1 do mapa)
-      readiness_route: rota,
-      objective_assignment_id: objetivo ? objetivo.assignment_id : null,
-      completed_objective: false,
+    app.diagnostico = {
+      assignment_id: d.assignment_id,
+      content_code: d.content_code,
+      objetivo: p,
+      titulo: d.title,
+      instrucoes: d.instructions,
+      questoes: estado.questions || [],
+      pos: 0,
+      escolhas: {},
     };
+    pintarSessao();
   }
 
   function pintarSessao() {
-    const s = app.sessao;
-    if (!s) return;
+    const d = app.diagnostico;
+    if (!d) { $('bloco').innerHTML = ''; return; }
 
-    if (s.objetivo) {
-      $('objetivo').hidden = false;
-      $('objetivo-texto').textContent = s.objetivo.title;
-    } else {
-      $('objetivo').hidden = true;
-    }
+    // O objetivo continua visivel o tempo todo: o aluno esta se PREPARANDO
+    // para a tarefa da escola, nao trocando de tarefa.
+    const objetivo = d.objetivo && d.objetivo.title;
+    $('objetivo').hidden = !objetivo;
+    if (objetivo) $('objetivo-texto').textContent = objetivo;
 
-    $('trilho').innerHTML = s.blocos.map((_, i) => {
-      const classe = i < s.atual ? 'passo passo-feito'
-        : i === s.atual ? 'passo passo-agora' : 'passo';
+    const total = d.questoes.length;
+    $('trilho').innerHTML = d.questoes.map((_, i) => {
+      const classe = i < d.pos ? 'passo passo-feito'
+        : i === d.pos ? 'passo passo-agora' : 'passo';
       return `<span class="${classe}"></span>`;
     }).join('');
 
-    const total = s.blocos.reduce((a, b) => a + b.minutos, 0);
+    if (d.pos >= total) return pintarResultado();
+
     $('sessao-resumo').textContent =
-      `Etapa ${s.atual + 1} de ${s.blocos.length} · ${total} min no total`
-      + (s.objetivoFicouDeFora
-          ? ' · hoje damos conta da preparação; a atividade fica para a próxima'
-          : '');
+      `Pergunta ${d.pos + 1} de ${total} · isto não vale nota`;
 
-    const b = s.blocos[s.atual];
-    const proximo = s.blocos[s.atual + 1];
-
-    if (!b) {
-      $('bloco').innerHTML = `
-        <div class="cartao-bloco">
-          <p class="bloco-etiqueta">Pronto</p>
-          <p class="bloco-titulo">Sessão concluída</p>
-          <p class="bloco-porque">${s.objetivo
-            ? 'Seu progresso na atividade foi salvo.'
-            : 'Bom trabalho.'}</p>
-          <button class="botao botao-principal" data-acao="inicio">Voltar ao início</button>
-        </div>`;
-      return;
-    }
+    const q = d.questoes[d.pos];
+    const escolhida = d.escolhas[q.question_version_id];
+    // O player chama a letra de `key` (nao `option_key`, que e o nome da
+    // coluna no banco). Com o nome errado as alternativas saem com
+    // data-opcao="" e o botao nunca habilita - sem nenhum erro no console.
+    const alternativas = (q.options || []).map((o) => `
+      <button class="alternativa${escolhida === o.key ? ' alternativa-escolhida' : ''}"
+              type="button" data-opcao="${esc(o.key)}">
+        <span class="alternativa-letra">${esc(o.key)}</span>
+        <span>${esc(o.text)}</span>
+      </button>`).join('');
 
     $('bloco').innerHTML = `
       <div class="cartao-bloco">
-        <p class="bloco-etiqueta">${esc(b.etiqueta)} · ${b.minutos} min</p>
-        <p class="bloco-titulo">${esc(b.titulo)}</p>
-        ${b.porque ? `<p class="bloco-porque">${esc(b.porque)}</p>` : ''}
-        ${b.parcial
-          ? `<p class="nota">Se não der para terminar hoje, seu progresso fica salvo.</p>`
-          : ''}
-        ${b.disponivel
-          ? `<button class="botao botao-principal" data-acao="concluir-bloco">${esc(b.acao)}</button>`
-          : `<p class="indisponivel">${esc(b.nota)}</p>
-             <button class="botao botao-secundario" data-acao="concluir-bloco">Continuar</button>`}
-        ${proximo
-          ? `<p class="a-seguir">a seguir: ${esc(proximo.titulo.toLowerCase())} · ${proximo.minutos} min</p>`
-          : ''}
+        <p class="bloco-etiqueta">${esc(d.titulo || 'Vamos ver onde você está')}</p>
+        <p class="bloco-enunciado">${esc(q.statement || '')}</p>
+        <div class="alternativas">${alternativas}</div>
+        <button class="botao botao-principal" data-acao="avancar"
+                ${escolhida ? '' : 'disabled'}>
+          ${d.pos + 1 === total ? 'Concluir' : 'Próxima'}
+        </button>
       </div>`;
   }
 
-  // ===================================================== progresso ========
-
-  // O panorama vem do BACKEND, de GET /api/v1/student/progress. Aquele
-  // endpoint ja devolve as faixas prontas, traduzidas de
-  // PerformanceThresholdPolicy - a unica fonte dos cortes no sistema.
-  //
-  // Por isso NAO ha nenhum 0.6, 0.8 nem contagem de amostra nesta tela: se
-  // houvesse, existiriam duas definicoes do que significa saber alguma
-  // coisa, e elas divergiriam no dia em que alguem ajustasse uma delas.
-  // A tela so desenha o que recebe.
-  function desenharPanorama(faixas) {
-    if (!faixas.length) {
-      $('panorama-corpo').innerHTML =
-        '<p class="detalhe">Assim que você estudar um pouco, seu panorama aparece aqui.</p>';
-      return;
+  async function escolher(opcao) {
+    const d = app.diagnostico;
+    const q = d.questoes[d.pos];
+    d.escolhas[q.question_version_id] = opcao;
+    pintarSessao();                       // resposta aparece marcada na hora
+    try {
+      await api(`/api/v1/student/activities/${d.assignment_id}`
+                + `/attempt/answers/${q.question_version_id}`,
+                { method: 'PUT', body: JSON.stringify({ selected_option: opcao }) });
+    } catch (_) {
+      // autosave falhou: a escolha continua na tela, e o backend valida de
+      // novo na conclusao - que e quem de fato recusa resposta faltando.
     }
-    $('panorama-corpo').innerHTML = faixas.map((f) => `
-      <div class="faixa">
-        <h3>${esc(f.faixa)}</h3>
-        <p>${esc(f.itens.join(', '))}</p>
-      </div>`).join('');
   }
 
-  async function pintarProgresso() {
-    $('fatos').innerHTML = MOCK.progresso.fatos
-      .map((f) => `<li>${esc(f)}</li>`).join('');
+  async function avancar() {
+    const d = app.diagnostico;
+    d.pos += 1;
+    if (d.pos < d.questoes.length) return pintarSessao();
+
+    $('bloco').innerHTML = aviso('Corrigindo…');
     try {
-      const r = await fetch('/api/v1/student/progress');
-      if (!r.ok) throw new Error(String(r.status));
-      desenharPanorama((await r.json()).faixas || []);
+      await api(`/api/v1/student/activities/${d.assignment_id}/attempt/complete`,
+                { method: 'POST' });
+      await api(`/api/v1/student/activities/${d.assignment_id}/attempt/correct`,
+                { method: 'POST' });
+      d.decisao = await api(
+        `/api/v1/student/micro-diagnostic/${d.assignment_id}/decision`
+        + `?content_code=${encodeURIComponent(d.content_code)}`);
+      // A prontidao e relida do estado NOVO - nao reaproveitamos a de antes.
+      if (d.objetivo) {
+        app.prontidao = await api(
+          `/api/v1/student/activities/${d.objetivo.assignment_id}/readiness`);
+      }
+    } catch (e) {
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-titulo">Não consegui concluir</p>
+        ${aviso((e.corpo && e.corpo.message) || `Erro ${e.status || ''}.`)}
+      </div>`;
+      return;
+    }
+    pintarResultado();
+  }
+
+  function pintarResultado() {
+    const d = app.diagnostico;
+    const dec = d.decisao || {};
+    const rota = app.prontidao && app.prontidao.readiness_route;
+    $('sessao-resumo').textContent = 'Pronto';
+
+    // A decisao e sobre o conteudo DIAGNOSTICADO; a rota e sobre a ATIVIDADE.
+    // Elas nao coincidem, e a tela nao pode fingir que sim: dominar o
+    // pre-requisito nao produz evidencia nenhuma sobre o conteudo da tarefa.
+    // Dizer "voce esta pronto para a atividade" e nao oferecer caminho nenhum
+    // foi o primeiro defeito que esta tela mostrou no navegador.
+    const proximo = app.prontidao && app.prontidao.target_content_name;
+    const mensagem = {
+      PROCEED_TO_ACTIVITY: rota === DIRETO
+        ? 'Você está pronto para a atividade.'
+        : `Essa parte você sabe. Agora falta ${proximo || 'o resto'}.`,
+      PREPARE_PREREQUISITE: 'Vamos firmar essa base antes de seguir.',
+      INSUFFICIENT_EVIDENCE: 'Ainda não deu para concluir — precisamos de mais um pouco.',
+    }[dec.decision] || 'Resposta registrada.';
+
+    const seguir = (rota === DIRETO && d.objetivo)
+      ? `<button class="botao botao-principal" data-acao="abrir-tarefa"
+                 data-id="${esc(d.objetivo.assignment_id)}">Ir para a atividade</button>`
+      : (app.prontidao && app.prontidao.target_content_code
+          ? '<button class="botao botao-principal" data-acao="diagnosticar">Continuar</button>'
+          : '');
+
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco">
+        <p class="bloco-etiqueta">Diagnóstico concluído</p>
+        <p class="bloco-titulo">${esc(mensagem)}</p>
+        <p class="detalhe">Isto não vale nota e não conta como atividade
+           entregue — serve só para eu saber por onde te ajudar.</p>
+        ${seguir}
+        <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
+      </div>`;
+  }
+
+  // ===================================================== a atividade ======
+
+  async function abrirTarefa(assignmentId) {
+    irPara('sessao');
+    $('objetivo').hidden = true;
+    $('trilho').innerHTML = '';
+    $('sessao-resumo').textContent = '';
+    try {
+      const d = await api(`/api/v1/student/activities/${assignmentId}`);
+      $('bloco').innerHTML = `
+        <div class="cartao-bloco">
+          <p class="bloco-etiqueta">Atividade da escola</p>
+          <p class="bloco-titulo">${esc(d.title)}</p>
+          <p class="detalhe">${d.question_count} ${d.question_count === 1 ? 'questão' : 'questões'}.</p>
+          <p class="indisponivel">${esc(
+            (d.entry_screen && d.entry_screen.note)
+            || 'A resolução da atividade ainda não está disponível aqui.')}</p>
+          <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
+        </div>`;
+    } catch (e) {
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-titulo">Não consegui abrir a atividade</p>
+        ${aviso(`Erro ${e.status || ''}.`)}
+      </div>`;
+    }
+  }
+
+  // ===================================================== progresso ========
+  // Tudo aqui vem de GET /api/v1/student/progress, que ja devolve as faixas
+  // prontas, traduzidas de PerformanceThresholdPolicy - a unica fonte dos
+  // cortes no sistema. A tela so desenha o que recebe.
+
+  async function pintarProgresso() {
+    if (!identidade()) { $('fatos').innerHTML = ''; return; }
+    $('fatos').innerHTML = '';
+    $('panorama-corpo').innerHTML = aviso('Carregando…');
+    try {
+      const j = await api('/api/v1/student/progress');
+      const faixas = j.faixas || [];
+      if (!faixas.length) {
+        $('fatos').innerHTML =
+          '<li>Assim que você responder alguma coisa, seu progresso aparece aqui.</li>';
+        $('panorama-corpo').innerHTML = '';
+        return;
+      }
+      $('fatos').innerHTML = faixas.map((f) => `
+        <li><strong>${esc(f.faixa)}</strong>: ${esc((f.itens || []).join(', '))}</li>`).join('');
+      $('panorama-corpo').innerHTML = faixas.map((f) => `
+        <div class="faixa">
+          <h3>${esc(f.faixa)}</h3>
+          <p>${esc((f.itens || []).join(', '))}</p>
+        </div>`).join('');
     } catch (e) {
       // Nao inventa faixa nenhuma. Dizer "Consolidado" sem ter lido o
       // dominio seria pior que nao dizer nada.
-      $('panorama-corpo').innerHTML =
-        '<p class="detalhe">Não consegui carregar seu panorama agora.</p>';
+      $('fatos').innerHTML = '';
+      $('panorama-corpo').innerHTML = aviso('Não consegui carregar seu panorama agora.');
     }
   }
 
@@ -429,156 +474,42 @@
     });
     if (tela === 'inicio') pintarHome();
     if (tela === 'progresso') pintarProgresso();
-    if (tela === 'sessao') pintarSessao();
     window.scrollTo(0, 0);
   }
 
   // ===================================================== acoes ============
-  function comecarSessao({ objetivo = null, conteudos = [], minutos = 30 }) {
-    app.sessao = montarSessao({ objetivo, conteudos, minutos });
-    irPara('sessao');
-  }
-
-  let tarefaPendente = null;   // tarefa escolhida, esperando o tempo
-
-  function perguntarTempo(tarefa) {
-    tarefaPendente = tarefa;
-    $('home').innerHTML = `
-      <div class="contexto">
-        ${tarefa ? `<span class="selo selo-neutro">${esc(tarefa.title)}</span>` : ''}
-        <p class="chamada">${tarefa
-          ? 'Vamos a ela. Quanto tempo você tem hoje?'
-          : 'Quanto tempo você tem hoje?'}</p>
-        ${blocoDeTempo(tarefa ? '' : 'Escolha abaixo')}
-      </div>`;
-  }
-
   document.addEventListener('click', (e) => {
-    const alvo = e.target.closest('[data-acao], [data-minutos], [data-tela], [data-fechar-folha], [data-estado]');
+    const alvo = e.target.closest('[data-acao], [data-opcao], [data-tela], [data-fechar-folha]');
     if (!alvo) return;
 
-    // --- tempo escolhido
-    if (alvo.dataset.minutos !== undefined) {
-      const m = Number(alvo.dataset.minutos) || 45;   // "sem tempo" -> alvo do backend
-      comecarSessao({
-        objetivo: tarefaPendente,
-        conteudos: tarefaPendente ? tarefaPendente.conteudos : ['CHEMISTRY-SOLUTIONS'],
-        minutos: m,
-      });
-      tarefaPendente = null;
-      return;
-    }
-
-    // --- abas
-    if (alvo.dataset.tela) { irPara(alvo.dataset.tela); return; }
-
-    // --- folhas
-    if (alvo.hasAttribute('data-fechar-folha')) {
-      alvo.closest('dialog').close();
-      return;
-    }
-
-    // --- seletor de estados (protótipo)
-    if (alvo.dataset.estado) {
-      app.homeForcada = alvo.dataset.estado;
-      document.querySelectorAll('#estados button').forEach((b) =>
-        b.setAttribute('aria-pressed', String(b === alvo)));
-      irPara('inicio');
-      return;
-    }
+    if (alvo.dataset.opcao !== undefined) { escolher(alvo.dataset.opcao); return; }
 
     switch (alvo.dataset.acao) {
-      case 'tarefa': {
-        const t = MOCK.tarefas.find((x) => x.assignment_id === alvo.dataset.id);
-        perguntarTempo(t);
-        break;
-      }
-      case 'tarefas':
-        pintarFolhaTarefas();
-        $('folha-tarefas').showModal();
-        break;
-      case 'escolher':
-      case 'avancar':
-      case 'revisar':
-      case 'diagnostico':
-        perguntarTempo(null);
-        break;
-      case 'dificuldade':
-        comecarSessao({ conteudos: ['CHEMISTRY-SOLUTIONS'], minutos: MOCK.dificuldade.minutos });
-        break;
-      case 'retomar':
-        comecarSessao({ conteudos: ['CHEMISTRY-SOLUTIONS'], minutos: MOCK.interrompida.faltam });
-        break;
-      case 'concluir-bloco':
-        app.sessao.atual += 1;
-        pintarSessao();
-        break;
-      case 'inicio':
-        app.sessao = null;
-        irPara('inicio');
-        break;
-      default:
-        break;
+      case 'diagnosticar': abrirDiagnostico(); return;
+      case 'avancar': avancar(); return;
+      case 'abrir-tarefa': abrirTarefa(alvo.dataset.id); return;
+      case 'inicio': app.diagnostico = null; irPara('inicio'); return;
+      case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
+      default: break;
     }
-  });
 
-  function pintarFolhaTarefas() {
-    $('lista-tarefas').innerHTML = MOCK.tarefas.map((t) => `
-      <li>
-        <strong>${esc(t.title)}</strong>
-        <span class="nota">${esc(t.disciplina)} · ${t.question_count} questões · para ${esc(t.due_at)}</span>
-        <button class="ligacao" data-acao="tarefa" data-id="${esc(t.assignment_id)}">Começar esta</button>
-      </li>`).join('');
-  }
-
-  // sair da sessao preserva o progresso (vira estado D na volta)
-  $('btn-sair-sessao').addEventListener('click', () => {
-    if (app.sessao) {
-      const b = app.sessao.blocos[app.sessao.atual];
-      MOCK.interrompida = {
-        assunto: app.sessao.objetivo ? app.sessao.objetivo.title : (b ? b.titulo : 'seu estudo'),
-        faltam: app.sessao.blocos.slice(app.sessao.atual).reduce((s, x) => s + x.minutos, 0),
-      };
+    if (alvo.dataset.tela) { irPara(alvo.dataset.tela); return; }
+    if (alvo.dataset.fecharFolha !== undefined) {
+      alvo.closest('dialog').close();
     }
-    app.sessao = null;
-    app.homeForcada = 'D';
-    irPara('inicio');
-  });
-
-  $('btn-proximo-passo').addEventListener('click', () => {
-    app.homeForcada = null;
-    irPara('inicio');
   });
 
   $('btn-perfil').addEventListener('click', () => {
-    $('perfil-nome').textContent = `${MOCK.aluno.nome} · aluno`;
+    $('perfil-nome').textContent = `${nomeDoAluno()} · aluno`;
     $('folha-perfil').showModal();
   });
 
-  // texto livre: ainda NAO ha interpretacao de linguagem natural no backend.
-  // Em vez de fingir, levamos para a pergunta de tempo com o texto como alvo.
-  $('form-perguntar').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const texto = $('campo-duvida').value.trim();
-    if (!texto) return;
-    $('nota-perguntar').textContent =
-      `Entendido: "${texto}". A interpretação de texto livre ainda não existe no `
-      + 'backend — por enquanto vamos montar uma sessão a partir do seu tempo.';
-    perguntarTempo(null);
+  $('btn-sair-sessao').addEventListener('click', () => {
+    app.diagnostico = null;
+    irPara('inicio');
   });
 
-  // =================================================== seletor de estados =
-  (function montarSeletor() {
-    const nomes = {
-      A: 'primeira entrada', B: 'tarefa pendente', C: 'sem tarefa',
-      D: 'sessão interrompida', F: 'dificuldade',
-      G: 'sem escola', H: 'tudo em dia',
-    };
-    $('estados').innerHTML = Object.keys(nomes).map((k) => `
-      <button type="button" data-estado="${k}" aria-pressed="false"
-              title="${nomes[k]}">${k}</button>`).join('');
-  })();
+  $('form-perguntar').addEventListener('submit', (e) => e.preventDefault());
 
-  // ============================================================= inicio ===
   irPara('inicio');
 })();

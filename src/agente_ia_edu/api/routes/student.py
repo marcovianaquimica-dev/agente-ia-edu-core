@@ -989,3 +989,126 @@ async def save_student_material_progress(
                 completed=payload.completed)
         except Exception as exc:  # noqa: BLE001
             raise _map_material_error(exc) from exc
+
+
+# ============================================================================
+# PILOTO ZERO - prontidao para a tarefa da escola e o microdiagnostico.
+#
+# Tres endpoints finos sobre servicos que ja existiam. Nenhum motor novo:
+#   readiness       -> ReadinessRouteService (planejador + conteudos exigidos)
+#   micro-diagnostic-> MicroDiagnosticService (que reusa AdaptivePracticeService)
+#   decision        -> MicroDiagnosticService.decidir sobre o dominio RECALCULADO
+#
+# O que eles acrescentam e o CAMINHO: ate aqui o aluno via a decisao de
+# prontidao calculada no proprio navegador, a partir de um MOCK.
+# ============================================================================
+from ...services.micro_diagnostic import (  # noqa: E402
+    DECISION_INSUFFICIENT,
+    MicroDiagnosticService,
+)
+from ...services.readiness_route import (  # noqa: E402
+    AtividadeNaoVisivel,
+    ReadinessRouteService,
+)
+
+
+@student_router.get("/activities/{assignment_id}/readiness",
+                    summary="Pode comecar esta atividade? (DIRECT / DIAGNOSTIC / PREREQUISITE_PREPARATION)")
+async def get_activity_readiness(
+    assignment_id: _UUID,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await ReadinessRouteService(session).para_atividade(
+                assignment_id, _me(ctx), requester=_student_requester(ctx))
+        except (AtividadeNaoVisivel, AssignmentNotFound, PlayerNotFound) as exc:
+            # 404 tambem para a atividade de OUTRA pessoa: distinguir "nao
+            # existe" de "existe, mas nao e sua" ja conta algo sobre a outra
+            # turma a quem perguntou.
+            raise HTTPException(status_code=404, detail="Activity not found") from exc
+        except (AssignmentAuthError, PlayerAuthError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+class _MicroDiagnosticRequest(_BaseModel):
+    content_code: str = _Field(min_length=1, max_length=100)
+    # A tarefa da escola continua sendo o OBJETIVO enquanto o aluno se prepara.
+    objective_assignment_id: str | None = None
+
+
+@student_router.post("/micro-diagnostic",
+                     summary="Abre o microdiagnostico de um conteudo (evidencia MICRO_DIAGNOSTIC)")
+async def start_micro_diagnostic(
+    payload: _MicroDiagnosticRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        svc = MicroDiagnosticService(session)
+        try:
+            out = await svc.start(_me(ctx), requester=_student_requester(ctx),
+                                  content_code=payload.content_code)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_practice_error(exc) from exc
+        out["objective_assignment_id"] = payload.objective_assignment_id
+        out["objective_completed"] = False
+        # 200 mesmo quando o banco nao tem questoes suficientes: nao e erro do
+        # cliente, e um fato sobre o acervo, e a tela precisa dizer qual.
+        return out
+
+
+@student_router.get("/micro-diagnostic/{assignment_id}/decision",
+                    summary="A decisao, sobre o dominio RECALCULADO depois da correcao")
+async def get_micro_diagnostic_decision(
+    assignment_id: _UUID,
+    content_code: str,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """Le o estado NOVO do aluno, nunca a decisao que estava em memoria.
+
+    Entre o inicio do diagnostico e esta chamada entraram respostas, correcao
+    e evidencia; reaproveitar a decisao anterior seria responder a pergunta
+    antiga. Por isso o dominio e reconstruido aqui, e so entao a politica
+    decide.
+    """
+    async with session_factory() as session:
+        requester = _student_requester(ctx)
+        aluno = _me(ctx)
+
+        dominio = CurriculumDomainMapService(session)
+        try:
+            await dominio.rebuild_student(aluno, requester=requester)
+            envelope = await dominio.get_content(aluno, content_code, requester=requester)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_domain_error(exc) from exc
+
+        # `get_content` devolve {student, taxonomy, discipline, content}. Ler
+        # do envelope em vez de `content` daria sempre 0 respostas, e o
+        # diagnostico concluiria INSUFFICIENT_EVIDENCE para todo mundo.
+        conteudo = envelope.get("content") or {}
+        respondidas = int(conteudo.get("questions_answered") or 0)
+        acerto = conteudo.get("accuracy")
+
+        # Ha pre-requisito a preparar? Sem isso, "prepare o pre-requisito"
+        # seria um conselho sem destino.
+        caminho = AdaptiveLearningPathService(session)
+        faltando = None
+        try:
+            rec = await caminho.get_content_recommendation(
+                aluno, content_code, requester=requester)
+            pendentes = (rec.get("recommendation") or {}).get("unsatisfied_prerequisites") or []
+            faltando = (pendentes[0].get("code") if pendentes else None)
+        except Exception:  # noqa: BLE001 - conteudo fora do caminho: sem pre-requisito conhecido
+            faltando = None
+
+        decisao = MicroDiagnosticService(session).decidir(
+            answered=respondidas, accuracy=acerto, prerequisito_em_falta=faltando)
+        decisao["content_code"] = content_code
+        decisao["assignment_id"] = str(assignment_id)
+        decisao["evidence_origin"] = "MICRO_DIAGNOSTIC"
+        # Diagnostico NAO conclui a tarefa da escola.
+        decisao["objective_completed"] = False
+        return decisao
