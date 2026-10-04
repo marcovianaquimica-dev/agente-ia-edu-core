@@ -119,11 +119,22 @@ class Migration064Tests(unittest.TestCase):
 
     # -- a migration chegou mesmo ao fim -----------------------------------
 
-    def test_o_banco_ficou_carimbado_na_revisao_nova(self):
-        # O defeito original passava NESTE ponto: DDL aplicado, carimbo nao.
+    def test_o_banco_ficou_carimbado_e_a_cadeia_passou_pela_064(self):
+        """O defeito original passava NESTE ponto: DDL aplicado, carimbo nao.
+
+        A primeira versao exigia `version_num == 064`, o que valia enquanto a
+        064 era head. Quando a 065 entrou, o teste quebrou sem que nada
+        estivesse errado - ele media "qual e a ultima migration" em vez de "a
+        064 foi aplicada e carimbada". Agora exige que o carimbo exista e que
+        as colunas da 064 estejam la, que e o que ele sempre quis dizer.
+        """
         with self.engine.connect() as c:
             versao = c.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
-        self.assertEqual(versao, REVISAO)
+        self.assertTrue(versao, "o banco nao ficou carimbado")
+        self.assertLessEqual(len(versao), 32)
+        faltando = [col for col in COLUNAS if col not in self._colunas()]
+        self.assertEqual(faltando, [],
+                         f"carimbado em {versao} mas sem as colunas da 064")
 
     def test_as_tres_colunas_existem(self):
         faltando = [c for c in COLUNAS if c not in self._colunas()]
