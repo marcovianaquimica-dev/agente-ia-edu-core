@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Núcleo Edu 360 — Aluno</title>
+  <!--
+    PROTOTIPO DO PERFIL ALUNO.
+
+    Pagina SEPARADA de propósito. O portal atual (`index.html` + `app.js`)
+    continua intacto e funcionando: 11 arquivos de teste leem aquele markup
+    por regex, e reestruturá-lo quebraria todos. Ver
+    docs/frontend-aluno-auditoria.md, secao 6.
+
+    Duas telas de navegacao permanente (Inicio, Meu progresso) contra as 13
+    do portal atual. Mobile first. Nenhum controle sem funcao: o que ainda
+    nao tem backend nasce desabilitado e dito.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="aluno.css">
+</head>
+<body>
+
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topo">
+  <span class="marca">Núcleo <strong>Edu 360</strong></span>
+  <button class="avatar" id="btn-perfil" type="button"
+          aria-haspopup="dialog" aria-label="Perfil e configurações">P</button>
+</header>
+
+<main id="conteudo" class="palco">
+
+  <!-- ===================================================== INÍCIO ===== -->
+  <section id="tela-inicio" class="tela" aria-labelledby="h-inicio">
+    <h1 id="h-inicio" class="sr">Início</h1>
+
+    <!-- o estado da Home é renderizado aqui; ver aluno.js -->
+    <div id="home" aria-live="polite"></div>
+
+    <form class="perguntar" id="form-perguntar">
+      <label class="perguntar-rotulo" for="campo-duvida">O que você quer estudar?</label>
+      <div class="perguntar-linha">
+        <input class="perguntar-campo" id="campo-duvida" type="text" autocomplete="off"
+               placeholder="Digite sua dúvida...">
+        <button class="icone" type="button" disabled
+                title="Enviar foto — em breve" aria-label="Enviar foto (em breve)">📷</button>
+        <button class="icone" type="button" disabled
+                title="Enviar arquivo — em breve" aria-label="Enviar arquivo (em breve)">📎</button>
+        <button class="icone" type="button" disabled
+                title="Falar — em breve" aria-label="Falar (em breve)">🎤</button>
+      </div>
+      <p class="nota" id="nota-perguntar">
+        Entrada por foto, arquivo e voz ainda não está disponível.
+      </p>
+    </form>
+  </section>
+
+  <!-- ===================================================== SESSÃO ===== -->
+  <section id="tela-sessao" class="tela" aria-labelledby="h-sessao" hidden>
+    <h1 id="h-sessao" class="sr">Sessão de estudo</h1>
+
+    <div class="objetivo" id="objetivo" hidden>
+      <span class="objetivo-rotulo">🎯 Para:</span>
+      <span id="objetivo-texto"></span>
+    </div>
+
+    <div class="trilho" id="trilho" role="img" aria-label="Progresso da sessão"></div>
+    <p class="sessao-resumo" id="sessao-resumo"></p>
+
+    <div id="bloco" aria-live="polite"></div>
+
+    <button class="ligacao" id="btn-sair-sessao" type="button">Sair e continuar depois</button>
+  </section>
+
+  <!-- ================================================== PROGRESSO ===== -->
+  <section id="tela-progresso" class="tela" aria-labelledby="h-progresso" hidden>
+    <h1 id="h-progresso">Meu progresso</h1>
+    <ul class="fatos" id="fatos"></ul>
+    <button class="botao botao-principal" id="btn-proximo-passo" type="button">
+      Próximo passo
+    </button>
+
+    <details class="panorama">
+      <summary>ver panorama completo</summary>
+      <div id="panorama-corpo"></div>
+    </details>
+  </section>
+
+</main>
+
+<nav class="abas" aria-label="Navegação principal">
+  <button class="aba ativa" data-tela="inicio" type="button" aria-current="page">
+    <span aria-hidden="true">🏠</span> Início
+  </button>
+  <button class="aba" data-tela="progresso" type="button">
+    <span aria-hidden="true">📈</span> Meu progresso
+  </button>
+</nav>
+
+<!-- ======================================================= FOLHAS ===== -->
+<dialog class="folha" id="folha-tarefas" aria-labelledby="h-folha-tarefas">
+  <h2 id="h-folha-tarefas">Suas tarefas</h2>
+  <ul class="lista-tarefas" id="lista-tarefas"></ul>
+  <button class="botao botao-secundario" data-fechar-folha type="button">Fechar</button>
+</dialog>
+
+<dialog class="folha" id="folha-perfil" aria-labelledby="h-folha-perfil">
+  <h2 id="h-folha-perfil">Perfil</h2>
+  <p class="nota" id="perfil-nome"></p>
+  <a class="ligacao" href="/entrada">Trocar de ambiente</a>
+
+  <hr class="divisor">
+  <p class="nota"><strong>Protótipo</strong> — ver a Home em cada contexto:</p>
+  <div class="estados" id="estados"></div>
+
+  <button class="botao botao-secundario" data-fechar-folha type="button">Fechar</button>
+</dialog>
+
+<script src="aluno.js"></script>
+</body>
+</html>
