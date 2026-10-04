@@ -563,3 +563,60 @@ p  { margin: 0 0 .75rem; }
   opacity: .45;
   cursor: default;
 }
+
+
+/* ====================================== REVISAO da atividade concluida ===
+   Leitura, nao tentativa: as alternativas aqui nao sao botoes.
+
+   O estado NAO e dito so pela cor. Cada alternativa marcada ou correta traz
+   simbolo e palavra ("✓ correta", "✗ sua resposta"), porque quem nao
+   distingue verde de vermelho tambem precisa saber se acertou. */
+
+.alternativa-revisao {
+  cursor: default;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.alternativa-revisao:hover { border-color: var(--borda); }
+
+.alternativa-certa {
+  border-color: var(--sucesso);
+  background: var(--sucesso-claro);
+}
+
+.alternativa-errada {
+  border-color: var(--alerta);
+  background: var(--alerta-claro);
+}
+
+.alt-selo {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: .8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.alternativa-certa .alt-selo { color: var(--sucesso); }
+.alternativa-errada .alt-selo { color: var(--alerta); }
+
+.resolucao {
+  margin: 0 0 1rem;
+  padding: .75rem;
+  background: var(--fundo);
+  border-radius: 10px;
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.resolucao summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--primaria);
+}
+
+.resolucao p { margin: .5rem 0 0; color: var(--tinta-fraca); }
+
+/* no trilho, questao errada aparece diferente de nao-visitada */
+.passo-errado { background: var(--alerta); }

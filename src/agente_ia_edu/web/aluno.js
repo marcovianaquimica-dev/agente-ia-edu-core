@@ -669,6 +669,23 @@
       return;
     }
     const res = r.result || {};
+    // A revisao e montada dos DOIS endpoints, sem nenhum novo:
+    //   /attempt         enunciado, alternativas e o que ele marcou
+    //   /attempt/result  o que era certo, se acertou, e a resolucao
+    // Casados pela question_version_id.
+    let questoes = [];
+    try {
+      const estado = await api(
+        `/api/v1/student/activities/${a.assignment_id}/attempt`);
+      const porVid = {};
+      for (const i of (r.items || [])) porVid[i.question_version_id] = i;
+      questoes = (estado.questions || []).map((q) => ({
+        ...q, resultado: porVid[q.question_version_id] || null,
+      }));
+    } catch (_) { /* sem revisao: o placar ainda aparece */ }
+    a.revisao = { questoes, pos: 0 };
+
+    $('trilho').innerHTML = '';
     $('sessao-resumo').textContent = 'Concluída';
     // Esta E uma atividade da escola: aqui o acerto E reportado como
     // desempenho. O que NAO se faz e concluir dominio por ter concluido - quem
@@ -678,8 +695,79 @@
         <p class="bloco-etiqueta">Atividade concluída</p>
         <p class="bloco-titulo">Você acertou ${res.correct_count} de ${res.question_count}.</p>
         <p class="bloco-porque">Sua escola recebe este resultado.</p>
+        ${questoes.length
+          ? '<button class="botao botao-principal" data-acao="revisar">Revisar questões</button>'
+          : ''}
         <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
       </div>`;
+  }
+
+  // ========================================================= a revisao ====
+  // Leitura, so. Abrir isto NAO produz evidencia, nao reconstroi dominio e
+  // nao reabre a tentativa - ha teste provando que rever tres vezes nao muda
+  // nada no mapa do aluno.
+  function pintarRevisao() {
+    const a = app.atividade;
+    const rev = a && a.revisao;
+    if (!rev || !rev.questoes.length) return;
+    const total = rev.questoes.length;
+    const q = rev.questoes[rev.pos];
+    const res = q.resultado || {};
+    const acertou = res.is_correct === true;
+
+    $('trilho').innerHTML = rev.questoes.map((x, i) => {
+      const r = x.resultado || {};
+      const classe = i === rev.pos ? 'passo passo-agora'
+        : r.is_correct ? 'passo passo-feito' : 'passo passo-errado';
+      return `<span class="${classe}"></span>`;
+    }).join('');
+    $('sessao-resumo').textContent = `Revisão · questão ${rev.pos + 1} de ${total}`;
+
+    // O estado NAO depende so da cor: traz simbolo e palavra, porque quem nao
+    // distingue verde de vermelho tambem precisa saber se acertou.
+    const alternativas = (q.options || []).map((o) => {
+      const marcada = o.key === res.selected_option_key;
+      const certa = o.key === res.correct_option_key;
+      const classe = certa ? ' alternativa-certa'
+        : marcada ? ' alternativa-errada' : '';
+      const selo = certa ? '<span class="alt-selo">✓ correta</span>'
+        : marcada ? '<span class="alt-selo">✗ sua resposta</span>' : '';
+      return `
+        <div class="alternativa alternativa-revisao${classe}">
+          <span class="alternativa-letra">${esc(o.key)}</span>
+          <span>${esc(o.text)}</span>
+          ${selo}
+        </div>`;
+    }).join('');
+
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco">
+        <p class="bloco-etiqueta">${acertou ? '✓ Você acertou' : '✗ Você errou'}</p>
+        <p class="bloco-enunciado">${esc(q.statement || '')}</p>
+        <div class="alternativas">${alternativas}</div>
+        ${res.resolution
+          ? `<details class="resolucao">
+               <summary>Entenda a resposta</summary>
+               <p>${esc(res.resolution)}</p>
+             </details>`
+          : ''}
+        <div class="navegacao-questoes">
+          <button class="botao botao-secundario" data-acao="revisao-anterior"
+                  ${rev.pos === 0 ? 'disabled' : ''}>Anterior</button>
+          <button class="botao botao-secundario" data-acao="revisao-proxima"
+                  ${rev.pos + 1 >= total ? 'disabled' : ''}>Próxima</button>
+        </div>
+        <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
+      </div>`;
+  }
+
+  function navegarRevisao(delta) {
+    const rev = app.atividade && app.atividade.revisao;
+    if (!rev) return;
+    const nova = Math.min(Math.max(0, rev.pos + delta), rev.questoes.length - 1);
+    if (nova === rev.pos) return;
+    rev.pos = nova;
+    pintarRevisao();
   }
 
   // ========================================================= a busca ======
@@ -814,6 +902,9 @@
       case 'questao-anterior': navegarQuestao(-1); return;
       case 'questao-proxima': navegarQuestao(1); return;
       case 'finalizar-atividade': finalizarAtividade(); return;
+      case 'revisar': pintarRevisao(); return;
+      case 'revisao-anterior': navegarRevisao(-1); return;
+      case 'revisao-proxima': navegarRevisao(1); return;
       case 'inicio': app.diagnostico = null; app.atividade = null; irPara('inicio'); return;
       case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
       default: break;

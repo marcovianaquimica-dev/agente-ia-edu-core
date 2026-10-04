@@ -379,6 +379,117 @@ class AtividadeOficialTests(unittest.TestCase):
         self.assertEqual((r.json().get("result") or {})["completion_status"],
                          "COMPLETED")
 
+    # -- REVISAO: o gabarito so depois, e nunca antes -----------------------
+
+    def test_r1_o_gabarito_NAO_vaza_durante_a_tentativa(self):
+        """O gate mais crítico desta fase.
+
+        Se o gabarito chegar ao cliente antes da finalização, qualquer pessoa
+        com o console aberto acerta tudo — e o diagnóstico, o domínio e a
+        prontidão passam a medir a curiosidade dela, não o que ela sabe.
+        """
+        estado = self._abrir()
+        bruto = str(estado)
+        self.assertFalse(estado.get("answer_key_visible"))
+        for proibido in ("correct_option_key", "is_valid_option", "resolution"):
+            with self.subTest(campo=proibido):
+                self.assertNotIn(proibido, bruto,
+                                 f"{proibido!r} chegou ao aluno antes de finalizar")
+
+    def test_r2_salvar_resposta_nao_devolve_gabarito(self):
+        estado = self._abrir()
+        vid = estado["questions"][0]["question_version_id"]
+        r = self.client.put(
+            f"/api/v1/student/activities/{self.atividade}/attempt/answers/{vid}",
+            json={"selected_option": "A"})
+        self.assertNotIn("correct", r.text.lower(), r.text)
+
+    def test_r3_posicao_nao_devolve_gabarito(self):
+        self._abrir()
+        r = self.client.put(
+            f"/api/v1/student/activities/{self.atividade}/attempt/position?position=2")
+        self.assertNotIn("correct", r.text.lower(), r.text)
+
+    def test_r4_resultado_antes_de_corrigir_e_recusado(self):
+        self._responder_todas(acertos=3)
+        self.client.post(
+            f"/api/v1/student/activities/{self.atividade}/attempt/complete")
+        r = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt/result")
+        self.assertIn(r.status_code, (404, 409), r.text)
+
+    def test_r5_a_revisao_tem_tudo_que_a_tela_precisa(self):
+        """Sem endpoint novo: `/attempt` traz enunciado e alternativas,
+        `/attempt/result` traz o que o aluno marcou, o que era certo e a
+        resolução. A tela junta os dois pela `question_version_id`."""
+        self._responder_todas(acertos=3)
+        self._finalizar_e_corrigir()
+
+        estado = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt").json()
+        resultado = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt/result").json()
+
+        self.assertEqual(estado["status"], "COMPLETED")
+        self.assertTrue(resultado["answer_key_visible"])
+        por_vid = {i["question_version_id"]: i for i in resultado["items"]}
+        self.assertEqual(len(por_vid), len(estado["questions"]),
+                         "nem toda questão tem item de resultado")
+        for q in estado["questions"]:
+            item = por_vid[q["question_version_id"]]
+            with self.subTest(vid=q["question_version_id"]):
+                self.assertTrue(q["statement"])
+                self.assertEqual(len(q["options"]), 5)
+                self.assertIn(item["correct_option_key"], KEYS)
+                self.assertIsInstance(item["is_correct"], bool)
+                self.assertEqual(item["selected_option_key"], q["selected_option"])
+
+    def test_r6_a_resolucao_nao_e_inventada(self):
+        """Quando não há resolução armazenada, o campo DIZ isso — não traz uma
+        explicação gerada só para preencher a tela."""
+        self._responder_todas(acertos=3)
+        self._finalizar_e_corrigir()
+        itens = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt/result"
+        ).json()["items"]
+        for item in itens:
+            with self.subTest(pos=item["position"]):
+                self.assertTrue(item["resolution"],
+                                "resolução vazia: a tela não saberia o que dizer")
+
+    def test_r7_a_revisao_de_outro_aluno_e_indistinguivel_de_inexistente(self):
+        self._responder_todas(acertos=5)
+        self._finalizar_e_corrigir()
+        self.app.dependency_overrides[get_current_authenticated_context] = \
+            lambda: _ctx(user=OUTRO)
+        try:
+            alheia = self.client.get(
+                f"/api/v1/student/activities/{self.atividade}/attempt/result")
+            inexistente = self.client.get(
+                f"/api/v1/student/activities/{_uuid.uuid4()}/attempt/result")
+            self.assertEqual(alheia.status_code, inexistente.status_code)
+            self.assertEqual(alheia.text, inexistente.text)
+        finally:
+            self.app.dependency_overrides[get_current_authenticated_context] = _ctx
+
+    def test_r8_ver_a_revisao_NAO_cria_evidencia(self):
+        """Abrir a revisão é leitura. Se ela contasse como evidência, o aluno
+        que revisasse três vezes pareceria ter estudado três vezes."""
+        self._responder_todas(acertos=3)
+        self._finalizar_e_corrigir()
+        antes = self._dominio()
+
+        for _ in range(3):
+            self.client.get(
+                f"/api/v1/student/activities/{self.atividade}/attempt/result")
+            self.client.get(
+                f"/api/v1/student/activities/{self.atividade}/attempt")
+        depois = self._dominio()
+
+        self.assertEqual(antes["questions_answered"], depois["questions_answered"])
+        self.assertEqual(antes["evidence_count"], depois["evidence_count"])
+        self.assertEqual(antes["origin_breakdown"], depois["origin_breakdown"])
+
     # -- retomada: respostas E cursor ---------------------------------------
 
     def test_c2_o_cursor_sobrevive_a_sair_e_voltar(self):
