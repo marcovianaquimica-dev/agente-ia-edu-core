@@ -379,6 +379,64 @@ class AtividadeOficialTests(unittest.TestCase):
         self.assertEqual((r.json().get("result") or {})["completion_status"],
                          "COMPLETED")
 
+    # -- retomada: respostas E cursor ---------------------------------------
+
+    def test_c2_o_cursor_sobrevive_a_sair_e_voltar(self):
+        """Eu havia registrado como dívida que o cursor não era restaurado.
+
+        Estava errado: `current_position` é coluna de `ActivityAttempt`,
+        `set_current_position` a grava e `get_state` a devolve. O caminho
+        inteiro já existia; o que faltava era eu medir antes de escrever a
+        dívida.
+        """
+        self._abrir()
+        self.client.put(
+            f"/api/v1/student/activities/{self.atividade}/attempt/position"
+            f"?position=3")
+        voltou = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt").json()
+        self.assertEqual(voltou["current_position"], 3,
+                         "o aluno voltaria para a primeira questão")
+
+    def test_c3_reabrir_nao_zera_o_cursor(self):
+        """`start` é idempotente, e isso inclui não perder onde ele estava."""
+        self._abrir()
+        self.client.put(
+            f"/api/v1/student/activities/{self.atividade}/attempt/position"
+            f"?position=4")
+        de_novo = self._abrir()
+        self.assertEqual(de_novo["current_position"], 4)
+
+    def test_c4_posicao_invalida_e_recusada_sem_corromper(self):
+        """Fail-safe: o player não pode quebrar por cursor fora da faixa, e o
+        cursor bom não pode ser perdido por uma tentativa ruim."""
+        self._abrir()
+        self.client.put(
+            f"/api/v1/student/activities/{self.atividade}/attempt/position?position=2")
+        for ruim in (0, -1, 99):
+            with self.subTest(position=ruim):
+                r = self.client.put(
+                    f"/api/v1/student/activities/{self.atividade}"
+                    f"/attempt/position?position={ruim}")
+                self.assertEqual(r.status_code, 422, r.text)
+        estado = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt").json()
+        self.assertEqual(estado["current_position"], 2,
+                         "uma posição inválida apagou a posição boa")
+
+    def test_c5_cursor_nas_bordas(self):
+        total = len(self._abrir()["questions"])
+        for p in (1, total):
+            with self.subTest(position=p):
+                r = self.client.put(
+                    f"/api/v1/student/activities/{self.atividade}"
+                    f"/attempt/position?position={p}")
+                self.assertEqual(r.status_code, 200, r.text)
+                self.assertEqual(
+                    self.client.get(
+                        f"/api/v1/student/activities/{self.atividade}/attempt"
+                    ).json()["current_position"], p)
+
     # -- autorização e isolamento (§3) -------------------------------------
 
     def test_n_atividade_inexistente_e_404(self):
