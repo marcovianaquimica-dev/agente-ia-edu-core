@@ -93,7 +93,7 @@ Corrigido com uma chamada a `POST /domain/rebuild` logo após `correct`.
 | cenário | resultado |
 |---|---|
 | atividade inexistente | 404 |
-| atividade de outro aluno | **recusada** (403) |
+| atividade de outro aluno | **recusada** — 404 desde o hardening (§8) |
 | aluno de outra turma | não vê na lista, e não abre |
 | resultado de outro aluno | recusado |
 | tentativa de outro aluno | recusada |
@@ -101,18 +101,15 @@ Corrigido com uma chamada a `POST /domain/rebuild` logo após `correct`.
 | responder após finalizar | 409 |
 | dupla finalização | **idempotente** (200, COMPLETED) |
 
-### A dívida que escolhi não pagar
+### A dívida que eu havia deixado aqui — paga na §8
 
-Escrevi o teste esperando **404** e recebi **403** com a mensagem *"this
-activity is not assigned to you"* — o que **confirma que a atividade existe**
-a quem não tem acesso.
+Escrevi o teste esperando 404 e recebi 403 com *"this activity is not assigned
+to you"*, que confirma a existência a quem não tem acesso. Na época não mudei,
+porque `AssignmentAuthError` é compartilhado e trocar seu status mexeria em
+todos os consumidores.
 
-Não mudei. `AssignmentAuthError` é compartilhado por prática, diagnóstico e
-atividade; trocar seu status mexeria no contrato de autorização de todos os
-consumidores, e isso é decisão de produto, não ajuste de teste.
-
-Fica a inconsistência registrada: `/readiness`, que criei neste piloto, diz
-**404**; o player diz **403**. As duas recusam; só uma esconde a existência.
+**Resolvido sem tocar na exceção**: o que mudou foi o mapeamento HTTP das
+rotas do aluno. Ver §8.
 
 ## 7. Testes
 
@@ -125,18 +122,79 @@ Fica a inconsistência registrada: `/readiness`, que criei neste piloto, diz
 - **bom e mau desempenho**, com o domínio e a readiness reagindo aos dois
 - cinco cenários de autorização
 
-## 8. Dívidas
+## 8. Hardening (2026-10-04, depois do primeiro ciclo)
 
-1. **403 vs 404** na autorização (acima). Decisão de produto.
-2. **Sem `position` no retorno do player para a UI** — o frontend usa
-   `current_position` para retomar, mas o backend não o devolve em
-   `get_state`; a tela sempre reabre na primeira questão depois de sair. As
-   respostas são preservadas; só o cursor não.
-3. **Não há "refazer".** Uma vez finalizada, a atividade não reabre — e não há
+### Anti-enumeração
+
+Recurso inexistente respondia 404; recurso real de **outro aluno** respondia
+403 com *"this activity is not assigned to you"*. A diferença é um oráculo.
+
+Nas rotas **do aluno**, "não existe" e "não é seu" passaram a responder
+**igual** — mesmo status e mesmo corpo. Dez rotas: abrir, detalhe, estado,
+salvar, posição, finalizar, corrigir, resultado, análise, prontidão.
+
+As rotas de **gestão** continuam 403: lá o requester pode listar as
+distribuições da escola, então esconder a existência não protege nada.
+`AssignmentAuthError` não mudou — mudou como a camada HTTP do aluno a traduz.
+
+O teste mede por **pares**: o par (inexistente, de outra turma) tem de ser
+indistinguível. E há teste de que o dono continua entrando, porque uma trava
+que barra todo mundo também passaria num teste mal escrito.
+
+### Retomada: a dívida que eu havia registrado era falsa
+
+Escrevi que "o cursor não é restaurado". Fui medir: `current_position` é
+coluna de `ActivityAttempt`, `set_current_position` grava, `get_state`
+devolve, e o frontend já lia. Responde Q1, navega até Q3, sai, volta —
+**reabre na Q3**.
+
+Cinco testes agora protegem isso, incluindo o que mais importa: uma posição
+inválida é recusada (422) **sem apagar a posição boa**.
+
+### Revisão
+
+Sem endpoint novo. `/attempt` traz enunciado e alternativas; `/attempt/result`
+traz o que ele marcou, o que era certo e a resolução. A tela junta pela
+`question_version_id`.
+
+O gabarito **não vaza** durante a tentativa — medido em três pontos:
+`answer_key_visible: false`, nada de `correct_option_key` no estado, e nem ao
+salvar resposta nem ao mover o cursor.
+
+Acerto e erro não dependem de cor: cada alternativa relevante traz símbolo e
+palavra ("✓ correta", "✗ sua resposta").
+
+Abrir a revisão **não cria evidência** — teste abre cinco vezes e confere que
+`questions_answered`, `evidence_count` e `origin_breakdown` não mudam.
+
+### Responsividade
+
+Dois transbordamentos reais, corrigidos sem media query nova:
+
+| onde | em | media | causa |
+|---|---|---|---|
+| linha de busca | 320px | 486px | campo com 30px, "Enviar" fora da tela |
+| cartão de progresso | 390px | 528px | botão "Revisar agora" não cabia |
+
+O segundo **só aparece no estado "Precisa de atenção"**, porque só ele tem
+botão — a auditoria com tudo "Consolidado" passava limpa. Apareceu no E2E
+mobile, depois de errar a atividade de propósito.
+
+A correção declara a largura em que o elemento deixa de ser útil
+(`flex: 1 1 12rem` no campo, `1 1 8rem` no nome do conteúdo) e deixa a
+composição quebrar sozinha. Abaixo disso os controles **crescem**, não
+encolhem.
+
+## 9. Dívidas
+
+1. ~~403 vs 404~~ — **resolvido** nas rotas do aluno.
+2. ~~Cursor não restaurado~~ — **era falso**, o cursor sempre funcionou.
+3. ~~Resultado não mostra o gabarito~~ — **resolvido**, há tela de revisão.
+4. **Não há "refazer".** Uma vez finalizada, a atividade não reabre — e não há
    caminho de produto para isso ainda.
-4. **O resultado não mostra o gabarito.** `answer_key_visible: true` vem na
-   resposta e os itens trazem `correct_option_key`, mas a tela só mostra o
-   placar. Revisar o que errou é o próximo passo natural.
 5. **A atividade do piloto tem 5 questões porque eu escolhi 5**
    (`QUESTOES_NA_ATIVIDADE`). Não é regra de produto — é o tamanho de uma
    tarefa de casa, e serve para exercitar a navegação.
+6. **O professor não vê o resultado da turma.** A evidência está gravada e a
+   autorização de gestão existe, mas não há tela. É o maior buraco entre o que
+   o sistema sabe e o que a escola enxerga.
