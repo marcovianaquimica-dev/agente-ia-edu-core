@@ -70,7 +70,7 @@ class ProvenanceNoBancoTests(unittest.TestCase):
         cfg.set_main_option("sqlalchemy.url", cls.url)
         command.upgrade(cfg, "023_curriculum_taxonomy")
         asyncio.run(_semear_catalogo(cls.url))
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "heads")
         cls.cfg = cfg
         cls.engine = sa.create_engine(cls.url)
 
@@ -133,11 +133,25 @@ class ProvenanceNoBancoTests(unittest.TestCase):
 
     # -- a migration chegou ao fim -----------------------------------------
 
-    def test_o_banco_ficou_carimbado_na_revisao_nova(self):
+    def test_a_065_foi_aplicada_e_carimbada(self):
+        """Nao exige que a 065 seja o HEAD: depois do merge 066 ela deixou de
+        ser, sem que nada estivesse errado. Exige que ela esteja na historia
+        aplicada e que suas colunas existam - que e o que importa."""
+        from alembic.script import ScriptDirectory
+
         with self.engine.connect() as c:
-            self.assertEqual(
-                c.execute(sa.text("SELECT version_num FROM alembic_version")).scalar(),
-                REVISAO)
+            atuais = {r[0] for r in c.execute(
+                sa.text("SELECT version_num FROM alembic_version")).all()}
+        self.assertTrue(atuais, "o banco nao ficou carimbado")
+
+        script = ScriptDirectory.from_config(self.cfg)
+        aplicadas = set()
+        for head in atuais:
+            for rev in script.iterate_revisions(head, "base"):
+                aplicadas.add(rev.revision)
+        self.assertIn(REVISAO, aplicadas,
+                      f"a 065 nao esta na historia aplicada; heads={atuais}")
+        self.assertIn("provenance", self._colunas())
 
     def test_as_colunas_existem_e_sao_aditivas(self):
         cols = self._colunas()
@@ -248,7 +262,7 @@ class ProvenanceNoBancoTests(unittest.TestCase):
             self.assertNotIn("provenance", cols)
             self.assertNotIn("validated_by_external_identity", cols)
         finally:
-            command.upgrade(self.cfg, "head")
+            command.upgrade(self.cfg, "heads")
 
 
 if __name__ == "__main__":  # pragma: no cover

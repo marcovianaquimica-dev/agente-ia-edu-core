@@ -93,7 +93,7 @@ class Migration064Tests(unittest.TestCase):
         cfg.set_main_option("sqlalchemy.url", cls.url)
         command.upgrade(cfg, "023_curriculum_taxonomy")
         asyncio.run(_semear_catalogo(cls.url))
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, "heads")
         cls.cfg = cfg
         cls.engine = sa.create_engine(cls.url)
 
@@ -197,16 +197,24 @@ class Migration064Tests(unittest.TestCase):
     # -- ida e volta ---------------------------------------------------------
 
     def test_downgrade_devolve_a_tabela_ao_estado_anterior(self):
+        """Depois da reconciliacao das linhagens (merge 066), `alembic_version`
+        pode ter MAIS DE UMA linha - uma por head ativo. A primeira versao
+        deste teste lia `.scalar()` e comparava com uma revisao especifica,
+        pegando uma das linhas arbitrariamente. O que ele sempre quis dizer e:
+        as colunas da 064 sumiram, e a 064 nao esta mais aplicada.
+        """
         try:
             command.downgrade(self.cfg, ANTERIOR)
             sobraram = [c for c in COLUNAS if c in self._colunas()]
             self.assertEqual(sobraram, [], f"downgrade deixou {sobraram} para tras")
             with self.engine.connect() as c:
-                self.assertEqual(
-                    c.execute(sa.text("SELECT version_num FROM alembic_version")).scalar(),
-                    ANTERIOR)
+                atuais = {r[0] for r in c.execute(
+                    sa.text("SELECT version_num FROM alembic_version")).all()}
+            self.assertNotIn(REVISAO, atuais, "a 064 continua aplicada")
+            self.assertIn(ANTERIOR, atuais,
+                          f"esperava {ANTERIOR} entre os heads, achei {atuais}")
         finally:
-            command.upgrade(self.cfg, "head")
+            command.upgrade(self.cfg, "heads")
 
 
 if __name__ == "__main__":  # pragma: no cover
