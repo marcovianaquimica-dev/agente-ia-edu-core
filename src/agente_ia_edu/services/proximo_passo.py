@@ -95,8 +95,28 @@ def passo_para(conteudos: Sequence[dict], *,
                 "readiness_route": ROTA_DIAGNOSTICO,
                 "reason": "a atividade ainda nao declara os conteudos que exige"}
 
-    pendentes = [c for c in conteudos
-                 if c.get("content_state") not in ESTADOS_QUE_LIBERAM]
+    # O ESTADO DO PLANEJADOR NAO BASTA.
+    #
+    # Ele marca o conteudo como RECOMMENDED assim que ha qualquer evidencia -
+    # RECOMMENDED quer dizer "pratique isto", nao "esta pronto". No Piloto Zero
+    # de 2026-10-04 isso liberou para a atividade um aluno que errou as TRES
+    # perguntas de Estequiometria: acerto 0,0, rota DIRECT.
+    #
+    # O estado diz se HA evidencia. Quem diz se ela e BOA e a politica - a
+    # mesma que ja decide o pre-requisito, logo abaixo.
+    def _liberado(c: dict) -> bool:
+        if c.get("content_state") not in ESTADOS_QUE_LIBERAM:
+            return False
+        respondidas = int(c.get("answered") or 0)
+        if respondidas <= 0:
+            # Sem evidencia propria, respeitamos o planejador: READY pode vir
+            # de pre-requisitos dominados ou do contexto da escola, e inventar
+            # bloqueio ai seria tao errado quanto liberar sem olhar.
+            return True
+        banda = thresholds.band(answered=respondidas, accuracy=c.get("accuracy"))
+        return banda not in (BAND_IMPROVEMENT, BAND_INSUFFICIENT, BAND_NO_DATA)
+
+    pendentes = [c for c in conteudos if not _liberado(c)]
     if not pendentes:
         primeiro = conteudos[0]
         return {"kind": PASSO_ATIVIDADE,

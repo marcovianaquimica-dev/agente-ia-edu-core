@@ -27,13 +27,14 @@ import json
 import pathlib
 import unittest
 
-FONTE = (pathlib.Path(__file__).resolve().parent.parent
-         / "scripts" / "data" / "diagnostic_bank_balanceamento_v2.json")
+_DADOS = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "data"
+FONTE = _DADOS / "diagnostic_bank_balanceamento_v2.json"
+FONTE_ESTEQ = _DADOS / "diagnostic_bank_estequiometria_v1.json"
 LETRAS = ("A", "B", "C", "D", "E")
 
 
-def _itens() -> list[dict]:
-    bruto = json.loads(FONTE.read_text(encoding="utf-8"))
+def _itens(fonte: pathlib.Path = FONTE) -> list[dict]:
+    bruto = json.loads(fonte.read_text(encoding="utf-8"))
     return [r["item"] for r in bruto if r["decisao"]["status"] == "AI_VERIFIED"]
 
 
@@ -110,6 +111,65 @@ class AQuimicaNaoMudaTests(unittest.TestCase):
             with self.subTest(item=i):
                 self.assertEqual(len(set(textos)), len(textos),
                                  "a reordenação duplicou uma alternativa")
+
+
+class EstequiometriaTests(unittest.TestCase):
+    """O MESMO teste, contra o artefato de Estequiometria.
+
+    Escrito antes de o banco ser carregado, e não depois: a lição do bloco
+    anterior foi exatamente essa — a correção existia no pipeline de geração e
+    o artefato que virou banco era anterior a ela. Medir a fonte da carga é o
+    único lugar onde a medida não mente.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not FONTE_ESTEQ.exists():
+            raise AssertionError(
+                f"artefato de Estequiometria ausente: {FONTE_ESTEQ}. "
+                f"Sem ele não há como afirmar que o banco não tem viés — e "
+                f"afirmar sem medir foi o erro do bloco anterior.")
+        cls.itens = _itens(FONTE_ESTEQ)
+        cls.contagem = collections.Counter(i["correct_answer"] for i in cls.itens)
+
+    def test_ha_itens_para_medir(self):
+        self.assertGreaterEqual(len(self.itens), 3)
+
+    def test_nenhuma_letra_concentra_o_gabarito(self):
+        total = len(self.itens)
+        for letra, n in self.contagem.items():
+            with self.subTest(letra=letra):
+                self.assertLessEqual(
+                    n / total, 0.40,
+                    f"{n} de {total} gabaritos em {letra!r} — quem marcar "
+                    f"sempre {letra} acerta {n / total:.0%} sem calcular nada")
+
+    def test_o_chute_fixo_nao_passa_na_politica(self):
+        """Para cada estratégia fixa A–E, a política real tem de recusar."""
+        from agente_ia_edu.services.micro_diagnostic import (
+            DECISION_PROCEED, MicroDiagnosticService,
+        )
+        from agente_ia_edu.services.pedagogical_analysis import (
+            PerformanceThresholdPolicy,
+        )
+
+        politica = PerformanceThresholdPolicy.default()
+        svc = MicroDiagnosticService.__new__(MicroDiagnosticService)
+        svc._thresholds = politica
+
+        for letra in LETRAS:
+            taxa = self.contagem.get(letra, 0) / len(self.itens)
+            with self.subTest(letra=letra):
+                d = svc.decidir(answered=politica.min_sample_size, accuracy=taxa)
+                self.assertNotEqual(
+                    d["decision"], DECISION_PROCEED,
+                    f"marcar sempre {letra!r} ({taxa:.0%}) liberou o aluno")
+
+    def test_as_cinco_alternativas_continuam_distintas(self):
+        for i, item in enumerate(self.itens, 1):
+            textos = [item["options"][k] for k in LETRAS]
+            with self.subTest(item=i):
+                self.assertEqual(len(set(textos)), len(textos))
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -40,10 +40,11 @@ MEDIANO = {"answered": 3, "accuracy": 0.67}
 FORTE = {"answered": 3, "accuracy": 1.0}
 
 
-def _conteudo(codigo, estado, prereqs=()):
+def _conteudo(codigo, estado, prereqs=(), **evidencia):
     return {"content_code": codigo, "content_name": codigo.title(),
             "content_state": estado,
-            "prerequisites": [dict(p) for p in prereqs]}
+            "prerequisites": [dict(p) for p in prereqs],
+            **evidencia}
 
 
 def _pre(codigo, **evidencia):
@@ -107,6 +108,43 @@ class ComEvidenciaBoaSegueTests(unittest.TestCase):
         passo = passo_para([_conteudo("ESTEQ", "READY")])
         self.assertEqual(passo["kind"], PASSO_ATIVIDADE)
         self.assertEqual(passo["readiness_route"], ROTA_DIRETA)
+
+
+class EvidenciaFracaNoProprioConteudoTests(unittest.TestCase):
+    """O falso-pronto que o Piloto Zero produziu em 2026-10-04.
+
+    O aluno errou as TRES perguntas de Estequiometria - acerto 0,0 - e a rota
+    virou DIRECT. Causa: o planejador marca o conteudo como RECOMMENDED assim
+    que ha qualquer evidencia, e RECOMMENDED estava na lista que libera. Mas
+    RECOMMENDED quer dizer "pratique isto", nao "esta pronto".
+
+    O estado do planejador diz se ha evidencia. Quem diz se ela e BOA e a
+    politica - a mesma que ja decide o pre-requisito.
+    """
+
+    def test_errou_tudo_no_conteudo_da_atividade_NAO_libera(self):
+        passo = passo_para([_conteudo("ESTEQ", "RECOMMENDED", **FRACO)])
+        self.assertNotEqual(passo["kind"], PASSO_ATIVIDADE,
+                            "errou tudo e foi liberado para a atividade")
+        self.assertEqual(passo["kind"], PASSO_PRATICA)
+        self.assertEqual(passo["readiness_route"], ROTA_PREPARACAO)
+
+    def test_evidencia_boa_no_conteudo_libera(self):
+        passo = passo_para([_conteudo("ESTEQ", "RECOMMENDED", **FORTE)])
+        self.assertEqual(passo["kind"], PASSO_ATIVIDADE)
+        self.assertEqual(passo["readiness_route"], ROTA_DIRETA)
+
+    def test_evidencia_mediana_libera_a_atividade(self):
+        """A pergunta e se ele pode COMECAR, nao se dominou."""
+        passo = passo_para([_conteudo("ESTEQ", "RECOMMENDED", **MEDIANO)])
+        self.assertEqual(passo["kind"], PASSO_ATIVIDADE)
+
+    def test_READY_sem_evidencia_nenhuma_continua_liberando(self):
+        """READY vem do planejador por outros caminhos (contexto da escola,
+        pre-requisitos dominados). Sem evidencia propria E sem o planejador
+        ter observado nada, nao inventamos bloqueio."""
+        passo = passo_para([_conteudo("ESTEQ", "READY", **SEM_NADA)])
+        self.assertEqual(passo["kind"], PASSO_ATIVIDADE)
 
 
 class FailClosedTests(unittest.TestCase):

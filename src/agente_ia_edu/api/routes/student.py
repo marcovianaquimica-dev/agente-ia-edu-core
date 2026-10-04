@@ -1006,11 +1006,47 @@ from ...services.micro_diagnostic import (  # noqa: E402
     DECISION_INSUFFICIENT,
     MicroDiagnosticService,
 )
+from ...services.diagnostico_por_habilidade import (  # noqa: E402
+    diagnostico_por_habilidade,
+)
 from ...services.feedback_pedagogico import feedback_do_diagnostico  # noqa: E402
 from ...services.readiness_route import (  # noqa: E402
     AtividadeNaoVisivel,
     ReadinessRouteService,
 )
+
+
+async def _respostas_por_habilidade(session, assignment_id, aluno: str) -> list[dict]:
+    """Casa cada resposta corrigida com a micro-habilidade que o item mede.
+
+    A habilidade vive em `PedagogicalClassification.subcontent`, gravada pelo
+    gerador do Diagnostic Bank. Um item sem habilidade declarada fica de fora
+    da agregacao - contaria como evidencia sobre algo que nao sabemos o que e.
+    """
+    from sqlalchemy import select as _select
+
+    from ...db.models import ActivityResult, ActivityResultItem
+    from ...db.models.pedagogical import PedagogicalClassification as _PC
+
+    resultado = (await session.execute(
+        _select(ActivityResult).where(
+            ActivityResult.assignment_id == assignment_id,
+            ActivityResult.student_external_id == aluno))).scalar_one_or_none()
+    if resultado is None:
+        return []
+    itens = (await session.execute(
+        _select(ActivityResultItem).where(
+            ActivityResultItem.result_id == resultado.id))).scalars().all()
+    if not itens:
+        return []
+
+    vids = {i.question_version_id for i in itens}
+    skills = dict((await session.execute(
+        _select(_PC.question_version_id, _PC.subcontent).where(
+            _PC.question_version_id.in_(vids),
+            _PC.lifecycle == "ACTIVE"))).all())
+    return [{"diagnostic_skill": skills.get(i.question_version_id),
+             "is_correct": bool(i.is_correct)} for i in itens]
 
 
 @student_router.get("/activities/{assignment_id}/readiness",
@@ -1124,8 +1160,17 @@ async def get_micro_diagnostic_decision(
             try:
                 prontidao = await ReadinessRouteService(session).para_atividade(
                     _UUID(objective_assignment_id), aluno, requester=requester)
-                objetivo_nome = ((prontidao.get("next_step") or {}).get("for_content_name")
-                                 or prontidao.get("title"))
+                # O nome do OBJETIVO so faz sentido quando ele e OUTRO
+                # conteudo. Quando o diagnostico e do proprio conteudo da
+                # atividade, `for_content_name` e igual ao que acabou de ser
+                # diagnosticado, e cair no titulo produzia a frase
+                # "Estequiometria e base para avancarmos em Atividade de
+                # Estequiometria".
+                alvo_nome = (prontidao.get("next_step") or {}).get("for_content_name")
+                objetivo_nome = (alvo_nome
+                                 if alvo_nome and alvo_nome != content_code
+                                 and alvo_nome != conteudo.get("content_name")
+                                 else None)
                 proximo = prontidao.get("next_step")
             except Exception:  # noqa: BLE001 - sem objetivo visivel, segue sem ele
                 objetivo_nome = None
@@ -1133,6 +1178,20 @@ async def get_micro_diagnostic_decision(
         decisao["feedback"] = feedback_do_diagnostico(
             decision=decisao["decision"], band=decisao["band"],
             content_name=decisao["content_name"], objective_name=objetivo_nome)
+
+        # POR HABILIDADE - so quando a amostra sustenta.
+        #
+        # Tres perguntas por sessao e quatro habilidades: o normal e cada
+        # habilidade receber UMA resposta, e uma resposta nao distingue quem
+        # sabe de quem chutou. O modulo cala sozinho nesse caso, e a tela so
+        # mostra `texto` quando ele existe.
+        try:
+            por_habilidade = await _respostas_por_habilidade(
+                session, assignment_id, aluno)
+            decisao["skills"] = diagnostico_por_habilidade(por_habilidade)
+        except Exception:  # noqa: BLE001 - detalhe opcional nunca derruba a decisao
+            decisao["skills"] = {"por_habilidade": {}, "suficiente": False,
+                                 "texto": None}
         # O proximo passo ja recalculado sobre o estado NOVO, para a tela nao
         # precisar de uma segunda chamada nem adivinhar.
         decisao["next_step"] = proximo
