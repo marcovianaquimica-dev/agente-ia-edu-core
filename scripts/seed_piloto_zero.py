@@ -473,6 +473,13 @@ async def _questoes_de_estequiometria(s: AsyncSession) -> list[_uuid.UUID]:
     return [r[0] for r in linhas]
 
 
+# Quantas questoes a atividade da escola leva. Cinco porque o aluno precisa
+# poder NAVEGAR - voltar, pular, mudar de ideia - e com uma questao so nao ha
+# navegacao para exercitar. Nao e um corte pedagogico: e o tamanho de uma
+# tarefa de casa.
+QUESTOES_NA_ATIVIDADE = 5
+
+
 async def garantir_atividade(s: AsyncSession, turma: Class) -> str | None:
     turma_ext = turma.external_id
 
@@ -481,15 +488,15 @@ async def garantir_atividade(s: AsyncSession, turma: Class) -> str | None:
         ActivityAssignment.target_id == turma_ext,
         ActivityAssignment.status == "ACTIVE"))
     if ja is not None:
-        print(f"[atividade] ja existe: {ja.id}")
+        print(f"[atividade] ja existe: {ja.id} ({ja.question_count} questoes)")
         return str(ja.id)
 
-    versoes = await _questoes_de_estequiometria(s)
+    versoes = (await _questoes_de_estequiometria(s))[:QUESTOES_NA_ATIVIDADE]
     if not versoes:
         print("[atividade] BLOQUEADA: nenhuma questao de Estequiometria publicada "
               "e classificada em definitivo no banco")
         return None
-    print(f"[atividade] {len(versoes)} questao(oes) de Estequiometria disponivel(is)")
+    print(f"[atividade] {len(versoes)} questao(oes) de Estequiometria")
 
     # O professor da Escola ABC e quem cria e distribui - o mesmo caminho do
     # portal do professor, nao um atalho de seed.

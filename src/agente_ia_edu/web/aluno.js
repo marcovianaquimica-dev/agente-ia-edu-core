@@ -78,6 +78,7 @@
     tarefas: [],
     prontidao: null,      // resposta de /readiness
     diagnostico: null,    // {assignment_id, questions, pos, respostas}
+    atividade: null,      // a tarefa da escola em andamento
   };
 
   const $ = (id) => document.getElementById(id);
@@ -143,6 +144,11 @@
     ACTIVITY: { acao: 'abrir-tarefa', rotulo: 'Começar' },
   };
 
+  // Uma atividade ja entregue nao se "comeca" de novo - abre-se o resultado.
+  const rotuloDaAcao = (passo, tarefa) =>
+    (passo.kind === 'ACTIVITY' && tarefa && tarefa.entregue)
+      ? 'Ver resultado' : ACOES[passo.kind].rotulo;
+
   function explicacao(passo, tarefa) {
     const alvo = esc(passo.content_name);
     const para = passo.for_content_name ? esc(passo.for_content_name) : null;
@@ -160,7 +166,9 @@
         : `Vamos praticar <strong>${alvo}</strong> um pouco.`;
     }
     if (passo.kind === 'ACTIVITY') {
-      return `${tarefa.question_count} ${tarefa.question_count === 1 ? 'questão' : 'questões'}.`;
+      return tarefa.entregue
+        ? 'Você já entregou esta atividade.'
+        : `${tarefa.question_count} ${tarefa.question_count === 1 ? 'questão' : 'questões'}.`;
     }
     return '';
   }
@@ -184,8 +192,9 @@
         </div>`;
     }
 
-    const selo = passo.kind === 'ACTIVITY'
-      ? '<span class="selo selo-bom">Pronto para começar</span>' : '';
+    const selo = passo.kind !== 'ACTIVITY' ? ''
+      : t.entregue ? '<span class="selo selo-bom">Entregue</span>'
+      : '<span class="selo selo-bom">Pronto para começar</span>';
     const id = passo.kind === 'ACTIVITY' ? ` data-id="${esc(t.assignment_id)}"` : '';
     const codigo = passo.content_code ? ` data-conteudo="${esc(passo.content_code)}"` : '';
 
@@ -196,7 +205,7 @@
         ${selo}
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
         <p class="detalhe">${explicacao(passo, t)}</p>
-        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${cfg.rotulo}</button>
+        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${esc(rotuloDaAcao(passo, t))}</button>
       </div>`;
   }
 
@@ -213,6 +222,17 @@
       const t = app.tarefas[0];
       app.prontidao = await api(
         `/api/v1/student/activities/${t.assignment_id}/readiness`);
+      // A atividade ja foi entregue? So pergunto quando ela e o proximo passo
+      // - nos outros casos a resposta nao mudaria nada na tela, e seria uma
+      // requisicao a mais na abertura do app.
+      t.entregue = false;
+      if ((app.prontidao.next_step || {}).kind === 'ACTIVITY') {
+        try {
+          const tent = await api(
+            `/api/v1/student/activities/${t.assignment_id}/attempt`);
+          t.entregue = tent.status === 'COMPLETED';
+        } catch (_) { /* sem tentativa ainda: segue como nao entregue */ }
+      }
       $('home').innerHTML = cartaoDaTarefa(t, app.prontidao);
     } catch (e) {
       if (e.status === 401 || e.status === 403) {
@@ -483,29 +503,183 @@
 
   // ===================================================== a atividade ======
 
+  // ============================================ a ATIVIDADE DA ESCOLA =====
+  // O backend ja estava completo desde a PHASE 17/18: iniciar, salvar,
+  // retomar, finalizar e corrigir sao os MESMOS endpoints que o
+  // microdiagnostico e a pratica usam. O que faltava era a tela.
+  //
+  // O texto "A resolucao da atividade sera disponibilizada em breve" era uma
+  // string fixa em `entry_screen.note`, resquicio de quando o player ainda
+  // nao existia. Nada no servidor recusava a tentativa - `can_start` ja vinha
+  // true.
+  //
+  // DIFERENCA PARA O DIAGNOSTICO: aqui o aluno NAVEGA. Pode voltar, pular,
+  // rever e mudar de ideia antes de finalizar - e uma tarefa da escola, nao
+  // tres perguntas para o sistema decidir um caminho.
+
   async function abrirTarefa(assignmentId) {
     irPara('sessao');
     $('objetivo').hidden = true;
-    $('trilho').innerHTML = '';
-    $('sessao-resumo').textContent = '';
+    $('bloco').innerHTML = aviso('Abrindo…');
     try {
-      const d = await api(`/api/v1/student/activities/${assignmentId}`);
-      $('bloco').innerHTML = `
-        <div class="cartao-bloco">
-          <p class="bloco-etiqueta">Atividade da escola</p>
-          <p class="bloco-titulo">${esc(d.title)}</p>
-          <p class="detalhe">${d.question_count} ${d.question_count === 1 ? 'questão' : 'questões'}.</p>
-          <p class="indisponivel">${esc(
-            (d.entry_screen && d.entry_screen.note)
-            || 'A resolução da atividade ainda não está disponível aqui.')}</p>
-          <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
-        </div>`;
+      const estado = await api(
+        `/api/v1/student/activities/${assignmentId}/attempt`, { method: 'POST' });
+      app.atividade = {
+        assignment_id: assignmentId,
+        titulo: (await api(`/api/v1/student/activities/${assignmentId}`)).title,
+        questoes: estado.questions || [],
+        pos: Math.max(0, (estado.current_position || 1) - 1),
+        status: estado.status,
+      };
+      if (app.atividade.status === 'COMPLETED') return mostrarResultadoOficial();
+      pintarAtividade();
     } catch (e) {
+      const corpo = e.corpo || {};
       $('bloco').innerHTML = `<div class="cartao-bloco">
         <p class="bloco-titulo">Não consegui abrir a atividade</p>
-        ${aviso(`Erro ${e.status || ''}.`)}
+        ${aviso(corpo.message || corpo.detail
+                || `Erro ${e.status || ''}. Avise sua escola.`)}
+        <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
       </div>`;
     }
+  }
+
+  function pintarAtividade() {
+    const a = app.atividade;
+    if (!a) return;
+    const total = a.questoes.length;
+    const q = a.questoes[a.pos];
+
+    $('trilho').innerHTML = a.questoes.map((x, i) => {
+      const classe = x.selected_option ? 'passo passo-feito'
+        : i === a.pos ? 'passo passo-agora' : 'passo';
+      return `<span class="${classe}"></span>`;
+    }).join('');
+
+    const respondidas = a.questoes.filter((x) => x.selected_option).length;
+    $('sessao-resumo').textContent =
+      `Questão ${a.pos + 1} de ${total} · ${respondidas} respondida${respondidas === 1 ? '' : 's'}`;
+
+    const escolhida = q.selected_option;
+    const alternativas = (q.options || []).map((o) => `
+      <button class="alternativa${escolhida === o.key ? ' alternativa-escolhida' : ''}"
+              type="button" data-opcao-oficial="${esc(o.key)}">
+        <span class="alternativa-letra">${esc(o.key)}</span>
+        <span>${esc(o.text)}</span>
+      </button>`).join('');
+
+    // "Finalizar" so aparece quando TODAS foram respondidas. O backend recusa
+    // de qualquer jeito; oferecer o botao antes disso seria oferecer um erro.
+    const todas = respondidas === total;
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco">
+        <p class="bloco-etiqueta">${esc(a.titulo || 'Atividade da escola')}</p>
+        <p class="bloco-enunciado">${esc(q.statement || '')}</p>
+        <div class="alternativas">${alternativas}</div>
+        <div class="navegacao-questoes">
+          <button class="botao botao-secundario" data-acao="questao-anterior"
+                  ${a.pos === 0 ? 'disabled' : ''}>Anterior</button>
+          <button class="botao botao-secundario" data-acao="questao-proxima"
+                  ${a.pos + 1 >= total ? 'disabled' : ''}>Próxima</button>
+        </div>
+        ${todas
+          ? `<button class="botao botao-principal" data-acao="finalizar-atividade">Finalizar atividade</button>`
+          : `<p class="nota">Responda todas as ${total} questões para finalizar.</p>`}
+      </div>`;
+  }
+
+  async function responderOficial(opcao) {
+    const a = app.atividade;
+    const q = a.questoes[a.pos];
+    q.selected_option = opcao;      // a escolha aparece na hora
+    q.answered = true;
+    pintarAtividade();
+    try {
+      await api(`/api/v1/student/activities/${a.assignment_id}`
+                + `/attempt/answers/${q.question_version_id}`,
+                { method: 'PUT', body: JSON.stringify({ selected_option: opcao }) });
+    } catch (_) {
+      // O backend revalida na finalizacao - e quem de fato recusa resposta
+      // faltando. A escolha continua na tela.
+    }
+  }
+
+  async function navegarQuestao(delta) {
+    const a = app.atividade;
+    const nova = Math.min(Math.max(0, a.pos + delta), a.questoes.length - 1);
+    if (nova === a.pos) return;
+    a.pos = nova;
+    pintarAtividade();
+    try {
+      await api(`/api/v1/student/activities/${a.assignment_id}`
+                + `/attempt/position?position=${nova + 1}`, { method: 'PUT' });
+    } catch (_) {
+      // posicao e so uma ajuda para retomar; perder isso nao perde resposta
+    }
+  }
+
+  async function finalizarAtividade() {
+    const a = app.atividade;
+    $('bloco').innerHTML = aviso('Finalizando…');
+    try {
+      await api(`/api/v1/student/activities/${a.assignment_id}/attempt/complete`,
+                { method: 'POST' });
+      await api(`/api/v1/student/activities/${a.assignment_id}/attempt/correct`,
+                { method: 'POST' });
+      // O DOMINIO precisa ser reconstruido aqui.
+      //
+      // No microdiagnostico isso acontece sozinho, porque
+      // /micro-diagnostic/{id}/decision reconstroi antes de decidir. A
+      // atividade oficial nao tem endpoint equivalente - e sem este rebuild o
+      // aluno terminava a atividade com 0 de 5 e via "Consolidado" em Meu
+      // Progresso, porque a tela lia o estado anterior a correcao.
+      await api('/api/v1/student/domain/rebuild', { method: 'POST' });
+      // E a prontidao, que agora pode ter mudado: errar a atividade da escola
+      // e evidencia como qualquer outra.
+      if (app.prontidao) {
+        try {
+          app.prontidao = await api(
+            `/api/v1/student/activities/${a.assignment_id}/readiness`);
+        } catch (_) { /* a tela de resultado nao depende disto */ }
+      }
+    } catch (e) {
+      const corpo = e.corpo || {};
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-titulo">Não consegui finalizar</p>
+        ${aviso(corpo.message || `Erro ${e.status || ''}.`)}
+        <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
+      </div>`;
+      return;
+    }
+    await mostrarResultadoOficial();
+  }
+
+  async function mostrarResultadoOficial() {
+    const a = app.atividade;
+    $('trilho').innerHTML = '';
+    let r;
+    try {
+      r = await api(`/api/v1/student/activities/${a.assignment_id}/attempt/result`);
+    } catch (e) {
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-titulo">Atividade concluída</p>
+        ${aviso('Seu resultado estará disponível em instantes.')}
+        <button class="botao botao-secundario" data-acao="inicio">Voltar</button>
+      </div>`;
+      return;
+    }
+    const res = r.result || {};
+    $('sessao-resumo').textContent = 'Concluída';
+    // Esta E uma atividade da escola: aqui o acerto E reportado como
+    // desempenho. O que NAO se faz e concluir dominio por ter concluido - quem
+    // decide isso continua sendo a politica, no proximo calculo de prontidao.
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco">
+        <p class="bloco-etiqueta">Atividade concluída</p>
+        <p class="bloco-titulo">Você acertou ${res.correct_count} de ${res.question_count}.</p>
+        <p class="bloco-porque">Sua escola recebe este resultado.</p>
+        <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
+      </div>`;
   }
 
   // ========================================================= a busca ======
@@ -623,17 +797,24 @@
 
   // ===================================================== acoes ============
   document.addEventListener('click', (e) => {
-    const alvo = e.target.closest('[data-acao], [data-opcao], [data-tela], [data-fechar-folha]');
+    const alvo = e.target.closest(
+      '[data-acao], [data-opcao], [data-opcao-oficial], [data-tela], [data-fechar-folha]');
     if (!alvo) return;
 
     if (alvo.dataset.opcao !== undefined) { escolher(alvo.dataset.opcao); return; }
+    if (alvo.dataset.opcaoOficial !== undefined) {
+      responderOficial(alvo.dataset.opcaoOficial); return;
+    }
 
     switch (alvo.dataset.acao) {
       case 'diagnosticar': abrirDiagnostico(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
       case 'avancar': avancar(); return;
       case 'abrir-tarefa': abrirTarefa(alvo.dataset.id); return;
-      case 'inicio': app.diagnostico = null; irPara('inicio'); return;
+      case 'questao-anterior': navegarQuestao(-1); return;
+      case 'questao-proxima': navegarQuestao(1); return;
+      case 'finalizar-atividade': finalizarAtividade(); return;
+      case 'inicio': app.diagnostico = null; app.atividade = null; irPara('inicio'); return;
       case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
       default: break;
     }
@@ -650,7 +831,10 @@
   });
 
   $('btn-sair-sessao').addEventListener('click', () => {
+    // As respostas ja estao no servidor: sair nao perde nada, e voltar retoma
+    // a tentativa em andamento.
     app.diagnostico = null;
+    app.atividade = null;
     irPara('inicio');
   });
 

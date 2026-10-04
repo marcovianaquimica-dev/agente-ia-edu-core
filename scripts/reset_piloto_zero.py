@@ -75,7 +75,7 @@ def url() -> str:
     return f"postgresql+psycopg://{u}:{p}@localhost:5433/{d}"
 
 
-async def limpar(s: AsyncSession) -> dict:
+async def limpar(s: AsyncSession, *, recriar_atividade: bool = False) -> dict:
     contagem = {}
 
     # 1. resultados e seus itens (os itens primeiro: FK)
@@ -114,6 +114,14 @@ async def limpar(s: AsyncSession) -> dict:
         ActivityAssignment.target_id == ALUNO_ID))
     contagem["praticas e diagnosticos"] = r.rowcount or 0
 
+    # 5. (opcional) a atividade da TURMA. Fora desta opcao ela nunca e tocada:
+    #    e trabalho da escola, nao historico do aluno.
+    if recriar_atividade:
+        r = await s.execute(delete(ActivityAssignment).where(
+            ActivityAssignment.target_type == "CLASS",
+            ActivityAssignment.target_id == TURMA))
+        contagem["atividade da turma"] = r.rowcount or 0
+
     await s.commit()
     return contagem
 
@@ -121,6 +129,10 @@ async def limpar(s: AsyncSession) -> dict:
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", action="store_true", help="nao pedir confirmacao")
+    ap.add_argument("--recriar-atividade", action="store_true",
+                    help="apaga TAMBEM a atividade da turma, para que o seed a "
+                         "monte de novo. So util quando o acervo mudou e a "
+                         "atividade ficou menor do que poderia ser.")
     args = ap.parse_args()
 
     if not args.sim:
@@ -135,7 +147,7 @@ async def main() -> None:
     fabrica = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with fabrica() as s:
-            contagem = await limpar(s)
+            contagem = await limpar(s, recriar_atividade=args.recriar_atividade)
     finally:
         await engine.dispose()
 

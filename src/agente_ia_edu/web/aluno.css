@@ -545,3 +545,21 @@ p  { margin: 0 0 .75rem; }
   display: block;
   margin: 0 auto .15rem;
 }
+
+
+/* ============================ ATIVIDADE OFICIAL: navegar entre questoes ===
+   O diagnostico e linear (tres perguntas, sem volta). A tarefa da escola nao:
+   o aluno pode voltar, pular e mudar de ideia antes de finalizar. */
+
+.navegacao-questoes {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+.navegacao-questoes .botao { flex: 1 1 0; }
+
+.navegacao-questoes .botao[disabled] {
+  opacity: .45;
+  cursor: default;
+}
