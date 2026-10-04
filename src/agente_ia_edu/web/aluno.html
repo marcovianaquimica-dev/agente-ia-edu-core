@@ -55,12 +55,17 @@
       <div class="perguntar-linha">
         <input class="perguntar-campo" id="campo-duvida" type="text" autocomplete="off"
                placeholder="Dúvida, assunto...">
-        <button class="icone" type="button" disabled
-                title="Enviar foto — em breve" aria-label="Enviar foto (em breve)">📷</button>
-        <button class="icone" type="button" disabled
-                title="Enviar arquivo — em breve" aria-label="Enviar arquivo (em breve)">📎</button>
-        <button class="icone" type="button" disabled
-                title="Falar — em breve" aria-label="Falar (em breve)">🎤</button>
+        <!-- Os tres juntos num grupo: sem isto o wrap os separa em linhas
+             diferentes quando a largura aperta, e um icone orfao ao lado do
+             campo nao se parece com nada. -->
+        <span class="perguntar-icones">
+          <button class="icone" type="button" disabled
+                  title="Enviar foto — em breve" aria-label="Enviar foto (em breve)">📷</button>
+          <button class="icone" type="button" disabled
+                  title="Enviar arquivo — em breve" aria-label="Enviar arquivo (em breve)">📎</button>
+          <button class="icone" type="button" disabled
+                  title="Falar — em breve" aria-label="Falar (em breve)">🎤</button>
+        </span>
         <!-- Acao REAL: GET /api/v1/student/search. Enter tambem envia, porque
              o campo esta num <form> e este botao e type="submit". -->
         <button class="botao botao-principal botao-enviar" type="submit">Enviar</button>

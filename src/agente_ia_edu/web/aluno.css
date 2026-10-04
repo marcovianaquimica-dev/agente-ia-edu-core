@@ -209,10 +209,26 @@ p  { margin: 0 0 .75rem; }
 .perguntar-rotulo {
   display: block; font-size: .9375rem; font-weight: 600; margin-bottom: .5rem;
 }
-.perguntar-linha { display: flex; gap: .375rem; align-items: center; }
+/* A linha de entrada QUEBRA quando nao cabe, em vez de empurrar o botao
+   para fora da tela. Em 320px, antes desta regra, o conteudo media 486px: o
+   campo sobrava com 30px de largura - inutilizavel - e "Enviar" terminava
+   166px alem da viewport.
+
+   Sem media query: `flex-wrap` + uma base de 12rem no campo fazem a
+   composicao se reorganizar sozinha no ponto em que ela de fato precisa.
+   Em telas largas tudo continua numa linha; em telas estreitas o campo fica
+   com a linha inteira e os controles descem. */
+.perguntar-linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .375rem;
+  align-items: center;
+}
 
 .perguntar-campo {
-  flex: 1 1 auto; min-width: 0;
+  /* 12rem de base: abaixo disso o campo deixa de ser utilizavel, entao e
+     melhor ele tomar a linha inteira e os controles descerem. */
+  flex: 1 1 12rem; min-width: 0;
   min-height: var(--toque);
   padding: .625rem .875rem;
   border: 1px solid var(--borda); border-radius: var(--r-m);
@@ -227,6 +243,14 @@ p  { margin: 0 0 .75rem; }
   background: var(--papel); font-size: 1.125rem; cursor: pointer;
 }
 .icone:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Os tres icones andam juntos: quando a linha quebra, eles descem como um
+   bloco so em vez de se espalharem. */
+.perguntar-icones {
+  display: flex;
+  gap: .375rem;
+  flex: 0 0 auto;
+}
 
 .nota { font-size: .8125rem; color: var(--tinta-fraca); margin: .5rem 0 0; }
 
@@ -451,9 +475,11 @@ p  { margin: 0 0 .75rem; }
    observado no teste humano de 2026-10-04. */
 
 .botao-enviar {
-  flex: 0 0 auto;
+  /* Cresce para ocupar a sobra quando desce de linha, mas nunca espreme os
+     icones: `flex-basis: auto` com `min-width` do proprio texto. */
+  flex: 1 0 auto;
   padding: 0 1rem;
-  min-height: 44px;
+  min-height: var(--toque);
   white-space: nowrap;
 }
 
@@ -483,6 +509,11 @@ p  { margin: 0 0 .75rem; }
 .cartao-faixa {
   display: flex;
   align-items: center;
+  /* QUEBRA quando o botao de acao nao couber. Sem isto, em 390px o cartao
+     com "Revisar agora" media 528px e empurrava a pagina inteira para o
+     scroll horizontal - e so acontecia no estado "Precisa de atencao",
+     porque so ele tem botao. A auditoria com tudo "Consolidado" passava. */
+  flex-wrap: wrap;
   gap: .75rem;
   padding: .85rem 1rem;
   background: var(--papel);
@@ -502,7 +533,10 @@ p  { margin: 0 0 .75rem; }
   color: var(--tinta-fraca);
 }
 
-.faixa-corpo { flex: 1 1 auto; display: flex; flex-direction: column; }
+/* 8rem de base: abaixo disso o nome do conteudo fica ilegivel, entao e
+   melhor o botao descer para a linha de baixo. */
+.faixa-corpo { flex: 1 1 8rem; min-width: 0; display: flex; flex-direction: column; }
+.faixa-conteudo { overflow-wrap: anywhere; }
 .faixa-conteudo { font-weight: 600; color: var(--tinta); line-height: 1.3; }
 .faixa-estado { font-size: .8rem; color: var(--tinta-fraca); }
 
@@ -516,7 +550,8 @@ p  { margin: 0 0 .75rem; }
 .faixa-atencao .faixa-icone { background: var(--primaria-clara); color: var(--primaria); }
 
 .botao-pequeno {
-  flex: 0 0 auto;
+  /* cresce para a largura toda quando desce de linha */
+  flex: 1 0 auto;
   padding: .45rem .75rem;
   font-size: .85rem;
   min-height: 40px;
