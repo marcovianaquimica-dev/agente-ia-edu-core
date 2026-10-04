@@ -244,10 +244,9 @@ async def get_student_activity(
         store = ActivityAssignmentStore(session)
         try:
             return await store.student_activity_detail(assignment_id, requester=_student_requester(ctx))
-        except AssignmentNotFound as exc:
-            raise HTTPException(status_code=404, detail="Activity not found") from exc
-        except AssignmentAuthError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (AssignmentNotFound, AssignmentAuthError) as exc:
+            raise HTTPException(
+                status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -268,11 +267,33 @@ from ...services.activity_player_store import (  # noqa: E402
 )
 
 
+# ============================== ANTI-ENUMERACAO (rotas do ALUNO) ===========
+# Um recurso inexistente respondia 404; um recurso real de outro aluno
+# respondia 403 com "this activity is not assigned to you". A diferenca entre
+# as duas respostas e um oraculo: quem varre UUIDs aprende quais existem.
+#
+# Nas rotas DO ALUNO o recurso e privado por definicao - ele nunca tem motivo
+# legitimo para saber que existe uma atividade que nao e dele. Entao "nao
+# existe" e "nao e seu" respondem IGUAL, com o mesmo corpo.
+#
+# O QUE NAO MUDA, DE PROPOSITO:
+#   - as rotas de GESTAO (professor, coordenacao) continuam 403. La o
+#     requester pode listar as distribuicoes da escola, entao esconder a
+#     existencia nao protege nada e esconderia um erro de permissao de quem
+#     precisa corrigi-lo;
+#   - `AssignmentAuthError` continua sendo o que era. Mexer na excecao mudaria
+#     o contrato de pratica, diagnostico e gestao de uma vez; o que muda aqui
+#     e so como a camada HTTP DO ALUNO a traduz.
+RECURSO_PRIVADO_NAO_ENCONTRADO = "Activity not found"
+
+
 def _map_player_error(exc: Exception) -> HTTPException:
     if isinstance(exc, PlayerNotFound):
         return HTTPException(status_code=404, detail="Activity not found")
     if isinstance(exc, PlayerAuthError):
-        return HTTPException(status_code=403, detail=str(exc))
+        # Mesma resposta de PlayerNotFound, acima: indistinguivel de proposito.
+        return HTTPException(status_code=404,
+                             detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
     if isinstance(exc, PlayerStateError):
         detail = {"message": str(exc), **(getattr(exc, "payload", {}) or {})}
         return HTTPException(status_code=409, detail=detail)
@@ -380,10 +401,9 @@ from ...services.activity_correction_store import (  # noqa: E402
 
 
 def _map_correction_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, CorrectionNotFound):
-        return HTTPException(status_code=404, detail="Result not found")
-    if isinstance(exc, CorrectionAuthError):
-        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, (CorrectionNotFound, CorrectionAuthError)):
+        return HTTPException(status_code=404,
+                             detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
     if isinstance(exc, CorrectionSnapshotError):
         return HTTPException(status_code=409, detail={"message": str(exc), "reason": "snapshot_inconsistent",
                                                       **(getattr(exc, "payload", {}) or {})})
@@ -438,10 +458,9 @@ from ...services.pedagogical_analysis import (  # noqa: E402
 
 
 def _map_analysis_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, AnalysisNotFound):
-        return HTTPException(status_code=404, detail="Result analysis not found")
-    if isinstance(exc, AnalysisAuthError):
-        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, (AnalysisNotFound, AnalysisAuthError)):
+        return HTTPException(status_code=404,
+                             detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
     if isinstance(exc, (AnalysisError, ValueError)):
         return HTTPException(status_code=422, detail=str(exc))
     raise exc  # pragma: no cover
@@ -1060,13 +1079,10 @@ async def get_activity_readiness(
         try:
             return await ReadinessRouteService(session).para_atividade(
                 assignment_id, _me(ctx), requester=_student_requester(ctx))
-        except (AtividadeNaoVisivel, AssignmentNotFound, PlayerNotFound) as exc:
-            # 404 tambem para a atividade de OUTRA pessoa: distinguir "nao
-            # existe" de "existe, mas nao e sua" ja conta algo sobre a outra
-            # turma a quem perguntou.
-            raise HTTPException(status_code=404, detail="Activity not found") from exc
-        except (AssignmentAuthError, PlayerAuthError) as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (AtividadeNaoVisivel, AssignmentNotFound, PlayerNotFound,
+                AssignmentAuthError, PlayerAuthError) as exc:
+            raise HTTPException(
+                status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
 
 class _MicroDiagnosticRequest(_BaseModel):
