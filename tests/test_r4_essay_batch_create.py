@@ -148,21 +148,24 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([p.page_number for p in pages], [1, 2, 3, 4])
 
     async def test_rejects_a_pdf_above_the_per_file_page_limit(self):
+        # Teto do LOTE (_MAX_PDF_PAGES_BATCH, 200) - deliberadamente maior que
+        # o do envio individual do aluno (_MAX_PDF_PAGES, 20), porque o lote
+        # roda em background e nao arrisca timeout de requisicao.
         async with self.session_factory() as session:
             seed = await self._seed(session)
-            path = _write_pdf(self.tmp_dir / "grande.pdf", 21)
+            path = _write_pdf(self.tmp_dir / "grande.pdf", 201)
             with self.assertRaises(ValueError) as ctx:
                 await self._service(session).create_batch(
                     school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
                     uploaded_by_external_identity="prof", source_paths=[path],
                 )
-            self.assertIn("20", str(ctx.exception))
+            self.assertIn("200", str(ctx.exception))
 
     async def test_rejects_a_batch_above_the_total_page_limit(self):
         async with self.session_factory() as session:
             seed = await self._seed(session)
             paths = [
-                _write_pdf(self.tmp_dir / f"parte{index}.pdf", 20) for index in range(4)
+                _write_pdf(self.tmp_dir / f"parte{index}.pdf", 20) for index in range(11)
             ]
             with self.assertRaises(ValueError) as ctx:
                 await self._service(session).create_batch(
@@ -205,7 +208,7 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_nothing_is_persisted_when_the_limit_is_exceeded(self):
         async with self.session_factory() as session:
             seed = await self._seed(session)
-            paths = [_write_pdf(self.tmp_dir / f"p{index}.pdf", 20) for index in range(4)]
+            paths = [_write_pdf(self.tmp_dir / f"p{index}.pdf", 20) for index in range(11)]
             with self.assertRaises(ValueError):
                 await self._service(session).create_batch(
                     school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,

@@ -866,7 +866,7 @@ async def list_essay_prompts_for_student(
 
 @essay_student_prompts_router.get("/answer-sheet.pdf")
 async def get_student_answer_sheet(
-    copies: int = Query(1, ge=1, le=60),
+    copies: int = Query(1, ge=1, le=200),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> Response:

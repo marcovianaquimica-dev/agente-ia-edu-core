@@ -754,7 +754,7 @@
         <p class="empty-text">Status: ${tmEsc(statusLabel(detail.status))}</p>
         <div class="tm-form-actions" id="er-sheet-actions" style="margin: 8px 0;">
           <label for="er-sheet-copies" style="margin-right:6px;">Cópias</label>
-          <input id="er-sheet-copies" class="text-input" type="number" min="1" max="60" value="30" style="width:80px;display:inline-block;">
+          <input id="er-sheet-copies" class="text-input" type="number" min="1" max="200" value="30" style="width:80px;display:inline-block;">
           <button class="btn btn-secondary" type="button" id="er-answer-sheet-btn">Gerar folha de resposta</button>
           <input id="er-logo-file" type="file" accept="image/png,image/jpeg" hidden>
           <button class="btn btn-secondary" type="button" id="er-logo-btn">Enviar logo da escola</button>
@@ -831,7 +831,7 @@
 
     container.querySelector('#er-answer-sheet-btn').addEventListener('click', async () => {
       const btn = container.querySelector('#er-answer-sheet-btn');
-      const copies = Math.max(1, Math.min(60, Number(container.querySelector('#er-sheet-copies').value) || 1));
+      const copies = Math.max(1, Math.min(200, Number(container.querySelector('#er-sheet-copies').value) || 1));
       btn.disabled = true;
       sheetMsg.hidden = true;
       try {
