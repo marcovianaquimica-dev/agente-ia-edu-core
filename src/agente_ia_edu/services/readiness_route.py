@@ -317,6 +317,7 @@ class ReadinessRouteService:
             ACAO_ENSINAR, ACAO_ESCALAR, ACAO_GUIADA, ACAO_VERIFICAR,
             decidir_intervencao, habilidade_que_trava,
         )
+        from agente_ia_edu.services.feedback_pedagogico import feedback_do_passo
         from agente_ia_edu.services.proximo_passo import (
             PASSO_ENSINO, PASSO_ESCALONAMENTO, PASSO_GUIADA, PASSO_VERIFICACAO,
         )
@@ -356,6 +357,20 @@ class ReadinessRouteService:
         )
         passo["intervention"] = intervencao
         acao = intervencao.get("action")
+
+        # O QUE O ALUNO LE, decidido aqui e nao no navegador.
+        #
+        # Ate 2026-10-05 a tela de resultado da pratica dizia "Voce acertou 1
+        # de 5. Isso entra no seu progresso e ajusta o proximo passo." - duas
+        # frases sobre o sistema, montadas no JavaScript. O aluno nao ficava
+        # sabendo o que foi observado nem por que o proximo passo ajuda.
+        passo["feedback"] = feedback_do_passo(
+            action=acao,
+            trend=intervencao.get("trend"),
+            cycle=intervencao.get("cycle") or 1,
+            skill_name=intervencao.get("skill_name"),
+            content_name=passo.get("content_name"),
+            objective_name=passo.get("for_content_name"))
 
         if acao == ACAO_ENSINAR and material:
             passo["kind"] = PASSO_ENSINO
