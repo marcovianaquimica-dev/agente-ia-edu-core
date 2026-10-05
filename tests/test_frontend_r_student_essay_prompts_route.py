@@ -59,7 +59,8 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
     def _as(self, user: str):
         self.app.dependency_overrides[get_current_identity] = lambda: _ident(user)
 
-    def _seed(self, code: str, *, with_submission: bool = False, assignment_status: str = "OPEN"):
+    def _seed(self, code: str, *, with_submission: bool = False,
+              assignment_status: str = "OPEN", prompt_deleted: bool = False):
         async def _seed_async():
             async with self.factory() as session:
                 school = School(id=uuid.uuid4(), code=f"SEP-{code}", name=f"school-{code}")
@@ -104,6 +105,7 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
                 prompt = EssayPrompt(
                     id=uuid.uuid4(), school_id=school.id, title="Tema", statement="Disserte.",
                     year=2026, status="ACTIVE", created_by_external_identity="teacher:t",
+                    deleted_at=(datetime.now(timezone.utc) if prompt_deleted else None),
                 )
                 session.add(prompt)
                 await session.flush()
@@ -154,6 +156,29 @@ class StudentEssayPromptsRouteTests(unittest.TestCase):
         self.assertEqual(body[0]["my_submission"]["id"], str(submission_id))
         self.assertEqual(body[0]["my_submission"]["anchor_mode"], "TEXT_OFFSET")
         self.assertEqual(body[0]["my_submission"]["mode"], "TYPED")
+
+    def test_tema_na_lixeira_nao_chega_ao_aluno(self):
+        """Encontrado no ensaio da apresentacao, em dados reais: dois temas
+        chamados "teste" apareciam na lista do aluno com `deleted_at`
+        preenchido ha dias.
+
+        A consulta filtrava `PromptAssignment.status == 'OPEN'` e nunca olhava
+        a lixeira do PROMPT. O professor exclui o tema, a distribuicao
+        continua aberta, e o aluno continua vendo - sem nenhuma forma de o
+        professor perceber.
+        """
+        self._seed("lixeira", prompt_deleted=True)
+        self._as("student_lixeira")
+        resp = self.client.get("/api/v1/student/essay-prompts")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), [],
+                         "tema excluido pelo professor chegou ao aluno")
+
+    def test_tema_fora_da_lixeira_continua_listado(self):
+        """A trava nao pode esconder o que esta normal."""
+        self._seed("viva", prompt_deleted=False)
+        self._as("student_viva")
+        self.assertEqual(len(self.client.get("/api/v1/student/essay-prompts").json()), 1)
 
     def test_closed_assignment_is_not_listed(self):
         self._seed("closed", assignment_status="CLOSED")
