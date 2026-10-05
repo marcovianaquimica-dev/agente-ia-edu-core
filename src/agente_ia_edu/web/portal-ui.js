@@ -64,7 +64,10 @@
     return {
       // Sem vinculo nao ha instituicao, e a Home diz isso em vez de inventar.
       instituicao: i.name || 'Sem instituição vinculada',
-      pessoa: u.external_id || '',
+      // O NOME quando ha cadastro; o identificador so como ultimo recurso.
+      // "aluno_teste_a" numa tela projetada denuncia que e um ambiente de
+      // teste - e o nome estava no banco o tempo todo.
+      pessoa: u.name || u.external_id || '',
       papel: PAPEIS[u.role] || '',
     };
   }

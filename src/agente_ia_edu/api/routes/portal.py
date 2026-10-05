@@ -41,18 +41,35 @@ async def portal_overview(
         # Quem nao tem vinculo fica sem nome, e a Home diz isso em vez de
         # inventar uma escola.
         nome_escola = None
+        nome_pessoa = None
         if contexto.school_id:
             from sqlalchemy import select
 
-            from ...db.models import School
+            from ...db.models import Person, School, User
 
             nome_escola = (await session.execute(
                 select(School.name).where(School.id == contexto.school_id)
             )).scalar_one_or_none()
 
+            # O NOME DA PESSOA, quando ha cadastro.
+            #
+            # Sem isto a Home do Assessor dizia "Ola, aluno_teste_a" - o
+            # identificador tecnico no lugar do nome, numa tela que seria
+            # projetada. O nome estava em `persons.full_name` o tempo todo.
+            #
+            # NULO quando nao ha cadastro: montar um nome a partir do login
+            # seria inventar sobre a pessoa.
+            nome_pessoa = (await session.execute(
+                select(Person.full_name)
+                .join(User, User.person_id == Person.id)
+                .where(User.external_user_id == (
+                    contexto.external_identity_id or contexto.user_id))
+            )).scalars().first()
+
         return {
             "user": {
                 "external_id": contexto.external_identity_id or contexto.user_id,
+                "name": nome_pessoa,
                 "role": contexto.role,
                 "is_platform_admin": bool(contexto.is_platform_admin),
             },

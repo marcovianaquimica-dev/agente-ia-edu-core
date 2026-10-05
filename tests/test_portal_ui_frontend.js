@@ -91,12 +91,26 @@ test('as quatro situacoes tem rotulo ou nota - nenhuma fica muda', () => {
 
 test('o contexto traz instituicao, pessoa e papel legiveis', () => {
   const c = PortalUI.contexto({
-    user: { external_id: 'aluna', role: 'STUDENT' },
+    user: { external_id: 'aluna', name: 'Aluna Silva', role: 'STUDENT' },
     institution: { name: 'Escola ABC' },
   });
   assert.equal(c.instituicao, 'Escola ABC');
-  assert.equal(c.pessoa, 'aluna');
+  assert.equal(c.pessoa, 'Aluna Silva');
   assert.equal(c.papel, 'Aluno');
+});
+
+test('havendo nome, o identificador tecnico nao aparece', () => {
+  // "aluno_teste_a" numa tela projetada denuncia o ambiente de teste.
+  const c = PortalUI.contexto({
+    user: { external_id: 'aluno_teste_a', name: 'Aluno Teste A' },
+    institution: {},
+  });
+  assert.equal(c.pessoa, 'Aluno Teste A');
+});
+
+test('sem nome cadastrado, o identificador e o ultimo recurso', () => {
+  const c = PortalUI.contexto({ user: { external_id: 'prof_x' }, institution: {} });
+  assert.equal(c.pessoa, 'prof_x');
 });
 
 test('sem vinculo, a instituicao e dita ausente - nao inventada', () => {

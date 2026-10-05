@@ -28,7 +28,7 @@ from sqlalchemy.pool import StaticPool
 from agente_ia_edu.api.app import create_app
 from agente_ia_edu.api.dependencies import get_current_identity, get_session_factory
 from agente_ia_edu.db.base import Base
-from agente_ia_edu.db.models import School, UserSchoolLink
+from agente_ia_edu.db.models import Person, School, User, UserSchoolLink
 from agente_ia_edu.db.models.admin import SchoolModule
 from agente_ia_edu.identity import ExternalIdentityContext
 from agente_ia_edu.services.modulos_do_portal import DISPONIVEL, EM_BREVE
@@ -65,6 +65,16 @@ class PortalOverviewTests(unittest.TestCase):
                     s.add(UserSchoolLink(external_user_id=quem,
                                          school_id=escola.id, role=papel,
                                          scope_type="SCHOOL", active=True))
+                # So a aluna tem cadastro de pessoa: o nome vem de la, e quem
+                # nao tem fica sem - nao com um nome montado do login.
+                pessoa = Person(id=uuid.uuid4(), school_id=escola.id,
+                                full_name="Aluna Silva")
+                s.add(pessoa)
+                await s.flush()
+                s.add(User(id=uuid.uuid4(), school_id=escola.id,
+                           person_id=pessoa.id,
+                           external_identity_provider="test",
+                           external_user_id="aluna"))
                 # Uma segunda escola, que so contratou o Assessor.
                 outra = School(id=uuid.uuid4(), code="XYZ", name="Escola XYZ")
                 s.add(outra)
@@ -106,6 +116,19 @@ class PortalOverviewTests(unittest.TestCase):
         self.assertEqual(d["user"]["external_id"], "aluna")
         self.assertEqual(d["user"]["role"], "STUDENT")
         self.assertEqual(d["institution"]["name"], ESCOLA)
+
+    def test_B_o_NOME_da_pessoa_viaja_quando_existe(self):
+        """Encontrado no ensaio: a Home do Assessor dizia "Olá,
+        aluno_teste_a" — o identificador técnico no lugar do nome, numa tela
+        que seria projetada. O nome existia em `persons.full_name` o tempo
+        todo; ninguém o buscava.
+        """
+        d = self._como("aluna")
+        self.assertEqual(d["user"]["name"], "Aluna Silva")
+
+    def test_B_sem_nome_cadastrado_o_campo_vem_nulo_nao_inventado(self):
+        """Nulo é um fato; um nome montado a partir do login é invenção."""
+        self.assertIsNone(self._como("professora")["user"]["name"])
 
     def test_B_o_papel_vem_do_vinculo_nao_de_um_padrao(self):
         self.assertEqual(self._como("professora")["user"]["role"], "TEACHER")

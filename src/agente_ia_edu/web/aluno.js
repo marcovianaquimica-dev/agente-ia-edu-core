@@ -127,6 +127,19 @@
     return (app.aluno && app.aluno.nome) || bruto;
   }
 
+  // O NOME da pessoa, da mesma rota que o Portal usa. Sem isto a Home dizia
+  // "Ola, aluno_teste_a" - o identificador tecnico no lugar do nome, e o nome
+  // estava em `persons.full_name` o tempo todo.
+  //
+  // Falhar aqui nao bloqueia nada: `nomeDoAluno` ja cai no identificador.
+  async function carregarNome() {
+    if (app.aluno && app.aluno.nome) return;
+    try {
+      const d = await api('/api/v1/portal/overview');
+      if (d && d.user && d.user.name) app.aluno = { nome: d.user.name };
+    } catch (_) { /* sem nome, segue com o identificador */ }
+  }
+
   function cartaoSemTarefa() {
     return `
       <div class="contexto">
@@ -275,6 +288,7 @@
   async function pintarHome() {
     if (!identidade()) return pedirIdentidade();
     carregando();
+    await carregarNome();
     try {
       const lista = await api('/api/v1/student/activities');
       app.tarefas = lista.items || [];
