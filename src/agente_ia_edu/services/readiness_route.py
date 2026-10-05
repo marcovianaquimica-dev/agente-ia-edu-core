@@ -77,6 +77,52 @@ def rota_de_estados(estados: Iterable[str]) -> str:
     return ROTA_DIAGNOSTICO
 
 
+
+def com_evidencia(prereqs, por_conteudo: dict) -> list[dict]:
+    """Completa cada pre-requisito com o que ja se sabe sobre ele.
+
+    POR QUE E UMA ETAPA PROPRIA
+    ============================
+    O `/readiness` montava os pre-requisitos assim:
+
+        c.get("prerequisites") or await _prereqs_do_catalogo(...)
+
+    A lista do planejador traz so `{code, name}`. Quem cruzava com a
+    evidencia era o caminho ALTERNATIVO - entao o pre-requisito so chegava
+    completo quando o planejador NAO o conhecia, que e o contrario do
+    necessario. Medido: a base com 3 respostas e 0,667 de acerto chegava com
+    `answered: None`, e o sistema mandava o aluno diagnosticar de novo o que
+    acabara de responder.
+
+    `answered` e `accuracy` viajam junto porque e com eles que
+    `proximo_passo` distingue "ainda nao sei" de "ja medi, e falta".
+
+    MASTERED, e so MASTERED, conta como dominado: READY quer dizer "da para
+    seguir", nao "ja sabe" - foi confundir os dois que liberou, uma vez, um
+    aluno com 0 de 5.
+    """
+    saida = []
+    for p in (prereqs or []):
+        codigo = (p or {}).get("code")
+        if not codigo:
+            # sem codigo nao da para cruzar com nada, e seguiria adiante como
+            # pre-requisito fantasma
+            continue
+        c = por_conteudo.get(codigo) or {}
+        saida.append({
+            "code": codigo,
+            "name": p.get("name") or c.get("content_name"),
+            "mastered": c.get("content_state") == "MASTERED",
+            "content_state": c.get("content_state"),
+            "answered": c.get("questions_answered") or 0,
+            "accuracy": c.get("accuracy"),
+            # a jornada precisa saber se JA houve diagnostico da base - para
+            # o aluno, e a mesma etapa
+            "origin_breakdown": c.get("origin_breakdown") or {},
+        })
+    return saida
+
+
 class AtividadeNaoVisivel(LookupError):
     """A atividade nao existe, ou nao e desta pessoa - a rota nao distingue os
     dois casos de proposito: dizer "existe, mas nao e sua" ja vaza algo."""
@@ -148,9 +194,13 @@ class ReadinessRouteService:
                 "accuracy": (c or {}).get("accuracy"),
                 "origin_breakdown": (c or {}).get("origin_breakdown") or {},
                 "unsatisfied_prerequisites": (c or {}).get("unsatisfied_prerequisites", []),
-                "prerequisites": (c or {}).get("prerequisites")
-                                 or await self._prereqs_do_catalogo(
-                                     planejador, codigo, requester, por_conteudo),
+                # A evidencia e aplicada venha a lista de onde vier - do
+                # planejador ou do catalogo. Era so no caminho do catalogo.
+                "prerequisites": com_evidencia(
+                    (c or {}).get("prerequisites")
+                    or await self._prereqs_do_catalogo(
+                        planejador, codigo, requester),
+                    por_conteudo),
             })
 
         # A ROTA SAI DO PROXIMO PASSO, nao o contrario.
@@ -189,11 +239,10 @@ class ReadinessRouteService:
                            if p.get("code"))
         origens = await self._origens_de(codigos, student_external_id,
                                          requester=requester)
-        jornada = jornada_de(
-            origens=origens,
-            estado_atividade=await self._estado_da_atividade(
-                assignment_id, requester=requester),
-            rota=rota, kind=passo["kind"])
+        estado_atividade = await self._estado_da_atividade(
+            assignment_id, requester=requester)
+        jornada = jornada_de(origens=origens, estado_atividade=estado_atividade,
+                             rota=rota, kind=passo["kind"])
 
         return {
             "assignment_id": str(assignment_id),
@@ -206,6 +255,14 @@ class ReadinessRouteService:
             # O passo concreto. O frontend TRADUZ isto; nao decide nada.
             "next_step": passo,
             "journey": jornada,
+            # O ESTADO DA ATIVIDADE, independente do proximo passo. O selo
+            # "Entregue" da Home vinha de `next_step.state`, e so havia
+            # `next_step.state` de atividade enquanto o passo fosse ACTIVITY:
+            # quem ia mal era mandado de volta ao diagnostico, o passo mudava
+            # de tipo e a Home parava de dizer que a atividade fora entregue -
+            # enquanto "Minhas atividades" dizia "Concluida". Duas telas, a
+            # mesma entrega, respostas diferentes.
+            "activity_state": estado_atividade,
             # a atividade NAO foi concluida por preparar-se para ela
             "objective_assignment_id": str(assignment_id),
             "objective_completed": False,
@@ -314,28 +371,17 @@ class ReadinessRouteService:
         return ESTADO_NAO_INICIADO, None
 
     @staticmethod
-    async def _prereqs_do_catalogo(planejador, codigo, requester, por_conteudo) -> list[dict]:
-        """Os pre-requisitos diretos pelo catalogo, com `mastered` lido do
-        estado que o planejador JA devolveu - nunca presumido."""
+    async def _prereqs_do_catalogo(planejador, codigo, requester) -> list[dict]:
+        """Os pre-requisitos diretos pelo catalogo - so os arcos, crus.
+
+        A evidencia nao entra aqui: ela entra em `com_evidencia`, que e
+        aplicada tambem a lista que vem do planejador.
+        """
         try:
             resolvido = await planejador.resolve_prerequisites(codigo, requester=requester)
         except Exception:  # noqa: BLE001 - conteudo fora do catalogo
             return []
-        saida = []
-        for p in resolvido.get("prerequisites") or []:
-            c = por_conteudo.get(p["code"]) or {}
-            # `answered` e `accuracy` viajam junto porque e com eles que
-            # `proximo_passo` distingue "ainda nao sei" de "ja medi, e falta".
-            # Sem isso o aluno era mandado a rediagnosticar o que ja foi medido.
-            saida.append({"code": p["code"], "name": p.get("name"),
-                          "mastered": c.get("content_state") == "MASTERED",
-                          "content_state": c.get("content_state"),
-                          "answered": c.get("questions_answered") or 0,
-                          "accuracy": c.get("accuracy"),
-                          # a jornada precisa saber se JA houve diagnostico da
-                          # base - para o aluno, e a mesma etapa
-                          "origin_breakdown": c.get("origin_breakdown") or {}})
-        return saida
+        return list(resolvido.get("prerequisites") or [])
 
     async def _nomes_do_catalogo(self, codigos: Sequence[str]) -> dict[str, str]:
         if not codigos:

@@ -162,9 +162,22 @@
   const rotuloDaAcao = (passo, { aposConcluir = false } = {}) =>
     (aposConcluir ? 'Continuar' : passo.cta) || 'Continuar';
 
-  function explicacao(passo, tarefa) {
+  // DEPOIS DA ENTREGA, "antes de começar" e mentira.
+  //
+  // Quem vai mal continua recebendo reforco - isso e certo e desejado. O que
+  // estava errado era a moldura: o texto apresentava o passo como preparacao
+  // PARA uma atividade que ja tinha sido entregue, logo abaixo do selo
+  // "Entregue" e de uma jornada marcando "Resultado".
+  function explicacao(passo, tarefa, entregue) {
     const alvo = esc(passo.content_name);
     const para = passo.for_content_name ? esc(passo.for_content_name) : null;
+    if (entregue && (passo.kind === 'DIAGNOSTIC' || passo.kind === 'PRACTICE')) {
+      return passo.kind === 'PRACTICE'
+        ? `Você já entregou. Pelo que vi nas suas respostas, vale firmar
+           <strong>${alvo}</strong>.`
+        : `Você já entregou. Ainda não sei o quanto você sabe de
+           <strong>${alvo}</strong> — três perguntas rápidas, não vale nota.`;
+    }
     if (passo.kind === 'DIAGNOSTIC') {
       return para && para !== alvo
         ? `Antes de começar, três perguntas rápidas sobre <strong>${alvo}</strong>
@@ -205,10 +218,18 @@
         </div>`;
     }
 
-    const selo = passo.kind !== 'ACTIVITY' ? ''
-      : passo.state === 'COMPLETED' ? '<span class="selo selo-bom">Entregue</span>'
-      : passo.state === 'IN_PROGRESS' ? '<span class="selo selo-neutro">Em andamento</span>'
-      : '<span class="selo selo-bom">Pronto para começar</span>';
+    // O selo e da ATIVIDADE, nao do proximo passo. Lido de `next_step.state`,
+    // ele so existia enquanto o passo fosse ACTIVITY: quem ia mal voltava a
+    // ser mandado ao diagnostico, o passo mudava de tipo, e a Home parava de
+    // dizer que a atividade tinha sido entregue - enquanto "Minhas
+    // atividades" continuava dizendo "Concluida".
+    const estadoAtividade = (p && p.activity_state) || 'NOT_STARTED';
+    const selo = estadoAtividade === 'COMPLETED'
+        ? '<span class="selo selo-bom">Entregue</span>'
+      : estadoAtividade === 'IN_PROGRESS'
+        ? '<span class="selo selo-neutro">Em andamento</span>'
+      : passo.kind === 'ACTIVITY'
+        ? '<span class="selo selo-bom">Pronto para começar</span>' : '';
     const id = passo.kind === 'ACTIVITY' ? ` data-id="${esc(t.assignment_id)}"` : '';
     const codigo = passo.content_code ? ` data-conteudo="${esc(passo.content_code)}"` : '';
 
@@ -219,7 +240,7 @@
         ${selo}
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
         <ol class="jornada jornada-cartao" aria-label="Etapas da jornada">${jornadaHTML()}</ol>
-        <p class="detalhe">${explicacao(passo, t)}</p>
+        <p class="detalhe">${explicacao(passo, t, estadoAtividade === 'COMPLETED')}</p>
         <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${esc(rotuloDaAcao(passo))}</button>
       </div>`;
   }

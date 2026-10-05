@@ -99,6 +99,42 @@ class ComPreparacaoTests(unittest.TestCase):
         self.assertIn(ETAPA_PREPARACAO, _nomes(j))
 
 
+class EntregaNaoSeDesfazTests(unittest.TestCase):
+    """Medido no navegador: com 2 de 5 na atividade, o planejador volta a
+    mandar diagnosticar a base - ela ainda não está dominada, e isso é uma
+    decisão pedagógica legítima. Mas a jornada passava a dizer
+
+        ● Diagnóstico   ○ Atividade   ○ Resultado
+
+    com a atividade JÁ ENTREGUE. A regra "a posição vem do passo" estava
+    certa enquanto a jornada só avançava; ela não previa o passo voltar.
+
+    Uma entrega é fato consumado. Nenhum próximo passo a desfaz.
+    """
+
+    def test_atividade_entregue_continua_entregue_com_passo_de_diagnostico(self):
+        j = jornada_de(origens={"MICRO_DIAGNOSTIC": 3, "OFFICIAL_ACTIVITY": 5},
+                       estado_atividade=ESTADO_CONCLUIDO, rota="DIAGNOSTIC",
+                       kind="DIAGNOSTIC")
+        self.assertEqual(_estado(j, ETAPA_ATIVIDADE), ESTADO_CONCLUIDO,
+                         "a jornada desfez uma entrega")
+        self.assertEqual(_estado(j, ETAPA_RESULTADO), ESTADO_EM_ANDAMENTO)
+
+    def test_e_o_diagnostico_tambem_continua_concluido(self):
+        """Voltar a sugerir diagnóstico não apaga o que ele já respondeu."""
+        j = jornada_de(origens={"MICRO_DIAGNOSTIC": 3, "OFFICIAL_ACTIVITY": 5},
+                       estado_atividade=ESTADO_CONCLUIDO, rota="DIAGNOSTIC",
+                       kind="DIAGNOSTIC")
+        self.assertEqual(_estado(j, ETAPA_DIAGNOSTICO), ESTADO_CONCLUIDO)
+
+    def test_continua_havendo_exatamente_uma_etapa_atual(self):
+        j = jornada_de(origens={"MICRO_DIAGNOSTIC": 3, "OFFICIAL_ACTIVITY": 5},
+                       estado_atividade=ESTADO_CONCLUIDO, rota="DIAGNOSTIC",
+                       kind="DIAGNOSTIC")
+        atuais = [e["id"] for e in j if e["state"] == ESTADO_EM_ANDAMENTO]
+        self.assertEqual(atuais, [ETAPA_RESULTADO])
+
+
 class NadaSeConcluiPorNavegacaoTests(unittest.TestCase):
     """A asserção central."""
 

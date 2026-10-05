@@ -147,6 +147,68 @@ class EvidenciaFracaNoProprioConteudoTests(unittest.TestCase):
         self.assertEqual(passo["kind"], PASSO_ATIVIDADE)
 
 
+class NaoSeRediagnosticaOqueJaFoiMedidoTests(unittest.TestCase):
+    """Medido no navegador, no banco de desenvolvimento.
+
+    O aluno tinha 8 respostas em Estequiometria (acerto 0,625) e 3 na base
+    (0,667). O planejador marcava o conteúdo BLOCKED_BY_PREREQUISITE — a base
+    não está MASTERED. Os dois acertos caem na faixa INTERMEDIÁRIA, que não é
+    nem "fraca o bastante para praticar" nem "forte o bastante para liberar",
+    e `_passo_para_um` devolve None para ambos.
+
+    O passo caía então no ramo final, que respondia:
+
+        kind: DIAGNOSTIC   reason: "falta evidencia sobre este conteudo"
+
+    sobre um conteúdo com OITO respostas registradas. A frase era falsa, e a
+    ação mandava o aluno responder de novo o que ele já tinha respondido.
+
+    A REGRA
+    ========
+    Diagnosticar serve para medir quem não foi medido. Havendo amostra
+    suficiente — o mesmo `min_sample_size` que a política já usa — o passo é
+    PRATICAR. E, se quem trava é a base, pratica-se a BASE: é ela que precisa
+    subir para destravar o resto.
+    """
+
+    def _travado(self):
+        """Conteúdo medido, com estado travado pela base também medida."""
+        return [_conteudo("esteq", "BLOCKED_BY_PREREQUISITE",
+                          answered=8, accuracy=0.625,
+                          prereqs=[_pre("balanc", answered=3, accuracy=0.667,
+                                        content_state="READY")])]
+
+    def test_nao_manda_diagnosticar_conteudo_com_amostra_suficiente(self):
+        passo = passo_para(self._travado())
+        self.assertNotEqual(passo["kind"], PASSO_DIAGNOSTICO,
+                            "rediagnosticou um conteudo com 8 respostas")
+
+    def test_pratica_a_BASE_quando_e_ela_que_trava(self):
+        passo = passo_para(self._travado())
+        self.assertEqual(passo["kind"], PASSO_PRATICA)
+        self.assertEqual(passo["content_code"], "balanc",
+                         "praticou o conteudo final em vez da base que trava")
+        self.assertEqual(passo["readiness_route"], ROTA_PREPARACAO)
+
+    def test_sem_prerequisito_travando_pratica_o_proprio_conteudo(self):
+        passo = passo_para([_conteudo("esteq", "BLOCKED_BY_PREREQUISITE",
+                                      answered=8, accuracy=0.625)])
+        self.assertEqual(passo["kind"], PASSO_PRATICA)
+        self.assertEqual(passo["content_code"], "esteq")
+
+    def test_sem_amostra_suficiente_continua_diagnosticando(self):
+        """A regra nao pode engolir o caso que o diagnostico existe para
+        atender: quem nunca foi medido precisa ser medido."""
+        passo = passo_para([_conteudo("esteq", "BLOCKED_BY_PREREQUISITE",
+                                      answered=1, accuracy=1.0)])
+        self.assertEqual(passo["kind"], PASSO_DIAGNOSTICO)
+
+    def test_a_razao_nao_afirma_falta_de_evidencia_que_existe(self):
+        passo = passo_para(self._travado())
+        self.assertNotIn("nao ha evidencia", (passo.get("reason") or "").lower())
+        self.assertNotIn("falta evidencia", (passo.get("reason") or "").lower())
+
+
 class FailClosedTests(unittest.TestCase):
 
     def test_atividade_sem_conteudo_conhecido_nao_libera(self):

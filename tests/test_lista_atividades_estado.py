@@ -150,6 +150,33 @@ class ListaDeAtividadesTests(unittest.TestCase):
                                            ESTADO_CONCLUIDO))
                 self.assertTrue((a["cta"] or "").strip())
 
+    # -- o estado da atividade na prontidao --------------------------------
+
+    def test_a_prontidao_diz_o_estado_da_atividade_mesmo_quando_o_passo_volta(self):
+        """O selo "Entregue" não pode depender do próximo passo.
+
+        Medido no navegador: com 2 de 5, o planejador volta a mandar
+        diagnosticar a base, `next_step.kind` deixa de ser ACTIVITY e a Home
+        — que lia o selo do passo — parava de dizer que a atividade tinha
+        sido entregue, enquanto "Minhas atividades" dizia "Concluída". As
+        duas telas liam a mesma entrega e discordavam.
+        """
+        self._responder_todas(acertos=1)
+        self._finalizar_e_corrigir()
+        r = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/readiness")
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        self.assertEqual(d.get("activity_state"), ESTADO_CONCLUIDO,
+                         "a prontidao nao diz que a atividade foi entregue")
+        self.assertEqual(self._minha()["state"], ESTADO_CONCLUIDO,
+                         "a lista e a prontidao discordam sobre a mesma entrega")
+
+    def test_antes_de_comecar_a_prontidao_diz_nao_iniciada(self):
+        r = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/readiness")
+        self.assertEqual(r.json().get("activity_state"), ESTADO_NAO_INICIADO)
+
     # -- isolamento --------------------------------------------------------
 
     def test_a_tentativa_do_outro_aluno_nao_muda_o_meu_estado(self):

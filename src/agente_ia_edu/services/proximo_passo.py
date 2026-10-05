@@ -119,6 +119,10 @@ def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
     conclui etapa; se bastasse abrir a tela, quem clicasse em tudo veria a
     jornada inteira verde sem ter aprendido nada.
 
+    COM UMA EXCECAO, e e a unica: atividade ENTREGUE manda mais que o passo.
+    O passo pode voltar (quem foi mal volta a ser mandado a diagnosticar a
+    base), e a jornada nao pode voltar com ele - a entrega ja aconteceu.
+
     PREPARACAO so entra quando foi pedida ou quando ja houve pratica, e nao
     sai depois de entrar: a jornada nao pode encolher na frente do aluno.
     """
@@ -130,13 +134,23 @@ def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
         etapas.append(ETAPA_PREPARACAO)
     etapas += [ETAPA_ATIVIDADE, ETAPA_RESULTADO]
 
-    # Onde o aluno esta AGORA, segundo o proximo passo.
-    atual = {
-        PASSO_DIAGNOSTICO: ETAPA_DIAGNOSTICO,
-        PASSO_PRATICA: ETAPA_PREPARACAO,
-        PASSO_ATIVIDADE: (ETAPA_RESULTADO if estado_atividade == ESTADO_CONCLUIDO
-                          else ETAPA_ATIVIDADE),
-    }.get(kind)
+    # UMA ENTREGA E FATO CONSUMADO, e vem antes do passo.
+    #
+    # Com 2 de 5 na atividade o planejador volta a mandar diagnosticar a base
+    # - ela ainda nao esta dominada, e isso e decisao pedagogica legitima. Mas
+    # o passo voltando fazia a jornada voltar junto, e ela dizia "Diagnostico,
+    # etapa atual / Atividade, a seguir" com a atividade JA ENTREGUE. A regra
+    # "a posicao vem do passo" valia enquanto a jornada so avancava; nenhum
+    # proximo passo desfaz o que o aluno entregou.
+    if estado_atividade == ESTADO_CONCLUIDO:
+        atual = ETAPA_RESULTADO
+    else:
+        # Onde o aluno esta AGORA, segundo o proximo passo.
+        atual = {
+            PASSO_DIAGNOSTICO: ETAPA_DIAGNOSTICO,
+            PASSO_PRATICA: ETAPA_PREPARACAO,
+            PASSO_ATIVIDADE: ETAPA_ATIVIDADE,
+        }.get(kind)
     if atual is None or atual not in etapas:
         # Sem passo conhecido: cai na primeira etapa ainda nao evidenciada.
         atual = next((e for e in etapas if not _evidenciada(e, tem, estado_atividade)),
@@ -200,6 +214,49 @@ def _passo_para_um(thresholds, codigo: str, nome: str, evidencia: dict) -> dict 
         return {"kind": PASSO_PRATICA, "content_code": codigo,
                 "content_name": nome, "band": banda}
     return None
+
+
+def _praticar_o_que_trava(thresholds, alvo: dict) -> dict:
+    """O conteudo foi medido mas o estado nao libera: pratica-se.
+
+    E pratica-se a BASE quando e ela que trava - e ela que precisa subir para
+    destravar o resto. Praticar o conteudo final enquanto o pre-requisito
+    continua frouxo e insistir na pergunta errada.
+
+    Sem amostra suficiente em lugar nenhum, continua valendo o diagnostico:
+    quem nunca foi medido precisa ser medido, e esta regra nao pode engolir o
+    caso que o diagnostico existe para atender.
+    """
+    def medido(e: dict) -> bool:
+        return int((e or {}).get("answered") or 0) >= thresholds.min_sample_size
+
+    for pre in alvo.get("prerequisites") or []:
+        if pre.get("mastered") or not medido(pre):
+            continue
+        return {"kind": PASSO_PRATICA,
+                "content_code": pre.get("code"),
+                "content_name": pre.get("name") or pre.get("code"),
+                "readiness_route": ROTA_PREPARACAO,
+                "reason": "a base ja foi medida e ainda nao esta firme",
+                "for_content_code": alvo.get("content_code"),
+                "for_content_name": alvo.get("content_name")}
+
+    if medido(alvo):
+        return {"kind": PASSO_PRATICA,
+                "content_code": alvo.get("content_code"),
+                "content_name": alvo.get("content_name"),
+                "readiness_route": ROTA_PREPARACAO,
+                "reason": "este conteudo ja foi medido e ainda nao esta firme",
+                "for_content_code": alvo.get("content_code"),
+                "for_content_name": alvo.get("content_name")}
+
+    return {"kind": PASSO_DIAGNOSTICO,
+            "content_code": alvo.get("content_code"),
+            "content_name": alvo.get("content_name"),
+            "readiness_route": ROTA_DIAGNOSTICO,
+            "reason": "ainda nao ha evidencia sobre o conteudo da atividade",
+            "for_content_code": alvo.get("content_code"),
+            "for_content_name": alvo.get("content_name")}
 
 
 def passo_para(conteudos: Sequence[dict], *,
@@ -276,13 +333,16 @@ def passo_para(conteudos: Sequence[dict], *,
     passo = _passo_para_um(thresholds, alvo.get("content_code"),
                            alvo.get("content_name"), alvo)
     if passo is None:
-        # Evidencia boa, mas o planejador nao liberou o estado. Nao inventamos
-        # liberacao: quem decide o estado e o planejador.
-        return {"kind": PASSO_DIAGNOSTICO,
-                "content_code": alvo.get("content_code"),
-                "content_name": alvo.get("content_name"),
-                "readiness_route": ROTA_DIAGNOSTICO,
-                "reason": "falta evidencia sobre o conteudo da atividade"}
+        # Evidencia na faixa intermediaria - nem fraca o bastante para mandar
+        # praticar, nem forte o bastante para o planejador liberar o estado.
+        # Nao inventamos liberacao: quem decide o estado e o planejador.
+        #
+        # DIAGNOSTICAR SERVE PARA MEDIR QUEM NAO FOI MEDIDO. Este ramo
+        # respondia DIAGNOSTIC com a razao "falta evidencia sobre o conteudo"
+        # para um aluno com OITO respostas registradas - a frase era falsa, e
+        # a acao mandava responder de novo o que ele ja tinha respondido.
+        # Havendo amostra, o passo e PRATICAR.
+        return _praticar_o_que_trava(thresholds, alvo)
     passo["readiness_route"] = (ROTA_PREPARACAO if passo["kind"] == PASSO_PRATICA
                                 else ROTA_DIAGNOSTICO)
     passo["reason"] = ("este conteudo precisa de pratica"
