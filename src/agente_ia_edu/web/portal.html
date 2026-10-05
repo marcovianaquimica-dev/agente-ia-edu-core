@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Núcleo Edu 360</title>
+  <!--
+    PORTAL — a porta de entrada do ecossistema.
+
+    Esta e a HOME INTERNA do produto, nao uma landing page. Ela responde
+    "entrei; o que tenho disponivel?", e nao "o que e o Nucleo Edu 360?".
+    Por isso nao ha texto de venda, depoimento nem chamada comercial.
+
+    E ela NAO INVENTA NUMERO. Nenhuma metrica, notificacao ou contador: o que
+    nao foi construido nao aparece aqui so para encher a tela.
+
+    A marca e o arquivo oficial, o mesmo que o Assessor ja usa.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!--
+    CAMINHOS ABSOLUTOS, e nao um `<base href>`.
+
+    A pagina e servida em /portal e os estaticos em /portal/assets/ (que
+    aponta para o diretorio web/). Um `<base>` resolveria isso, mas afetaria
+    TODO link relativo - inclusive `#conteudo`, que viraria
+    /portal/assets/#conteudo e quebraria o "pular para o conteudo".
+
+    O `assets/assets/` nao e engano: o mount expoe `web/`, e a logo mora em
+    `web/assets/`.
+  -->
+  <link rel="stylesheet" href="/portal/assets/portal.css">
+</head>
+<body>
+
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="portal-topo">
+  <a class="portal-marca" href="/portal" aria-label="Núcleo Edu 360 — início">
+    <img src="/portal/assets/assets/nucleo-edu-360.png" alt="Núcleo Edu 360"
+         width="228" height="128" decoding="async">
+  </a>
+
+  <!-- Instituicao e pessoa: preenchidos por portal.js a partir de
+       /api/v1/portal/overview. Vazios ate la, nunca com texto de exemplo. -->
+  <div class="portal-contexto">
+    <p class="portal-instituicao" id="instituicao"></p>
+    <p class="portal-pessoa" id="pessoa"></p>
+  </div>
+</header>
+
+<main id="conteudo" class="portal-palco">
+
+  <section class="portal-abertura" aria-labelledby="h-abertura">
+    <h1 id="h-abertura">Núcleo Edu 360</h1>
+    <!-- Saudacao NEUTRA de proposito: "Bom dia" exigiria o fuso de quem le,
+         e o servidor nao o conhece. Errar o periodo do dia na primeira linha
+         do produto e um detalhe pequeno que parece descuido grande. -->
+    <p class="portal-chamada" id="chamada">O que vamos acompanhar hoje?</p>
+  </section>
+
+  <section class="portal-secao" aria-labelledby="h-seus">
+    <h2 id="h-seus">Seus módulos</h2>
+    <ul class="portal-grade" id="modulos-disponiveis"></ul>
+    <p class="portal-vazio" id="sem-modulos" hidden>
+      Nenhum módulo liberado para o seu acesso nesta instituição.
+    </p>
+  </section>
+
+  <section class="portal-secao portal-secao-futura" aria-labelledby="h-breve">
+    <h2 id="h-breve">Em breve no Núcleo Edu 360</h2>
+    <p class="portal-nota">
+      Estes módulos fazem parte do ecossistema e ainda não estão disponíveis.
+    </p>
+    <ul class="portal-grade portal-grade-futura" id="modulos-futuros"></ul>
+  </section>
+
+</main>
+
+<!-- As decisoes de apresentacao moram em portal-ui.js, fora do IIFE, para
+     poderem ser exercitadas por `node --test`. Ver
+     tests/test_portal_ui_frontend.js. -->
+<script src="/portal/assets/portal-ui.js"></script>
+<script src="/portal/assets/portal.js"></script>
+</body>
+</html>

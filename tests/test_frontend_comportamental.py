@@ -34,7 +34,7 @@ import unittest
 RAIZ = pathlib.Path(__file__).resolve().parent
 
 # Os que EXECUTAM o codigo. Os de varredura de fonte nao entram - ver docstring.
-COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js",)
+COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js", "test_portal_ui_frontend.js")
 
 
 class FrontendComportamentalTests(unittest.TestCase):
@@ -56,17 +56,20 @@ class FrontendComportamentalTests(unittest.TestCase):
             "os testes de comportamento do frontend falharam:\n"
             f"{r.stdout}\n{r.stderr}")
 
-    def test_o_modulo_testado_e_o_mesmo_que_a_pagina_carrega(self):
+    def test_os_modulos_testados_sao_os_que_as_paginas_carregam(self):
         """Um módulo testado que a página não carrega testa nada.
 
         Esta é a única asserção deste arquivo que olha o fonte — e ela não
-        mede comportamento, mede ligação: confirma que o arquivo exercitado
-        pelo `node --test` é o que o HTML inclui.
+        mede comportamento, mede ligação: confirma que os arquivos
+        exercitados pelo `node --test` são os que os HTMLs incluem.
         """
-        html = (RAIZ.parent / "src" / "agente_ia_edu" / "web"
-                / "aluno.html").read_text(encoding="utf-8")
-        self.assertIn("aluno-guiada.js", html,
-                      "a pagina nao carrega o modulo que o teste exercita")
+        web = RAIZ.parent / "src" / "agente_ia_edu" / "web"
+        for pagina, modulo in (("aluno.html", "aluno-guiada.js"),
+                               ("portal.html", "portal.js")):
+            with self.subTest(pagina=pagina):
+                html = (web / pagina).read_text(encoding="utf-8")
+                self.assertIn(modulo, html,
+                              "a pagina nao carrega o modulo que o teste exercita")
 
 
 if __name__ == "__main__":  # pragma: no cover

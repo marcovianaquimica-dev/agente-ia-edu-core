@@ -28,6 +28,7 @@ from .routes.discovery import discovery_router
 from .routes.curriculum_bncc import curriculum_bncc_router
 from .routes.knowledge_engine import knowledge_engine_router
 from .routes.knowledge_lexical import knowledge_lexical_router
+from .routes.portal import portal_router
 from .routes.student import student_router
 from .routes.admin import admin_router
 from .routes.teaching_context import (
@@ -83,6 +84,8 @@ def create_app() -> FastAPI:
     # Curadoria curriculo <-> BNCC: dominio de CURRICULO, router separado
     # do engine de proposito - ver o docstring de routes/curriculum_bncc.py.
     app.include_router(curriculum_bncc_router, dependencies=reception_only_guard)
+    # O PORTAL e a porta de entrada do ecossistema: ele vem antes dos modulos.
+    app.include_router(portal_router, dependencies=reception_only_guard)
     app.include_router(student_router, dependencies=reception_only_guard)
     app.include_router(admin_router, dependencies=reception_only_guard)
     app.include_router(teacher_router, dependencies=reception_only_guard)
@@ -104,6 +107,7 @@ def create_app() -> FastAPI:
         app.mount("/admin/assets", StaticFiles(directory=str(web_dir), html=False), name="admin-assets")
         app.mount("/entrada/assets", StaticFiles(directory=str(web_dir), html=False), name="entrada-assets")
         app.mount("/redacao/assets", StaticFiles(directory=str(web_dir), html=False), name="redacao-assets")
+        app.mount("/portal/assets", StaticFiles(directory=str(web_dir), html=False), name="portal-assets")
 
         @app.get("/teacher", include_in_schema=False)
         @app.get("/teacher/", include_in_schema=False)
@@ -141,6 +145,14 @@ def create_app() -> FastAPI:
             if page.exists():
                 return FileResponse(page)
             return FileResponse(web_dir / "index.html")
+
+        # O PORTAL - a porta de entrada do ecossistema. `/entrada` continua
+        # servido: ele e o seletor antigo, e remove-lo quebraria qualquer
+        # link ou favorito existente.
+        @app.get("/portal", include_in_schema=False)
+        @app.get("/portal/", include_in_schema=False)
+        async def serve_portal():
+            return FileResponse(web_dir / "portal.html")
 
         @app.get("/entrada", include_in_schema=False)
         @app.get("/entrada/", include_in_schema=False)

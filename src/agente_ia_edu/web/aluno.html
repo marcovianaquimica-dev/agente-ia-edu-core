@@ -46,7 +46,10 @@
            comprimida - sao dois arranjos para dois formatos.
 -->
 <header class="topo">
-  <a class="marca" href="#conteudo" aria-label="Núcleo Edu 360 — início">
+  <!-- A MARCA E O CAMINHO DE VOLTA ao Portal - convencao que ninguem precisa
+       descobrir. Antes ela apontava para #conteudo, que e o que o link
+       "Pular para o conteudo" ja faz, logo acima. -->
+  <a class="marca" href="/portal" aria-label="Voltar ao Núcleo Edu 360">
     <img class="marca-logo" src="assets/nucleo-edu-360.png"
          alt="Núcleo Edu 360" width="228" height="128" decoding="async">
   </a>
@@ -187,7 +190,8 @@
 <dialog class="folha" id="folha-perfil" aria-labelledby="h-folha-perfil">
   <h2 id="h-folha-perfil">Perfil</h2>
   <p class="nota" id="perfil-nome"></p>
-  <a class="ligacao" href="/entrada">Trocar de ambiente</a>
+  <!-- O caminho de volta ao Portal. Ver a nota equivalente em redacao.html. -->
+  <a class="ligacao" href="/portal">← Núcleo Edu 360</a>
 
   <hr class="divisor">
   <button class="ligacao" data-acao="sair" type="button">Sair desta identidade</button>
