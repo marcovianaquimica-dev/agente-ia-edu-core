@@ -32,10 +32,13 @@
 <!--
   SHELL DO PORTAL DO ALUNO.
 
-  A MARCA E TEXTUAL de proposito: nao ha arquivo de logo nos assets do
-  projeto (procurado em src/agente_ia_edu/web - nenhum .svg/.png/logo*).
-  Inventar uma marca definitiva aqui seria decidir identidade visual sem
-  mandato; quando a logo oficial existir, ela entra neste ponto.
+  A MARCA E O ARQUIVO OFICIAL, nao uma recriacao. `assets/nucleo-edu-360.png`
+  e a logo horizontal entregue (simbolo + nome + assinatura), so
+  redimensionada. Proporcao preservada por `width: auto`; o `alt` carrega o
+  nome para quem nao ve a imagem.
+
+  Ate 2026-10-05 a marca era textual aqui, porque nao havia arquivo nenhum em
+  src/agente_ia_edu/web. Agora ha.
 
   DESKTOP: a navegacao mora no header, ao lado da marca.
   MOBILE:  o header fica so com marca e perfil, e a navegacao vai para a
@@ -43,7 +46,10 @@
            comprimida - sao dois arranjos para dois formatos.
 -->
 <header class="topo">
-  <span class="marca">Núcleo <strong>Edu 360</strong></span>
+  <a class="marca" href="#conteudo" aria-label="Núcleo Edu 360 — início">
+    <img class="marca-logo" src="assets/nucleo-edu-360.png"
+         alt="Núcleo Edu 360" width="228" height="128" decoding="async">
+  </a>
 
   <nav class="topo-nav" aria-label="Navegação principal (desktop)">
     <button class="topo-aba ativa" data-tela="inicio" type="button"

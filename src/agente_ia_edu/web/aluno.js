@@ -79,6 +79,7 @@
     prontidao: null,      // resposta de /readiness
     diagnostico: null,    // {assignment_id, questions, pos, respostas}
     atividade: null,      // a tarefa da escola em andamento
+    estudo: null,         // a explicacao aberta {material_id, secoes, exemplo}
   };
 
   const $ = (id) => document.getElementById(id);
@@ -147,6 +148,7 @@
   // "DIAGNOSTICO CONCLUIDO" com um botao convidando a RESPONDER de novo.
   const ACOES = {
     DIAGNOSTIC: { acao: 'diagnosticar' },
+    LEARN: { acao: 'estudar' },
     PRACTICE: { acao: 'praticar' },
     ACTIVITY: { acao: 'abrir-tarefa' },
   };
@@ -184,6 +186,17 @@
            — é a base de ${para}. Isto não vale nota.`
         : `Antes de começar, três perguntas rápidas sobre <strong>${alvo}</strong>.
            Isto não vale nota.`;
+    }
+    if (passo.kind === 'LEARN') {
+      // O motivo vem do Assessor (backend). O texto generico so existe para a
+      // tela nao ficar muda se o campo faltar - nunca para inventar
+      // explicacao pedagogica aqui.
+      const inter = passo.intervention || {};
+      if (inter.reason) return esc(inter.reason);
+      return para && para !== alvo
+        ? `Antes de seguir, vamos entender <strong>${alvo}</strong> — é a base
+           de ${para}.`
+        : `Antes de seguir, vamos entender <strong>${alvo}</strong>.`;
     }
     if (passo.kind === 'PRACTICE') {
       return para && para !== alvo
@@ -232,6 +245,8 @@
         ? '<span class="selo selo-bom">Pronto para começar</span>' : '';
     const id = passo.kind === 'ACTIVITY' ? ` data-id="${esc(t.assignment_id)}"` : '';
     const codigo = passo.content_code ? ` data-conteudo="${esc(passo.content_code)}"` : '';
+    // Qual explicacao abrir. Quem decide e o backend; a tela so carrega o id.
+    const material = passo.material_id ? ` data-material="${esc(passo.material_id)}"` : '';
 
     return `
       <div class="contexto">
@@ -241,7 +256,7 @@
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
         <ol class="jornada jornada-cartao" aria-label="Etapas da jornada">${jornadaHTML()}</ol>
         <p class="detalhe">${explicacao(passo, t, estadoAtividade === 'COMPLETED')}</p>
-        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${esc(rotuloDaAcao(passo))}</button>
+        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}${material}>${esc(rotuloDaAcao(passo))}</button>
       </div>`;
   }
 
@@ -304,6 +319,185 @@
     const html = jornadaHTML();
     el.innerHTML = html;
     el.hidden = !html;
+  }
+
+  // ============================================ o assessor pedagogico =====
+  //
+  // A tela de ENSINO. Ela nao decide nada: o backend ja disse que o passo e
+  // LEARN, qual material abrir e por que. Aqui so se desenha.
+  //
+  // NAO E UM CHAT. O aluno nao precisa descobrir o que perguntar para receber
+  // ajuda - a ajuda vem estruturada: o que esta travando, a ideia, um exemplo
+  // ate o fim, e entao a tentativa.
+
+  async function estudar(materialId) {
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const id = materialId || passo.material_id;
+    if (!id) return praticar(passo.content_code);
+    irPara('sessao');
+    $('bloco').innerHTML = aviso('Abrindo…');
+    try {
+      const [material, secoes] = await Promise.all([
+        api(`/api/v1/student/materials/${id}`),
+        api(`/api/v1/student/materials/${id}/sections`),
+      ]);
+      app.estudo = {
+        material_id: id,
+        titulo: material.title,
+        secoes,
+        // Qual passo do exemplo resolvido ja foi revelado. Mostrar os tres de
+        // uma vez seria entregar a resposta pronta; o aluno acompanha o
+        // raciocinio quando ele chega em partes.
+        exemplo: 0,
+      };
+      pintarEstudo();
+    } catch (e) {
+      $('bloco').innerHTML = `<div class="cartao-bloco">
+        <p class="bloco-titulo">Não consegui abrir a explicação agora</p>
+        ${aviso(`Erro ${esc(e.status || '')}. Você pode praticar enquanto isso.`)}
+        <button class="botao botao-secundario" data-acao="praticar"
+                data-conteudo="${esc(passo.content_code || '')}">Praticar agora</button>
+      </div>`;
+    }
+  }
+
+  // O exemplo resolvido: cada passo traz a equacao, a fala e a CONTAGEM de
+  // atomos - que vem do backend, derivada da propria equacao por
+  // `chemistry_balance`. Nenhum destes numeros foi escrito a mao nesta tela.
+  function exemploHTML(bloco, revelados) {
+    const passos = ((bloco.metadata || {}).passos) || [];
+    if (!passos.length) return '';
+    const vistos = passos.slice(0, Math.max(1, revelados + 1));
+    const corpo = vistos.map((p) => {
+      const linhas = Object.entries(p.contagem || {}).map(([el, par]) => {
+        const esq = par[0];
+        const dir = par[1];
+        return `
+        <tr class="${esq === dir ? 'atomo-fecha' : 'atomo-aberto'}">
+          <th scope="row">${esc(el)}</th>
+          <td>${esq}</td>
+          <td>${dir}</td>
+          <td>${esq === dir ? 'fecha' : 'não fecha'}</td>
+        </tr>`;
+      }).join('');
+      return `
+        <li class="passo-exemplo">
+          <p class="equacao">${esc(p.equacao_exibicao || p.equacao)}</p>
+          <table class="contagem">
+            <caption class="sr">Átomos de cada elemento nos dois lados</caption>
+            <thead><tr><th scope="col">Elemento</th><th scope="col">Entra</th>
+              <th scope="col">Sai</th><th scope="col">Situação</th></tr></thead>
+            <tbody>${linhas}</tbody>
+          </table>
+          <p class="fala">${esc(p.fala)}</p>
+        </li>`;
+    }).join('');
+    const faltam = passos.length - vistos.length;
+    const proximo = faltam > 0
+      ? `<button class="botao botao-secundario" data-acao="passo-exemplo"
+                 data-passo="${vistos.length}">Ver o próximo passo</button>`
+      : '';
+    return `
+      <h3 class="bloco-titulo">${esc(bloco.title || 'Exemplo')}</h3>
+      <ol class="exemplo">${corpo}</ol>
+      ${proximo}`;
+  }
+
+  function blocoHTML(bloco, revelados) {
+    if (bloco.block_type === 'SOLVED_EXAMPLE') return exemploHTML(bloco, revelados);
+    const corpo = (bloco.body || '').split('\n\n').map(
+      (par) => `<p>${esc(par)}</p>`).join('');
+    const classe = bloco.block_type === 'CALLOUT' ? 'aviso-conceito' : 'bloco-texto';
+    return `<div class="${classe}">
+      ${bloco.title ? `<h3 class="bloco-titulo">${esc(bloco.title)}</h3>` : ''}
+      ${corpo}
+    </div>`;
+  }
+
+  function pintarEstudo() {
+    const e = app.estudo;
+    if (!e) return;
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const inter = passo.intervention || {};
+    $('trilho').innerHTML = '';
+    $('sessao-resumo').textContent = '';
+    pintarJornada();
+
+    // O OBJETIVO FICA NA TELA. O aluno nao pode entrar em Balanceamento e
+    // esquecer que estava indo para a atividade de Estequiometria - foi a
+    // desorientacao relatada no teste humano.
+    const alvo = (app.prontidao && app.prontidao.title) || null;
+    $('objetivo').hidden = !alvo;
+    if (alvo) $('objetivo-texto').textContent = alvo;
+
+    // POR QUE ESTOU ESTUDANDO ISSO. O texto e do backend; esta tela nao
+    // inventa explicacao pedagogica.
+    const porque = inter.reason
+      ? `<p class="assessor-fala">${esc(inter.reason)}</p>` : '';
+    const objetivo = inter.learning_objective
+      ? `<p class="assessor-meta"><strong>O que você leva daqui:</strong>
+         ${esc(inter.learning_objective)}</p>` : '';
+    const depois = inter.next_check
+      ? `<p class="assessor-meta"><strong>Depois disso:</strong>
+         ${esc(inter.next_check)}</p>` : '';
+
+    const secoes = (e.secoes || []).map((s) => `
+      <section class="secao-estudo">
+        <h2>${esc(s.title || '')}</h2>
+        ${(s.blocks || []).map((b) => blocoHTML(b, e.exemplo)).join('')}
+      </section>`).join('');
+
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco cartao-assessor">
+        <p class="bloco-etiqueta assessor-etiqueta">
+          <img class="assessor-marca" src="assets/nucleo-edu-360-simbolo.png"
+               alt="" width="128" height="108" aria-hidden="true">
+          Assessor Pedagógico
+        </p>
+        ${porque}
+        ${objetivo}
+        ${secoes}
+        ${depois}
+        <button class="botao botao-principal" data-acao="entendi">
+          Entendi, vamos praticar
+        </button>
+      </div>`;
+    window.scrollTo(0, 0);
+  }
+
+  // Revelar um passo do exemplo tambem GRAVA a posicao - e assim que o sistema
+  // sabe que o aluno abriu a explicacao e parou no meio. Gravar posicao nao e
+  // evidencia de dominio: `MaterialProgress` nao toca no mapa de dominio.
+  function passoDoExemplo(indice) {
+    const e = app.estudo;
+    if (!e) return;
+    e.exemplo = indice;
+    pintarEstudo();
+    marcarLeitura({ ateOFim: false });
+  }
+
+  async function marcarLeitura({ ateOFim }) {
+    const e = app.estudo;
+    if (!e) return;
+    const secoes = e.secoes || [];
+    const alvo = ateOFim ? secoes[secoes.length - 1] : secoes[0];
+    if (!alvo) return;
+    try {
+      await api(`/api/v1/student/materials/${e.material_id}/progress`, {
+        method: 'PUT',
+        body: JSON.stringify({ current_section_id: alvo.section_id,
+                               completed: !!ateOFim }),
+      });
+    } catch (_) { /* a posicao e conveniencia: perde-la nao bloqueia o estudo */ }
+  }
+
+  // "Entendi" marca a explicacao como concluida e leva a pratica. NAO marca
+  // dominio: quem decide isso continua sendo a evidencia da pratica.
+  async function concluirEstudo() {
+    const codigo = ((app.prontidao && app.prontidao.next_step) || {}).content_code;
+    await marcarLeitura({ ateOFim: true });
+    app.estudo = null;
+    return praticar(codigo);
   }
 
   // ================================================== o microdiagnostico ==
@@ -1081,6 +1275,9 @@
 
     switch (alvo.dataset.acao) {
       case 'diagnosticar': abrirDiagnostico(); return;
+      case 'estudar': estudar(alvo.dataset.material); return;
+      case 'passo-exemplo': passoDoExemplo(Number(alvo.dataset.passo)); return;
+      case 'entendi': concluirEstudo(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
       case 'avancar': avancar(); return;
       case 'abrir-tarefa': abrirTarefa(alvo.dataset.id); return;
@@ -1090,7 +1287,7 @@
       case 'revisar': pintarRevisao(); return;
       case 'revisao-anterior': navegarRevisao(-1); return;
       case 'revisao-proxima': navegarRevisao(1); return;
-      case 'inicio': app.diagnostico = null; app.atividade = null; irPara('inicio'); return;
+      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; irPara('inicio'); return;
       case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
       default: break;
     }

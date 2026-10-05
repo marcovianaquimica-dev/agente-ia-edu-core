@@ -35,6 +35,7 @@ from agente_ia_edu.services.conteudo_balanceamento import (
     SECOES,
     blocos_do_exemplo,
     equacoes_citadas,
+    para_exibicao,
 )
 
 
@@ -117,6 +118,42 @@ class SoCoeficientesMudamTests(unittest.TestCase):
         for formula in self._especies(EXEMPLO_RESOLVIDO["passos"][0]["equacao"]):
             with self.subTest(formula=formula):
                 self.assertTrue(atomos_da_formula(formula))
+
+
+class AEquacaoEhLIDAComoQuimicaTests(unittest.TestCase):
+    """`H2 + O2 -> H2O` é como a equação se escreve para o verificador. Não é
+    como ela se lê: o aluno estuda H₂ + O₂ → H₂O, e ver as duas grafias na
+    mesma tela — uma no título, outra no passo — faz parecer que são coisas
+    diferentes.
+
+    A formatação mora aqui, junto da química, e não na tela: assim ela é
+    conferida, e a string que o verificador recebe continua intocada.
+    """
+
+    def test_os_indices_viram_subscrito(self):
+        self.assertEqual(para_exibicao("H2 + O2 -> H2O"), "H₂ + O₂ → H₂O")
+
+    def test_o_coeficiente_da_frente_NAO_vira_subscrito(self):
+        """Confundir os dois na tela ensinaria exatamente o erro que a
+        explicação existe para desfazer."""
+        self.assertEqual(para_exibicao("2 H2 + O2 -> 2 H2O"),
+                         "2 H₂ + O₂ → 2 H₂O")
+
+    def test_a_seta_vira_seta(self):
+        self.assertIn("→", para_exibicao("A -> B"))
+        self.assertNotIn("->", para_exibicao("A -> B"))
+
+    def test_toda_equacao_do_exemplo_tem_versao_de_leitura(self):
+        for p in blocos_do_exemplo()[0]["metadata"]["passos"]:
+            with self.subTest(equacao=p["equacao"]):
+                self.assertTrue(p["equacao_exibicao"])
+                self.assertNotIn("->", p["equacao_exibicao"])
+
+    def test_a_versao_de_leitura_nao_substitui_a_que_e_conferida(self):
+        """A string crua continua no dado: é ela que o verificador lê."""
+        for p in blocos_do_exemplo()[0]["metadata"]["passos"]:
+            with self.subTest(equacao=p["equacao"]):
+                equacao_balanceada(p["equacao"])
 
 
 class OMaterialEhUtilizavelPelaInfraExistenteTests(unittest.TestCase):

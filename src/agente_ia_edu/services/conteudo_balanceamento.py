@@ -94,6 +94,38 @@ EXEMPLO_RESOLVIDO = {
 }
 
 
+_SUBSCRITO = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def para_exibicao(equacao: str) -> str:
+    """A equacao como o aluno LE: H2 + O2 -> H2O vira H₂ + O₂ → H₂O.
+
+    A string crua continua sendo a que o verificador recebe - aqui so se
+    formata. Esta funcao mora junto da quimica, e nao na tela, por dois
+    motivos: assim ela entra na suite, e assim nao ha duas grafias da mesma
+    equacao na mesma pagina (uma no titulo, outra no passo), que faz parecer
+    que sao coisas diferentes.
+
+    O COEFICIENTE NAO VIRA SUBSCRITO. Um digito e indice quando vem DEPOIS de
+    uma letra (H2) e coeficiente quando vem antes da especie (2 H2O).
+    Confundir os dois na tela ensinaria exatamente o erro que esta explicacao
+    existe para desfazer.
+    """
+    saida = []
+    anterior = ""
+    for ch in equacao.replace("->", "→"):
+        # `anterior and` nao e defensivo: sem ele, a string vazia do primeiro
+        # caractere satisfaz `in`, e o coeficiente que abre a equacao virava
+        # indice - "2 H2O" saindo "₂ H₂O".
+        if ch.isdigit() and anterior and (
+                anterior.isalpha() or anterior in "₀₁₂₃₄₅₆₇₈₉"):
+            saida.append(ch.translate(_SUBSCRITO))
+        else:
+            saida.append(ch)
+        anterior = saida[-1]
+    return "".join(saida)
+
+
 def _contagem(equacao: str) -> dict[str, list[int]]:
     """Quantos átomos de cada elemento, de cada lado - pela contagem real."""
     esquerda, direita = ler_equacao(equacao)
@@ -110,6 +142,7 @@ def blocos_do_exemplo() -> list[dict]:
     passos = [
         {
             "equacao": p["equacao"],
+            "equacao_exibicao": para_exibicao(p["equacao"]),
             "fala": p["fala"],
             "contagem": _contagem(p["equacao"]),
         }

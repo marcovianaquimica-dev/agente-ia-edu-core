@@ -27,6 +27,12 @@
   --sucesso-claro: #ecfdf5;
   --alerta: #f59e0b;
   --alerta-claro: #fffbeb;
+  /* Os tons acima sao de PREENCHIMENTO. Para TEXTO eles reprovam: medido,
+     #10b981 da 2,35 e #f59e0b da 1,99 sobre o fundo da aplicacao - longe dos
+     4,5 de AA. Estes dois existem para quando a cor precisa ser lida:
+     7,11 e 6,56 sobre o fundo. */
+  --sucesso-tinta: #065f46;
+  --alerta-tinta: #92400e;
   --perigo: #ef4444;
 
   --borda: #e2e8f0;
@@ -91,12 +97,30 @@ p  { margin: 0 0 .75rem; }
 .topo {
   display: flex; align-items: center; justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.25rem;
-  padding-top: calc(1rem + env(safe-area-inset-top, 0px));
+  padding: .75rem 1.25rem;
+  padding-top: calc(.75rem + env(safe-area-inset-top, 0px));
+  /* Fundo branco de proposito: a logo oficial entregue vem com fundo branco,
+     e sobre o cinza do corpo (--fundo) ela desenharia um retangulo. Recortar
+     o fundo dela seria mexer na marca - o que esta fora de questao - e um
+     header branco sobre corpo cinza e o arranjo institucional comum. */
+  background: var(--papel);
+  border-bottom: 1px solid var(--borda);
+  margin-bottom: 1rem;
 }
 
-.marca { font-size: .95rem; color: var(--tinta-fraca); }
-.marca strong { color: var(--tinta); font-weight: 700; }
+/* A marca e a imagem oficial, so redimensionada. `width: auto` preserva a
+   proporcao; a altura e menor no telefone porque ali ela divide a linha com o
+   avatar - e, abaixo de 360px, com pouco mais que isso. */
+.marca { display: inline-flex; align-items: center; flex: 0 0 auto; }
+/* 52px, nao 34: medido no navegador, a 34 a assinatura da marca fica
+   ilegivel - a arte e quase quadrada (1,78:1), entao e a ALTURA que da
+   tamanho ao texto. A 52 ela ocupa 93px de largura, e em 320px ainda sobram
+   mais de 140px para o avatar e o respiro. */
+.marca-logo { height: 52px; width: auto; display: block; }
+
+@media (min-width: 768px) {
+  .marca-logo { height: 64px; }
+}
 
 .avatar {
   width: var(--toque); height: var(--toque);
@@ -789,3 +813,91 @@ p  { margin: 0 0 .75rem; }
 .atividade-titulo { font-weight: 600; color: var(--tinta); overflow-wrap: anywhere; }
 .atividade-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .atividade-prazo { font-size: .8125rem; color: var(--tinta-fraca); }
+
+
+/* ============================================= ASSESSOR PEDAGOGICO ========
+   A tela de ENSINO. Nao e um chat: a ajuda chega estruturada - o que esta
+   travando, a ideia, um exemplo ate o fim - em vez de esperar que o aluno
+   descubra o que perguntar. */
+
+.cartao-assessor { border-left: 4px solid var(--primaria); }
+
+.assessor-etiqueta { display: flex; align-items: center; gap: .5rem; }
+.assessor-marca { height: 1.5rem; width: auto; display: block; }
+
+/* A fala do assessor tem peso de fala, nao de aviso de sistema. */
+.assessor-fala {
+  font-size: 1.0625rem;
+  color: var(--tinta);
+  margin: .25rem 0 .75rem;
+}
+
+.assessor-meta {
+  font-size: .9375rem;
+  color: var(--tinta-fraca);
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .6rem .75rem;
+  margin: .5rem 0;
+}
+
+.secao-estudo { margin: 1.25rem 0; }
+.secao-estudo h2 { font-size: 1.125rem; margin: 0 0 .5rem; }
+.bloco-texto p { margin: 0 0 .6rem; }
+
+/* O quadro do coeficiente x indice: e o erro conceitual que esta explicacao
+   existe para evitar, entao ele nao pode parecer mais um paragrafo. */
+.aviso-conceito {
+  background: var(--fundo);
+  border-left: 3px solid var(--alerta);
+  border-radius: 0 var(--r-m) var(--r-m) 0;
+  padding: .75rem .9rem;
+  margin: .75rem 0;
+}
+.aviso-conceito p:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------- o exemplo resolvido --- */
+
+.exemplo { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; }
+
+.passo-exemplo {
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .75rem .9rem;
+}
+
+/* A equacao e o objeto de estudo: maior que o texto, e com espaco para
+   respirar. `anywhere` porque em 320px uma equacao longa nao cabe numa linha
+   e cortar seria pior que quebrar. */
+.equacao {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--tinta);
+  margin: 0 0 .5rem;
+  overflow-wrap: anywhere;
+}
+
+.contagem {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .875rem;
+  margin: 0 0 .5rem;
+}
+.contagem th, .contagem td {
+  text-align: left;
+  padding: .25rem .4rem;
+  border-bottom: 1px solid var(--borda);
+}
+.contagem thead th { color: var(--tinta-fraca); font-weight: 600; }
+
+/* O estado NAO e dito so pela cor: a ultima coluna diz "fecha" / "nao fecha"
+   em texto, para quem nao distingue as duas. */
+.atomo-fecha td:last-child { color: var(--sucesso-tinta); font-weight: 600; }
+.atomo-aberto td:last-child { color: var(--alerta-tinta); font-weight: 600; }
+
+.passo-exemplo .fala { margin: 0; color: var(--tinta); }
+
+@media (min-width: 768px) {
+  .assessor-marca { height: 1.75rem; }
+  .equacao { font-size: 1.25rem; }
+}
