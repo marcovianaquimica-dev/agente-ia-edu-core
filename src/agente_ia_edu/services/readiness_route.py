@@ -104,7 +104,9 @@ class ReadinessRouteService:
         from agente_ia_edu.services.adaptive_learning_path import (
             AdaptiveLearningPathService,
         )
-        from agente_ia_edu.services.proximo_passo import cta_para, passo_para
+        from agente_ia_edu.services.proximo_passo import (
+            cta_para, jornada_de, passo_para,
+        )
 
         # `student_activities` ja resolve as duas coisas de que precisamos: a
         # AUTORIZACAO (so devolve o que e desta pessoa) e os `content_codes`
@@ -144,6 +146,7 @@ class ReadinessRouteService:
                 "content_state": (c or {}).get("content_state") or "INSUFFICIENT_EVIDENCE",
                 "answered": (c or {}).get("questions_answered") or 0,
                 "accuracy": (c or {}).get("accuracy"),
+                "origin_breakdown": (c or {}).get("origin_breakdown") or {},
                 "unsatisfied_prerequisites": (c or {}).get("unsatisfied_prerequisites", []),
                 "prerequisites": (c or {}).get("prerequisites")
                                  or await self._prereqs_do_catalogo(
@@ -166,6 +169,27 @@ class ReadinessRouteService:
             passo, assignment_id, student_external_id, requester=requester)
         passo["cta"] = cta_para(passo["kind"], passo["state"])
 
+        # A JORNADA que o aluno ve. Derivada do que ja esta gravado - as
+        # origens de evidencia e o estado da tentativa - nunca da navegacao.
+        # Agrega as origens do conteudo exigido E dos pre-requisitos: o
+        # microdiagnostico do pre-requisito e evidencia da etapa "Diagnostico"
+        # tanto quanto o do conteudo final - para o aluno e o mesmo passo.
+        #
+        # As origens vem do MAPA DE DOMINIO, nao do planejador: ele nao expoe
+        # `origin_breakdown` (conferido), e sem isso a etapa "Diagnostico"
+        # ficava cinza mesmo depois de o aluno ter feito dois diagnosticos.
+        codigos = {d["content_code"] for d in detalhes}
+        for d in detalhes:
+            codigos.update(p["code"] for p in (d.get("prerequisites") or [])
+                           if p.get("code"))
+        origens = await self._origens_de(codigos, student_external_id,
+                                         requester=requester)
+        jornada = jornada_de(
+            origens=origens,
+            estado_atividade=await self._estado_da_atividade(
+                assignment_id, requester=requester),
+            rota=rota, kind=passo["kind"])
+
         return {
             "assignment_id": str(assignment_id),
             "title": atividade.get("title"),
@@ -176,10 +200,52 @@ class ReadinessRouteService:
             "target_content_name": passo.get("content_name"),
             # O passo concreto. O frontend TRADUZ isto; nao decide nada.
             "next_step": passo,
+            "journey": jornada,
             # a atividade NAO foi concluida por preparar-se para ela
             "objective_assignment_id": str(assignment_id),
             "objective_completed": False,
         }
+
+    async def _origens_de(self, codigos, aluno: str, *, requester) -> dict[str, int]:
+        """Quantas evidencias de cada ORIGEM existem nestes conteudos.
+
+        Uma consulta ao mapa de dominio, nao uma por conteudo: a jornada
+        aparece em toda abertura de sessao.
+        """
+        from agente_ia_edu.services.curriculum_domain_map import (
+            CurriculumDomainMapService,
+        )
+
+        if not codigos:
+            return {}
+        try:
+            mapa = await CurriculumDomainMapService(self._session).get_map(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001 - sem mapa: jornada sem etapa verde
+            return {}
+        total: dict[str, int] = {}
+        for disciplina in (mapa.get("disciplines") or []):
+            for c in (disciplina.get("contents") or []):
+                if c.get("content_code") not in codigos:
+                    continue
+                for origem, n in (c.get("origin_breakdown") or {}).items():
+                    total[origem] = total.get(origem, 0) + int(n or 0)
+        return total
+
+    async def _estado_da_atividade(self, assignment_id, *, requester) -> str:
+        """So o estado da tentativa da ATIVIDADE, para a jornada - que precisa
+        dele mesmo quando o proximo passo e outro."""
+        from agente_ia_edu.services.activity_player_store import (
+            ActivityPlayerStore, PlayerError,
+        )
+        from agente_ia_edu.services.proximo_passo import ESTADO_NAO_INICIADO
+
+        try:
+            estado = await ActivityPlayerStore(self._session).get_state(
+                assignment_id, requester=requester)
+        except (PlayerError, LookupError, PermissionError):
+            return ESTADO_NAO_INICIADO
+        return estado.get("status") or ESTADO_NAO_INICIADO
 
     async def _estado_do_passo(self, passo: dict, assignment_id, aluno: str, *,
                                requester) -> str:
@@ -253,7 +319,10 @@ class ReadinessRouteService:
                           "mastered": c.get("content_state") == "MASTERED",
                           "content_state": c.get("content_state"),
                           "answered": c.get("questions_answered") or 0,
-                          "accuracy": c.get("accuracy")})
+                          "accuracy": c.get("accuracy"),
+                          # a jornada precisa saber se JA houve diagnostico da
+                          # base - para o aluno, e a mesma etapa
+                          "origin_breakdown": c.get("origin_breakdown") or {}})
         return saida
 
     async def _nomes_do_catalogo(self, codigos: Sequence[str]) -> dict[str, str]:

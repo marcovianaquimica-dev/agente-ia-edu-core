@@ -655,3 +655,50 @@ p  { margin: 0 0 .75rem; }
 
 /* no trilho, questao errada aparece diferente de nao-visitada */
 .passo-errado { background: var(--alerta); }
+
+
+/* ========================================================== A JORNADA =====
+   Diagnostico -> Preparacao -> Atividade -> Resultado.
+
+   Responde "onde estou?". E diferente do `.trilho`, que mede questoes DENTRO
+   da etapa atual.
+
+   O estado nao e dito so pela cor: cada etapa tem um simbolo (✓ ● ○) e um
+   texto para leitor de tela. */
+
+.jornada {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem .5rem;
+  list-style: none;
+  margin: 0 0 .75rem;
+  padding: 0;
+}
+
+.etapa {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .8125rem;
+  color: var(--tinta-fraca);
+  white-space: nowrap;
+}
+
+/* a seta entre etapas e decorativa e some quando a linha quebra */
+.etapa + .etapa::before {
+  content: "→";
+  margin-right: .2rem;
+  color: var(--borda);
+}
+
+.etapa-marca { font-weight: 700; }
+
+.etapa-feita { color: var(--sucesso); }
+.etapa-agora { color: var(--primaria); font-weight: 600; }
+
+/* so para leitor de tela */
+.jornada .sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

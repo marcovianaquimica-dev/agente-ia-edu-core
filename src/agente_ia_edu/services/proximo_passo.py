@@ -86,6 +86,87 @@ _CTA = {
 }
 
 
+# ---------------------------------------------------- a jornada visivel ---
+# "Onde estou?" - a pergunta que a barra de questoes nao respondia, porque ela
+# media questoes DENTRO de uma etapa.
+ETAPA_DIAGNOSTICO = "DIAGNOSTICO"
+ETAPA_PREPARACAO = "PREPARACAO"
+ETAPA_ATIVIDADE = "ATIVIDADE"
+ETAPA_RESULTADO = "RESULTADO"
+
+_ROTULOS = {
+    ETAPA_DIAGNOSTICO: "Diagnóstico",
+    ETAPA_PREPARACAO: "Preparação",
+    ETAPA_ATIVIDADE: "Atividade",
+    ETAPA_RESULTADO: "Resultado",
+}
+
+
+def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
+               kind: str | None = None) -> list[dict]:
+    """As etapas da jornada: qual ja passou, onde o aluno esta, o que falta.
+
+    A POSICAO VEM DO PROXIMO PASSO; A CONCLUSAO, DA EVIDENCIA.
+
+    A primeira versao disto derivava tudo da evidencia, e errava o caso real:
+    o aluno fazia o microdiagnostico do PRE-REQUISITO, cuja evidencia fica em
+    outro conteudo, e a barra continuava dizendo "Diagnostico em andamento"
+    depois de ele ter acabado de fazer um.
+
+    Agora o `kind` do proximo passo diz em que etapa ele esta - e e a
+    autoridade, porque e a mesma coisa que decide o botao. A evidencia
+    confirma as etapas ANTERIORES: sem ela, nada fica verde. Navegar nunca
+    conclui etapa; se bastasse abrir a tela, quem clicasse em tudo veria a
+    jornada inteira verde sem ter aprendido nada.
+
+    PREPARACAO so entra quando foi pedida ou quando ja houve pratica, e nao
+    sai depois de entrar: a jornada nao pode encolher na frente do aluno.
+    """
+    def tem(origem: str) -> bool:
+        return int((origens or {}).get(origem) or 0) > 0
+
+    etapas = [ETAPA_DIAGNOSTICO]
+    if rota == ROTA_PREPARACAO or tem("PRACTICE"):
+        etapas.append(ETAPA_PREPARACAO)
+    etapas += [ETAPA_ATIVIDADE, ETAPA_RESULTADO]
+
+    # Onde o aluno esta AGORA, segundo o proximo passo.
+    atual = {
+        PASSO_DIAGNOSTICO: ETAPA_DIAGNOSTICO,
+        PASSO_PRATICA: ETAPA_PREPARACAO,
+        PASSO_ATIVIDADE: (ETAPA_RESULTADO if estado_atividade == ESTADO_CONCLUIDO
+                          else ETAPA_ATIVIDADE),
+    }.get(kind)
+    if atual is None or atual not in etapas:
+        # Sem passo conhecido: cai na primeira etapa ainda nao evidenciada.
+        atual = next((e for e in etapas if not _evidenciada(e, tem, estado_atividade)),
+                     etapas[-1])
+
+    corte = etapas.index(atual)
+    saida = []
+    for i, etapa in enumerate(etapas):
+        if i < corte:
+            # Anterior a atual: so fica verde se houver evidencia de verdade.
+            estado = (ESTADO_CONCLUIDO if _evidenciada(etapa, tem, estado_atividade)
+                      else ESTADO_NAO_INICIADO)
+        elif i == corte:
+            estado = ESTADO_EM_ANDAMENTO
+        else:
+            estado = ESTADO_NAO_INICIADO
+        saida.append({"id": etapa, "label": _ROTULOS[etapa], "state": estado})
+    return saida
+
+
+def _evidenciada(etapa: str, tem, estado_atividade: str) -> bool:
+    if etapa == ETAPA_DIAGNOSTICO:
+        return tem("MICRO_DIAGNOSTIC")
+    if etapa == ETAPA_PREPARACAO:
+        return tem("PRACTICE")
+    if etapa == ETAPA_ATIVIDADE:
+        return estado_atividade == ESTADO_CONCLUIDO
+    return False
+
+
 def cta_para(kind: str, estado: str) -> str | None:
     """O texto do botao, a partir do tipo do passo e de como ele esta.
 
@@ -214,6 +295,11 @@ def passo_para(conteudos: Sequence[dict], *,
 
 __all__ = [
     "cta_para",
+    "jornada_de",
+    "ETAPA_DIAGNOSTICO",
+    "ETAPA_PREPARACAO",
+    "ETAPA_ATIVIDADE",
+    "ETAPA_RESULTADO",
     "ESTADO_NAO_INICIADO",
     "ESTADO_EM_ANDAMENTO",
     "ESTADO_CONCLUIDO",

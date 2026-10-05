@@ -253,6 +253,32 @@
     }
   }
 
+  // ===================================================== a jornada =======
+  // Desenha as etapas vindas de `readiness.journey`. Nao calcula nada: se o
+  // frontend decidisse o que esta concluido, bastaria o aluno abrir uma tela
+  // para a barra ficar verde.
+  function pintarJornada() {
+    const etapas = (app.prontidao && app.prontidao.journey) || [];
+    const el = $('jornada');
+    if (!el) return;
+    if (!etapas.length) { el.innerHTML = ''; el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = etapas.map((e) => {
+      const classe = e.state === 'COMPLETED' ? 'etapa etapa-feita'
+        : e.state === 'IN_PROGRESS' ? 'etapa etapa-agora' : 'etapa';
+      // O estado tambem e TEXTO, nao so cor e posicao.
+      const marca = e.state === 'COMPLETED' ? '✓'
+        : e.state === 'IN_PROGRESS' ? '●' : '○';
+      const dito = e.state === 'COMPLETED' ? 'concluída'
+        : e.state === 'IN_PROGRESS' ? 'etapa atual' : 'a seguir';
+      return `<li class="${classe}" aria-current="${e.state === 'IN_PROGRESS' ? 'step' : 'false'}">
+                <span class="etapa-marca" aria-hidden="true">${marca}</span>
+                <span class="etapa-nome">${esc(e.label)}</span>
+                <span class="sr">(${dito})</span>
+              </li>`;
+    }).join('');
+  }
+
   // ================================================== o microdiagnostico ==
 
   async function abrirDiagnostico() {
@@ -319,6 +345,7 @@
     $('objetivo').hidden = !objetivo;
     if (objetivo) $('objetivo-texto').textContent = objetivo;
 
+    pintarJornada();
     const total = d.questoes.length;
     $('trilho').innerHTML = d.questoes.map((_, i) => {
       const classe = i < d.pos ? 'passo passo-feito'
@@ -555,6 +582,7 @@
   function pintarAtividade() {
     const a = app.atividade;
     if (!a) return;
+    pintarJornada();
     const total = a.questoes.length;
     const q = a.questoes[a.pos];
 

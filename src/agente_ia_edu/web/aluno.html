@@ -86,7 +86,13 @@
       <span id="objetivo-texto"></span>
     </div>
 
-    <div class="trilho" id="trilho" role="img" aria-label="Progresso da sessão"></div>
+    <!-- A JORNADA: onde o aluno esta no caminho pedagogico. Vem de
+         `readiness.journey`, calculada no backend a partir de evidencia
+         real - nao de navegacao. -->
+    <ol class="jornada" id="jornada" aria-label="Etapas da jornada"></ol>
+
+    <!-- O trilho mede questoes DENTRO da etapa atual. Sao coisas diferentes. -->
+    <div class="trilho" id="trilho" role="img" aria-label="Progresso nesta etapa"></div>
     <p class="sessao-resumo" id="sessao-resumo"></p>
 
     <div id="bloco" aria-live="polite"></div>
