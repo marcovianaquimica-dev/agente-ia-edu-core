@@ -1306,8 +1306,12 @@ body.sidebar-open {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    /* 44px e o minimo confortavel de alvo de toque - medido em 36x36, que
+       e justamente o tamanho em que dedo medio erra. E este botao e a UNICA
+       porta para a navegacao inteira no celular: errar nele e ficar sem
+       menu. */
+    width: var(--nucleo-toque, 44px);
+    height: var(--nucleo-toque, 44px);
     border: 1px solid var(--border-color);
     border-radius: 10px;
     background: var(--bg-card);

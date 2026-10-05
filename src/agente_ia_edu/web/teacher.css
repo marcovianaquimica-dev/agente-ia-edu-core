@@ -281,7 +281,14 @@
 }
 
 @media (max-width: 768px) {
-  .mobile-drawer-close { display: block; margin-left: auto; border: 0; background: transparent; color: var(--text-white); font-size: 28px; line-height: 1; cursor: pointer; }
+    /* Mesmo motivo do botao que abre: 44px e o minimo de alvo de toque,
+     e fechar o menu nao pode ser mais dificil que abrir. */
+  .mobile-drawer-close { display: flex; align-items: center;
+    justify-content: center; margin-left: auto; border: 0;
+    background: transparent; color: var(--text-white); font-size: 28px;
+    line-height: 1; cursor: pointer;
+    min-width: var(--nucleo-toque, 44px);
+    min-height: var(--nucleo-toque, 44px); }
 }
 
 /* PHASE 23 — Meus Materiais (materiais teóricos autorais) */
