@@ -37,6 +37,22 @@ RAMO_CEREBRO = "065_classification_provenance"
 MERGE = "066_merge_063_lineages"
 BIFURCACAO = "055_essay_prompt_soft_delete"
 
+
+def _head_atual() -> str:
+    """O head de AGORA, lido do grafo - nao um literal.
+
+    Este arquivo fixava `MERGE` como o head esperado, e a primeira migration
+    criada depois dele (067) derrubou cinco testes que nao tinham nada a ver
+    com o assunto deles. A propriedade que importa e "existe UM head, e todos
+    os caminhos chegam NELE" - e ela vale para qualquer migration futura.
+
+    `MERGE` continua usado nos testes sobre a propria 066 (quem sao os pais
+    dela, se ela tem DDL), onde o literal e o assunto.
+    """
+    heads = list(ScriptDirectory.from_config(_cfg("postgresql://x/y")).get_heads())
+    assert len(heads) == 1, f"o grafo tem {len(heads)} heads: {heads}"
+    return heads[0]
+
 # Antes de 024 e preciso semear o catalogo: ela e migration de DADOS e insere
 # um no sob um pai que so o seed cria.
 ANTES_DO_SEED = "023_curriculum_taxonomy"
@@ -126,9 +142,22 @@ class GrafoDeMigrationsTests(unittest.TestCase):
         self.script = ScriptDirectory.from_config(_cfg("postgresql://x/y"))
 
     def test_existe_um_unico_head(self):
+        """UM head - nao um head com este nome.
+
+        Fixar o nome fazia qualquer migration nova derrubar este teste, que
+        e sobre a forma do grafo, nao sobre quem esta na ponta dele.
+        """
         heads = list(self.script.get_heads())
-        self.assertEqual(heads, [MERGE],
-                         f"esperava um head so, achei {heads}")
+        self.assertEqual(len(heads), 1, f"esperava um head so, achei {heads}")
+
+    def test_o_head_descende_do_merge(self):
+        """E o head, seja ele qual for, vem DEPOIS da reconciliacao - se
+        alguem pendurar uma migration num dos ramos antigos, a bifurcacao
+        volta e este teste cai."""
+        head = list(self.script.get_heads())[0]
+        linhagem = {r.revision for r in self.script.walk_revisions("base", head)}
+        self.assertIn(MERGE, linhagem,
+                      "o head nao passa pela reconciliacao das duas linhagens")
 
     def test_o_merge_declara_os_dois_ramos_como_pais(self):
         rev = self.script.get_revision(MERGE)
@@ -223,7 +252,7 @@ class ConvergenciaDeSchemaTests(unittest.TestCase):
     # -- CENARIO A ---------------------------------------------------------
 
     def test_A_banco_vazio_chega_ao_head(self):
-        self.assertEqual(_revisao(_url(self.bancos["A_vazio"])), MERGE)
+        self.assertEqual(_revisao(_url(self.bancos["A_vazio"])), _head_atual())
 
     def test_A_tem_as_tabelas_dos_DOIS_ramos(self):
         tabelas = set(self.retratos["A_vazio"])
@@ -243,7 +272,7 @@ class ConvergenciaDeSchemaTests(unittest.TestCase):
             self.assertNotIn(t, antes, f"{t} nao deveria existir ainda")
 
     def test_B_chega_ao_head_depois_da_reconciliacao(self):
-        self.assertEqual(_revisao(_url(self.bancos["B_plataforma"])), MERGE)
+        self.assertEqual(_revisao(_url(self.bancos["B_plataforma"])), _head_atual())
 
     def test_B_ganhou_as_tabelas_do_outro_ramo(self):
         tabelas = set(self.retratos["B_plataforma"])
@@ -256,7 +285,7 @@ class ConvergenciaDeSchemaTests(unittest.TestCase):
         self.assertEqual(self.revisao_c_antes, RAMO_CEREBRO)
 
     def test_C_chega_ao_head_depois_da_reconciliacao(self):
-        self.assertEqual(_revisao(_url(self.bancos["C_cerebro"])), MERGE)
+        self.assertEqual(_revisao(_url(self.bancos["C_cerebro"])), _head_atual())
 
     # -- CONVERGENCIA ------------------------------------------------------
 
@@ -357,7 +386,7 @@ class ConvergenciaDeSchemaTests(unittest.TestCase):
                                  f"{t} sobreviveu ao downgrade")
         finally:
             command.upgrade(cfg, "heads")
-        self.assertEqual(_revisao(url), MERGE)
+        self.assertEqual(_revisao(url), _head_atual())
         self.assertEqual(_retrato(url), antes,
                          "o schema nao voltou ao mesmo depois de descer e subir")
 
