@@ -346,7 +346,7 @@ class EssayBatchService:
         return text_from_ocr_tokens(sink.ocr_tokens)
 
     async def read_page_regions(
-        self, image_path: Path
+        self, image_path: Path, *, extracted_pdf_text: str | None = None
     ) -> tuple[str | None, str | None, str]:
         """(nome normalizado, CPF so-digitos, texto do corpo) de uma pagina.
 
@@ -356,11 +356,27 @@ class EssayBatchService:
         propaga (ProviderError), porque sem texto nao ha redacao nenhuma pra
         corrigir - quem chama trata isso marcando a pagina NEEDS_REVIEW.
 
-        Deliberadamente NAO usa a camada de texto embutida de um PDF digital
-        (que _split_pdf_pages sabe extrair): a separacao cabecalho/corpo aqui e
-        POSICIONAL, e a camada de texto nao carrega posicao util pra isso. Um
-        lote e sempre papel escaneado de qualquer forma.
+        ``extracted_pdf_text`` (de EssayBatchPage.extracted_pdf_text, capturada
+        na intake - ver _expand_to_page_images): quando substancial (mesmo
+        teto de EssaySubmissionService._MIN_EXTRACTED_TEXT_CHARS que o envio
+        individual ja usa pra essa mesma decisao), o CORPO usa esse texto
+        direto, SEM chamada de visao nenhuma - mais barato e mais preciso que
+        OCR pra texto que ja nasceu digital. So existe quando o arquivo
+        enviado era um PDF com camada de texto real (nunca existe em foto/
+        scan de papel fisico - decisao do usuario, 2026-10-05, revertendo a
+        decisao original de 2026-09-28 de nunca usar essa camada aqui).
+
+        O CABECALHO continua SEMPRE por visao, mesmo com texto extraido
+        disponivel: o nome vem em caixinhas de uma letra por vez, e a camada
+        de texto bruta devolve isso uma letra por linha, sem separacao de
+        palavra - reconstruir o nome dai pra bater com o aluno seria fragil
+        demais pra confiar.
         """
+        use_extracted_body = (
+            extracted_pdf_text is not None
+            and len(extracted_pdf_text.strip())
+            >= EssaySubmissionService._MIN_EXTRACTED_TEXT_CHARS
+        )
         scratch_dir = Path(tempfile.mkdtemp(prefix="r4_batch_regions_"))
         try:
             header_path, body_path = await asyncio.to_thread(
@@ -374,22 +390,35 @@ class EssayBatchService:
                     image_path, exc,
                 )
                 header_text = ""
-            body_text = await self._ocr_region(body_path)
+            if use_extracted_body:
+                body_text = extracted_pdf_text
+            else:
+                body_text = await self._ocr_region(body_path)
             name, cpf = parse_header_text(header_text)
             return name, cpf, body_text.strip()
         finally:
             shutil.rmtree(scratch_dir, ignore_errors=True)
 
     @classmethod
-    def _expand_to_page_images(cls, source_paths: Sequence[Path]) -> list[Path]:
-        """Uma lista plana de imagens de pagina, na ordem dos arquivos enviados:
-        um PDF vira N imagens (via o mesmo _split_pdf_pages que a submissao
-        individual usa, mas com o teto PROPRIO do lote - _MAX_PDF_PAGES_BATCH,
-        maior que o do envio individual), uma imagem continua sendo uma pagina
-        so. Roda fora do event loop no chamador - rasterizar PDF e CPU-bound."""
+    def _expand_to_page_images(
+        cls, source_paths: Sequence[Path]
+    ) -> list[tuple[Path, str | None]]:
+        """Uma lista plana de (imagem da pagina, texto extraido do PDF ou
+        None), na ordem dos arquivos enviados: um PDF vira N paginas (via o
+        mesmo _split_pdf_pages que a submissao individual usa, mas com o
+        teto PROPRIO do lote - _MAX_PDF_PAGES_BATCH, maior que o do envio
+        individual), uma imagem (PNG/JPG) continua sendo uma pagina so, sem
+        texto nenhum (nunca ha camada de texto numa foto). Roda fora do
+        event loop no chamador - rasterizar PDF e CPU-bound.
+
+        O texto extraido PRECISA sobreviver ate aqui e ser persistido pelo
+        chamador (create_batch): o PDF original e apagado pela rota logo
+        depois (limpeza do tmp_dir, spec s7), e e so no processamento em
+        segundo plano (process_batch, minutos depois) que esse texto e
+        realmente usado - ver read_page_regions."""
         if not source_paths:
             raise ValueError("Envie ao menos um arquivo de redacao.")
-        page_images: list[Path] = []
+        pages: list[tuple[Path, str | None]] = []
         for source_path in source_paths:
             suffix = source_path.suffix.lower()
             if suffix not in ALLOWED_BATCH_SUFFIXES:
@@ -401,15 +430,15 @@ class EssayBatchService:
                 split = EssaySubmissionService._split_pdf_pages(
                     source_path, max_pages=_MAX_PDF_PAGES_BATCH
                 )
-                page_images.extend(image_path for image_path, _text in split)
+                pages.extend(split)
             else:
-                page_images.append(source_path)
-        if len(page_images) > MAX_BATCH_PAGES:
+                pages.append((source_path, None))
+        if len(pages) > MAX_BATCH_PAGES:
             raise ValueError(
-                f"Este envio tem {len(page_images)} paginas, acima do limite de "
+                f"Este envio tem {len(pages)} paginas, acima do limite de "
                 f"{MAX_BATCH_PAGES} por lote. Divida em mais de um envio."
             )
-        return page_images
+        return pages
 
     async def _assignment_for_class_or_raise(
         self, *, school_id: uuid.UUID, essay_prompt_id: uuid.UUID, class_id: uuid.UUID
@@ -467,22 +496,23 @@ class EssayBatchService:
             await self._assignment_for_class_or_raise(
                 school_id=school_id, essay_prompt_id=essay_prompt_id, class_id=class_id
             )
-        page_images = await asyncio.to_thread(self._expand_to_page_images, source_paths)
+        pages = await asyncio.to_thread(self._expand_to_page_images, source_paths)
 
         batch = EssayBatchUpload(
             id=uuid.uuid4(), school_id=school_id, essay_prompt_id=essay_prompt_id,
             class_id=class_id, grade_level_id=grade_level_id,
             uploaded_by_external_identity=uploaded_by_external_identity,
-            status="PROCESSING", total_pages=len(page_images),
+            status="PROCESSING", total_pages=len(pages),
         )
         self.session.add(batch)
         await self.session.flush()
 
-        for page_number, image_path in enumerate(page_images, start=1):
+        for page_number, (image_path, extracted_text) in enumerate(pages, start=1):
             managed_path, _digest = await asyncio.to_thread(self._storage.store, image_path)
             self.session.add(EssayBatchPage(
                 id=uuid.uuid4(), batch_id=batch.id, page_number=page_number,
-                storage_uri=str(managed_path), status="NEEDS_REVIEW",
+                storage_uri=str(managed_path), extracted_pdf_text=extracted_text,
+                status="NEEDS_REVIEW",
             ))
         await self.session.flush()
 
@@ -771,18 +801,32 @@ class EssayBatchService:
         return [submission_id] if submission_id is not None else []
 
     async def _process_page(
-        self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]]
+        self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]],
+        *, storage_uri: str, page_number: int, batch_id: uuid.UUID,
+        extracted_pdf_text: str | None,
     ) -> None:
         """Le uma pagina e grava o que foi lido. Best-effort: qualquer falha
         (OCR esgotou as tentativas, imagem corrompida) deixa a pagina em
         NEEDS_REVIEW com os campos de leitura vazios, mesmo padrao por item que
-        essay_proposal.create_assignments_bulk ja usa."""
+        essay_proposal.create_assignments_bulk ja usa.
+
+        storage_uri/page_number/batch_id/extracted_pdf_text vem do CHAMADOR,
+        nunca lidos de ``page`` aqui: process_batch commita apos cada pagina,
+        e expire_on_commit=True (producao) expira TODO objeto da sessao no
+        commit anterior - ler um atributo de ``page`` a partir da segunda
+        pagina em diante dispara um refresh sincrono que estoura com
+        MissingGreenlet em contexto async (confirmado ao vivo 2026-10-05: o
+        lote travava pra sempre em PROCESSING a partir da pagina 2). Atribuir
+        um valor NOVO a ``page.status``/``page.ocr_*`` abaixo continua seguro
+        - so LER que nao e."""
         try:
-            name, cpf, body_text = await self.read_page_regions(Path(page.storage_uri))
+            name, cpf, body_text = await self.read_page_regions(
+                Path(storage_uri), extracted_pdf_text=extracted_pdf_text
+            )
         except (ProviderError, ValueError) as exc:
             logger.warning(
                 "pagina %s do lote %s nao pode ser lida, vai para revisao manual: %s",
-                page.page_number, page.batch_id, exc,
+                page_number, batch_id, exc,
             )
             page.status = "NEEDS_REVIEW"
             return
@@ -792,6 +836,15 @@ class EssayBatchService:
         page.matched_student_id = match_student(
             name, [(student_id, full_name) for student_id, full_name, _document in roster]
         )
+
+    # Pausa entre paginas que de fato chamaram visao (nunca entre paginas que
+    # usaram extracted_pdf_text, que nao custam chamada nenhuma) - decisao do
+    # usuario 2026-10-05: evita rajada de chamadas de imagem contra o limite
+    # de tokens/min da OpenAI (confirmado ao vivo: 21 paginas em sequencia
+    # rapida estouravam o teto mesmo com cota alta). Nao e sobre corretude,
+    # so sobre nao competir com a propria rajada - por isso fica fora de
+    # _process_page (que so sabe o que falta nao e assunto dela).
+    _PAGE_PACING_SECONDS = 2.0
 
     async def process_batch(self, batch_id: uuid.UUID) -> None:
         """Processa TODAS as paginas do lote, em sequencia (nunca em paralelo -
@@ -811,9 +864,23 @@ class EssayBatchService:
             .where(EssayBatchPage.batch_id == batch_id)
             .order_by(EssayBatchPage.page_number)
         )).scalars().all()
+        # Capturado ANTES do loop, enquanto nada ainda expirou - ver o
+        # docstring de _process_page pro porque isto e necessario a partir da
+        # segunda pagina.
+        page_reads = [
+            (p.storage_uri, p.page_number, p.batch_id, p.extracted_pdf_text) for p in pages
+        ]
 
-        for page in pages:
-            await self._process_page(page, roster)
+        for index, (page, (storage_uri, page_number, page_batch_id, extracted_pdf_text)) in enumerate(
+            zip(pages, page_reads)
+        ):
+            if index > 0:
+                await asyncio.sleep(self._PAGE_PACING_SECONDS)
+            await self._process_page(
+                page, roster,
+                storage_uri=storage_uri, page_number=page_number, batch_id=page_batch_id,
+                extracted_pdf_text=extracted_pdf_text,
+            )
             await self.session.commit()
 
         # Agrupa as corridas e cria as submissoes SO depois que todas as

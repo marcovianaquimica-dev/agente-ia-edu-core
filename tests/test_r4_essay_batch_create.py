@@ -126,6 +126,46 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
             for page in pages:
                 self.assertTrue(Path(page.storage_uri).exists())
 
+    async def test_extracted_pdf_text_is_persisted_per_page_images_get_none(self):
+        """_expand_to_page_images captura a camada de texto digital do PDF
+        (quando substancial) na INTAKE, porque o PDF original e apagado
+        antes de process_batch rodar (limpeza do tmp_dir da rota, spec s7) -
+        decisao do usuario 2026-10-05, pra pular OCR por visao no corpo
+        quando o texto ja existe digitalmente. Uma imagem (foto) nunca tem
+        essa camada - extracted_pdf_text fica None pra ela sempre."""
+        async with self.session_factory() as session:
+            seed = await self._seed(session)
+            pdf_path = self.tmp_dir / "digitado.pdf"
+            doc_lines = [
+                "Este e um paragrafo digitado de verdade,",
+                "bem mais longo que o teto de 30 caracteres",
+                "que separa texto substancial de ruido.",
+            ]
+            doc_text = " ".join(doc_lines)
+            import pymupdf
+            doc = pymupdf.open()
+            page = doc.new_page(width=595.44, height=842.40)
+            for index, line in enumerate(doc_lines):
+                page.insert_text((50, 60 + index * 20), line, fontsize=11)
+            doc.save(str(pdf_path))
+            doc.close()
+            image_path = _write_image(self.tmp_dir / "foto.png", "aluno foto")
+
+            created = await self._service(session).create_batch(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
+                uploaded_by_external_identity="prof", source_paths=[pdf_path, image_path],
+            )
+            await session.commit()
+
+            pages = (await session.execute(
+                select(EssayBatchPage)
+                .where(EssayBatchPage.batch_id == created["id"])
+                .order_by(EssayBatchPage.page_number)
+            )).scalars().all()
+            self.assertIn("mais longo que o teto de 30 caracteres", pages[0].extracted_pdf_text)
+            self.assertGreaterEqual(len(pages[0].extracted_pdf_text), 30)
+            self.assertIsNone(pages[1].extracted_pdf_text)
+
     async def test_pdf_pages_are_expanded_and_numbering_continues_across_files(self):
         async with self.session_factory() as session:
             seed = await self._seed(session)

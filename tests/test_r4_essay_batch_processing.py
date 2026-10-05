@@ -89,8 +89,16 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.tmp_dir = Path(tempfile.mkdtemp(prefix="r4_proc_"))
         self.storage = MaterialStorage(root=self.tmp_dir / "storage")
+        # A pausa entre paginas (EssayBatchService._PAGE_PACING_SECONDS) e
+        # pra producao, contra rajada na API de visao - nao serve pra nada
+        # aqui (transcritor falso, sem IA nenhuma) e so deixaria a suite
+        # lenta. Restaurado no tearDown pra nao vazar pra outros testes do
+        # processo.
+        self._original_pacing = EssayBatchService._PAGE_PACING_SECONDS
+        EssayBatchService._PAGE_PACING_SECONDS = 0.0
 
     async def asyncTearDown(self):
+        EssayBatchService._PAGE_PACING_SECONDS = self._original_pacing
         await self.engine.dispose()
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
@@ -209,6 +217,42 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(pages[1].matched_student_id, students["João da Silva"])
             self.assertIsNone(pages[1].ocr_cpf_raw)
 
+    async def test_process_batch_survives_expire_on_commit_true_like_production(self):
+        """process_batch commita apos CADA pagina (spec s5) - em producao
+        (db/session.py usa expire_on_commit=True, diferente da suite, que usa
+        False como o resto dos testes deste arquivo) isso expira TODO objeto
+        da sessao a cada commit. Um bug anterior lia atributos de ``page``
+        (storage_uri, page_number, batch_id) DEPOIS desse commit, o que
+        funcionava sob expire_on_commit=False (mascarando o bug aqui) mas
+        estourava com MissingGreenlet em producao - o lote travava pra sempre
+        em PROCESSING a partir da segunda pagina (confirmado ao vivo
+        2026-10-05). Este teste usa seu proprio session factory com
+        expire_on_commit=True, deliberadamente, so pra reproduzir a condicao
+        real."""
+        prod_like_factory = async_sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=True
+        )
+        async with self.session_factory() as seed_session:
+            school, klass, prompt, students = await self._seed(
+                seed_session, [("Ana Lúcia Ferreira", None), ("João da Silva", None)]
+            )
+        async with prod_like_factory() as session:
+            transcriber = ScriptedTranscriber({
+                "p1": ("NOME COMPLETO DO PARTICIPANTE Ana Lucia Ferreira", "Texto da Ana."),
+                "p2": ("NOME COMPLETO DO PARTICIPANTE Joao da Silva", "Texto do Joao."),
+            })
+            service, created = await self._make_batch(
+                session, school, klass, prompt, ["p1", "p2"], transcriber=transcriber
+            )
+
+            await service.process_batch(created["id"])
+
+            batch = await session.get(EssayBatchUpload, created["id"])
+            self.assertEqual(batch.status, "DONE")
+            pages = await self._pages(session, created["id"])
+            self.assertEqual(pages[0].matched_student_id, students["Ana Lúcia Ferreira"])
+            self.assertEqual(pages[1].matched_student_id, students["João da Silva"])
+
     async def test_unknown_name_stays_needs_review_with_no_student(self):
         async with self.session_factory() as session:
             school, klass, prompt, _students = await self._seed(
@@ -304,8 +348,8 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
             original_process = service._process_page
             original_commit = service.session.commit
 
-            async def _counting_process(page, roster):
-                await original_process(page, roster)
+            async def _counting_process(page, roster, **kwargs):
+                await original_process(page, roster, **kwargs)
                 processed["count"] += 1
 
             async def _recording_commit():

@@ -130,8 +130,13 @@ class MaterializeBatchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.tmp_dir = Path(tempfile.mkdtemp(prefix="r4_group_"))
         self.storage = MaterialStorage(root=self.tmp_dir / "storage")
+        # Pausa entre paginas e pra producao (rajada na API de visao) - sem
+        # serventia aqui (transcritor falso) e so deixaria a suite lenta.
+        self._original_pacing = EssayBatchService._PAGE_PACING_SECONDS
+        EssayBatchService._PAGE_PACING_SECONDS = 0.0
 
     async def asyncTearDown(self):
+        EssayBatchService._PAGE_PACING_SECONDS = self._original_pacing
         await self.engine.dispose()
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
