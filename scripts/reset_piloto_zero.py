@@ -3,12 +3,18 @@
 O QUE ESTE SCRIPT APAGA
 =======================
 As RESPOSTAS e a EVIDENCIA do Aluno Teste A, as atividades que ele mesmo
-comecou (praticas e microdiagnosticos) e o que ele JA LEU. Depois disso ele
+comecou (praticas e microdiagnosticos), o que ele JA LEU e a PRATICA GUIADA
+que ele fez. Depois disso ele
 volta a ser um aluno sem historico, e o cenario recomeca do zero.
 
-A leitura entrou em 2026-10-05: `MaterialProgress` nao e evidencia de dominio,
-entao sobrevivia ao reset - e com ele o Assessor via "ja estudou" e pulava a
-explicacao, justamente o caminho que este script existe para repetir.
+A leitura e a pratica guiada entraram em 2026-10-05: nenhuma das duas e
+evidencia de dominio, entao sobreviviam ao reset - e com elas o Assessor via
+"ja estudou" e "ja tentou com ajuda" e pulava as duas etapas, justamente o
+caminho que este script existe para repetir.
+
+A licao vale para o futuro: TUDO o que o Assessor consulta para decidir o
+proximo passo precisa entrar aqui, mesmo (e principalmente) o que nao e
+evidencia.
 
 O QUE ELE NAO APAGA, NUNCA
 ===========================
@@ -58,6 +64,7 @@ from agente_ia_edu.db.models.assessments import (  # noqa: E402
     ActivityAnswer, ActivityAttempt, ActivityResult, ActivityResultItem,
     DomainContentMastery,
 )
+from agente_ia_edu.db.models.guided_practice import GuidedPracticeItem  # noqa: E402
 from agente_ia_edu.db.models.material_progress import MaterialProgress  # noqa: E402
 
 ALUNO_ID = "aluno_teste_a"
@@ -124,6 +131,16 @@ async def limpar(s: AsyncSession, *, recriar_atividade: bool = False) -> dict:
     r = await s.execute(delete(MaterialProgress).where(
         MaterialProgress.student_external_id == ALUNO_ID))
     contagem["leitura de material"] = r.rowcount or 0
+
+    # 3c. a PRATICA GUIADA dele.
+    #
+    # Pelo mesmo motivo da leitura: nao e evidencia de dominio, entao nao
+    # estava em nenhuma das limpezas acima - e com ela sobrevivendo, o
+    # Assessor via a guiada ja concluida e pulava direto para a pratica
+    # autonoma. O cenario nao se repetia.
+    r = await s.execute(delete(GuidedPracticeItem).where(
+        GuidedPracticeItem.student_external_id == ALUNO_ID))
+    contagem["pratica guiada"] = r.rowcount or 0
 
     # 4. as atividades que ELE iniciou (praticas e microdiagnosticos).
     #    A atividade da TURMA fica: e da escola, nao dele.

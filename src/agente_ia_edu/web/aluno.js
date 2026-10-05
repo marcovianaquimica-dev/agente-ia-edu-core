@@ -506,12 +506,35 @@
   // "Entendi" marca a explicacao como concluida e leva a pratica. NAO marca
   // dominio: quem decide isso continua sendo a evidencia da pratica.
   async function concluirEstudo() {
-    const codigo = ((app.prontidao && app.prontidao.next_step) || {}).content_code;
     await marcarLeitura({ ateOFim: true });
     app.estudo = null;
-    // Depois de entender vem TENTAR COM AJUDA. `abrirGuiada` cai na pratica
-    // comum sozinha quando nao ha item guiado para o conteudo.
-    return abrirGuiada(codigo);
+    // QUEM DIZ O QUE VEM DEPOIS E O BACKEND.
+    //
+    // Esta funcao chamava `abrirGuiada` direto, assumindo que depois de
+    // entender vem sempre tentar com ajuda. No SEGUNDO ciclo isso reabria a
+    // guiada ja concluida - com a resposta a mostra, e sem tentativa
+    // nenhuma. A tela tinha decidido o percurso.
+    return seguirOProximoPasso();
+  }
+
+  // Releia a prontidao e va para onde ela mandar. Serve a qualquer ponto em
+  // que o estado acabou de mudar e o proximo passo pode ter mudado junto.
+  async function seguirOProximoPasso() {
+    if (app.prontidao && app.prontidao.assignment_id) {
+      try {
+        app.prontidao = await api(
+          `/api/v1/student/activities/${app.prontidao.assignment_id}/readiness`);
+      } catch (_) { /* sem prontidao nova, segue com a que ha */ }
+    }
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    switch (passo.kind) {
+      case 'LEARN': return estudar(passo.material_id);
+      case 'GUIDED_PRACTICE': return abrirGuiada(passo.content_code);
+      case 'PRACTICE': return praticar(passo.content_code);
+      case 'DIAGNOSTIC': return abrirDiagnostico();
+      case 'ACTIVITY': return abrirTarefa(app.prontidao.assignment_id);
+      default: return irPara('inicio');
+    }
   }
 
   // ============================================== a pratica guiada ========
@@ -650,15 +673,8 @@
   // Concluida a guiada, o proximo passo e a pratica AUTONOMA - e quem diz
   // isso e o backend, relido aqui com o estado novo.
   async function seguirDaGuiada() {
-    const codigo = app.guiada && app.guiada.dados.content_code;
     app.guiada = null;
-    if (app.prontidao && app.prontidao.assignment_id) {
-      try {
-        app.prontidao = await api(
-          `/api/v1/student/activities/${app.prontidao.assignment_id}/readiness`);
-      } catch (_) { /* a prontidao velha ainda leva a praticar o mesmo conteudo */ }
-    }
-    return praticar(codigo);
+    return seguirOProximoPasso();
   }
 
   // ================================================== o microdiagnostico ==
