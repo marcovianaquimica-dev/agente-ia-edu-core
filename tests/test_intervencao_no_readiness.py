@@ -344,6 +344,44 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
         self.assertNotEqual(self._passo()["kind"], PASSO_ATIVIDADE,
                             "liberou a atividade a quem continua errando")
 
+    def test_G_praticar_mal_DEPOIS_de_estudar_devolve_a_explicacao(self):
+        """A alternância é o que impede o loop.
+
+        Medido no navegador: o aluno estudou, praticou 1 de 5, e o passo
+        seguinte era praticar de novo — e de novo, e de novo. `ja_ensinado`
+        vinha de `MaterialProgress`, que fica COMPLETED para sempre, então a
+        explicação nunca mais voltava e só restavam questões. É exatamente o
+        "responder questões para sempre" que motivou o macrobloco, agora com
+        uma aula no início.
+
+        Um estudo é "recente" enquanto nada foi tentado depois dele. Praticou
+        e continuou mal? Então aquela leitura não bastou, e rever vale mais
+        que repetir.
+        """
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        self.assertEqual(self._passo()["kind"], PASSO_PRATICA)
+        self._responder(BALANC, quantas=3, acertos=0)
+        self.assertEqual(self._passo()["kind"], PASSO_ENSINO,
+                         "so ofereceu mais questoes a quem ja tinha estudado "
+                         "e errado de novo")
+
+    def test_G_ao_devolver_a_explicacao_o_rotulo_nao_manda_praticar(self):
+        """O estado do passo de ensino segue a mesma regra de envelhecimento.
+
+        Sem isso o passo voltava a ser ENSINO e o botão dizia "Praticar
+        agora" — lido do progresso antigo, que continua COMPLETED. Botão e
+        destino apontando para lados diferentes é a família de bug que este
+        projeto já corrigiu duas vezes.
+        """
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        self._responder(BALANC, quantas=3, acertos=0)
+        passo = self._passo()
+        self.assertEqual(passo["kind"], PASSO_ENSINO)
+        self.assertNotIn("ratic", passo["cta"],
+                         "o passo e estudar e o botao manda praticar")
+
     def test_G_e_tambem_nao_entra_em_loop_repetindo_a_mesma_coisa(self):
         """Depois de estudar e praticar mal, o passo não pode ser de novo
         'estude a mesma explicação' sem nada ter mudado — e também não pode

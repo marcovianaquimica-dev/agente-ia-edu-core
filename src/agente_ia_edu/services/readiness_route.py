@@ -303,7 +303,7 @@ class ReadinessRouteService:
         habilidades = await self._habilidades_de(codigo, aluno, requester=requester)
         material = await self._material_de(codigo, requester=requester)
         ja_ensinado = bool(material) and await self._ja_estudou(
-            material["material_id"], aluno, requester=requester)
+            material["material_id"], aluno, codigo, requester=requester)
 
         intervencao = decidir_intervencao(
             habilidades=habilidades,
@@ -361,8 +361,9 @@ class ReadinessRouteService:
             return None
         return materiais[0] if materiais else None
 
-    async def _ja_estudou(self, material_id: str, aluno: str, *, requester) -> bool:
-        """O aluno CONCLUIU aquela explicacao?
+    async def _ja_estudou(self, material_id: str, aluno: str, codigo: str, *,
+                          requester) -> bool:
+        """O aluno concluiu aquela explicacao, E AINDA NAO TENTOU DESDE ENTAO?
 
         `MaterialProgress` existe desde a PHASE 25 e guarda POSICAO - nada de
         dominio. E justamente por nao ser evidencia que serve aqui: diz o que
@@ -371,9 +372,73 @@ class ReadinessRouteService:
         COMPLETED, nao `started`: quem apenas abriu e saiu precisa VOLTAR para
         a explicacao, no ponto onde parou - mandar esse aluno para a pratica
         seria perder o ensino no meio. COMPLETED e ele dizendo "entendi".
+
+        E O ESTUDO ENVELHECE. `MaterialProgress` fica COMPLETED para sempre,
+        entao a explicacao nunca mais voltava e, depois da primeira aula, so
+        restavam questoes - o "responder questoes para sempre" de novo, agora
+        com uma aula no inicio. Medido no navegador: estudou, praticou 1 de 5,
+        e o passo seguinte era praticar, e praticar, e praticar.
+
+        Um estudo vale enquanto nada foi tentado depois dele. Praticou e
+        continuou mal? Entao aquela leitura nao bastou, e rever vale mais que
+        repetir - e e isso que faz ENSINAR e PRATICAR alternarem em vez de uma
+        das duas virar um lacete.
         """
-        return await self._estado_do_estudo(material_id, aluno,
-                                            requester=requester) == "COMPLETED"
+        if await self._estado_do_estudo(material_id, aluno,
+                                        requester=requester) != "COMPLETED":
+            return False
+        lido = await self._quando_estudou(material_id, aluno, requester=requester)
+        tentou = await self._ultima_pratica(codigo, aluno, requester=requester)
+        if lido is None or tentou is None:
+            return True
+        return lido >= tentou
+
+    async def _quando_estudou(self, material_id: str, aluno: str, *, requester):
+        from uuid import UUID as _U
+
+        from agente_ia_edu.services.student_material import StudentMaterialService
+
+        try:
+            progresso = await StudentMaterialService(self._session).get_progress(
+                _U(material_id), aluno,
+                requester_school_id=getattr(requester, "school_id", None))
+        except Exception:  # noqa: BLE001
+            return None
+        return self._quando(progresso.get("updated_at"))
+
+    async def _ultima_pratica(self, codigo: str, aluno: str, *, requester):
+        """Quando foi a ultima pratica CONCLUIDA daquele conteudo."""
+        from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
+        from agente_ia_edu.services.curriculum_domain_map import ORIGIN_PRACTICE
+
+        try:
+            praticas = await AdaptivePracticeService(self._session).list_practices(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001
+            return None
+        datas = [
+            self._quando(p.get("created_at"))
+            for p in (praticas.get("items") or [])
+            if p.get("content_code") == codigo
+            and (p.get("origin") or ORIGIN_PRACTICE) == ORIGIN_PRACTICE
+            and any(x in (p.get("state") or "") for x in ("COMPLETED", "CORRECTED"))
+        ]
+        validas = [d for d in datas if d is not None]
+        return max(validas) if validas else None
+
+    @staticmethod
+    def _quando(iso: str | None):
+        from datetime import datetime, timezone
+
+        if not iso:
+            return None
+        try:
+            d = datetime.fromisoformat(iso)
+        except ValueError:  # pragma: no cover - formato inesperado
+            return None
+        # Sem fuso nao da para comparar com um que tem: assume UTC, que e o
+        # que o resto do sistema grava.
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
     async def _estado_do_estudo(self, material_id: str, aluno: str, *,
                                 requester) -> str:
@@ -545,9 +610,18 @@ class ReadinessRouteService:
                 return ESTADO_NAO_INICIADO, None
             estado = await self._estado_do_estudo(material, aluno,
                                                   requester=requester)
-            return ({"IN_PROGRESS": ESTADO_EM_ANDAMENTO,
-                     "COMPLETED": ESTADO_CONCLUIDO}.get(
-                        estado, ESTADO_NAO_INICIADO), None)
+            if estado == "COMPLETED":
+                # Um estudo CONCLUIDO mas ja superado por uma tentativa nao e
+                # mais "concluido" para este ciclo - o passo voltou a ser
+                # ensinar justamente porque aquela leitura nao bastou. Sem
+                # esta linha o botao dizia "Praticar agora" sobre um passo de
+                # estudar: botao e destino apontando para lados diferentes.
+                vale = await self._ja_estudou(
+                    material, aluno, passo.get("content_code") or "",
+                    requester=requester)
+                return (ESTADO_CONCLUIDO if vale else ESTADO_NAO_INICIADO), None
+            return (ESTADO_EM_ANDAMENTO if estado == "IN_PROGRESS"
+                    else ESTADO_NAO_INICIADO), None
 
         if kind == PASSO_ATIVIDADE:
             try:
