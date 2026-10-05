@@ -1099,6 +1099,99 @@ async def get_activity_readiness(
                 status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
 
+# ============================================================================
+# CONVERSAR COM O ASSESSOR
+#
+# Uma duvida, DENTRO da intervencao que o aluno esta vivendo - nao um chat de
+# uso geral com um campo de texto.
+#
+# O CONTEXTO E MONTADO AQUI, NO BACKEND, a partir da prontidao - que ja e a
+# autoridade sobre o passo pedagogico e ja so devolve atividade DESTE aluno.
+# Isso resolve duas coisas de uma vez: o isolamento (quem pergunta sobre a
+# atividade de outro recebe 404, pelo mesmo caminho de sempre) e a regra de
+# que o JavaScript nao constroi verdade pedagogica.
+#
+# E o que NAO vai: alternativa, enunciado e resposta correta. A protecao
+# contra "me diga a letra" nao e uma instrucao no prompt - e a ausencia do
+# dado. Ver `conversa_do_assessor.CAMPOS_DO_CONTEXTO`.
+# ============================================================================
+
+
+class _TurnoDaConversa(_BaseModel):
+    de: str = _Field(max_length=16)
+    texto: str = _Field(max_length=600)
+
+
+class _ConversaRequest(_BaseModel):
+    assignment_id: str
+    message: str = _Field(min_length=1, max_length=600)
+    # O historico vem do navegador porque a conversa NAO E PERSISTIDA nesta
+    # versao: recarregar a pagina a perde, e esta dito na tela. Guardar texto
+    # de aluno exige decisao de retencao que este bloco nao tomou.
+    history: list[_TurnoDaConversa] = _Field(default_factory=list, max_length=20)
+
+
+@student_router.post("/assessor/conversation",
+                     summary="Pergunta ao Assessor, no contexto da intervencao atual")
+async def conversar_com_o_assessor(
+    payload: _ConversaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    from agente_ia_edu.services.conversa_do_assessor import (
+        ConversaDoAssessor, PerguntaInvalida,
+    )
+
+    try:
+        alvo = _UUID(payload.assignment_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=404,
+                            detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
+
+    async with session_factory() as session:
+        try:
+            prontidao = await ReadinessRouteService(session).para_atividade(
+                alvo, _me(ctx), requester=_student_requester(ctx))
+        except (AtividadeNaoVisivel, AssignmentNotFound, PlayerNotFound,
+                AssignmentAuthError, PlayerAuthError) as exc:
+            raise HTTPException(
+                status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
+
+    contexto = _contexto_da_conversa(prontidao)
+    try:
+        resposta = await ConversaDoAssessor().responder(
+            pergunta=payload.message,
+            contexto=contexto,
+            historico=[t.model_dump() for t in payload.history])
+    except PerguntaInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # O passo continua sendo do sistema: a conversa nao o move, e a tela usa
+    # este campo para o botao "voltar ao percurso".
+    resposta["next_step"] = {
+        "kind": (prontidao.get("next_step") or {}).get("kind"),
+        "cta": (prontidao.get("next_step") or {}).get("cta"),
+    }
+    return resposta
+
+
+def _contexto_da_conversa(prontidao: dict) -> dict:
+    """So o que a conversa precisa saber - e nada que ela nao deva."""
+    passo = prontidao.get("next_step") or {}
+    intervencao = passo.get("intervention") or {}
+    return {
+        "objetivo": passo.get("for_content_name") or prontidao.get("title"),
+        "conteudo": passo.get("content_name"),
+        "habilidade": intervencao.get("skill_name"),
+        "passo": passo.get("kind"),
+        "ciclo": intervencao.get("cycle"),
+        "tendencia": intervencao.get("trend"),
+        # Ha questao de avaliacao aberta? Entao o Assessor ensina o caminho e
+        # nao a alternativa - e ele nem recebe a alternativa para poder errar.
+        "avaliacao_aberta": passo.get("kind") in (
+            "DIAGNOSTIC", "PRACTICE", "VERIFY", "ACTIVITY"),
+    }
+
+
 class _MicroDiagnosticRequest(_BaseModel):
     content_code: str = _Field(min_length=1, max_length=100)
     # A tarefa da escola continua sendo o OBJETIVO enquanto o aluno se prepara.

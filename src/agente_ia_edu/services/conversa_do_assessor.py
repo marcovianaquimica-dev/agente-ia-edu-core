@@ -1,0 +1,156 @@
+"""CONVERSAR COM O ASSESSOR - uma duvida, dentro de uma intervencao.
+
+O QUE ISTO E
+=============
+O aluno travou num ponto, o sistema ja sabe qual, e ele quer perguntar. A
+conversa acontece DENTRO dessa intervencao: o contexto e a dificuldade real
+dele, nao um chat de uso geral com um campo de texto.
+
+O QUE ISTO NAO E
+=================
+Nao e um segundo cerebro pedagogico. Este modulo nao decide passo, nao diz que
+o aluno aprendeu, nao libera atividade, nao escolhe intervencao. Quem decide
+continua sendo `assessor_pedagogico`, deterministico.
+
+AS DUAS GARANTIAS, E POR QUE SAO ESTRUTURAIS
+=============================================
+1. CONVERSA NAO E EVIDENCIA. Este servico nao recebe sessao de banco. Nao e
+   uma convencao que alguem possa quebrar sem perceber: ele nao tem como
+   escrever em lugar nenhum. Ha teste lendo a assinatura do construtor.
+
+2. O GABARITO NAO ENTRA NO PROMPT. A protecao contra "me diga a letra" nao e
+   uma instrucao que o modelo possa desobedecer - e a AUSENCIA DO DADO. O
+   contexto e montado por lista fechada de campos (`CAMPOS_DO_CONTEXTO`), e
+   alternativa, enunciado e resposta correta nao estao nela. Um modelo nao
+   vaza o que nao recebeu.
+
+ONDE A IA ENTRA, E COMO ELA SAI
+================================
+Pelo `TextGenerationProvider` que ja existe, via `build_text_provider()` -
+com `ProviderRouter` e fallback entre provedores de graca. Nenhum nome de
+fornecedor aparece aqui. O prompt e artefato versionado do sistema
+(`assessor_prompts`), pelo mesmo motivo da classificacao: trocar o modelo nao
+pode custar o que o sistema aprendeu a pedir.
+
+Falhou - timeout, indisponibilidade, resposta vazia - a resposta volta
+marcada `fallback: true`, com `provider: None`, e com um texto que NAO se
+passa por resposta do modelo.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from agente_ia_edu.assessor_prompts import VERSAO_ATUAL, prompt_da_conversa
+from agente_ia_edu.providers.contracts import TextGenerationProvider
+from agente_ia_edu.providers.factory import build_text_provider
+from agente_ia_edu.providers.models import TextGenerationRequest
+
+# Uma duvida de aluno cabe bem antes disto. O limite existe porque o texto vem
+# do navegador e vai para dentro de um prompt: entrada sem teto e superficie de
+# ataque, e um "livro" colado no campo nao e uma pergunta pedagogica.
+LIMITE_DA_PERGUNTA = 600
+LIMITE_DO_TURNO = 600
+
+# A LISTA FECHADA. Esta e a protecao contra gabarito, e nao o texto do prompt:
+# qualquer campo que nao esteja aqui simplesmente nao chega ao modelo, venha de
+# onde vier. Acrescentar um campo e uma decisao consciente, com teste.
+CAMPOS_DO_CONTEXTO = (
+    ("objetivo", "Atividade que o aluno está tentando entregar"),
+    ("conteudo", "Conteúdo em que ele está travado agora"),
+    ("habilidade", "A micro-habilidade que está travando"),
+    ("passo", "O passo pedagógico atual decidido pelo sistema"),
+    ("ciclo", "Quantas vezes já intervimos neste conteúdo"),
+    ("tendencia", "Como ele vem indo nas últimas tentativas"),
+)
+
+
+class PerguntaInvalida(ValueError):
+    """422 - pergunta vazia ou longa demais."""
+
+
+class ConversaDoAssessor:
+    """Uma pergunta, um contexto, uma resposta. Sem estado, sem persistencia."""
+
+    def __init__(self, *, provider: TextGenerationProvider | None = None) -> None:
+        # NAO HA `session` NEM `session_factory` AQUI, DE PROPOSITO.
+        # Ver o cabecalho do modulo: e isto que torna "conversa nao e
+        # evidencia" uma propriedade do codigo, e nao uma promessa.
+        self._provider = provider
+
+    def _resolver_provider(self) -> TextGenerationProvider:
+        return self._provider if self._provider is not None else build_text_provider()
+
+    async def responder(self, *, pergunta: str, contexto: dict,
+                        historico: Sequence[dict] = ()) -> dict:
+        texto = (pergunta or "").strip()
+        if not texto:
+            raise PerguntaInvalida("pergunta vazia")
+        if len(texto) > LIMITE_DA_PERGUNTA:
+            raise PerguntaInvalida(
+                f"pergunta com {len(texto)} caracteres; limite {LIMITE_DA_PERGUNTA}")
+
+        artefato = prompt_da_conversa()
+        prompt = artefato.montar(
+            contexto=_contexto_em_texto(contexto),
+            historico=_historico_em_texto(historico, artefato.TURNOS_DE_HISTORICO),
+            pergunta=texto,
+        )
+
+        try:
+            resultado = await self._resolver_provider().generate(
+                TextGenerationRequest(prompt=prompt))
+            resposta = (getattr(resultado, "text", "") or "").strip()
+            if not resposta:
+                # Resposta vazia e falha, nao resposta. Mostrar um balao em
+                # branco ao aluno seria o mesmo que mentir baixinho.
+                raise _RespostaVazia()
+            return {"reply": resposta, "provider": resultado.provider,
+                    "model": resultado.model, "fallback": False,
+                    "prompt_version": VERSAO_ATUAL}
+        except Exception:  # noqa: BLE001 - qualquer falha vira fallback honesto
+            return {"reply": TEXTO_DE_FALLBACK, "provider": None, "model": None,
+                    "fallback": True, "prompt_version": VERSAO_ATUAL}
+
+
+class _RespostaVazia(RuntimeError):
+    """Interna: resposta em branco do provedor."""
+
+
+# A FRASE NAO FINGE SER DO MODELO.
+#
+# Dizer qualquer coisa "como se" tivesse vindo da IA seria exatamente o chat
+# falso que este bloco proibiu. Ela admite a falha e devolve o aluno ao
+# percurso que existe e funciona sem IA nenhuma.
+TEXTO_DE_FALLBACK = (
+    "Não consegui responder por conversa agora. Mas o seu estudo não precisa "
+    "parar: podemos seguir pela explicação, ver o exemplo resolvido de novo "
+    "ou praticar — é por aí que eu confiro se a ideia ficou firme."
+)
+
+
+def _contexto_em_texto(contexto: dict) -> str:
+    """So os campos da lista fechada, e so os que existem de verdade."""
+    c = contexto or {}
+    linhas = [f"{rotulo}: {c[chave]}"
+              for chave, rotulo in CAMPOS_DO_CONTEXTO
+              if c.get(chave) not in (None, "")]
+    if c.get("avaliacao_aberta"):
+        linhas.append("ATENÇÃO: há uma questão de avaliação aberta para este "
+                      "aluno agora. Ensine o caminho, nunca a alternativa.")
+    return "\n".join(linhas) or "Sem contexto pedagógico disponível."
+
+
+def _historico_em_texto(historico: Sequence[dict], turnos: int) -> str:
+    recentes = list(historico or [])[-turnos:]
+    linhas = []
+    for turno in recentes:
+        quem = "Aluno" if (turno or {}).get("de") == "aluno" else "Assessor"
+        texto = str((turno or {}).get("texto") or "").strip()[:LIMITE_DO_TURNO]
+        if texto:
+            linhas.append(f"{quem}: {texto}")
+    return "\n".join(linhas)
+
+
+__all__ = ["ConversaDoAssessor", "PerguntaInvalida", "LIMITE_DA_PERGUNTA",
+           "CAMPOS_DO_CONTEXTO", "TEXTO_DE_FALLBACK"]
