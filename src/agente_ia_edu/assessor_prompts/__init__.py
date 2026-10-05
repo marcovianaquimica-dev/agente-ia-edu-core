@@ -12,10 +12,10 @@ permite trocar o modelo sem perder o que o sistema aprendeu a pedir.
 
 from __future__ import annotations
 
-from . import v1
+from . import v1, v2
 
-_REGISTRO = {v1.VERSION: v1}
-VERSAO_ATUAL = v1.VERSION
+_REGISTRO = {v1.VERSION: v1, v2.VERSION: v2}
+VERSAO_ATUAL = v2.VERSION
 
 
 def prompt_da_conversa(versao: str | None = None):

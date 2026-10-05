@@ -174,6 +174,38 @@ class PerguntaVaziaOuEnormeNaoVai(unittest.TestCase):
         self.assertTrue(resposta["reply"])
 
 
+class OEnvelopeJSONNaoVaiPararNaTela(unittest.TestCase):
+    """Medido no navegador, na primeira chamada real da conversa:
+
+        {"resposta":"O índice é o número pequeno dentro da fórmula..."}
+
+    O conteúdo estava certo; o envelope não era para o aluno. O adaptador
+    OpenAI deste repositório fixa `response_format=json_object` porque foi
+    feito para a classificação - o prompt pedia texto e o transporte exigia
+    JSON, e o modelo obedeceu ao transporte.
+    """
+
+    def test_o_envelope_e_aberto(self):
+        resposta, _ = responder(
+            provider=ProviderFalso(texto='{"resposta": "O índice é da fórmula."}'))
+        self.assertEqual(resposta["reply"], "O índice é da fórmula.")
+        self.assertFalse(resposta["fallback"])
+
+    def test_texto_puro_continua_funcionando(self):
+        """Um provedor sem modo JSON não pode quebrar por causa disto."""
+        resposta, _ = responder(provider=ProviderFalso(texto="Resposta direta."))
+        self.assertEqual(resposta["reply"], "Resposta direta.")
+
+    def test_json_sem_o_campo_combinado_vira_fallback(self):
+        # Mostrar `{"foo": 1}` ao aluno seria pior que admitir a falha.
+        resposta, _ = responder(provider=ProviderFalso(texto='{"foo": 1}'))
+        self.assertTrue(resposta["fallback"])
+
+    def test_json_quebrado_nao_derruba_a_resposta(self):
+        resposta, _ = responder(provider=ProviderFalso(texto='{"resposta": "x'))
+        self.assertTrue(resposta["reply"].strip())
+
+
 class QuandoOProviderFalha(unittest.TestCase):
     """A apresentação é em poucos dias. Cair não pode virar tela quebrada."""
 

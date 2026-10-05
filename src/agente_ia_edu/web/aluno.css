@@ -1017,3 +1017,100 @@ p  { margin: 0 0 .75rem; }
 .botao-proximo-passo { margin-top: 1.25rem; }
 
 .passo-exemplo { scroll-margin-top: 1rem; }
+
+/* ------------------------------------------- pergunte ao assessor ------
+   A conversa mora DENTRO do cartao da intervencao, nao numa tela separada:
+   o aluno nao esta "indo ao chat", esta perguntando sobre o que tem na
+   frente. Visualmente ela e subordinada - borda acima, titulo pequeno - e
+   nao compete com a explicacao nem com o botao do proximo passo. */
+.conversa {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--borda);
+}
+
+.conversa-titulo {
+  margin: 0 0 .15rem;
+  font-size: .9375rem;
+}
+
+.conversa-nota {
+  margin: 0 0 .75rem;
+  font-size: .8125rem;
+  color: var(--tinta-fraca);
+}
+
+.conversa-turnos {
+  list-style: none;
+  margin: 0 0 .75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  /* Teto para a conversa nao empurrar o botao do proximo passo para fora da
+     tela numa sessao longa. Rola por dentro. */
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.turno p {
+  margin: .1rem 0 0;
+  /* `anywhere` porque o aluno pode colar uma formula ou uma palavra enorme, e
+     uma linha que nao quebra estoura a largura do cartao no celular. */
+  overflow-wrap: anywhere;
+}
+
+.turno-quem {
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
+.turno-aluno p {
+  background: var(--fundo-suave, #f1f5f9);
+  border-radius: var(--r-m, .5rem);
+  padding: .5rem .7rem;
+}
+
+.turno-assessor p {
+  border-left: 3px solid var(--primaria);
+  padding-left: .7rem;
+}
+
+.conversa-esperando,
+.conversa-erro {
+  margin: 0 0 .5rem;
+  font-size: .875rem;
+}
+
+.conversa-esperando { color: var(--tinta-fraca); }
+.conversa-erro { color: var(--alerta-tinta); }
+
+.conversa-forma {
+  display: flex;
+  gap: .5rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.conversa-campo {
+  flex: 1 1 12rem;
+  min-width: 0;          /* sem isto o textarea nao encolhe e estoura em 320px */
+  resize: vertical;
+  font: inherit;
+  font-size: .9375rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-m, .5rem);
+  background: var(--papel);
+  color: var(--tinta);
+}
+
+.conversa-campo:focus-visible {
+  outline: 3px solid var(--primaria);
+  outline-offset: 1px;
+}
+
+.conversa .botao { margin-top: .5rem; }

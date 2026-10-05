@@ -114,12 +114,23 @@ _CTA = {
     (PASSO_VERIFICACAO, ESTADO_EM_ANDAMENTO): "Continuar a verificação",
     (PASSO_VERIFICACAO, ESTADO_CONCLUIDO): "Continuar",
 
-    # ESCALONAMENTO: o unico passo cujo proximo movimento nao e do sistema.
-    # Nao oferece "mais questoes" porque e exatamente isso que ja falhou tres
-    # vezes; oferece a saida honesta, que e outra pessoa.
-    (PASSO_ESCALONAMENTO, ESTADO_NAO_INICIADO): "Pedir ajuda ao professor",
-    (PASSO_ESCALONAMENTO, ESTADO_EM_ANDAMENTO): "Pedir ajuda ao professor",
-    (PASSO_ESCALONAMENTO, ESTADO_CONCLUIDO): "Pedir ajuda ao professor",
+    # ESCALONAMENTO: nao oferece "mais questoes", porque e exatamente isso que
+    # ja falhou tres vezes.
+    #
+    # O ROTULO MUDOU EM 2026-10-05, E O MOTIVO IMPORTA.
+    #
+    # Ele dizia "Pedir ajuda ao professor". A auditoria do bloco seguinte
+    # perguntou o obvio: qual professor? E a resposta foi que nao existe
+    # vinculo endereçavel aluno-professor, nem endpoint, nem caixa de entrada,
+    # nem alerta, nem registro de pedido - nada disso existe no repositorio.
+    # Era um botao prometendo uma acao que o sistema nao sabe fazer.
+    #
+    # Agora o rotulo aponta para algo que EXISTE: conversar com o Assessor
+    # sobre esse ponto. A recomendacao de procurar o professor continua no
+    # texto, onde ela e um conselho honesto em vez de um botao mentiroso.
+    (PASSO_ESCALONAMENTO, ESTADO_NAO_INICIADO): "Conversar com o Assessor",
+    (PASSO_ESCALONAMENTO, ESTADO_EM_ANDAMENTO): "Conversar com o Assessor",
+    (PASSO_ESCALONAMENTO, ESTADO_CONCLUIDO): "Conversar com o Assessor",
     (PASSO_ATIVIDADE, ESTADO_NAO_INICIADO): "Começar atividade",
     (PASSO_ATIVIDADE, ESTADO_EM_ANDAMENTO): "Continuar atividade",
     (PASSO_ATIVIDADE, ESTADO_CONCLUIDO): "Ver resultado",

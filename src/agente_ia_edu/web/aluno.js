@@ -81,6 +81,9 @@
     atividade: null,      // a tarefa da escola em andamento
     estudo: null,         // a explicacao aberta {material_id, secoes, exemplo}
     guiada: null,         // a pratica guiada aberta {dados, escolha, ultimo}
+    // A CONVERSA NAO E PERSISTIDA: vive aqui, e recarregar a perde.
+    // A tela diz isso ao aluno em vez de fingir que guarda.
+    conversa: { historico: [], enviando: false, erro: null },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -271,8 +274,10 @@
           ${prazo}
           <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
           <ol class="jornada jornada-cartao" aria-label="Etapas da jornada">${jornadaHTML()}</ol>
-          <p class="bloco-titulo">${esc(fb.titulo || 'Vamos pedir ajuda.')}</p>
+          <p class="bloco-titulo">${esc(fb.titulo || 'Vamos tentar de outro jeito.')}</p>
           <p class="detalhe">${esc(fb.detalhe || '')}</p>
+          <button class="botao botao-principal" data-acao="conversar">
+            ${esc(rotuloDaAcao(passo))}</button>
           <button class="botao botao-secundario" data-tela="atividades">Ver minhas atividades</button>
         </div>`;
     }
@@ -555,7 +560,9 @@
         <button class="botao botao-principal" data-acao="entendi">
           Entendi, vamos praticar
         </button>
+        <div id="conversa-caixa"></div>
       </div>`;
+    repintarConversa();
     // POR ONDE ABRIR A EXPLICACAO.
     //
     // UX-4 do teste manual: na segunda intervencao o aluno reabria o mesmo
@@ -675,6 +682,144 @@
       case 'ACTIVITY': return abrirTarefa(app.prontidao.assignment_id);
       default: return irPara('inicio');
     }
+  }
+
+  // ============================================= pergunte ao assessor =====
+  //
+  // ABRIR A CONVERSA SOZINHA. No escalonamento nao ha material novo para
+  // abrir - ja se tentou tudo que o sistema sabia oferecer. O que sobra, e o
+  // que o botao promete, e conversar sobre o ponto.
+
+  function abrirConversa() {
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const fb = passo.feedback || {};
+    irPara('sessao');
+    $('trilho').innerHTML = '';
+    $('sessao-resumo').textContent = '';
+    pintarJornada();
+    const alvo = (app.prontidao && app.prontidao.title) || null;
+    $('objetivo').hidden = !alvo;
+    if (alvo) $('objetivo-texto').textContent = alvo;
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco cartao-assessor">
+        <p class="bloco-etiqueta assessor-etiqueta">
+          <img class="assessor-marca" src="assets/nucleo-edu-360-simbolo.png"
+               alt="" width="128" height="108" aria-hidden="true">
+          Assessor Pedagógico
+        </p>
+        ${fb.detalhe ? `<p class="assessor-fala">${esc(fb.detalhe)}</p>` : ''}
+        <div id="conversa-caixa"></div>
+        <button class="botao botao-secundario" data-acao="inicio">
+          Voltar ao início</button>
+      </div>`;
+    repintarConversa();
+  }
+
+
+  //
+  // Uma duvida DENTRO da intervencao. O contexto pedagogico e montado pelo
+  // BACKEND a partir da prontidao - esta tela nao sabe o que trava o aluno, e
+  // nao deve saber: quem constroi verdade pedagogica no JavaScript acaba
+  // construindo uma diferente da do sistema.
+  //
+  // E ela nao decide nada. O botao de volta vem de `next_step` na resposta.
+
+  function conversaHTML() {
+    const c = app.conversa;
+    const turnos = c.historico.map((t) => `
+      <li class="turno turno-${t.de === 'aluno' ? 'aluno' : 'assessor'}">
+        <span class="turno-quem">${t.de === 'aluno' ? 'Você' : 'Assessor'}</span>
+        <p>${esc(t.texto)}</p>
+      </li>`).join('');
+
+    const aviso_erro = c.erro
+      ? `<p class="conversa-erro" role="alert">${esc(c.erro)}</p>` : '';
+    const seguir = c.cta
+      ? `<button class="botao botao-principal" data-acao="conversa-seguir">
+           ${esc(c.cta.rotulo)}</button>`
+      : '';
+
+    return `
+      <section class="conversa" aria-label="Pergunte ao Assessor">
+        <h3 class="conversa-titulo">Pergunte ao Assessor</h3>
+        <p class="conversa-nota">Sobre o que você está estudando agora. Esta
+           conversa não fica salva.</p>
+        ${turnos ? `<ol class="conversa-turnos">${turnos}</ol>` : ''}
+        ${c.enviando ? '<p class="conversa-esperando">Pensando…</p>' : ''}
+        ${aviso_erro}
+        <form class="conversa-forma" id="forma-conversa">
+          <label class="sr" for="campo-conversa">Sua pergunta</label>
+          <textarea class="conversa-campo" id="campo-conversa" rows="2"
+                    maxlength="600"
+                    placeholder="Ex.: não entendi por que não posso mudar o número pequeno."
+                    ${c.enviando ? 'disabled' : ''}></textarea>
+          <button class="botao botao-secundario" type="submit"
+                  ${c.enviando ? 'disabled' : ''}>Enviar</button>
+        </form>
+        ${seguir}
+      </section>`;
+  }
+
+  function ligarConversa() {
+    const forma = $('forma-conversa');
+    if (!forma) return;
+    forma.addEventListener('submit', (e) => {
+      e.preventDefault();
+      perguntarAoAssessor();
+    });
+    const campo = $('campo-conversa');
+    if (!campo) return;
+    // Enter envia; Shift+Enter quebra linha. Uma duvida de aluno costuma ser
+    // uma frase, e exigir o mouse para enviar uma frase e atrito a toa.
+    campo.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        perguntarAoAssessor();
+      }
+    });
+  }
+
+  async function perguntarAoAssessor() {
+    const c = app.conversa;
+    const campo = $('campo-conversa');
+    const texto = campo ? campo.value : '';
+    if (!ConversaUI.podeEnviar(texto, c)) return;
+
+    c.historico = ConversaUI.comTurno(c.historico, 'aluno', texto);
+    c.enviando = true;
+    c.erro = null;
+    c.cta = null;
+    repintarConversa();
+
+    const assignment = (app.prontidao && app.prontidao.assignment_id) || null;
+    try {
+      const d = await api('/api/v1/student/assessor/conversation', {
+        method: 'POST',
+        body: JSON.stringify({ assignment_id: assignment, message: texto.trim(),
+                               history: c.historico.slice(0, -1) }),
+      });
+      const lida = ConversaUI.leituraDaResposta(d);
+      c.historico = ConversaUI.comTurno(c.historico, 'assessor', lida.texto);
+      c.cta = lida.cta;
+      c.fallback = lida.fallback;
+    } catch (erro) {
+      c.erro = ConversaUI.leituraDaFalha(erro);
+    } finally {
+      c.enviando = false;
+      repintarConversa();
+    }
+  }
+
+  /** Repinta so a conversa, sem mexer no resto da intervencao. */
+  function repintarConversa() {
+    const caixa = $('conversa-caixa');
+    if (!caixa) return;
+    caixa.innerHTML = conversaHTML();
+    ligarConversa();
+    const campo = $('campo-conversa');
+    if (campo && !app.conversa.enviando) campo.focus();
+    const turnos = caixa.querySelector('.conversa-turnos');
+    if (turnos) turnos.scrollTop = turnos.scrollHeight;
   }
 
   // ============================================== a pratica guiada ========
@@ -1645,6 +1790,10 @@
       case 'guiada-seguir': seguirDaGuiada(); return;
       case 'passo-exemplo': passoDoExemplo(Number(alvo.dataset.passo)); return;
       case 'entendi': concluirEstudo(); return;
+      // O botao que a CONVERSA oferece leva ao passo REAL do backend - e o
+      // mesmo despachante do resto, nao um atalho da conversa.
+      case 'conversa-seguir': seguirOProximoPasso(); return;
+      case 'conversar': abrirConversa(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
       // A VERIFICACAO e uma pratica curta pelo mesmo motor. O tamanho vem do
       // backend (`next_step.question_count`); a tela nao escolhe quantas

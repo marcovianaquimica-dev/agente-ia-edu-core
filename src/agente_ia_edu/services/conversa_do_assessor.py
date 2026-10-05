@@ -100,7 +100,9 @@ class ConversaDoAssessor:
         try:
             resultado = await self._resolver_provider().generate(
                 TextGenerationRequest(prompt=prompt))
-            resposta = (getattr(resultado, "text", "") or "").strip()
+            resposta = _texto_para_o_aluno(
+                getattr(resultado, "text", ""),
+                getattr(artefato, "CAMPO_DA_RESPOSTA", None))
             if not resposta:
                 # Resposta vazia e falha, nao resposta. Mostrar um balao em
                 # branco ao aluno seria o mesmo que mentir baixinho.
@@ -127,6 +129,45 @@ TEXTO_DE_FALLBACK = (
     "parar: podemos seguir pela explicação, ver o exemplo resolvido de novo "
     "ou praticar — é por aí que eu confiro se a ideia ficou firme."
 )
+
+
+def _texto_para_o_aluno(bruto: str, campo: str | None) -> str:
+    """Desembrulha o envelope JSON quando ha um - e segue em frente quando nao.
+
+    O ADAPTADOR DESTE REPOSITORIO PEDE JSON.
+    `providers/adapters/openai.py` fixa `response_format={"type":"json_object"}`
+    e um system message "Return only valid JSON", porque foi construido para a
+    classificacao. Na primeira chamada real da conversa o aluno viu, na tela:
+
+        {"resposta":"O índice é o número pequeno dentro da fórmula..."}
+
+    O conteudo estava certo; o envelope nao era para ele.
+
+    Nao tocamos no adaptador: ele e compartilhado, e mudar o transporte por
+    causa de um consumidor espalharia o problema. O prompt (v2) passou a pedir
+    o envelope com NOME CONHECIDO, e e ele que se abre aqui.
+
+    Tolerante de proposito: um provedor que devolva texto puro - ou um JSON
+    sem o campo esperado - continua funcionando, porque a alternativa seria
+    cair no fallback por um detalhe de transporte.
+    """
+    texto = (bruto or "").strip()
+    if not texto or not campo or not texto.startswith("{"):
+        return texto
+    import json
+
+    try:
+        dados = json.loads(texto)
+    except ValueError:
+        return texto
+    if isinstance(dados, dict):
+        valor = dados.get(campo)
+        if isinstance(valor, str) and valor.strip():
+            return valor.strip()
+        # JSON sem o campo combinado: mostrar as chaves internas ao aluno seria
+        # pior que mostrar nada, e isto vira falha -> fallback honesto.
+        return ""
+    return texto
 
 
 def _contexto_em_texto(contexto: dict) -> str:
