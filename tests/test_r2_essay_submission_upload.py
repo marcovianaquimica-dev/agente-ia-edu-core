@@ -131,14 +131,31 @@ class _FlakyThenSucceedsTranscriber:
         return EssayPageTranscriptionResult(tokens=self._tokens, provider="flaky", model="v1")
 
 
+class _FakeRect:
+    """Duck-types the one PyMuPDF Rect attribute _extract_pdf_paragraphs
+    reads (page.rect.height/.width, to compute the header clip) - A4 in
+    points, same size every other synthetic PDF in this test suite uses."""
+
+    width = 595.44
+    height = 842.40
+
+
 class _FakePdfPage:
-    """Duck-types the one PyMuPDF Page method _extract_pdf_paragraphs calls,
-    so its block-joining logic is tested without ever building a real PDF."""
+    """Duck-types the PyMuPDF Page surface _extract_pdf_paragraphs calls, so
+    its block-joining logic is tested without ever building a real PDF.
+    ``clip`` is accepted and ignored here on purpose: these tests are about
+    JOINING blocks into paragraphs, not about the header clip itself (which
+    needs real block coordinates - see test_r4_essay_batch_create.py's
+    own test_extracted_pdf_text_is_persisted_per_page_images_get_none and
+    test_header_text_never_leaks_into_the_extracted_body for that, both
+    against a real PyMuPDF document)."""
+
+    rect = _FakeRect()
 
     def __init__(self, blocks: list[str]):
         self._blocks = blocks
 
-    def get_text(self, mode):
+    def get_text(self, mode, clip=None):
         assert mode == "blocks"
         # Real PyMuPDF blocks are 7-tuples (x0, y0, x1, y1, text, block_no,
         # block_type) - only index 4 (the text) is read.
@@ -870,7 +887,9 @@ class PdfUploadTests(unittest.IsolatedAsyncioTestCase):
         path = self.tmp_dir / "typed.pdf"
         doc = fitz.open()
         page = doc.new_page()
-        page.insert_text((72, 72), text, fontsize=11)
+        # y=200 is below HEADER_REGION_FRACTION (0.18 * A4 height ~= 151pt) -
+        # _extract_pdf_paragraphs clips the header away (2026-10-05).
+        page.insert_text((72, 200), text, fontsize=11)
         doc.save(str(path))
         doc.close()
         return path

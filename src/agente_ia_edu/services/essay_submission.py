@@ -777,8 +777,28 @@ def _extract_pdf_paragraphs(page) -> str:
     groups by the PDF's own paragraph structure instead of by visual line,
     so paragraph boundaries survive as separate blocks while the wraps
     inside one paragraph get joined here.
+
+    Clipped to below HEADER_REGION_FRACTION (essay_answer_sheet.py - the
+    SAME constant essay_batch.py uses to crop the header out of the OCR
+    image, see that module's docstring) - confirmed live 2026-10-05: without
+    this clip, the header's own printed labels ("FOLHA DE REDACAO", "NOME
+    COMPLETO DO PARTICIPANTE", "CPF", the 1-30 line-number column) and the
+    student's own name/CPF spelled out letter-per-box all land at the START
+    of canonical_text, ahead of the real essay. The corrector then
+    (correctly, given what it was shown) flags IDENTIFICACAO_INDEVIDA - the
+    student's full name genuinely appears inside the text sent for grading -
+    and whether phase-2's alert re-review confirms or drops that alert
+    decides a swing between 0 and a clean score for the SAME essay, which
+    was the real cause of a batch's suspiciously bimodal 0/1000 scores, not
+    model unreliability. The body never legitimately starts above this
+    boundary (see essay_answer_sheet.py's own geometry), so clipping it away
+    loses nothing of the real essay.
     """
-    blocks = page.get_text("blocks")
+    from .essay_answer_sheet import HEADER_REGION_FRACTION
+
+    header_bottom = page.rect.height * HEADER_REGION_FRACTION
+    body_clip = (0, header_bottom, page.rect.width, page.rect.height)
+    blocks = page.get_text("blocks", clip=body_clip)
     paragraphs = []
     for block in blocks:
         text = block[4]
@@ -786,8 +806,17 @@ def _extract_pdf_paragraphs(page) -> str:
         # breaks (blocks ARE the paragraph boundaries) - join them with a
         # space, the way the sentence actually reads.
         joined = " ".join(text.split())
-        if joined:
-            paragraphs.append(joined)
+        if not joined:
+            continue
+        # The 01..30 line-number column (essay_answer_sheet.py's own ruled
+        # lines, drawn down the left margin the whole length of the page -
+        # LINE_COUNT/the loop that calls insert_text with f"{index+1:02d}")
+        # sits inside the body clip and PyMuPDF gives each number its own
+        # block. A real paragraph is never JUST 1-2 digits, so this can only
+        # ever drop line-number noise, never real essay content.
+        if joined.isdigit() and len(joined) <= 2:
+            continue
+        paragraphs.append(joined)
     return "\n\n".join(paragraphs)
 
 

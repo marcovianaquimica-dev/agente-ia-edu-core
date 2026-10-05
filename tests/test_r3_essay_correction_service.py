@@ -297,6 +297,11 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
         return submission
 
     async def test_text_offset_formative_auto_publishes(self):
+        """FORMATIVO gets a real grade too (decision reverted 2026-10-05) -
+        the ONLY remaining difference from AVALIATIVO is that it auto-
+        publishes without ever checking validation_threshold/
+        validation_enabled (see test_text_offset_avaliativo_auto_publishes'
+        sibling tests for that policy)."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "1", correction_mode="FORMATIVO")
             provider = _StubTextProvider(text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text))
@@ -311,7 +316,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.final_scores["total"], 800)
             self.assertEqual(correction.model_version, "gpt-test")
             self.assertIsNotNone(correction.correction_key)
-            self.assertIn("SCORING_MODE: FORMATIVO", provider.last_phase1_request.prompt)
+            self.assertIn("SCORING_MODE: AVALIATIVO", provider.last_phase1_request.prompt)
 
     async def test_text_offset_correction_persists_token_usage(self):
         async with self.session_factory() as session:
@@ -688,12 +693,14 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertIn("PAGE_COUNT: 2", provider.last_request.prompt)
 
-    async def test_formativo_real_shape_with_null_scores_persists_no_scores(self):
-        """Every other FORMATIVO test uses a stub that returns a full score
-        block regardless of what SCORING_MODE asked for. The real model,
-        asked for FORMATIVO, returns scores=null (RESPONSE_SCHEMA's actual
-        shape for that mode) - this is the first test to send that shape
-        through validation and the DB constraints."""
+    async def test_formativo_with_null_scores_needs_review(self):
+        """FORMATIVO now always asks for a real grade (decision reverted
+        2026-10-05 - the prompt no longer has a scores=null branch it would
+        legitimately get back). A null scores block here is therefore a
+        malformed AI response, same category as AVALIATIVO's own
+        test_avaliativo_with_null_scores_and_validation_disabled_forces_review
+        - it must route to PENDING_REVIEW, never silently auto-publish a
+        FORMATIVO correction with no grade to show."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "13", correction_mode="FORMATIVO")
             payload = _happy_payload(
@@ -703,7 +710,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
-            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.status, "PENDING_REVIEW")
             self.assertIsNone(correction.final_scores)
             self.assertIsNotNone(correction.ai_output)
             self.assertIsNone(correction.ai_output["scores"])
@@ -900,9 +907,12 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("CompetencyScoringFailed", correction.failure_reason)
             self.assertIn("ValueError", correction.failure_reason)
 
-    async def test_formativo_never_invokes_phase2(self):
-        """output.scores is None in FORMATIVO - there is no grade for phase
-        2 to refine, so it must never be called at all (not just ignored)."""
+    async def test_phase2_never_invoked_when_scores_are_absent(self):
+        """output.scores is None - whatever the reason (FORMATIVO no longer
+        legitimately produces this; this is now a malformed-response case,
+        see test_formativo_with_null_scores_needs_review) - means there is
+        no grade for phase 2 to refine, so it must never be called at all
+        (not just ignored)."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "28", correction_mode="FORMATIVO")
             provider = _StubTextProvider(
@@ -914,7 +924,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
-            self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.status, "PENDING_REVIEW")
             self.assertIsNone(correction.final_scores)
             self.assertEqual(provider.call_count, 1)
 

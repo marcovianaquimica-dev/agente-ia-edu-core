@@ -2,6 +2,14 @@
 
 **Data:** 2026-09-21
 **Status:** design aprovado, aguardando plano de implementação
+**Atualização 2026-10-05:** a decisão abaixo de que FORMATIVO produz `scores=null`
+foi revertida — toda correção agora recebe uma nota real (`include_scores=True`
+sempre), e `correction_mode` passou a decidir apenas se essa nota é VALIDADA como
+oficial (AVALIATIVO) ou publicada direto sem revisão de professor (FORMATIVO).
+`Scores` continua opcional no contrato só como proteção defensiva contra resposta
+malformada da IA — nesse caso agora cai em `PENDING_REVIEW` em qualquer modo, nunca
+mais auto-publica sem nota. Ver `EssayCorrectionService._run_ai`/
+`_apply_review_policy` em `services/essay_correction.py`.
 **Sub-projeto:** R3 da PLATAFORMA REDAÇÃO (módulo `REDACAO_IA`)
 **Depende de:** R0 (estrutura acadêmica + autorização), R1 (régua ENEM + contrato do motor +
 validação de camadas 2/3), R2 (propostas e envio de redação) — todos prontos e mesclados em

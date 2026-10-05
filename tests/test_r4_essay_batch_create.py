@@ -145,8 +145,11 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
             import pymupdf
             doc = pymupdf.open()
             page = doc.new_page(width=595.44, height=842.40)
+            # y=200+ is below HEADER_REGION_FRACTION (0.18 * 842.40 ~= 152pt)
+            # - _extract_pdf_paragraphs clips the header away (2026-10-05:
+            # it used to leak the printed NOME/CPF labels into the body).
             for index, line in enumerate(doc_lines):
-                page.insert_text((50, 60 + index * 20), line, fontsize=11)
+                page.insert_text((50, 200 + index * 20), line, fontsize=11)
             doc.save(str(pdf_path))
             doc.close()
             image_path = _write_image(self.tmp_dir / "foto.png", "aluno foto")
@@ -165,6 +168,63 @@ class CreateBatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("mais longo que o teto de 30 caracteres", pages[0].extracted_pdf_text)
             self.assertGreaterEqual(len(pages[0].extracted_pdf_text), 30)
             self.assertIsNone(pages[1].extracted_pdf_text)
+
+    async def test_header_text_never_leaks_into_the_extracted_body(self):
+        """Confirmado ao vivo 2026-10-05: sem recortar o cabecalho, o
+        extracted_pdf_text de um PDF digitado (gerado por
+        essay_answer_sheet.py::render_pdf, rotulos impressos + nome/CPF do
+        aluno em caixinhas) incluia o NOME COMPLETO e o CPF do aluno letra
+        por letra no INICIO do corpo enviado pra correcao - a IA entao
+        sinalizava (corretamente, dado o que via) IDENTIFICACAO_INDEVIDA,
+        zerando a redacao ou nao dependendo so de a fase 2 confirmar ou nao
+        esse alerta. A mesma redacao, com o mesmo conteudo real, oscilava
+        entre nota 0 e nota maxima - o bug nunca foi o modelo, foi o
+        cabecalho vazando pro corpo. Essa pagina reproduz a geometria real
+        (rotulos + nome em caixinhas no cabecalho, paragrafo real abaixo)."""
+        async with self.session_factory() as session:
+            seed = await self._seed(session)
+            pdf_path = self.tmp_dir / "folha_com_cabecalho.pdf"
+            # insert_text nao quebra linha sozinho - linhas curtas, como as
+            # demais paginas sinteticas deste arquivo ja fazem.
+            body_lines = [
+                "O avanco da inteligencia artificial impoe a educacao",
+                "brasileira uma tarefa que ultrapassa a simples",
+                "incorporacao de ferramentas.",
+            ]
+            import pymupdf
+            doc = pymupdf.open()
+            page = doc.new_page(width=595.44, height=842.40)
+            # Cabecalho real (acima de HEADER_REGION_FRACTION * 842.40 ~=
+            # 152pt): rotulos impressos + nome/CPF em caixinhas, exatamente
+            # como essay_answer_sheet.py::render_pdf desenha.
+            page.insert_text((50, 30), "FOLHA DE REDACAO", fontsize=11)
+            page.insert_text((50, 50), "NOME COMPLETO DO PARTICIPANTE", fontsize=9)
+            page.insert_text((50, 70), "M A R C O S I L V A", fontsize=9)
+            page.insert_text((50, 90), "CPF", fontsize=9)
+            page.insert_text((50, 110), "0 0 0 0 0 0 0 0 0 0 1", fontsize=9)
+            # Corpo real, abaixo do cabecalho.
+            for index, line in enumerate(body_lines):
+                page.insert_text((50, 220 + index * 20), line, fontsize=11)
+            doc.save(str(pdf_path))
+            doc.close()
+
+            created = await self._service(session).create_batch(
+                school_id=seed["school"].id, essay_prompt_id=seed["prompt"].id, class_id=seed["class"].id,
+                uploaded_by_external_identity="prof", source_paths=[pdf_path],
+            )
+            await session.commit()
+
+            pages = (await session.execute(
+                select(EssayBatchPage)
+                .where(EssayBatchPage.batch_id == created["id"])
+                .order_by(EssayBatchPage.page_number)
+            )).scalars().all()
+            extracted = pages[0].extracted_pdf_text
+            self.assertIn("incorporacao de ferramentas", extracted)
+            self.assertNotIn("MARCO", extracted.upper())
+            self.assertNotIn("NOME COMPLETO", extracted.upper())
+            self.assertNotIn("FOLHA DE REDACAO", extracted.upper())
+            self.assertNotIn("CPF", extracted.upper())
 
     async def test_pdf_pages_are_expanded_and_numbering_continues_across_files(self):
         async with self.session_factory() as session:

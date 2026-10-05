@@ -71,9 +71,14 @@ def _utcnow() -> datetime:
 class SchoolSetting(Base):
     """One row per school.
 
-    ``correction_mode`` says whether a score exists at all. The validation policy
-    says who approves it, and only means something when scores exist - which is
-    what the two CHECK constraints below enforce.
+    ``correction_mode`` says whether the score is VALIDATED as an official
+    grade (decision reverted 2026-10-05 - every correction gets a score now,
+    regardless of mode; see EssayCorrectionService._run_ai/_apply_review_policy).
+    AVALIATIVO subjects that score to a teacher's validation policy;
+    FORMATIVO publishes it immediately, no validation step at all. The
+    validation policy says who approves it, and only means something when
+    AVALIATIVO applies - which is what the two CHECK constraints below
+    enforce.
 
     The policy stored here is the DEFAULT and the PERMITTED, not the decision:
     the real choice happens per class when a teacher sends a prompt, in R3. A

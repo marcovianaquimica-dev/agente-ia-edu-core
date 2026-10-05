@@ -494,18 +494,26 @@ class EssayCorrectionService:
             return
 
         settings = await InstitutionSettingsService(self.session).get_settings(submission.school_id)
+        total = (correction.final_scores or {}).get("total")
+        if total is None:
+            # Neither mode may ever auto-publish without a grade - a null
+            # score is either a malformed AI response or a real edge case,
+            # either way it needs a human, not a silent auto-approval.
+            # _run_ai always asks for a grade now (include_scores=True
+            # regardless of correction_mode - 2026-10-05), so this guard
+            # is no longer AVALIATIVO-only.
+            correction.status = "PENDING_REVIEW"
+            return
         if settings.correction_mode == "FORMATIVO":
+            # Once a grade exists, FORMATIVO still never requires teacher
+            # sign-off against it (no validation_threshold/
+            # validation_enabled check) - that's the entire remaining
+            # difference from AVALIATIVO: the grade is real, it's just
+            # never gated behind validation.
             self._publish(correction)
             return
 
         assignment = await self.session.get(PromptAssignment, submission.prompt_assignment_id)
-        total = (correction.final_scores or {}).get("total")
-        if total is None:
-            # AVALIATIVO must never auto-publish without a grade - a null
-            # score is either a malformed AI response or a real edge case,
-            # either way it needs a human, not a silent auto-approval.
-            correction.status = "PENDING_REVIEW"
-            return
         if submission.student_declared_theme:
             # "Tema livre": the student picked their own theme, so there's no
             # official gabarito a teacher would validate the grade against -
@@ -576,12 +584,14 @@ class EssayCorrectionService:
         essay_prompt = await self.session.get(EssayPrompt, assignment.essay_prompt_id)
         rubric_payload = _rubric_payload(rubric_file)
         prompt_artifact = get_essay_prompt(_PROMPT_VERSION)
-        # Spec §4 step 4: the prompt branches on correction_mode too, not just
-        # anchor_mode - AVALIATIVO asks for a full grade, FORMATIVO asks for
-        # scores=null. Read here (not just later in _apply_review_policy) so
-        # the AI is never asked to produce a grade FORMATIVO will discard.
-        settings = await InstitutionSettingsService(self.session).get_settings(submission.school_id)
-        include_scores = settings.correction_mode == "AVALIATIVO"
+        # Decisao do usuario 2026-10-05, revertendo a leitura original do
+        # spec R3 §4 step 4 (ali, FORMATIVO pedia scores=null): mesmo
+        # FORMATIVO deve ser corrigido COM nota - o que correction_mode
+        # decide nao e mais se a nota existe, e sim se ela e VALIDADA como
+        # pontuacao oficial (ver _apply_review_policy abaixo, que continua
+        # publicando FORMATIVO sem checar validation_threshold/
+        # validation_enabled, so exigindo que a nota exista mesmo assim).
+        include_scores = True
 
         try:
             if submission.anchor_mode == "TEXT_OFFSET":
