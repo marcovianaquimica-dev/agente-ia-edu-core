@@ -38,6 +38,7 @@ import unittest
 
 from agente_ia_edu.services.assessor_pedagogico import (
     ACAO_ENSINAR,
+    ACAO_ESCALAR,
     ACAO_PRATICAR,
     LIMITE_DE_CICLOS,
     decidir_intervencao,
@@ -151,10 +152,23 @@ class NaoEntrarEmLoopTests(unittest.TestCase):
         e o codigo estava certo: no ciclo seguinte o aluno rever a explicacao
         e coerente. O que o teto precisa garantir e outra coisa, e e isto:
         continua havendo proximo passo, e alguem humano fica sabendo.
+
+        O QUE MUDOU EM 2026-10-05, E POR QUE
+        =====================================
+        Este teste aceitava ENSINAR ou PRATICAR no teto, e era isso que o
+        teste humano encontrou: depois de tres praticas sem destravar, o
+        sistema oferecia a quarta. `escalate` ligava e ninguem o consumia.
+
+        O teto agora TERMINA o ciclo: a acao e ESCALAR. A intencao do teste
+        continua a mesma e e ela que esta verificada abaixo - ha proximo
+        passo, e ele nao e silencio.
         """
         d = _decidir(praticas_concluidas=LIMITE_DE_CICLOS)
-        self.assertIn(d["action"], (ACAO_ENSINAR, ACAO_PRATICAR),
-                      "o teto virou uma recusa a ajudar")
+        self.assertEqual(d["action"], ACAO_ESCALAR,
+                         "no teto, oferecer mais um lote repete o que falhou")
+        self.assertIsNotNone(d["action"], "o teto virou uma recusa a ajudar")
+        self.assertTrue((d["reason"] or "").strip(),
+                        "escalar sem dizer nada ao aluno e abandonar")
         self.assertTrue(d["escalate"],
                         "depois de tantos ciclos alguem humano precisa saber")
 

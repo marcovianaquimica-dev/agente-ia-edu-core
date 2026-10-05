@@ -34,7 +34,7 @@ pratica: era alguem DIZER ao aluno que o proximo passo e praticar.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Collection, Sequence
 
 from agente_ia_edu.services.pedagogical_analysis import (
     BAND_INSUFFICIENT,
@@ -54,6 +54,8 @@ PASSO_DIAGNOSTICO = "DIAGNOSTIC"   # responder o microdiagnostico
 PASSO_ENSINO = "LEARN"             # ENTENDER antes de responder de novo
 PASSO_GUIADA = "GUIDED_PRACTICE"   # TENTAR com ajuda progressiva do Assessor
 PASSO_PRATICA = "PRACTICE"         # praticar o conteudo (AdaptivePracticeService)
+PASSO_VERIFICACAO = "VERIFY"       # CONFIRMAR uma recuperacao, em poucas questoes
+PASSO_ESCALONAMENTO = "ESCALATE"   # o teto de ciclos acabou; o professor entra
 PASSO_ATIVIDADE = "ACTIVITY"       # abrir a tarefa da escola
 PASSO_NENHUM = "NONE"              # nao ha o que oferecer, e a tela diz isso
 
@@ -104,6 +106,20 @@ _CTA = {
     (PASSO_PRATICA, ESTADO_NAO_INICIADO): "Praticar agora",
     (PASSO_PRATICA, ESTADO_EM_ANDAMENTO): "Continuar prática",
     (PASSO_PRATICA, ESTADO_CONCLUIDO): "Continuar",
+
+    # VERIFICACAO: curta, e o rotulo diz PARA QUE ela serve. "Praticar agora"
+    # aqui esconderia do aluno que aquelas poucas questoes sao o que decide se
+    # ele avanca - e ele merece saber que esta sendo verificado, nao vigiado.
+    (PASSO_VERIFICACAO, ESTADO_NAO_INICIADO): "Confirmar o que aprendi",
+    (PASSO_VERIFICACAO, ESTADO_EM_ANDAMENTO): "Continuar a verificação",
+    (PASSO_VERIFICACAO, ESTADO_CONCLUIDO): "Continuar",
+
+    # ESCALONAMENTO: o unico passo cujo proximo movimento nao e do sistema.
+    # Nao oferece "mais questoes" porque e exatamente isso que ja falhou tres
+    # vezes; oferece a saida honesta, que e outra pessoa.
+    (PASSO_ESCALONAMENTO, ESTADO_NAO_INICIADO): "Pedir ajuda ao professor",
+    (PASSO_ESCALONAMENTO, ESTADO_EM_ANDAMENTO): "Pedir ajuda ao professor",
+    (PASSO_ESCALONAMENTO, ESTADO_CONCLUIDO): "Pedir ajuda ao professor",
     (PASSO_ATIVIDADE, ESTADO_NAO_INICIADO): "Começar atividade",
     (PASSO_ATIVIDADE, ESTADO_EM_ANDAMENTO): "Continuar atividade",
     (PASSO_ATIVIDADE, ESTADO_CONCLUIDO): "Ver resultado",
@@ -220,7 +236,7 @@ def cta_para(kind: str, estado: str) -> str | None:
     """
     if kind == PASSO_NENHUM or kind not in (
             PASSO_DIAGNOSTICO, PASSO_ENSINO, PASSO_GUIADA, PASSO_PRATICA,
-            PASSO_ATIVIDADE):
+            PASSO_VERIFICACAO, PASSO_ESCALONAMENTO, PASSO_ATIVIDADE):
         return None
     return _CTA.get((kind, estado)) or _CTA[(kind, ESTADO_NAO_INICIADO)]
 
@@ -246,7 +262,8 @@ def _passo_para_um(thresholds, codigo: str, nome: str, evidencia: dict) -> dict 
     return None
 
 
-def _praticar_o_que_trava(thresholds, alvo: dict) -> dict:
+def _praticar_o_que_trava(thresholds, alvo: dict,
+                          confirmados: Collection[str] = ()) -> dict:
     """O conteudo foi medido mas o estado nao libera: pratica-se.
 
     E pratica-se a BASE quando e ela que trava - e ela que precisa subir para
@@ -261,7 +278,8 @@ def _praticar_o_que_trava(thresholds, alvo: dict) -> dict:
         return int((e or {}).get("answered") or 0) >= thresholds.min_sample_size
 
     for pre in alvo.get("prerequisites") or []:
-        if pre.get("mastered") or not medido(pre):
+        if (pre.get("mastered") or pre.get("code") in confirmados
+                or not medido(pre)):
             continue
         return {"kind": PASSO_PRATICA,
                 "content_code": pre.get("code"),
@@ -290,14 +308,22 @@ def _praticar_o_que_trava(thresholds, alvo: dict) -> dict:
 
 
 def passo_para(conteudos: Sequence[dict], *,
-               thresholds: PerformanceThresholdPolicy | None = None) -> dict:
+               thresholds: PerformanceThresholdPolicy | None = None,
+               confirmados: Collection[str] | None = None) -> dict:
     """O unico proximo passo, a partir dos conteudos que a atividade exige.
 
     Cada conteudo traz seu estado e, quando se sabe, seus pre-requisitos com a
     evidencia que ja existe sobre eles. A base vem primeiro: entre dois
     conteudos igualmente desconhecidos, o de baixo informa mais.
+
+    `confirmados` sao os conteudos cuja RECUPERACAO ja foi confirmada pela
+    trajetoria - duas tentativas fortes seguidas - mesmo que a media acumulada
+    ainda carregue o comeco ruim. Sem isto, quem comecava mal nunca mais saia
+    da preparacao: medido em 2026-10-05, nove acertos nas ultimas dez
+    deixavam o acumulado em 0,556 e o passo continuava sendo estudar.
     """
     thresholds = thresholds or PerformanceThresholdPolicy.default()
+    confirmados = set(confirmados or ())
 
     if not conteudos:
         # Fail-closed. "Nao sei o que esta atividade exige" nao e "pode
@@ -317,6 +343,10 @@ def passo_para(conteudos: Sequence[dict], *,
     # O estado diz se HA evidencia. Quem diz se ela e BOA e a politica - a
     # mesma que ja decide o pre-requisito, logo abaixo.
     def _liberado(c: dict) -> bool:
+        # A trajetoria ja confirmou: nao se volta a cobrar a media acumulada de
+        # quem acabou de demonstrar duas vezes seguidas.
+        if c.get("content_code") in confirmados:
+            return True
         if c.get("content_state") not in ESTADOS_QUE_LIBERAM:
             return False
         respondidas = int(c.get("answered") or 0)
@@ -343,7 +373,7 @@ def passo_para(conteudos: Sequence[dict], *,
     # conteudo final: perguntar Estequiometria a quem nao sabe balancear uma
     # equacao e perguntar a coisa errada.
     for pre in alvo.get("prerequisites") or []:
-        if pre.get("mastered"):
+        if pre.get("mastered") or pre.get("code") in confirmados:
             continue
         passo = _passo_para_um(thresholds, pre.get("code"),
                                pre.get("name") or pre.get("code"), pre)
@@ -372,7 +402,7 @@ def passo_para(conteudos: Sequence[dict], *,
         # para um aluno com OITO respostas registradas - a frase era falsa, e
         # a acao mandava responder de novo o que ele ja tinha respondido.
         # Havendo amostra, o passo e PRATICAR.
-        return _praticar_o_que_trava(thresholds, alvo)
+        return _praticar_o_que_trava(thresholds, alvo, confirmados)
     passo["readiness_route"] = (ROTA_PREPARACAO if passo["kind"] == PASSO_PRATICA
                                 else ROTA_DIAGNOSTICO)
     passo["reason"] = ("este conteudo precisa de pratica"

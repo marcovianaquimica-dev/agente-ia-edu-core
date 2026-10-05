@@ -18,7 +18,30 @@ novo.
 
 O QUE ESTE MODULO DECIDE
 =========================
-Uma coisa so: a proxima intervencao e ENSINAR, PRATICAR, ou nenhuma.
+Uma coisa so: qual e a proxima intervencao.
+
+    ENSINAR     ha uma explicacao e ele ainda nao a usou neste ciclo
+    GUIADA      tentar com ajuda progressiva, antes de tentar sozinho
+    PRATICAR    tentar sozinho - a evidencia que o dominio le
+    VERIFICAR   ele acabou de ir bem depois de ir mal: confirmar
+    ESCALAR     o teto de ciclos acabou; insistir sozinho deixou de ajudar
+    nenhuma     ele ja mostrou o que precisava, ou nunca foi medido
+
+O SEGUNDO PROBLEMA, DO TESTE HUMANO DE 2026-10-05
+==================================================
+A versao anterior decidia so entre ENSINAR e PRATICAR, olhando a media
+ACUMULADA. Medido pelo caminho real da API:
+
+    diagnostico 0/3, pratica 1/5, pratica 4/5, pratica 5/5
+    -> acumulado 10/18 = 0,556 -> ENSINO de novo, e `escalate` ligado
+
+Nove acertos nas ultimas dez, e a tela nao mudou. E, do outro lado, errar
+sempre devolvia ENSINO -> PRATICA -> ENSINO -> PRATICA com o mesmo material e
+o mesmo lote de cinco questoes: um banco de exercicios, nao um assessor.
+
+As duas correcoes sao a mesma: a decisao passou a olhar a TRAJETORIA
+(`trajetoria_do_aluno`) alem da media, e a variar a estrategia por ciclo ate
+um teto que agora TERMINA em ESCALAR em vez de recomecar.
 
 E DETERMINISTICO. Nenhuma decisao daqui consulta modelo de IA. O percurso
 pedagogico pertence ao Nucleo Edu 360; um modelo podera, depois, adaptar a
@@ -49,21 +72,44 @@ que seja porque algo deixou de ser derivavel, nao por conveniencia.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from agente_ia_edu.services.pedagogical_analysis import (
     BAND_IMPROVEMENT,
     BAND_INSUFFICIENT,
     BAND_NO_DATA,
 )
+from agente_ia_edu.services.trajetoria_do_aluno import (
+    TENDENCIA_CONFIRMADA,
+    TENDENCIA_RECUPERANDO,
+    tendencia,
+)
 
 ACAO_ENSINAR = "TEACH"
+ACAO_GUIADA = "GUIDED"
 ACAO_PRATICAR = "PRACTICE"
+ACAO_VERIFICAR = "VERIFY"
+ACAO_ESCALAR = "ESCALATE"
 
 # Depois de tantos ciclos de ensinar-praticar sem o aluno destravar, insistir
-# sozinho deixa de ser ajuda. O sistema continua oferecendo pratica - parar de
-# ajudar seria pior - mas marca que alguem humano precisa saber.
+# sozinho deixa de ser ajuda. Ate 2026-10-05 este limite acendia um sinalizador
+# e o sistema continuava oferecendo o mesmo lote de questoes; agora o passo
+# vira ESCALAR, porque "mais cinco questoes" ja foi tentado tres vezes.
 LIMITE_DE_CICLOS = 3
 
 _FAIXAS_DE_LACUNA = (BAND_IMPROVEMENT,)
+
+
+def habilidade_que_trava(habilidades: dict) -> str | None:
+    """A micro-habilidade que esta travando, para quem precisa saber ANTES.
+
+    Existe por uma ordem de perguntas: para decidir se a guiada e uma opcao, e
+    preciso saber se ha item guiado PARA A LACUNA - e a lacuna e escolhida
+    aqui. Sem este acesso, quem monta a pergunta chutava `skill=None` e
+    recebia sempre o primeiro item do conteudo; quando a habilidade que
+    travava mudava, a guiada da nova lacuna nunca era oferecida.
+    """
+    return _pior_habilidade(habilidades)[0]
 
 
 def _pior_habilidade(habilidades: dict) -> tuple[str | None, str | None]:
@@ -94,6 +140,8 @@ def decidir_intervencao(
     ja_ensinado: bool,
     praticas_concluidas: int,
     ha_material: bool,
+    ha_guiada_pendente: bool = False,
+    tentativas: Sequence[dict] | None = None,
     objetivo_nome: str | None = None,
     conteudo_nome: str | None = None,
 ) -> dict:
@@ -101,10 +149,14 @@ def decidir_intervencao(
 
     `habilidades` e a saida de `diagnostico_por_habilidade`; `banda_do_conteudo`
     e a faixa do conteudo inteiro. Os dois ja passaram pela politica de cortes.
+
+    `tentativas` sao as tentativas daquele conteudo em ordem cronologica, cada
+    uma com `answered` e `correct` - a trajetoria que a media acumulada apaga.
     """
     ciclo = int(praticas_concluidas or 0) + 1
     escalar = int(praticas_concluidas or 0) >= LIMITE_DE_CICLOS
     skill, skill_nome = _pior_habilidade(habilidades)
+    trajeto = tendencia(tentativas)
 
     base = {
         "action": None,
@@ -112,6 +164,7 @@ def decidir_intervencao(
         "skill_name": skill_nome,
         "cycle": ciclo,
         "escalate": escalar,
+        "trend": trajeto,
         "target_name": objetivo_nome,
         "blocking_name": conteudo_nome,
         "reason": None,
@@ -125,6 +178,12 @@ def decidir_intervencao(
     if banda_do_conteudo in (BAND_INSUFFICIENT, BAND_NO_DATA):
         return base
 
+    # RECUPERACAO CONFIRMADA. Duas tentativas fortes seguidas dizem que ele
+    # aprendeu, mesmo que a media acumulada - carregando o comeco ruim - ainda
+    # nao diga. Sem isto, quem comecava mal nunca mais saia da preparacao.
+    if trajeto == TENDENCIA_CONFIRMADA:
+        return base
+
     ha_lacuna = banda_do_conteudo in _FAIXAS_DE_LACUNA or skill is not None
     if not ha_lacuna:
         # Quem ja demonstrou o que precisava nao e interrompido: intervir em
@@ -133,15 +192,10 @@ def decidir_intervencao(
 
     assunto = skill_nome or conteudo_nome or "este conteúdo"
 
-    # ENSINAR vem antes de perguntar de novo - mas so se houver o que ensinar.
-    # Prometer uma explicacao que nao existe seria pior que a pratica.
-    if ha_material and not ja_ensinado:
-        acao = ACAO_ENSINAR
-    else:
-        acao = ACAO_PRATICAR
-
     base.update({
-        "action": acao,
+        "action": _acao(
+            trajeto=trajeto, escalar=escalar, ja_ensinado=ja_ensinado,
+            ha_material=ha_material, ha_guiada_pendente=ha_guiada_pendente),
         "reason": _motivo(assunto, conteudo_nome, objetivo_nome),
         "learning_objective": f"Entender {assunto} e usar isso para resolver "
                               f"exercícios sem travar.",
@@ -149,6 +203,50 @@ def decidir_intervencao(
                       "resolver sozinho — e só então seguimos.",
     })
     return base
+
+
+def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
+          ha_material: bool, ha_guiada_pendente: bool) -> str:
+    """A estrategia desta vez - e ela precisa MUDAR quando a anterior falhou.
+
+    A ordem e a propria politica, e cada linha existe por um motivo:
+
+    1. VERIFICAR vence tudo. Quem acabou de ir bem depois de ir mal merece a
+       chance de confirmar - inclusive quem ja passou do teto de ciclos.
+       Escalar alguem que esta melhorando seria punir a recuperacao.
+    2. ESCALAR vem antes de qualquer nova tentativa. Depois de
+       LIMITE_DE_CICLOS praticas sem destravar, "mais cinco questoes" ja foi
+       respondido tres vezes - e e aqui que o loop TERMINA.
+    3. ENSINAR, sempre que a leitura anterior ja nao vale. Quem consome
+       `ja_ensinado` o envelhece a cada tentativa: praticou e continuou mal,
+       entao aquela leitura nao bastou.
+    4. GUIADA antes de PRATICAR: tentar com ajuda antes de tentar sozinho. Ela
+       volta a entrar nos ciclos seguintes quando a habilidade que trava muda,
+       porque muda tambem o item guiado.
+    5. PRATICAR, a unica das cinco que produz evidencia de dominio.
+
+    O QUE GARANTE QUE NAO E UM BANCO DE QUESTOES
+    =============================================
+    Duas coisas, e nenhuma delas e um limite de reensino. A primeira: entre
+    duas praticas sempre ha uma intervencao, porque `ja_ensinado` envelhece a
+    cada tentativa - nunca saem dois lotes de questoes seguidos. A segunda, e
+    a que faltava ate 2026-10-05: o ciclo ACABA em ESCALAR, em vez de comecar
+    de novo.
+
+    Tentei primeiro limitar o reensino a dois ciclos, e o resultado foi pior:
+    no terceiro ciclo, sem material e com a guiada daquela habilidade ja
+    concluida, so sobrava PRATICA - e entao vinham duas praticas seguidas,
+    exatamente o que o limite existia para evitar.
+    """
+    if trajeto == TENDENCIA_RECUPERANDO:
+        return ACAO_VERIFICAR
+    if escalar:
+        return ACAO_ESCALAR
+    if ha_material and not ja_ensinado:
+        return ACAO_ENSINAR
+    if ha_guiada_pendente:
+        return ACAO_GUIADA
+    return ACAO_PRATICAR
 
 
 def _motivo(assunto: str, conteudo_nome: str | None, objetivo_nome: str | None) -> str:

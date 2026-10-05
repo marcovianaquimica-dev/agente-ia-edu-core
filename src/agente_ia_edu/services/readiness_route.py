@@ -59,6 +59,12 @@ ROTA_PREPARACAO = READINESS_PREREQUISITE
 ESTADOS_QUE_LIBERAM = frozenset({"READY", "MASTERED", "RECOMMENDED"})
 ESTADO_BLOQUEADO = "BLOCKED_BY_PREREQUISITE"
 
+# Quantas questoes tem uma VERIFICACAO. Curta de proposito: ela confirma uma
+# recuperacao que acabou de acontecer, nao reabre a medicao. Tres e o minimo
+# de amostra da propria PerformanceThresholdPolicy - abaixo disso a politica
+# se recusa a concluir, e uma verificacao que nao conclui nao verifica nada.
+QUESTOES_DA_VERIFICACAO = 3
+
 
 def rota_de_estados(estados: Iterable[str]) -> str:
     """Dos estados dos conteudos exigidos para UMA das tres rotas.
@@ -153,6 +159,9 @@ class ReadinessRouteService:
         from agente_ia_edu.services.proximo_passo import (
             PASSO_PRATICA, cta_para, jornada_de, passo_para,
         )
+        from agente_ia_edu.services.trajetoria_do_aluno import (
+            TENDENCIA_CONFIRMADA,
+        )
 
         # `student_activities` ja resolve as duas coisas de que precisamos: a
         # AUTORIZACAO (so devolve o que e desta pessoa) e os `content_codes`
@@ -211,20 +220,34 @@ class ReadinessRouteService:
         # que ja tinha sido medido, para sempre. Agora quem decide e
         # `proximo_passo`, que olha a evidencia, e a rota e consequencia.
         passo = passo_para(detalhes)
-        rota = passo["readiness_route"]
 
         # O ASSESSOR PEDAGOGICO. Quando o proximo passo e praticar um conteudo
         # em que o aluno ACABOU de ir mal, oferecer mais questoes e o que o
         # teste humano chamou de "responder questoes para sempre". Aqui o
-        # passo pode virar ENSINO - uma explicacao, um exemplo - antes da
-        # proxima tentativa.
+        # passo pode virar ENSINO, GUIADA, VERIFICACAO ou ESCALONAMENTO.
         #
         # Quem decide e `assessor_pedagogico`, que e deterministico e nao
         # conhece provider de IA. Esta camada so junta o que ele precisa saber.
-        if passo["kind"] == PASSO_PRATICA:
+        #
+        # O LACO EXISTE POR CAUSA DA RECUPERACAO CONFIRMADA. Quando a
+        # trajetoria confirma que o aluno aprendeu o pre-requisito, ele deixa
+        # de ser obstaculo - e o proximo passo passa a ser sobre o conteudo
+        # SEGUINTE, que pode ter obstaculo proprio. Sem reperguntar, o aluno
+        # ficaria parado num passo que ja nao existe. O limite e o numero de
+        # conteudos: cada volta confirma um, e eles acabam.
+        confirmados: set[str] = set()
+        for _ in range(len(detalhes) + 1):
+            if passo["kind"] != PASSO_PRATICA:
+                break
             passo = await self._com_intervencao(
                 passo, detalhes, student_external_id, requester=requester)
-            rota = passo["readiness_route"]
+            intervencao = passo.get("intervention") or {}
+            if (intervencao.get("action") is not None
+                    or intervencao.get("trend") != TENDENCIA_CONFIRMADA):
+                break
+            confirmados.add(passo.get("content_code"))
+            passo = passo_para(detalhes, confirmados=confirmados)
+        rota = passo["readiness_route"]
 
         # EM QUE PE ESTA O PASSO. Sem isto o CTA so sabia o TIPO da proxima
         # acao, e dizia "Responder" a quem acabara de responder.
@@ -291,10 +314,11 @@ class ReadinessRouteService:
         ha persistencia nova nesta decisao.
         """
         from agente_ia_edu.services.assessor_pedagogico import (
-            ACAO_ENSINAR, decidir_intervencao,
+            ACAO_ENSINAR, ACAO_ESCALAR, ACAO_GUIADA, ACAO_VERIFICAR,
+            decidir_intervencao, habilidade_que_trava,
         )
         from agente_ia_edu.services.proximo_passo import (
-            PASSO_ENSINO, PASSO_GUIADA,
+            PASSO_ENSINO, PASSO_ESCALONAMENTO, PASSO_GUIADA, PASSO_VERIFICACAO,
         )
 
         codigo = passo.get("content_code")
@@ -307,6 +331,16 @@ class ReadinessRouteService:
         ja_ensinado = bool(material) and await self._ja_estudou(
             material["material_id"], aluno, codigo, requester=requester)
 
+        # A GUIADA E DECIDIDA PELO ASSESSOR, nao depois dele.
+        #
+        # Ate 2026-10-05 a guiada era escolhida AQUI, depois da decisao: a
+        # maquina dizia PRATICAR e esta camada trocava por GUIADA se houvesse
+        # item. Com a estrategia variando por ciclo, essa troca por fora
+        # escondia da propria maquina uma das opcoes que ela precisa pesar.
+        guiado = await self._guiada_pendente(
+            codigo, habilidade_que_trava(habilidades), aluno,
+            requester=requester)
+
         intervencao = decidir_intervencao(
             habilidades=habilidades,
             banda_do_conteudo=self._banda(evidencia),
@@ -314,11 +348,16 @@ class ReadinessRouteService:
             praticas_concluidas=await self._praticas_concluidas(
                 codigo, aluno, requester=requester),
             ha_material=bool(material),
+            ha_guiada_pendente=guiado is not None,
+            tentativas=await self._tentativas_de(
+                codigo, aluno, requester=requester),
             objetivo_nome=passo.get("for_content_name"),
             conteudo_nome=passo.get("content_name"),
         )
         passo["intervention"] = intervencao
-        if intervencao.get("action") == ACAO_ENSINAR and material:
+        acao = intervencao.get("action")
+
+        if acao == ACAO_ENSINAR and material:
             passo["kind"] = PASSO_ENSINO
             passo["material_id"] = material["material_id"]
             passo["material_title"] = material["title"]
@@ -334,12 +373,31 @@ class ReadinessRouteService:
         # precisa. Ela so entra se houver item guiado para a lacuna - e se o
         # aluno ainda nao a concluiu, porque concluir a guiada e justamente
         # o sinal de "agora tente sozinho".
-        guiado = await self._guiada_pendente(
-            codigo, intervencao.get("skill"), aluno, requester=requester)
-        if guiado is not None:
+        if acao == ACAO_GUIADA and guiado is not None:
             passo["kind"] = PASSO_GUIADA
             passo["item_key"] = guiado["item_key"]
             passo["readiness_route"] = ROTA_PREPARACAO
+            return passo
+
+        # VERIFICACAO: curta, e e ela que decide se ele avanca.
+        #
+        # Nao e "mais pratica com outro nome": sao poucas questoes, pedidas
+        # porque ele acabou de ir BEM depois de ir mal, e o unico jeito
+        # honesto de confirmar isso e ele responder de novo.
+        if acao == ACAO_VERIFICAR:
+            passo["kind"] = PASSO_VERIFICACAO
+            passo["readiness_route"] = ROTA_PREPARACAO
+            passo["question_count"] = QUESTOES_DA_VERIFICACAO
+            return passo
+
+        # ESCALONAMENTO: acabaram os ciclos, e o proximo movimento nao e do
+        # sistema. Continuar oferecendo lotes de questoes aqui seria repetir
+        # pela quarta vez o que ja nao funcionou tres.
+        if acao == ACAO_ESCALAR:
+            passo["kind"] = PASSO_ESCALONAMENTO
+            passo["readiness_route"] = ROTA_PREPARACAO
+            return passo
+
         return passo
 
     async def _guiada_pendente(self, codigo: str, skill: str | None, aluno: str,
@@ -516,6 +574,68 @@ class ReadinessRouteService:
             and any(x in (p.get("state") or "") for x in ("COMPLETED", "CORRECTED"))
         )
 
+    async def _itens_respondidos(self, codigo: str, aluno: str, *,
+                                 requester) -> list:
+        """Toda resposta ja corrigida daquele conteudo, com o resultado a que
+        pertence e quando ele foi corrigido.
+
+        UMA consulta, dois consumidores: a micro-habilidade que falhou
+        (`_habilidades_de`) e a trajetoria (`_tentativas_de`). Antes so havia o
+        primeiro, e ele jogava fora a ordem - que e justamente o que faltava
+        para o assessor perceber que o aluno estava melhorando.
+        """
+        from uuid import UUID as _U
+
+        from sqlalchemy import select as _sel
+
+        from agente_ia_edu.db.models import ActivityResult, ActivityResultItem
+        from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
+
+        try:
+            praticas = await AdaptivePracticeService(self._session).list_practices(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001
+            return []
+        ids = [p.get("assignment_id") for p in (praticas.get("items") or [])
+               if p.get("content_code") == codigo and p.get("assignment_id")]
+        if not ids:
+            return []
+        try:
+            alvos = [_U(str(i)) for i in ids]
+        except (TypeError, ValueError):  # pragma: no cover - id improvavel
+            return []
+
+        resultados = (await self._session.execute(
+            _sel(ActivityResult.id, ActivityResult.corrected_at).where(
+                ActivityResult.assignment_id.in_(alvos),
+                ActivityResult.student_external_id == aluno))).all()
+        if not resultados:
+            return []
+        quando = {r[0]: r[1] for r in resultados}
+        itens = (await self._session.execute(
+            _sel(ActivityResultItem).where(
+                ActivityResultItem.result_id.in_(list(quando))))).scalars().all()
+        return [{"result_id": str(i.result_id),
+                 "corrected_at": quando.get(i.result_id),
+                 "question_version_id": i.question_version_id,
+                 "is_correct": bool(i.is_correct)} for i in itens]
+
+    async def _tentativas_de(self, codigo: str, aluno: str, *,
+                             requester) -> list[dict]:
+        """A trajetoria: uma entrada por tentativa, em ordem cronologica.
+
+        E isto que permite distinguir "nunca soube" de "esta aprendendo". A
+        media acumulada nao distingue: medido em 2026-10-05, um aluno com 0/3,
+        1/5, 4/5 e 5/5 ficava em 0,556 e continuava recebendo a mesma
+        explicacao.
+        """
+        from agente_ia_edu.services.trajetoria_do_aluno import (
+            tentativas_de_resultados,
+        )
+
+        return tentativas_de_resultados(
+            await self._itens_respondidos(codigo, aluno, requester=requester))
+
     async def _habilidades_de(self, codigo: str, aluno: str, *, requester) -> dict:
         """Qual MICRO-habilidade falhou, quando a amostra sustenta dizer.
 
@@ -526,52 +646,25 @@ class ReadinessRouteService:
         """
         from sqlalchemy import select as _sel
 
-        from agente_ia_edu.db.models import ActivityResult, ActivityResultItem
         from agente_ia_edu.db.models.pedagogical import (
             PedagogicalClassification as _PC,
         )
-        from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
         from agente_ia_edu.services.diagnostico_por_habilidade import (
             diagnostico_por_habilidade,
         )
 
         vazio = {"por_habilidade": {}, "suficiente": False, "texto": None}
-        try:
-            praticas = await AdaptivePracticeService(self._session).list_practices(
-                aluno, requester=requester)
-        except Exception:  # noqa: BLE001
-            return vazio
-        ids = [p.get("assignment_id") for p in (praticas.get("items") or [])
-               if p.get("content_code") == codigo and p.get("assignment_id")]
-        if not ids:
-            return vazio
-
-        from uuid import UUID as _U
-
-        try:
-            alvos = [_U(str(i)) for i in ids]
-        except (TypeError, ValueError):  # pragma: no cover - id improvavel
-            return vazio
-
-        resultados = (await self._session.execute(
-            _sel(ActivityResult.id).where(
-                ActivityResult.assignment_id.in_(alvos),
-                ActivityResult.student_external_id == aluno))).scalars().all()
-        if not resultados:
-            return vazio
-        itens = (await self._session.execute(
-            _sel(ActivityResultItem).where(
-                ActivityResultItem.result_id.in_(list(resultados))))).scalars().all()
+        itens = await self._itens_respondidos(codigo, aluno, requester=requester)
         if not itens:
             return vazio
-        vids = {i.question_version_id for i in itens}
+        vids = {i["question_version_id"] for i in itens}
         skills = dict((await self._session.execute(
             _sel(_PC.question_version_id, _PC.subcontent).where(
                 _PC.question_version_id.in_(vids),
                 _PC.lifecycle == "ACTIVE"))).all())
         return diagnostico_por_habilidade(
-            [{"diagnostic_skill": skills.get(i.question_version_id),
-              "is_correct": bool(i.is_correct)} for i in itens])
+            [{"diagnostic_skill": skills.get(i["question_version_id"]),
+              "is_correct": i["is_correct"]} for i in itens])
 
     async def _origens_de(self, codigos, aluno: str, *, requester) -> dict[str, int]:
         """Quantas evidencias de cada ORIGEM existem nestes conteudos.
