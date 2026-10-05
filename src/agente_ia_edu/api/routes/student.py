@@ -227,9 +227,23 @@ async def list_student_activities(
     ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
     session_factory=Depends(get_session_factory),
 ) -> QBStudentActivityListResponse:
+    from ...services.activity_player_store import ActivityPlayerStore
+    from ...services.proximo_passo import PASSO_ATIVIDADE, cta_para
+
+    requester = _student_requester(ctx)
     async with session_factory() as session:
-        store = ActivityAssignmentStore(session)
-        rows = await store.student_activities(requester=_student_requester(ctx))
+        rows = await ActivityAssignmentStore(session).student_activities(
+            requester=requester)
+        # O estado de cada atividade, numa consulta so - nao uma por linha.
+        # Antes a tela buscava isso item a item em `/attempt`, N+1 na rede, e
+        # ainda escrevia o rotulo do botao no JavaScript, com uma tabela
+        # paralela que ja divergia da matriz ("Abrir" onde a matriz diz
+        # "Comecar atividade"). O rotulo sai da matriz, aqui.
+        estados = await ActivityPlayerStore(session).statuses_for(
+            [_UUID(r["assignment_id"]) for r in rows], requester=requester)
+    for r in rows:
+        r["state"] = estados.get(r["assignment_id"], "NOT_STARTED")
+        r["cta"] = cta_para(PASSO_ATIVIDADE, r["state"]) or ""
     return QBStudentActivityListResponse(items=[QBStudentActivity(**r) for r in rows])
 
 

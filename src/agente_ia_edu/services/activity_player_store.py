@@ -118,6 +118,32 @@ class ActivityPlayerStore:
             )
         )).scalar_one_or_none()
 
+    async def statuses_for(self, assignment_ids: list[UUID], *,
+                           requester: Requester) -> dict[str, str]:
+        """Em que pe esta a tentativa DESTE aluno em cada atividade da lista.
+
+        Uma consulta so. `get_state` responderia o mesmo, mas carrega o
+        enunciado e as alternativas de cada questao - para uma lista de
+        atividades isso e um banquete para servir um copo d'agua.
+
+        Filtra por `student_external_id`: o estado e de quem pergunta. Quem
+        pode VER cada atividade ja foi decidido por `student_activities`, que
+        e quem monta a lista; aqui nao ha ampliacao de visibilidade - uma
+        atividade que nao chegou ate aqui simplesmente nao tem estado.
+        """
+        if not assignment_ids:
+            return {}
+        rows = (await self._session.execute(
+            select(ActivityAttempt.assignment_id, ActivityAttempt.status).where(
+                ActivityAttempt.assignment_id.in_(assignment_ids),
+                ActivityAttempt.student_external_id == requester.external_user_id,
+            )
+        )).all()
+        achados = {str(aid): (status or STATUS_IN_PROGRESS) for aid, status in rows}
+        # Sem tentativa nao e ausencia de dado: e "ainda nao comecou".
+        return {str(a): achados.get(str(a), STATUS_NOT_STARTED)
+                for a in assignment_ids}
+
     # -- start -----------------------------------------------------------
 
     async def start(self, assignment_id: UUID, *, requester: Requester) -> dict:

@@ -330,6 +330,12 @@ class QBStudentActivity(BaseModel):
     # cliente consiga cruzar atividade x dominio do aluno sem traducao.
     # Vazio = questoes ainda nao classificadas, nao "sem conteudo".
     content_codes: list[str] = []
+    # Em que pe esta a tentativa DESTE aluno nesta atividade, e o rotulo do
+    # botao correspondente. O rotulo vem de `proximo_passo.cta_para`, a mesma
+    # matriz que decide o botao da Home: a tela nao pode ter uma segunda
+    # tabela de rotulos, porque a segunda diverge da primeira.
+    state: str = "NOT_STARTED"
+    cta: str = ""
 
 
 class QBStudentActivityListResponse(BaseModel):

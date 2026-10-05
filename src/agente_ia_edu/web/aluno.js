@@ -218,6 +218,7 @@
         ${prazo}
         ${selo}
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
+        <ol class="jornada jornada-cartao" aria-label="Etapas da jornada">${jornadaHTML()}</ol>
         <p class="detalhe">${explicacao(passo, t)}</p>
         <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${esc(rotuloDaAcao(passo))}</button>
       </div>`;
@@ -257,13 +258,10 @@
   // Desenha as etapas vindas de `readiness.journey`. Nao calcula nada: se o
   // frontend decidisse o que esta concluido, bastaria o aluno abrir uma tela
   // para a barra ficar verde.
-  function pintarJornada() {
+  function jornadaHTML() {
     const etapas = (app.prontidao && app.prontidao.journey) || [];
-    const el = $('jornada');
-    if (!el) return;
-    if (!etapas.length) { el.innerHTML = ''; el.hidden = true; return; }
-    el.hidden = false;
-    el.innerHTML = etapas.map((e) => {
+    if (!etapas.length) return '';
+    return etapas.map((e) => {
       const classe = e.state === 'COMPLETED' ? 'etapa etapa-feita'
         : e.state === 'IN_PROGRESS' ? 'etapa etapa-agora' : 'etapa';
       // O estado tambem e TEXTO, nao so cor e posicao.
@@ -277,6 +275,14 @@
                 <span class="sr">(${dito})</span>
               </li>`;
     }).join('');
+  }
+
+  function pintarJornada() {
+    const el = $('jornada');
+    if (!el) return;
+    const html = jornadaHTML();
+    el.innerHTML = html;
+    el.hidden = !html;
   }
 
   // ================================================== o microdiagnostico ==
@@ -431,6 +437,7 @@
   }
 
   function pintarResultado() {
+    pintarJornada();
     const d = app.diagnostico;
     const dec = d.decisao || {};
     // O TEXTO E DO BACKEND (services/feedback_pedagogico.py). Esta funcao nao
@@ -693,6 +700,7 @@
   async function mostrarResultadoOficial() {
     const a = app.atividade;
     $('trilho').innerHTML = '';
+    pintarJornada();
     let r;
     try {
       r = await api(`/api/v1/student/activities/${a.assignment_id}/attempt/result`);
@@ -746,6 +754,7 @@
     const a = app.atividade;
     const rev = a && a.revisao;
     if (!rev || !rev.questoes.length) return;
+    pintarJornada();
     const total = rev.questoes.length;
     const q = rev.questoes[rev.pos];
     const res = q.resultado || {};
@@ -905,18 +914,72 @@
   // ===================================================== navegacao ========
   function irPara(tela) {
     app.tela = tela;
-    ['inicio', 'sessao', 'progresso'].forEach((t) => {
+    ['inicio', 'sessao', 'atividades', 'progresso'].forEach((t) => {
       $(`tela-${t}`).hidden = (t !== tela);
     });
-    document.querySelectorAll('.aba').forEach((aba) => {
+    // As duas barras - header no desktop, inferior no mobile - marcam a mesma
+    // aba. Sao arranjos diferentes da MESMA navegacao, nao dois menus.
+    document.querySelectorAll('.aba, .topo-aba').forEach((aba) => {
       const ativa = aba.dataset.tela === tela;
       aba.classList.toggle('ativa', ativa);
       if (ativa) aba.setAttribute('aria-current', 'page');
       else aba.removeAttribute('aria-current');
     });
     if (tela === 'inicio') pintarHome();
+    if (tela === 'atividades') pintarAtividades();
     if (tela === 'progresso') pintarProgresso();
     window.scrollTo(0, 0);
+  }
+
+  // ================================================ minhas atividades ====
+  // Reutiliza GET /student/activities. A rota ja devolve `state` e `cta` de
+  // cada atividade; esta tela TRADUZ o estado em selo e desenha o rotulo que
+  // veio - nao monta rotulo nenhum.
+  //
+  // A primeira versao fazia uma chamada a `/attempt` POR ATIVIDADE so para
+  // descobrir o estado, e escrevia o rotulo aqui com um mapa proprio. O mapa
+  // ja divergia da matriz do backend ("Abrir" onde a matriz diz "Comecar
+  // atividade"): duas tabelas para a mesma pergunta, e a segunda errada.
+  const ESTADO_LEGIVEL = {
+    NOT_STARTED: { rotulo: 'Pendente', classe: 'selo-prazo' },
+    IN_PROGRESS: { rotulo: 'Em andamento', classe: 'selo-neutro' },
+    COMPLETED: { rotulo: 'Concluída', classe: 'selo-bom' },
+  };
+
+  async function pintarAtividades() {
+    const el = $('lista-atividades');
+    if (!identidade()) { el.innerHTML = ''; return; }
+    el.innerHTML = `<li class="vazio">${esc('Carregando…')}</li>`;
+    try {
+      const lista = await api('/api/v1/student/activities');
+      const itens = lista.items || [];
+      if (!itens.length) {
+        el.innerHTML = `<li class="vazio">Nenhuma atividade por enquanto.
+          Quando sua escola enviar uma, ela aparece aqui.</li>`;
+        return;
+      }
+      el.innerHTML = itens.map((a) => {
+        const e = ESTADO_LEGIVEL[a.state] || ESTADO_LEGIVEL.NOT_STARTED;
+        const acao = a.cta || 'Abrir';
+        return `
+          <li class="cartao-atividade">
+            <span class="atividade-corpo">
+              <span class="atividade-titulo">${esc(a.title)}</span>
+              <span class="atividade-meta">
+                <span class="selo ${e.classe}">${e.rotulo}</span>
+                ${a.due_at ? `<span class="atividade-prazo">Entrega ${esc(a.due_at.slice(0, 10))}</span>` : ''}
+                <span class="atividade-prazo">${a.question_count} ${a.question_count === 1 ? 'questão' : 'questões'}</span>
+              </span>
+            </span>
+            <button class="botao botao-secundario botao-pequeno"
+                    data-acao="abrir-tarefa" data-id="${esc(a.assignment_id)}"
+            >${esc(acao)}</button>
+          </li>`;
+      }).join('');
+    } catch (e) {
+      el.innerHTML = `<li class="vazio">Não consegui carregar suas atividades
+        (erro ${esc(e.status || '')}).</li>`;
+    }
   }
 
   // ===================================================== acoes ============

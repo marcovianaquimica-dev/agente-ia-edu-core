@@ -325,7 +325,10 @@ p  { margin: 0 0 .75rem; }
 /* abas ------------------------------------------------------------------ */
 .abas {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: 1fr 1fr;
+  /* colunas automaticas acompanham o numero de abas. Estava fixo em duas, e
+     ao entrar a terceira ela caiu para uma segunda linha - em 320px a barra
+     inteira virava dois andares. */
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
   background: var(--papel);
   border-top: 1px solid var(--borda);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -335,6 +338,11 @@ p  { margin: 0 0 .75rem; }
   min-height: 64px;
   border: 0; background: none;
   font-family: inherit; font-size: .8125rem; font-weight: 600;
+  /* com tres abas em 320px cada uma tem ~106px: o rotulo precisa poder
+     encolher um pouco sem estourar a coluna */
+  padding: 0 .25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--tinta-fraca);
   cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -702,3 +710,78 @@ p  { margin: 0 0 .75rem; }
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+
+/* ============================================= SHELL DO PORTAL DO ALUNO ===
+   Duas disposicoes da MESMA navegacao:
+
+     desktop  navegacao no header, ao lado da marca
+     mobile   header so com marca e perfil; navegacao na barra inferior
+
+   Nao e a navbar comprimida: no telefone a navegacao fica ao alcance do
+   polegar, e no desktop o rodape seria o lugar mais longe do olhar. */
+
+.topo-nav { display: none; }
+
+@media (min-width: 768px) {
+  .topo-nav {
+    display: flex;
+    gap: .25rem;
+    margin-left: 1.5rem;
+    flex: 1 1 auto;
+  }
+
+  .topo-aba {
+    padding: .5rem .875rem;
+    min-height: var(--toque);
+    border: 0;
+    border-radius: var(--r-m);
+    background: transparent;
+    font: inherit;
+    font-size: .9375rem;
+    color: var(--tinta-fraca);
+    cursor: pointer;
+  }
+
+  .topo-aba:hover { background: var(--fundo); color: var(--tinta); }
+
+  .topo-aba.ativa {
+    background: var(--primaria-clara);
+    color: var(--primaria);
+    font-weight: 600;
+  }
+
+  /* No desktop a barra inferior sai: a navegacao ja esta no topo. */
+  .abas { display: none; }
+  .palco { padding-bottom: 2rem; }
+}
+
+/* a jornada dentro do cartao da Home respira um pouco menos */
+.jornada-cartao { margin: .25rem 0 .75rem; }
+
+/* ------------------------------------------------- minhas atividades --- */
+
+.lista-atividades {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .6rem;
+}
+
+.cartao-atividade {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .75rem;
+  padding: .9rem 1rem;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+}
+
+/* 10rem: abaixo disso o titulo da atividade fica ilegivel e o botao desce */
+.atividade-corpo { flex: 1 1 10rem; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
+.atividade-titulo { font-weight: 600; color: var(--tinta); overflow-wrap: anywhere; }
+.atividade-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.atividade-prazo { font-size: .8125rem; color: var(--tinta-fraca); }
