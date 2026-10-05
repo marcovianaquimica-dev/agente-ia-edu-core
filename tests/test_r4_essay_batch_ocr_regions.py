@@ -170,6 +170,69 @@ class ReadPageRegionsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ProviderError):
             await service.read_page_regions(source)
 
+    async def test_substantial_extracted_pdf_text_skips_body_ocr_entirely(self):
+        """Decisao do usuario 2026-10-05: um PDF com camada de texto digital
+        real (extracted_pdf_text, de _expand_to_page_images) usa esse texto
+        pro CORPO sem chamada de visao nenhuma - mais barato, mais preciso.
+        O CABECALHO continua sempre por visao (nome em caixinhas e fragil
+        demais pra reconstruir da camada de texto bruta)."""
+        source = _write_page_image(
+            self.tmp_dir / "page_4.png", header_text="cabecalho", body_text="corpo"
+        )
+        transcriber = FakeTranscriber(
+            header_text="NOME COMPLETO DO PARTICIPANTE Joao da Silva",
+            body_text="ISSO NUNCA DEVERIA SER LIDO - SE APARECER, A VISAO FOI CHAMADA",
+        )
+        service = EssayBatchService(None, transcriber=transcriber)
+        extracted = "Um texto digital de verdade, com mais de trinta caracteres."
+
+        name, _cpf, body = await service.read_page_regions(
+            source, extracted_pdf_text=extracted
+        )
+
+        self.assertEqual(name, "JOAO DA SILVA")
+        self.assertEqual(body, extracted.strip())
+        # So o cabecalho chamou visao - nenhuma chamada pro corpo.
+        self.assertEqual(len(transcriber.calls), 1)
+        self.assertTrue(all("_header" in call for call in transcriber.calls))
+
+    async def test_short_extracted_pdf_text_still_runs_body_ocr(self):
+        """Abaixo do teto (EssaySubmissionService._MIN_EXTRACTED_TEXT_CHARS,
+        30 - mesmo valor que o envio individual ja usa pra essa decisao) nao
+        e confiavel o bastante: pode ser so o rotulo impresso da folha
+        ("FOLHA DE REDAÇÃO", etc.) capturado sem nenhuma redacao de verdade
+        por tras, entao continua rodando OCR normal."""
+        source = _write_page_image(
+            self.tmp_dir / "page_5.png", header_text="cabecalho", body_text="corpo"
+        )
+        transcriber = FakeTranscriber(
+            header_text="NOME: Ana", body_text="Texto lido por OCR de verdade.",
+        )
+        service = EssayBatchService(None, transcriber=transcriber)
+
+        _name, _cpf, body = await service.read_page_regions(
+            source, extracted_pdf_text="curto demais"
+        )
+
+        self.assertEqual(body, "Texto lido por OCR de verdade.")
+        self.assertEqual(len(transcriber.calls), 2)
+
+    async def test_none_extracted_pdf_text_runs_body_ocr_as_before(self):
+        """Default explicito: sem extracted_pdf_text (imagem, ou PDF sem
+        camada de texto - foto/scan real), comportamento identico a antes."""
+        source = _write_page_image(
+            self.tmp_dir / "page_6.png", header_text="cabecalho", body_text="corpo"
+        )
+        transcriber = FakeTranscriber(
+            header_text="NOME: Ana", body_text="Texto lido por OCR de verdade.",
+        )
+        service = EssayBatchService(None, transcriber=transcriber)
+
+        _name, _cpf, body = await service.read_page_regions(source)
+
+        self.assertEqual(body, "Texto lido por OCR de verdade.")
+        self.assertEqual(len(transcriber.calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

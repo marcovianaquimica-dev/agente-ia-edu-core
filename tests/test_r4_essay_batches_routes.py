@@ -102,9 +102,16 @@ class EssayBatchesRoutesTests(unittest.TestCase):
         cls.app.dependency_overrides[get_session_factory] = lambda: cls.factory
         cls.app.dependency_overrides[get_current_identity] = lambda: _ident("prof_lote")
         cls.client = TestClient(cls.app)
+        # Pausa entre paginas e pra producao (rajada na API de visao) - sem
+        # serventia aqui (transcritor falso) e so deixaria a suite lenta.
+        from agente_ia_edu.services.essay_batch import EssayBatchService
+        cls._original_pacing = EssayBatchService._PAGE_PACING_SECONDS
+        EssayBatchService._PAGE_PACING_SECONDS = 0.0
 
     @classmethod
     def tearDownClass(cls):
+        from agente_ia_edu.services.essay_batch import EssayBatchService
+        EssayBatchService._PAGE_PACING_SECONDS = cls._original_pacing
         cls.app.dependency_overrides.clear()
         cls.loop.run_until_complete(cls.engine.dispose())
         cls.loop.close()

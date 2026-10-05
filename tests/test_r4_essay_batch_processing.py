@@ -89,8 +89,16 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.tmp_dir = Path(tempfile.mkdtemp(prefix="r4_proc_"))
         self.storage = MaterialStorage(root=self.tmp_dir / "storage")
+        # A pausa entre paginas (EssayBatchService._PAGE_PACING_SECONDS) e
+        # pra producao, contra rajada na API de visao - nao serve pra nada
+        # aqui (transcritor falso, sem IA nenhuma) e so deixaria a suite
+        # lenta. Restaurado no tearDown pra nao vazar pra outros testes do
+        # processo.
+        self._original_pacing = EssayBatchService._PAGE_PACING_SECONDS
+        EssayBatchService._PAGE_PACING_SECONDS = 0.0
 
     async def asyncTearDown(self):
+        EssayBatchService._PAGE_PACING_SECONDS = self._original_pacing
         await self.engine.dispose()
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 

@@ -143,6 +143,12 @@ class EssayBatchPage(Base):
     )
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_uri: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Camada de texto digital real do PDF enviado, quando existe (NUNCA existe
+    # em foto/scan de papel fisico - so em PDF gerado/digitado). Capturada na
+    # intake (_expand_to_page_images), porque o PDF original ja foi apagado
+    # quando process_batch roda. process_batch usa isto pra pular a chamada
+    # de visao do CORPO da redacao - ver read_page_regions.
+    extracted_pdf_text: Mapped[str | None] = mapped_column(Text)
     ocr_name_raw: Mapped[str | None] = mapped_column(String(255))
     ocr_cpf_raw: Mapped[str | None] = mapped_column(String(20))
     ocr_body_text: Mapped[str | None] = mapped_column(Text)
