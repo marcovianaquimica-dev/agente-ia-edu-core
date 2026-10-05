@@ -245,6 +245,64 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
         self.assertEqual(passo["kind"], PASSO_PRATICA,
                          "depois de estudar, o passo e tentar")
 
+    # -- o ciclo conta PRATICAS, nao tudo ----------------------------------
+
+    def test_o_diagnostico_nao_conta_como_ciclo_de_intervencao(self):
+        """`list_practices` devolve práticas E microdiagnósticos — os dois são
+        assignments do mesmo tipo, e o diagnóstico sai de lá com
+        `PRACTICE_CORRECTED`. Contá-lo como ciclo faria o aluno chegar ao teto
+        de intervenções sem ter recebido nenhuma: o primeiro ensino já
+        começaria no ciclo 2.
+        """
+        r = self.client.post("/api/v1/student/micro-diagnostic",
+                             json={"content_code": BALANC,
+                                   "objective_assignment_id": str(self.atividade)})
+        self.assertEqual(r.status_code, 200, r.text)
+        did = r.json()["assignment_id"]
+        estado = self.client.post(
+            f"/api/v1/student/activities/{did}/attempt").json()
+        for q in estado["questions"]:
+            vid = q["question_version_id"]
+            errada = next(k for k in KEYS if k != self.gabarito[vid])
+            self.client.put(
+                f"/api/v1/student/activities/{did}/attempt/answers/{vid}",
+                json={"selected_option": errada})
+        self.client.post(f"/api/v1/student/activities/{did}/attempt/complete")
+        self.client.post(f"/api/v1/student/activities/{did}/attempt/correct")
+        self.client.post("/api/v1/student/domain/rebuild")
+
+        inter = self._passo().get("intervention") or {}
+        self.assertEqual(inter.get("cycle"), 1,
+                         "o diagnostico foi contado como ciclo de intervencao")
+
+    # -- o ciclo fecha -----------------------------------------------------
+
+    def test_praticar_bem_depois_do_ensino_tira_o_aluno_da_preparacao(self):
+        """E2E 2, a asserção final: errar, ser ensinado, praticar, avançar.
+
+        O passo deixa de ser sobre a base. Para onde ele vai depois — a
+        atividade, ou um diagnóstico do próprio conteúdo que ninguém mediu
+        ainda — é decisão da política; o que este teste fixa é que o aluno
+        não fica preso praticando a mesma base.
+        """
+        self._responder(BALANC, quantas=3, acertos=0)
+        self.assertEqual(self._passo()["kind"], PASSO_ENSINO)
+        self._estudar()
+        self._responder(BALANC, quantas=5, acertos=5)
+        passo = self._passo()
+        self.assertNotEqual(passo.get("content_code"), BALANC,
+                            "continuou mandando praticar a base ja firmada")
+
+    def test_a_base_firmada_aparece_no_dominio_com_as_duas_origens(self):
+        """A evidência do ensino não existe; a da prática, sim — e some com a
+        do diagnóstico no mesmo conteúdo."""
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        self._responder(BALANC, quantas=5, acertos=5)
+        d = self._dominio()
+        self.assertEqual(d.get("questions_answered"), 8)
+        self.assertEqual(set(d.get("origin_breakdown") or {}), {"PRACTICE"})
+
     # -- retomada: abrir e sair nao e ter entendido ------------------------
 
     def test_abrir_a_explicacao_e_sair_devolve_a_explicacao(self):

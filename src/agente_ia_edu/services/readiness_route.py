@@ -398,9 +398,17 @@ class ReadinessRouteService:
                 aluno, requester=requester)
         except Exception:  # noqa: BLE001 - sem praticas: ciclo zero
             return 0
+        # SO PRATICAS. `list_practices` devolve praticas E microdiagnosticos -
+        # os dois sao assignments do mesmo tipo, e o diagnostico sai de la com
+        # `PRACTICE_CORRECTED`. Conta-lo como ciclo fazia o primeiro ensino ja
+        # comecar no ciclo 2, e aproximava o teto de intervencoes sem o aluno
+        # ter recebido nenhuma.
+        from agente_ia_edu.services.curriculum_domain_map import ORIGIN_PRACTICE
+
         return sum(
             1 for p in (praticas.get("items") or [])
             if p.get("content_code") == codigo
+            and (p.get("origin") or ORIGIN_PRACTICE) == ORIGIN_PRACTICE
             and any(x in (p.get("state") or "") for x in ("COMPLETED", "CORRECTED"))
         )
 

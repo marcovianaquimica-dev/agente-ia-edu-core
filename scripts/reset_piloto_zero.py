@@ -2,9 +2,13 @@
 
 O QUE ESTE SCRIPT APAGA
 =======================
-As RESPOSTAS e a EVIDENCIA do Aluno Teste A, e as atividades que ele mesmo
-comecou (praticas e microdiagnosticos). Depois disso ele volta a ser um aluno
-sem historico, e o cenario recomeca do zero.
+As RESPOSTAS e a EVIDENCIA do Aluno Teste A, as atividades que ele mesmo
+comecou (praticas e microdiagnosticos) e o que ele JA LEU. Depois disso ele
+volta a ser um aluno sem historico, e o cenario recomeca do zero.
+
+A leitura entrou em 2026-10-05: `MaterialProgress` nao e evidencia de dominio,
+entao sobrevivia ao reset - e com ele o Assessor via "ja estudou" e pulava a
+explicacao, justamente o caminho que este script existe para repetir.
 
 O QUE ELE NAO APAGA, NUNCA
 ===========================
@@ -12,6 +16,7 @@ O QUE ELE NAO APAGA, NUNCA
     extracoes            2.972
     classificacoes       as do acervo
     Diagnostic Bank      os 14 itens AI_VERIFIED de Balanceamento
+    material teorico     a explicacao de Balanceamento (conteudo do Nucleo)
     outras escolas       Partner, BWalk26, ESCOLA TESTE
     outros usuarios      alice, bruno, hugo, prof_mendes...
     a atividade da escola
@@ -53,6 +58,7 @@ from agente_ia_edu.db.models.assessments import (  # noqa: E402
     ActivityAnswer, ActivityAttempt, ActivityResult, ActivityResultItem,
     DomainContentMastery,
 )
+from agente_ia_edu.db.models.material_progress import MaterialProgress  # noqa: E402
 
 ALUNO_ID = "aluno_teste_a"
 TURMA = "PILOTO_3A"
@@ -106,6 +112,18 @@ async def limpar(s: AsyncSession, *, recriar_atividade: bool = False) -> dict:
     r = await s.execute(delete(DomainContentMastery).where(
         DomainContentMastery.student_external_id == ALUNO_ID))
     contagem["dominio"] = r.rowcount or 0
+
+    # 3b. o que ele JA LEU.
+    #
+    # `MaterialProgress` nao e evidencia de dominio - por isso ele sobreviveu
+    # ao reset ate 2026-10-05, e com ele o cenario nao voltava ao zero: o
+    # Assessor via "ja estudou" e pulava a explicacao, entao o caminho que
+    # este script existe para repetir nao se repetia.
+    #
+    # O material em si NAO e tocado: ele e conteudo do Nucleo, como o acervo.
+    r = await s.execute(delete(MaterialProgress).where(
+        MaterialProgress.student_external_id == ALUNO_ID))
+    contagem["leitura de material"] = r.rowcount or 0
 
     # 4. as atividades que ELE iniciou (praticas e microdiagnosticos).
     #    A atividade da TURMA fica: e da escola, nao dele.

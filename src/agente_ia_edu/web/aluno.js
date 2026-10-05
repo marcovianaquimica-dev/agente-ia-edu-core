@@ -161,8 +161,18 @@
   // Na Home, "Responder diagnostico" descreve o que vai acontecer. Logo
   // depois de o aluno terminar uma etapa, a mesma frase soa como se ele
   // tivesse de refazer o que acabou de fazer - ali ele esta SEGUINDO.
-  const rotuloDaAcao = (passo, { aposConcluir = false } = {}) =>
-    (aposConcluir ? 'Continuar' : passo.cta) || 'Continuar';
+  // DEPOIS DE CONCLUIR, "Continuar" so vale se o proximo passo for MAIS DO
+  // MESMO. Quando o assunto muda - o aluno firmou a base e agora vai ser
+  // medido no conteudo da atividade - "Continuar" esconde justamente o que
+  // ele precisa saber, e foi a desorientacao relatada no teste humano.
+  //
+  // `feito` e o tipo da etapa que acabou. Mesmo tipo: "Continuar" (dizer
+  // "Responder diagnostico" a quem acabou de responder um soa como refazer).
+  // Tipo diferente: o rotulo do backend, que diz para onde se vai.
+  const rotuloDaAcao = (passo, { aposConcluir = false, feito = null } = {}) => {
+    if (aposConcluir && (!feito || feito === passo.kind)) return 'Continuar';
+    return passo.cta || 'Continuar';
+  };
 
   // DEPOIS DA ENTREGA, "antes de começar" e mentira.
   //
@@ -689,6 +699,19 @@
           `/api/v1/student/micro-diagnostic/${d.assignment_id}/decision`
           + `?content_code=${encodeURIComponent(d.content_code)}${obj}`);
       }
+      // O MAPA DE DOMINIO PRECISA SER RECONSTRUIDO ANTES DE RELER A PRONTIDAO.
+      //
+      // `attempt/correct` grava a evidencia, mas quem agrega evidencia em
+      // dominio e o mapa - e so o DIAGNOSTICO o reconstruia, de carona em
+      // `/micro-diagnostic/.../decision`. Depois de uma PRATICA ninguem
+      // reconstruia, entao `/readiness` lia o estado velho e a tela oferecia
+      // o passo anterior: o aluno acertava 5 de 5 e o botao continuava
+      // mandando praticar o mesmo conteudo.
+      if (d.pratica) {
+        try {
+          await api('/api/v1/student/domain/rebuild', { method: 'POST' });
+        } catch (_) { /* sem rebuild a prontidao fica velha, mas nao quebra */ }
+      }
       // A prontidao e relida do estado NOVO - nao reaproveitamos a de antes.
       if (d.objetivo) {
         app.prontidao = await api(
@@ -735,7 +758,8 @@
                  ${passo.kind === 'ACTIVITY' && d.objetivo
                    ? `data-id="${esc(d.objetivo.assignment_id)}"` : ''}
                  ${passo.content_code ? `data-conteudo="${esc(passo.content_code)}"` : ''}
-                 >${esc(rotuloDaAcao(passo, { aposConcluir: true }))}</button>`
+                 >${esc(rotuloDaAcao(passo, { aposConcluir: true,
+                        feito: d.pratica ? 'PRACTICE' : 'DIAGNOSTIC' }))}</button>`
       : '';
 
     $('bloco').innerHTML = `
