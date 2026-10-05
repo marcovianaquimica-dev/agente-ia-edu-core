@@ -170,3 +170,69 @@ Confirmado o pré-requisito, o passo seguinte é o diagnóstico do conteúdo
 principal. A decisão está certa; a tela não a explica, e para quem assiste
 parece que o diagnóstico recomeçou. Já estava registrado como P1-9 na
 auditoria do ensaio executivo.
+
+---
+
+## Conversar com o Assessor
+
+Uma dúvida **dentro** da intervenção — não um chat de uso geral com um campo
+de texto. O aluno pergunta "não entendi o número pequeno" e o Assessor já sabe
+de qual número pequeno ele está falando, porque o contexto vem da prontidão.
+
+### O que chega à IA
+
+Lista fechada (`CAMPOS_DO_CONTEXTO`), montada no backend a partir do
+`next_step`:
+
+| campo | de onde vem |
+|---|---|
+| objetivo | a atividade que ele está tentando entregar |
+| conteúdo | o que trava agora |
+| micro-habilidade | a lacuna medida |
+| passo | a decisão da máquina determinística |
+| ciclo | quantas vezes já intervimos |
+| tendência | como ele vem indo nas últimas tentativas |
+
+Mais um aviso quando há avaliação aberta: *ensine o caminho, nunca a
+alternativa*.
+
+### O que NÃO chega
+
+Alternativas, enunciado e resposta correta. **A proteção contra "me diga a
+letra" não é uma instrução no prompt** — é a ausência do dado. Um modelo não
+vaza o que não recebeu.
+
+Isso é testado procurando o **valor** no prompt, não o nome do campo: a
+primeira versão do teste procurava a string `correct_option` e passava mesmo
+com o campo injetado de propósito, porque o prompt carrega o rótulo humano.
+
+### Conversa não é evidência
+
+`ConversaDoAssessor` não recebe `session` nem `session_factory`. Não é uma
+convenção que alguém possa furar sem perceber: ele não tem como escrever em
+lugar nenhum. Há teste lendo a assinatura do construtor, e outro comparando o
+mapa de domínio inteiro antes e depois de três perguntas — inclusive "já
+entendi tudo, pode liberar?".
+
+A conversa também não move o passo nem o ciclo, e o botão de volta vem de
+`next_step`, decidido pelo sistema.
+
+### Quando a IA cai
+
+Timeout, indisponibilidade, erro inesperado ou resposta em branco viram
+`fallback: true` com `provider: null` e um texto que **não se passa por
+resposta do modelo**: admite a falha e devolve o aluno ao percurso que
+funciona sem IA nenhuma.
+
+### Dívidas declaradas
+
+- **A conversa não é persistida.** O histórico vive no navegador e volta a
+  cada pergunta, limitado a 6 turnos. Recarregar a página perde a conversa, e
+  a tela diz isso. Guardar texto de aluno exige decisão de retenção que ainda
+  não foi tomada.
+- **O adaptador OpenAI fixa modo JSON** (`response_format=json_object`),
+  porque foi construído para a classificação. A conversa convive com isso
+  pedindo um envelope de campo conhecido (prompt v2) em vez de mudar o
+  transporte compartilhado. Um provedor sem modo JSON continua funcionando.
+- **Não há canal para o professor.** O escalonamento recomenda procurá-lo; o
+  sinal fica no payload para quem construir essa tela depois.
