@@ -55,6 +55,50 @@ PASSO_PRATICA = "PRACTICE"         # praticar o conteudo (AdaptivePracticeServic
 PASSO_ATIVIDADE = "ACTIVITY"       # abrir a tarefa da escola
 PASSO_NENHUM = "NONE"              # nao ha o que oferecer, e a tela diz isso
 
+# Em que pe esta ESSE passo. Importados do player, nao redigitados: uma
+# segunda lista de estados divergiria da primeira no dia em que uma delas
+# mudasse.
+from agente_ia_edu.services.activity_player_store import (  # noqa: E402
+    STATUS_COMPLETED as ESTADO_CONCLUIDO,
+    STATUS_IN_PROGRESS as ESTADO_EM_ANDAMENTO,
+    STATUS_NOT_STARTED as ESTADO_NAO_INICIADO,
+)
+
+# O CTA SAI DA MATRIZ (tipo x estado), NAO DE UM MAPA POR TIPO.
+#
+# Antes o rotulo vinha de um dicionario `kind -> texto` no JavaScript:
+# DIAGNOSTIC era sempre "Responder". O aluno acertava as tres perguntas, a
+# tela dizia "DIAGNOSTICO CONCLUIDO - voce demonstrou bom dominio", e o botao
+# continuava convidando a RESPONDER o que ele acabara de responder.
+#
+# Trocar a string resolveria aquela tela e deixaria as outras seis
+# combinacoes erradas. O rotulo precisa saber em que pe a etapa esta.
+_CTA = {
+    (PASSO_DIAGNOSTICO, ESTADO_NAO_INICIADO): "Responder diagnóstico",
+    (PASSO_DIAGNOSTICO, ESTADO_EM_ANDAMENTO): "Continuar diagnóstico",
+    (PASSO_DIAGNOSTICO, ESTADO_CONCLUIDO): "Continuar",
+    (PASSO_PRATICA, ESTADO_NAO_INICIADO): "Praticar agora",
+    (PASSO_PRATICA, ESTADO_EM_ANDAMENTO): "Continuar prática",
+    (PASSO_PRATICA, ESTADO_CONCLUIDO): "Continuar",
+    (PASSO_ATIVIDADE, ESTADO_NAO_INICIADO): "Começar atividade",
+    (PASSO_ATIVIDADE, ESTADO_EM_ANDAMENTO): "Continuar atividade",
+    (PASSO_ATIVIDADE, ESTADO_CONCLUIDO): "Ver resultado",
+}
+
+
+def cta_para(kind: str, estado: str) -> str | None:
+    """O texto do botao, a partir do tipo do passo e de como ele esta.
+
+    None quando nao ha passo: botao sem destino e pior que nenhum botao.
+
+    Um estado desconhecido cai no "nao iniciado" em vez de deixar a tela sem
+    botao - errar o verbo e recuperavel, deixar o aluno parado nao e.
+    """
+    if kind == PASSO_NENHUM or kind not in (
+            PASSO_DIAGNOSTICO, PASSO_PRATICA, PASSO_ATIVIDADE):
+        return None
+    return _CTA.get((kind, estado)) or _CTA[(kind, ESTADO_NAO_INICIADO)]
+
 
 def _faixa(thresholds: PerformanceThresholdPolicy, evidencia: dict) -> str:
     return thresholds.band(answered=int(evidencia.get("answered") or 0),
@@ -169,6 +213,10 @@ def passo_para(conteudos: Sequence[dict], *,
 
 
 __all__ = [
+    "cta_para",
+    "ESTADO_NAO_INICIADO",
+    "ESTADO_EM_ANDAMENTO",
+    "ESTADO_CONCLUIDO",
     "passo_para",
     "PASSO_DIAGNOSTICO",
     "PASSO_PRATICA",

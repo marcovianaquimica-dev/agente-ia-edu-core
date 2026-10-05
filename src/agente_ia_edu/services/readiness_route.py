@@ -104,7 +104,7 @@ class ReadinessRouteService:
         from agente_ia_edu.services.adaptive_learning_path import (
             AdaptiveLearningPathService,
         )
-        from agente_ia_edu.services.proximo_passo import passo_para
+        from agente_ia_edu.services.proximo_passo import cta_para, passo_para
 
         # `student_activities` ja resolve as duas coisas de que precisamos: a
         # AUTORIZACAO (so devolve o que e desta pessoa) e os `content_codes`
@@ -160,6 +160,12 @@ class ReadinessRouteService:
         passo = passo_para(detalhes)
         rota = passo["readiness_route"]
 
+        # EM QUE PE ESTA O PASSO. Sem isto o CTA so sabia o TIPO da proxima
+        # acao, e dizia "Responder" a quem acabara de responder.
+        passo["state"] = await self._estado_do_passo(
+            passo, assignment_id, student_external_id, requester=requester)
+        passo["cta"] = cta_para(passo["kind"], passo["state"])
+
         return {
             "assignment_id": str(assignment_id),
             "title": atividade.get("title"),
@@ -174,6 +180,60 @@ class ReadinessRouteService:
             "objective_assignment_id": str(assignment_id),
             "objective_completed": False,
         }
+
+    async def _estado_do_passo(self, passo: dict, assignment_id, aluno: str, *,
+                               requester) -> str:
+        """NAO_INICIADO / EM_ANDAMENTO / CONCLUIDO para o passo em questao.
+
+        Para a ATIVIDADE, o estado e o da tentativa dela. Para diagnostico e
+        pratica, e o da ultima pratica ABERTA daquele conteudo - se nao houver
+        nenhuma, o aluno ainda nao comecou.
+
+        Nada aqui decide pedagogia: so reporta o que ja esta gravado, para que
+        o botao possa dizer a verdade.
+        """
+        from agente_ia_edu.services.activity_player_store import (
+            ActivityPlayerStore, PlayerError,
+        )
+        from agente_ia_edu.services.proximo_passo import (
+            ESTADO_CONCLUIDO, ESTADO_EM_ANDAMENTO, ESTADO_NAO_INICIADO,
+            PASSO_ATIVIDADE, PASSO_DIAGNOSTICO, PASSO_PRATICA,
+        )
+
+        kind = passo.get("kind")
+        if kind == PASSO_ATIVIDADE:
+            try:
+                estado = await ActivityPlayerStore(self._session).get_state(
+                    assignment_id, requester=requester)
+            except (PlayerError, LookupError, PermissionError):
+                return ESTADO_NAO_INICIADO
+            return estado.get("status") or ESTADO_NAO_INICIADO
+
+        if kind not in (PASSO_DIAGNOSTICO, PASSO_PRATICA):
+            return ESTADO_NAO_INICIADO
+
+        from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
+
+        try:
+            praticas = await AdaptivePracticeService(self._session).list_practices(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001 - sem praticas: nao comecou
+            return ESTADO_NAO_INICIADO
+
+        alvo = passo.get("content_code")
+        minhas = [p for p in (praticas.get("items") or [])
+                  if p.get("content_code") == alvo]
+        if not minhas:
+            return ESTADO_NAO_INICIADO
+        # A mais recente primeiro (list_practices ordena por created_at desc).
+        estado = (minhas[0].get("state") or "")
+        if "IN_PROGRESS" in estado:
+            return ESTADO_EM_ANDAMENTO
+        if "COMPLETED" in estado or "CORRECTED" in estado:
+            return ESTADO_CONCLUIDO
+        # PRACTICE_CREATED: existe, mas o aluno nao abriu - para ele, nao
+        # comecou. "Continuar" sobre algo que ele nunca viu seria mentira.
+        return ESTADO_NAO_INICIADO
 
     @staticmethod
     async def _prereqs_do_catalogo(planejador, codigo, requester, por_conteudo) -> list[dict]:

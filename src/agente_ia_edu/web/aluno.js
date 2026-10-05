@@ -138,16 +138,29 @@
   // ================================== o cartao OBEDECE o proximo passo ====
   // Nada aqui decide pedagogia. `next_step.kind` vem do backend
   // (services/proximo_passo.py) e esta funcao so escolhe as palavras.
+  // Cada tipo de passo sabe que ACAO disparar. O TEXTO do botao nao mora
+  // aqui: vem de `next_step.cta`, calculado no backend a partir de
+  // (tipo x estado).
+  //
+  // Antes havia um rotulo fixo por tipo - DIAGNOSTIC era sempre "Responder" -
+  // e por isso, depois de acertar as tres perguntas, a tela dizia
+  // "DIAGNOSTICO CONCLUIDO" com um botao convidando a RESPONDER de novo.
   const ACOES = {
-    DIAGNOSTIC: { acao: 'diagnosticar', rotulo: 'Responder' },
-    PRACTICE: { acao: 'praticar', rotulo: 'Revisar agora' },
-    ACTIVITY: { acao: 'abrir-tarefa', rotulo: 'Começar' },
+    DIAGNOSTIC: { acao: 'diagnosticar' },
+    PRACTICE: { acao: 'praticar' },
+    ACTIVITY: { acao: 'abrir-tarefa' },
   };
 
-  // Uma atividade ja entregue nao se "comeca" de novo - abre-se o resultado.
-  const rotuloDaAcao = (passo, tarefa) =>
-    (passo.kind === 'ACTIVITY' && tarefa && tarefa.entregue)
-      ? 'Ver resultado' : ACOES[passo.kind].rotulo;
+  // O backend e a autoridade sobre o rotulo. O fallback existe so para a tela
+  // nao ficar com um botao vazio se o campo faltar.
+  //
+  // `aposConcluir` e CONTEXTO DE TELA, nao decisao pedagogica: o destino
+  // continua sendo o `next_step` que o backend calculou. O que muda e o verbo.
+  // Na Home, "Responder diagnostico" descreve o que vai acontecer. Logo
+  // depois de o aluno terminar uma etapa, a mesma frase soa como se ele
+  // tivesse de refazer o que acabou de fazer - ali ele esta SEGUINDO.
+  const rotuloDaAcao = (passo, { aposConcluir = false } = {}) =>
+    (aposConcluir ? 'Continuar' : passo.cta) || 'Continuar';
 
   function explicacao(passo, tarefa) {
     const alvo = esc(passo.content_name);
@@ -166,9 +179,9 @@
         : `Vamos praticar <strong>${alvo}</strong> um pouco.`;
     }
     if (passo.kind === 'ACTIVITY') {
-      return tarefa.entregue
-        ? 'Você já entregou esta atividade.'
-        : `${tarefa.question_count} ${tarefa.question_count === 1 ? 'questão' : 'questões'}.`;
+      if (passo.state === 'COMPLETED') return 'Você já entregou esta atividade.';
+      if (passo.state === 'IN_PROGRESS') return 'Você começou e ainda não entregou.';
+      return `${tarefa.question_count} ${tarefa.question_count === 1 ? 'questão' : 'questões'}.`;
     }
     return '';
   }
@@ -193,7 +206,8 @@
     }
 
     const selo = passo.kind !== 'ACTIVITY' ? ''
-      : t.entregue ? '<span class="selo selo-bom">Entregue</span>'
+      : passo.state === 'COMPLETED' ? '<span class="selo selo-bom">Entregue</span>'
+      : passo.state === 'IN_PROGRESS' ? '<span class="selo selo-neutro">Em andamento</span>'
       : '<span class="selo selo-bom">Pronto para começar</span>';
     const id = passo.kind === 'ACTIVITY' ? ` data-id="${esc(t.assignment_id)}"` : '';
     const codigo = passo.content_code ? ` data-conteudo="${esc(passo.content_code)}"` : '';
@@ -205,7 +219,7 @@
         ${selo}
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
         <p class="detalhe">${explicacao(passo, t)}</p>
-        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${esc(rotuloDaAcao(passo, t))}</button>
+        <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}>${esc(rotuloDaAcao(passo))}</button>
       </div>`;
   }
 
@@ -222,17 +236,9 @@
       const t = app.tarefas[0];
       app.prontidao = await api(
         `/api/v1/student/activities/${t.assignment_id}/readiness`);
-      // A atividade ja foi entregue? So pergunto quando ela e o proximo passo
-      // - nos outros casos a resposta nao mudaria nada na tela, e seria uma
-      // requisicao a mais na abertura do app.
-      t.entregue = false;
-      if ((app.prontidao.next_step || {}).kind === 'ACTIVITY') {
-        try {
-          const tent = await api(
-            `/api/v1/student/activities/${t.assignment_id}/attempt`);
-          t.entregue = tent.status === 'COMPLETED';
-        } catch (_) { /* sem tentativa ainda: segue como nao entregue */ }
-      }
+      // `next_step.state` ja diz se a atividade foi entregue, esta em
+      // andamento ou nem comecou - antes isto custava uma requisicao extra
+      // so para descobrir o rotulo do botao.
       $('home').innerHTML = cartaoDaTarefa(t, app.prontidao);
     } catch (e) {
       if (e.status === 401 || e.status === 403) {
@@ -413,12 +419,14 @@
     const cfg = ACOES[passo.kind];
     $('sessao-resumo').textContent = 'Pronto';
 
+    // O aluno ACABOU de concluir uma etapa: o botao leva ao proximo passo,
+    // com o rotulo que o backend calculou para ele.
     const seguir = cfg
       ? `<button class="botao botao-principal" data-acao="${cfg.acao}"
                  ${passo.kind === 'ACTIVITY' && d.objetivo
                    ? `data-id="${esc(d.objetivo.assignment_id)}"` : ''}
                  ${passo.content_code ? `data-conteudo="${esc(passo.content_code)}"` : ''}
-                 >${esc(cfg.kindRotulo || cfg.rotulo)}</button>`
+                 >${esc(rotuloDaAcao(passo, { aposConcluir: true }))}</button>`
       : '';
 
     $('bloco').innerHTML = `
@@ -841,7 +849,7 @@
           const acao = (item === podeRevisar)
             ? `<button class="botao botao-secundario botao-pequeno"
                        data-acao="praticar" data-conteudo="${esc(alvo.content_code)}"
-               >Revisar agora</button>` : '';
+               >${esc(alvo.cta || 'Praticar agora')}</button>` : '';
           return `
             <li class="cartao-faixa ${cfg.classe}">
               <span class="faixa-icone" aria-hidden="true">${cfg.icone}</span>
