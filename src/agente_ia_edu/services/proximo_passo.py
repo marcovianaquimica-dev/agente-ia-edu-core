@@ -51,6 +51,7 @@ from agente_ia_edu.services.readiness_route import (
 
 # O que o aluno faz AGORA. Quatro, e o quarto e honesto.
 PASSO_DIAGNOSTICO = "DIAGNOSTIC"   # responder o microdiagnostico
+PASSO_ENSINO = "LEARN"             # ENTENDER antes de responder de novo
 PASSO_PRATICA = "PRACTICE"         # praticar o conteudo (AdaptivePracticeService)
 PASSO_ATIVIDADE = "ACTIVITY"       # abrir a tarefa da escola
 PASSO_NENHUM = "NONE"              # nao ha o que oferecer, e a tela diz isso
@@ -74,6 +75,15 @@ from agente_ia_edu.services.activity_player_store import (  # noqa: E402
 # Trocar a string resolveria aquela tela e deixaria as outras seis
 # combinacoes erradas. O rotulo precisa saber em que pe a etapa esta.
 _CTA = {
+    # ENSINO: uma quarta linha da MESMA matriz, nao um caso especial costurado
+    # na tela. Caso especial na tela vira `if` no JavaScript - de onde este
+    # projeto ja teve de tirar o rotulo "Responder" uma vez.
+    #
+    # No fim do ensino o rotulo diz PARA ONDE se vai ("Praticar agora"), e nao
+    # "Continuar": e justamente a desorientacao que motivou este bloco.
+    (PASSO_ENSINO, ESTADO_NAO_INICIADO): "Entender o conceito",
+    (PASSO_ENSINO, ESTADO_EM_ANDAMENTO): "Continuar estudando",
+    (PASSO_ENSINO, ESTADO_CONCLUIDO): "Praticar agora",
     (PASSO_DIAGNOSTICO, ESTADO_NAO_INICIADO): "Responder diagnóstico",
     (PASSO_DIAGNOSTICO, ESTADO_EM_ANDAMENTO): "Continuar diagnóstico",
     (PASSO_DIAGNOSTICO, ESTADO_CONCLUIDO): "Continuar",
@@ -148,6 +158,10 @@ def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
         # Onde o aluno esta AGORA, segundo o proximo passo.
         atual = {
             PASSO_DIAGNOSTICO: ETAPA_DIAGNOSTICO,
+            # Ensinar acontece DENTRO de "Preparacao", junto com praticar. Uma
+            # etapa "Ensino" ao lado dela dobraria a barra e contaria ao aluno
+            # um detalhe de implementacao.
+            PASSO_ENSINO: ETAPA_PREPARACAO,
             PASSO_PRATICA: ETAPA_PREPARACAO,
             PASSO_ATIVIDADE: ETAPA_ATIVIDADE,
         }.get(kind)
@@ -190,7 +204,7 @@ def cta_para(kind: str, estado: str) -> str | None:
     botao - errar o verbo e recuperavel, deixar o aluno parado nao e.
     """
     if kind == PASSO_NENHUM or kind not in (
-            PASSO_DIAGNOSTICO, PASSO_PRATICA, PASSO_ATIVIDADE):
+            PASSO_DIAGNOSTICO, PASSO_ENSINO, PASSO_PRATICA, PASSO_ATIVIDADE):
         return None
     return _CTA.get((kind, estado)) or _CTA[(kind, ESTADO_NAO_INICIADO)]
 

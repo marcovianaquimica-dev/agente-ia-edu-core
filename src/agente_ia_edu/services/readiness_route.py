@@ -151,7 +151,7 @@ class ReadinessRouteService:
             AdaptiveLearningPathService,
         )
         from agente_ia_edu.services.proximo_passo import (
-            cta_para, jornada_de, passo_para,
+            PASSO_PRATICA, cta_para, jornada_de, passo_para,
         )
 
         # `student_activities` ja resolve as duas coisas de que precisamos: a
@@ -213,6 +213,19 @@ class ReadinessRouteService:
         passo = passo_para(detalhes)
         rota = passo["readiness_route"]
 
+        # O ASSESSOR PEDAGOGICO. Quando o proximo passo e praticar um conteudo
+        # em que o aluno ACABOU de ir mal, oferecer mais questoes e o que o
+        # teste humano chamou de "responder questoes para sempre". Aqui o
+        # passo pode virar ENSINO - uma explicacao, um exemplo - antes da
+        # proxima tentativa.
+        #
+        # Quem decide e `assessor_pedagogico`, que e deterministico e nao
+        # conhece provider de IA. Esta camada so junta o que ele precisa saber.
+        if passo["kind"] == PASSO_PRATICA:
+            passo = await self._com_intervencao(
+                passo, detalhes, student_external_id, requester=requester)
+            rota = passo["readiness_route"]
+
         # EM QUE PE ESTA O PASSO. Sem isto o CTA so sabia o TIPO da proxima
         # acao, e dizia "Responder" a quem acabara de responder.
         passo["state"], retomar = await self._estado_do_passo(
@@ -267,6 +280,186 @@ class ReadinessRouteService:
             "objective_assignment_id": str(assignment_id),
             "objective_completed": False,
         }
+
+    async def _com_intervencao(self, passo: dict, detalhes: list[dict],
+                               aluno: str, *, requester) -> dict:
+        """Transforma PRATICA em ENSINO quando o aluno precisa aprender antes.
+
+        Tudo o que o assessor consulta ja existe e ja e gravado por outro
+        motivo: o material publicado daquele conteudo (PHASE 23), a posicao de
+        leitura do aluno (PHASE 25) e as praticas concluidas (PHASE 22). Nao
+        ha persistencia nova nesta decisao.
+        """
+        from agente_ia_edu.services.assessor_pedagogico import (
+            ACAO_ENSINAR, decidir_intervencao,
+        )
+        from agente_ia_edu.services.proximo_passo import PASSO_ENSINO
+
+        codigo = passo.get("content_code")
+        if not codigo:
+            return passo
+
+        evidencia = self._evidencia_de(codigo, detalhes)
+        habilidades = await self._habilidades_de(codigo, aluno, requester=requester)
+        material = await self._material_de(codigo, requester=requester)
+        ja_ensinado = bool(material) and await self._ja_estudou(
+            material["material_id"], aluno, requester=requester)
+
+        intervencao = decidir_intervencao(
+            habilidades=habilidades,
+            banda_do_conteudo=self._banda(evidencia),
+            ja_ensinado=ja_ensinado,
+            praticas_concluidas=await self._praticas_concluidas(
+                codigo, aluno, requester=requester),
+            ha_material=bool(material),
+            objetivo_nome=passo.get("for_content_name"),
+            conteudo_nome=passo.get("content_name"),
+        )
+        passo["intervention"] = intervencao
+        if intervencao.get("action") == ACAO_ENSINAR and material:
+            passo["kind"] = PASSO_ENSINO
+            passo["material_id"] = material["material_id"]
+            passo["material_title"] = material["title"]
+            # Ensinar e preparar: a jornada precisa acender "Preparacao", e
+            # sem isto a rota continuaria dizendo que o passo e diagnostico.
+            passo["readiness_route"] = ROTA_PREPARACAO
+        return passo
+
+    def _banda(self, evidencia: dict) -> str:
+        from agente_ia_edu.services.pedagogical_analysis import (
+            PerformanceThresholdPolicy,
+        )
+        return PerformanceThresholdPolicy.default().band(
+            answered=int(evidencia.get("answered") or 0),
+            accuracy=evidencia.get("accuracy"))
+
+    @staticmethod
+    def _evidencia_de(codigo: str, detalhes: list[dict]) -> dict:
+        """A evidencia daquele codigo, seja ele o conteudo exigido ou um
+        pre-requisito dele - os dois ja chegam enriquecidos."""
+        for c in detalhes:
+            if c.get("content_code") == codigo:
+                return c
+            for p in c.get("prerequisites") or []:
+                if p.get("code") == codigo:
+                    return p
+        return {}
+
+    async def _material_de(self, codigo: str, *, requester) -> dict | None:
+        """O material publicado daquele conteudo, se houver.
+
+        Nao havendo, o assessor manda praticar: prometer uma explicacao que
+        nao existe seria pior que a pratica.
+        """
+        from agente_ia_edu.services.student_material import StudentMaterialService
+
+        try:
+            materiais = await StudentMaterialService(self._session).list_materials(
+                requester_school_id=getattr(requester, "school_id", None),
+                content_code=codigo)
+        except Exception:  # noqa: BLE001 - sem material: segue para a pratica
+            return None
+        return materiais[0] if materiais else None
+
+    async def _ja_estudou(self, material_id: str, aluno: str, *, requester) -> bool:
+        """O aluno CONCLUIU aquela explicacao?
+
+        `MaterialProgress` existe desde a PHASE 25 e guarda POSICAO - nada de
+        dominio. E justamente por nao ser evidencia que serve aqui: diz o que
+        ele ja viu, sem dizer que ele aprendeu.
+
+        COMPLETED, nao `started`: quem apenas abriu e saiu precisa VOLTAR para
+        a explicacao, no ponto onde parou - mandar esse aluno para a pratica
+        seria perder o ensino no meio. COMPLETED e ele dizendo "entendi".
+        """
+        return await self._estado_do_estudo(material_id, aluno,
+                                            requester=requester) == "COMPLETED"
+
+    async def _estado_do_estudo(self, material_id: str, aluno: str, *,
+                                requester) -> str:
+        """NOT_STARTED / IN_PROGRESS / COMPLETED da leitura."""
+        from uuid import UUID as _U
+
+        from agente_ia_edu.services.student_material import StudentMaterialService
+
+        try:
+            progresso = await StudentMaterialService(self._session).get_progress(
+                _U(material_id), aluno,
+                requester_school_id=getattr(requester, "school_id", None))
+        except Exception:  # noqa: BLE001 - sem progresso: ainda nao estudou
+            return "NOT_STARTED"
+        return (progresso or {}).get("status") or "NOT_STARTED"
+
+    async def _praticas_concluidas(self, codigo: str, aluno: str, *, requester) -> int:
+        from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
+
+        try:
+            praticas = await AdaptivePracticeService(self._session).list_practices(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001 - sem praticas: ciclo zero
+            return 0
+        return sum(
+            1 for p in (praticas.get("items") or [])
+            if p.get("content_code") == codigo
+            and any(x in (p.get("state") or "") for x in ("COMPLETED", "CORRECTED"))
+        )
+
+    async def _habilidades_de(self, codigo: str, aluno: str, *, requester) -> dict:
+        """Qual MICRO-habilidade falhou, quando a amostra sustenta dizer.
+
+        Sem isto a intervencao fala do conteudo inteiro ("balanceamento"); com
+        isto ela fala do ponto ("a conservacao dos atomos"). O modulo que
+        agrega ja cala sozinho quando a amostra nao sustenta - nao se inventa
+        granularidade.
+        """
+        from sqlalchemy import select as _sel
+
+        from agente_ia_edu.db.models import ActivityResult, ActivityResultItem
+        from agente_ia_edu.db.models.pedagogical import (
+            PedagogicalClassification as _PC,
+        )
+        from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
+        from agente_ia_edu.services.diagnostico_por_habilidade import (
+            diagnostico_por_habilidade,
+        )
+
+        vazio = {"por_habilidade": {}, "suficiente": False, "texto": None}
+        try:
+            praticas = await AdaptivePracticeService(self._session).list_practices(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001
+            return vazio
+        ids = [p.get("assignment_id") for p in (praticas.get("items") or [])
+               if p.get("content_code") == codigo and p.get("assignment_id")]
+        if not ids:
+            return vazio
+
+        from uuid import UUID as _U
+
+        try:
+            alvos = [_U(str(i)) for i in ids]
+        except (TypeError, ValueError):  # pragma: no cover - id improvavel
+            return vazio
+
+        resultados = (await self._session.execute(
+            _sel(ActivityResult.id).where(
+                ActivityResult.assignment_id.in_(alvos),
+                ActivityResult.student_external_id == aluno))).scalars().all()
+        if not resultados:
+            return vazio
+        itens = (await self._session.execute(
+            _sel(ActivityResultItem).where(
+                ActivityResultItem.result_id.in_(list(resultados))))).scalars().all()
+        if not itens:
+            return vazio
+        vids = {i.question_version_id for i in itens}
+        skills = dict((await self._session.execute(
+            _sel(_PC.question_version_id, _PC.subcontent).where(
+                _PC.question_version_id.in_(vids),
+                _PC.lifecycle == "ACTIVE"))).all())
+        return diagnostico_por_habilidade(
+            [{"diagnostic_skill": skills.get(i.question_version_id),
+              "is_correct": bool(i.is_correct)} for i in itens])
 
     async def _origens_de(self, codigos, aluno: str, *, requester) -> dict[str, int]:
         """Quantas evidencias de cada ORIGEM existem nestes conteudos.
@@ -331,10 +524,23 @@ class ReadinessRouteService:
         )
         from agente_ia_edu.services.proximo_passo import (
             ESTADO_CONCLUIDO, ESTADO_EM_ANDAMENTO, ESTADO_NAO_INICIADO,
-            PASSO_ATIVIDADE, PASSO_DIAGNOSTICO, PASSO_PRATICA,
+            PASSO_ATIVIDADE, PASSO_DIAGNOSTICO, PASSO_ENSINO, PASSO_PRATICA,
         )
 
         kind = passo.get("kind")
+        if kind == PASSO_ENSINO:
+            # O estado do ENSINO e o da leitura. Sem isto o passo cairia na
+            # regra da pratica e diria "Entender o conceito" a quem esta no
+            # meio da explicacao.
+            material = passo.get("material_id")
+            if not material:
+                return ESTADO_NAO_INICIADO, None
+            estado = await self._estado_do_estudo(material, aluno,
+                                                  requester=requester)
+            return ({"IN_PROGRESS": ESTADO_EM_ANDAMENTO,
+                     "COMPLETED": ESTADO_CONCLUIDO}.get(
+                        estado, ESTADO_NAO_INICIADO), None)
+
         if kind == PASSO_ATIVIDADE:
             try:
                 estado = await ActivityPlayerStore(self._session).get_state(
@@ -365,6 +571,16 @@ class ReadinessRouteService:
         if "IN_PROGRESS" in estado:
             return ESTADO_EM_ANDAMENTO, str(minhas[0].get("assignment_id") or "") or None
         if "COMPLETED" in estado or "CORRECTED" in estado:
+            # PRATICA CONCLUIDA NAO CONCLUI O PASSO DE PRATICAR.
+            #
+            # Se o passo AINDA e praticar, e porque a evidencia nao bastou: o
+            # sistema esta pedindo outra pratica, nao a mesma. Dizer CONCLUIDO
+            # fazia o botao sair "Continuar" logo depois de o aluno terminar a
+            # explicacao - vago justamente onde ele precisa saber para onde
+            # vai. Para o DIAGNOSTICO continua valendo o contrario: "voce ja
+            # fez este diagnostico" e um fato sobre o que ele fez.
+            if kind == PASSO_PRATICA:
+                return ESTADO_NAO_INICIADO, None
             return ESTADO_CONCLUIDO, None
         # PRACTICE_CREATED: existe, mas o aluno nao abriu - para ele, nao
         # comecou. "Continuar" sobre algo que ele nunca viu seria mentira.
