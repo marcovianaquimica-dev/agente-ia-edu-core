@@ -771,18 +771,29 @@ class EssayBatchService:
         return [submission_id] if submission_id is not None else []
 
     async def _process_page(
-        self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]]
+        self, page: EssayBatchPage, roster: Sequence[tuple[uuid.UUID, str, str | None]],
+        *, storage_uri: str, page_number: int, batch_id: uuid.UUID,
     ) -> None:
         """Le uma pagina e grava o que foi lido. Best-effort: qualquer falha
         (OCR esgotou as tentativas, imagem corrompida) deixa a pagina em
         NEEDS_REVIEW com os campos de leitura vazios, mesmo padrao por item que
-        essay_proposal.create_assignments_bulk ja usa."""
+        essay_proposal.create_assignments_bulk ja usa.
+
+        storage_uri/page_number/batch_id vem do CHAMADOR, nunca lidos de
+        ``page`` aqui: process_batch commita apos cada pagina, e
+        expire_on_commit=True (producao) expira TODO objeto da sessao no
+        commit anterior - ler um atributo de ``page`` a partir da segunda
+        pagina em diante dispara um refresh sincrono que estoura com
+        MissingGreenlet em contexto async (confirmado ao vivo 2026-10-05: o
+        lote travava pra sempre em PROCESSING a partir da pagina 2). Atribuir
+        um valor NOVO a ``page.status``/``page.ocr_*`` abaixo continua seguro
+        - so LER que nao e."""
         try:
-            name, cpf, body_text = await self.read_page_regions(Path(page.storage_uri))
+            name, cpf, body_text = await self.read_page_regions(Path(storage_uri))
         except (ProviderError, ValueError) as exc:
             logger.warning(
                 "pagina %s do lote %s nao pode ser lida, vai para revisao manual: %s",
-                page.page_number, page.batch_id, exc,
+                page_number, batch_id, exc,
             )
             page.status = "NEEDS_REVIEW"
             return
@@ -811,9 +822,16 @@ class EssayBatchService:
             .where(EssayBatchPage.batch_id == batch_id)
             .order_by(EssayBatchPage.page_number)
         )).scalars().all()
+        # Capturado ANTES do loop, enquanto nada ainda expirou - ver o
+        # docstring de _process_page pro porque isto e necessario a partir da
+        # segunda pagina.
+        page_reads = [(p.storage_uri, p.page_number, p.batch_id) for p in pages]
 
-        for page in pages:
-            await self._process_page(page, roster)
+        for page, (storage_uri, page_number, page_batch_id) in zip(pages, page_reads):
+            await self._process_page(
+                page, roster,
+                storage_uri=storage_uri, page_number=page_number, batch_id=page_batch_id,
+            )
             await self.session.commit()
 
         # Agrupa as corridas e cria as submissoes SO depois que todas as
