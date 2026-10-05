@@ -556,7 +556,28 @@
           Entendi, vamos praticar
         </button>
       </div>`;
+    // POR ONDE ABRIR A EXPLICACAO.
+    //
+    // UX-4 do teste manual: na segunda intervencao o aluno reabria o mesmo
+    // texto do mesmo ponto - a primeira explicacao repetida. O backend agora
+    // diz por onde entrar (`intervention.approach`), e esta tela obedece.
+    //
+    // Nao ha segundo material: e o mesmo conteudo, aberto em outro lugar.
+    // Inventar um texto alternativo aqui seria inventar conteudo pedagogico
+    // no navegador.
     window.scrollTo(0, 0);
+    if (inter.approach === 'EXEMPLO') abrirNoExemplo();
+  }
+
+  /** Leva a vista ao exemplo resolvido, quando e por ele que se deve entrar. */
+  function abrirNoExemplo() {
+    const alvo = document.querySelector('.exemplo');
+    if (!alvo) return;                  // material sem exemplo: fica no comeco
+    const secao = alvo.closest('.secao-estudo') || alvo;
+    const menos = !!(window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    secao.scrollIntoView({ behavior: menos ? 'auto' : 'smooth',
+                           block: 'start' });
   }
 
   // Revelar um passo do exemplo tambem GRAVA a posicao - e assim que o sistema

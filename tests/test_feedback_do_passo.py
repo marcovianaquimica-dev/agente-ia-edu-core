@@ -103,6 +103,27 @@ class CDificuldadePersistente(unittest.TestCase):
         self.assertRegex(texto(d).lower(), r"de novo|outra vez|ainda|mais uma")
 
 
+class ASegundaExplicacaoDIZQueEOutra(unittest.TestCase):
+    """A frase e o comportamento sao a mesma decisao.
+
+    Se o texto diz "vamos pelo exemplo" e a tela abre no primeiro parágrafo,
+    uma das duas mente - e foi assim que o UX-4 aconteceu.
+    """
+
+    def test_a_frase_muda_com_a_abordagem(self):
+        generica = f(action=ACAO_ENSINAR, cycle=2)
+        pelo_exemplo = f(action=ACAO_ENSINAR, cycle=2, approach="EXEMPLO")
+        self.assertNotEqual(texto(generica), texto(pelo_exemplo))
+
+    def test_e_diz_de_onde_se_vai_partir(self):
+        d = f(action=ACAO_ENSINAR, cycle=2, approach="EXEMPLO")
+        self.assertRegex(texto(d).lower(), r"exemplo")
+
+    def test_a_primeira_nao_promete_exemplo_como_novidade(self):
+        d = f(action=ACAO_ENSINAR, cycle=1, approach="CONCEITO")
+        self.assertNotRegex(texto(d).lower(), r"direto ao exemplo")
+
+
 class DERecuperacaoEVerificacao(unittest.TestCase):
     def test_quem_melhorou_ouve_que_melhorou(self):
         d = f(action=ACAO_VERIFICAR, trend=TENDENCIA_RECUPERANDO)

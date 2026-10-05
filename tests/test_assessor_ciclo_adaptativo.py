@@ -142,6 +142,40 @@ class AchadoUmNaoEUmBancoDeQuestoes(unittest.TestCase):
                 self.assertEqual(d["action"], ACAO_ESCALAR)
 
 
+class ASegundaExplicacaoNaoPodeSerAPrimeira(unittest.TestCase):
+    """UX-4 do teste manual de 2026-10-05.
+
+        explicacao A -> pratica -> aluno continua com dificuldade
+        -> explicacao A de novo, do mesmo jeito
+
+    Reabrir o mesmo texto do mesmo ponto nao e uma segunda tentativa de
+    ensinar: e a primeira repetida. A intervencao passa a declarar POR ONDE
+    entrar - e a segunda entra por outra porta.
+
+    Nenhuma persistencia nova: o ciclo ja era derivado do que existe.
+    """
+
+    def test_a_primeira_intervencao_abre_pelo_conceito(self):
+        self.assertEqual(decidir()["approach"], "CONCEITO")
+
+    def test_a_segunda_NAO_abre_pelo_mesmo_lugar(self):
+        primeira = decidir()
+        segunda = decidir(praticas_concluidas=1, tentativas=[t(3, 0), t(5, 1)])
+        self.assertEqual(segunda["action"], ACAO_ENSINAR)
+        self.assertNotEqual(segunda["approach"], primeira["approach"],
+                            "a segunda explicacao e a primeira repetida")
+
+    def test_a_segunda_entra_pelo_exemplo_resolvido(self):
+        d = decidir(praticas_concluidas=1, tentativas=[t(3, 0), t(5, 1)])
+        self.assertEqual(d["approach"], "EXEMPLO")
+
+    def test_quem_nao_esta_sendo_ensinado_nao_declara_abordagem(self):
+        """`approach` e de ENSINAR. Praticar nao tem "por onde entrar"."""
+        d = decidir(ja_ensinado=True, ha_guiada_pendente=False)
+        self.assertEqual(d["action"], ACAO_PRATICAR)
+        self.assertIsNone(d["approach"])
+
+
 class AchadoDoisARecuperacaoEReconhecida(unittest.TestCase):
     """Nove acertos nas ultimas dez nao podem passar despercebidos."""
 

@@ -25,6 +25,7 @@ essas palavras.
 from __future__ import annotations
 
 from agente_ia_edu.services.assessor_pedagogico import (
+    ABORDAGEM_EXEMPLO,
     ACAO_ENSINAR,
     ACAO_ESCALAR,
     ACAO_GUIADA,
@@ -91,7 +92,8 @@ def feedback_do_diagnostico(*, decision: str, band: str, content_name: str,
 def feedback_do_passo(*, action: str | None, trend: str, cycle: int,
                       skill_name: str | None = None,
                       content_name: str | None = None,
-                      objective_name: str | None = None) -> dict:
+                      objective_name: str | None = None,
+                      approach: str | None = None) -> dict:
     """O que o aluno le depois de uma pratica - e por que ele continua aqui.
 
     O ACHADO 3 DO TESTE HUMANO (2026-10-05)
@@ -155,6 +157,15 @@ def feedback_do_passo(*, action: str | None, trend: str, cycle: int,
                     "titulo": f"Vamos olhar {assunto} com calma.",
                     "detalhe": "Antes de continuar, uma explicação curta com "
                                "um exemplo resolvido até o fim."}
+        if approach == ABORDAGEM_EXEMPLO:
+            # A FRASE E O COMPORTAMENTO SAO A MESMA DECISAO. Se o texto diz
+            # "pelo exemplo" e a tela abre no primeiro paragrafo, uma das duas
+            # mente - e foi assim que o UX-4 aconteceu.
+            return {"tom": TOM_REVISAR,
+                    "titulo": f"{assunto.capitalize()} ainda está travando.",
+                    "detalhe": "Reler o mesmo texto raramente destrava. Vamos "
+                               "direto ao exemplo resolvido, acompanhando a "
+                               "conta passo a passo."}
         return {"tom": TOM_REVISAR,
                 "titulo": f"{assunto.capitalize()} ainda está travando.",
                 "detalhe": "Vamos rever a explicação de outro jeito antes de "

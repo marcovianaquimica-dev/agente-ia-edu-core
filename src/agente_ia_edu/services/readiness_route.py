@@ -381,7 +381,8 @@ class ReadinessRouteService:
             cycle=intervencao.get("cycle") or 1,
             skill_name=intervencao.get("skill_name"),
             content_name=passo.get("content_name"),
-            objective_name=passo.get("for_content_name"))
+            objective_name=passo.get("for_content_name"),
+            approach=intervencao.get("approach"))
 
         if acao == ACAO_ENSINAR and material:
             passo["kind"] = PASSO_ENSINO

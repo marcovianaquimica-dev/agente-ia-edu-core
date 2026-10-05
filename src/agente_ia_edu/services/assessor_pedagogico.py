@@ -85,6 +85,15 @@ from agente_ia_edu.services.trajetoria_do_aluno import (
     tendencia,
 )
 
+# POR ONDE a explicacao entra. Nao sao dois materiais: e o mesmo conteudo
+# aberto por outra porta.
+#
+# UX-4 do teste manual de 2026-10-05: explicacao A -> pratica -> dificuldade
+# -> explicacao A de novo, do mesmo ponto. Reabrir o mesmo texto do mesmo
+# lugar nao e uma segunda tentativa de ensinar; e a primeira repetida.
+ABORDAGEM_CONCEITO = "CONCEITO"   # a ideia, do comeco
+ABORDAGEM_EXEMPLO = "EXEMPLO"     # direto no exemplo resolvido
+
 ACAO_ENSINAR = "TEACH"
 ACAO_GUIADA = "GUIDED"
 ACAO_PRATICAR = "PRACTICE"
@@ -165,6 +174,9 @@ def decidir_intervencao(
         "cycle": ciclo,
         "escalate": escalar,
         "trend": trajeto,
+        # So faz sentido quando a acao e ENSINAR: praticar nao tem "por onde
+        # entrar". Fica None no resto para ninguem ler significado onde nao ha.
+        "approach": None,
         "target_name": objetivo_nome,
         "blocking_name": conteudo_nome,
         "reason": None,
@@ -192,10 +204,12 @@ def decidir_intervencao(
 
     assunto = skill_nome or conteudo_nome or "este conteúdo"
 
+    acao = _acao(
+        trajeto=trajeto, escalar=escalar, ja_ensinado=ja_ensinado,
+        ha_material=ha_material, ha_guiada_pendente=ha_guiada_pendente)
     base.update({
-        "action": _acao(
-            trajeto=trajeto, escalar=escalar, ja_ensinado=ja_ensinado,
-            ha_material=ha_material, ha_guiada_pendente=ha_guiada_pendente),
+        "action": acao,
+        "approach": _abordagem(acao, ciclo),
         "reason": _motivo(assunto, conteudo_nome, objetivo_nome),
         "learning_objective": f"Entender {assunto} e usar isso para resolver "
                               f"exercícios sem travar.",
@@ -203,6 +217,24 @@ def decidir_intervencao(
                       "resolver sozinho — e só então seguimos.",
     })
     return base
+
+
+def _abordagem(acao: str, ciclo: int) -> str | None:
+    """Por onde a explicacao entra desta vez.
+
+    Na primeira, pela ideia - e o percurso que o material foi escrito para
+    ter. Da segunda em diante, direto pelo EXEMPLO RESOLVIDO: quem leu a
+    explicacao e continuou travando raramente destrava relendo o mesmo
+    paragrafo, e ver a conta sendo feita ate o fim ataca o mesmo ponto por
+    outro caminho.
+
+    Nao e um segundo material - e o mesmo, aberto em outro lugar. Inventar um
+    texto alternativo aqui seria inventar conteudo pedagogico, que nao e
+    decisao deste modulo nem deste sistema sem um humano.
+    """
+    if acao != ACAO_ENSINAR:
+        return None
+    return ABORDAGEM_CONCEITO if int(ciclo or 1) <= 1 else ABORDAGEM_EXEMPLO
 
 
 def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
