@@ -1226,3 +1226,84 @@ async def get_micro_diagnostic_decision(
         # precisar de uma segunda chamada nem adivinhar.
         decisao["next_step"] = proximo
         return decisao
+
+
+# ============================================================================
+# PRATICA GUIADA - o aluno tenta, e a ajuda chega quando precisa.
+#
+# Tres rotas finas sobre `PraticaGuiadaService`. Nenhum motor novo: a
+# conferencia e a progressao da ajuda estao no servico, e a tela so desenha.
+#
+# NADA DAQUI ESCREVE DOMINIO. A interacao assistida vai para
+# `guided_practice_items`, que o mapa de dominio nao le - acertar com ajuda
+# nao e dominar sozinho, e a comprovacao continua exigindo pratica autonoma.
+# ============================================================================
+from ...services.pratica_guiada import (  # noqa: E402
+    PraticaGuiadaService,
+    SemItemGuiado,
+)
+
+
+class _RespostaGuiadaRequest(_BaseModel):
+    selected_option: str = _Field(default="", max_length=8)
+
+
+def _guiada_404(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
+
+
+@student_router.get("/guided-practice",
+                    summary="Abre (ou retoma) a pratica guiada de um conteudo")
+async def abrir_pratica_guiada(
+    content_code: str,
+    skill: str | None = None,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await PraticaGuiadaService(session).abrir(
+                _me(ctx), content_code, skill,
+                requester=_student_requester(ctx))
+        except SemItemGuiado as exc:
+            raise _guiada_404(exc) from exc
+        except PermissionError as exc:
+            # Mesma resposta de "nao existe": quem nao pode ver tambem nao
+            # pode descobrir que existe.
+            raise _guiada_404(exc) from exc
+
+
+@student_router.post("/guided-practice/{item_key}/answer",
+                     summary="Uma tentativa na pratica guiada")
+async def responder_pratica_guiada(
+    item_key: str,
+    payload: _RespostaGuiadaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await PraticaGuiadaService(session).responder(
+                _me(ctx), item_key, payload.selected_option,
+                requester=_student_requester(ctx))
+        except SemItemGuiado as exc:
+            raise _guiada_404(exc) from exc
+        except PermissionError as exc:
+            raise _guiada_404(exc) from exc
+
+
+@student_router.post("/guided-practice/{item_key}/hint",
+                     summary="Libera o PROXIMO nivel de ajuda - um por vez")
+async def pedir_ajuda_pratica_guiada(
+    item_key: str,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await PraticaGuiadaService(session).pedir_ajuda(
+                _me(ctx), item_key, requester=_student_requester(ctx))
+        except SemItemGuiado as exc:
+            raise _guiada_404(exc) from exc
+        except PermissionError as exc:
+            raise _guiada_404(exc) from exc

@@ -52,6 +52,7 @@ from agente_ia_edu.services.readiness_route import (
 # O que o aluno faz AGORA. Quatro, e o quarto e honesto.
 PASSO_DIAGNOSTICO = "DIAGNOSTIC"   # responder o microdiagnostico
 PASSO_ENSINO = "LEARN"             # ENTENDER antes de responder de novo
+PASSO_GUIADA = "GUIDED_PRACTICE"   # TENTAR com ajuda progressiva do Assessor
 PASSO_PRATICA = "PRACTICE"         # praticar o conteudo (AdaptivePracticeService)
 PASSO_ATIVIDADE = "ACTIVITY"       # abrir a tarefa da escola
 PASSO_NENHUM = "NONE"              # nao ha o que oferecer, e a tela diz isso
@@ -83,7 +84,20 @@ _CTA = {
     # "Continuar": e justamente a desorientacao que motivou este bloco.
     (PASSO_ENSINO, ESTADO_NAO_INICIADO): "Entender o conceito",
     (PASSO_ENSINO, ESTADO_EM_ANDAMENTO): "Continuar estudando",
-    (PASSO_ENSINO, ESTADO_CONCLUIDO): "Praticar agora",
+    # Depois de entender vem TENTAR COM AJUDA, nao praticar sozinho - entre os
+    # dois entrou a pratica guiada, e "Praticar agora" aqui pularia por cima
+    # dela.
+    (PASSO_ENSINO, ESTADO_CONCLUIDO): "Tentar com ajuda",
+
+    # PRATICA GUIADA: o aluno tenta, e a ajuda chega quando precisa.
+    #
+    # O verbo e "tentar" de proposito: nao e ver nem estudar. E o rotulo do
+    # fim anuncia a diferenca que este bloco inteiro existe para marcar -
+    # conseguir com ajuda nao e dominar sozinho, entao o passo seguinte e
+    # explicitamente SOZINHO.
+    (PASSO_GUIADA, ESTADO_NAO_INICIADO): "Tentar com ajuda",
+    (PASSO_GUIADA, ESTADO_EM_ANDAMENTO): "Continuar tentando",
+    (PASSO_GUIADA, ESTADO_CONCLUIDO): "Agora tentar sozinho",
     (PASSO_DIAGNOSTICO, ESTADO_NAO_INICIADO): "Responder diagnóstico",
     (PASSO_DIAGNOSTICO, ESTADO_EM_ANDAMENTO): "Continuar diagnóstico",
     (PASSO_DIAGNOSTICO, ESTADO_CONCLUIDO): "Continuar",
@@ -162,6 +176,7 @@ def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
             # etapa "Ensino" ao lado dela dobraria a barra e contaria ao aluno
             # um detalhe de implementacao.
             PASSO_ENSINO: ETAPA_PREPARACAO,
+            PASSO_GUIADA: ETAPA_PREPARACAO,
             PASSO_PRATICA: ETAPA_PREPARACAO,
             PASSO_ATIVIDADE: ETAPA_ATIVIDADE,
         }.get(kind)
@@ -204,7 +219,8 @@ def cta_para(kind: str, estado: str) -> str | None:
     botao - errar o verbo e recuperavel, deixar o aluno parado nao e.
     """
     if kind == PASSO_NENHUM or kind not in (
-            PASSO_DIAGNOSTICO, PASSO_ENSINO, PASSO_PRATICA, PASSO_ATIVIDADE):
+            PASSO_DIAGNOSTICO, PASSO_ENSINO, PASSO_GUIADA, PASSO_PRATICA,
+            PASSO_ATIVIDADE):
         return None
     return _CTA.get((kind, estado)) or _CTA[(kind, ESTADO_NAO_INICIADO)]
 

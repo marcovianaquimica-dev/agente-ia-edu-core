@@ -45,10 +45,12 @@ from agente_ia_edu.db.models.catalog import (
     TheoryMaterialVersion,
 )
 from agente_ia_edu.services.conteudo_balanceamento import MATERIAL, SECOES
+from agente_ia_edu.services.itens_guiados import ITENS
 from agente_ia_edu.services.proximo_passo import (
     PASSO_ATIVIDADE,
     PASSO_DIAGNOSTICO,
     PASSO_ENSINO,
+    PASSO_GUIADA,
     PASSO_PRATICA,
 )
 
@@ -107,6 +109,23 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
             fx["material_id"] = await _publicar_material(self.factory)
             return fx
 
+        # O CENARIO USA CODIGOS PROPRIOS.
+        #
+        # `_seed` monta um catalogo ficticio (QUIM-*), enquanto os itens
+        # guiados declaram o conteudo real do Piloto Zero (CHEMISTRY-*). Sem
+        # um item para o codigo DESTE cenario, `item_para` devolve None e a
+        # rota responde 404 - o que esta certo: ela nao inventa pratica
+        # guiada generica.
+        #
+        # Entao o cenario registra o seu, e desfaz no fim. Nao e um atalho:
+        # e o mesmo que o conteudo real faz, so que para outro codigo.
+        # `SKILL_B` e a micro-habilidade que as questoes da base declaram
+        # neste cenario (ver `_seed`). O item precisa ser DELA para o teste
+        # provar que a intervencao segue a lacuna medida, e nao outra.
+        self._item_do_cenario = dict(
+            ITENS[0], key="CENARIO-GUIADA", content_code=BALANC, skill="SKILL_B")
+        ITENS.append(self._item_do_cenario)
+
         self.fx = self.loop.run_until_complete(prep())
         self.gabarito = self.fx["gabarito"]
         self.atividade = self.fx["atividade"]
@@ -117,6 +136,8 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def tearDown(self):
+        if self._item_do_cenario in ITENS:
+            ITENS.remove(self._item_do_cenario)
         self.app.dependency_overrides.clear()
         self.client.close()
         self.loop.run_until_complete(self.engine.dispose())
@@ -237,13 +258,107 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
                                  f"ler a explicacao mexeu em {campo}")
 
     def test_E_concluir_o_ensino_nao_libera_a_atividade(self):
+        """Depois de estudar o passo e TENTAR.
+
+        Ate 2026-10-05 esse "tentar" era a pratica autonoma; com a PRATICA
+        GUIADA no meio, e ela. O que o teste protege e o mesmo: clicar
+        "entendi" nao libera a atividade.
+        """
         self._responder(BALANC, quantas=3, acertos=0)
         self._estudar()
         passo = self._passo()
         self.assertNotEqual(passo["kind"], PASSO_ATIVIDADE,
                             "deu por aprendido quem so clicou em 'entendi'")
-        self.assertEqual(passo["kind"], PASSO_PRATICA,
-                         "depois de estudar, o passo e tentar")
+        self.assertIn(passo["kind"], (PASSO_GUIADA, PASSO_PRATICA))
+
+    # -- a pratica guiada entra entre o ensino e a pratica ------------------
+
+    def _guiada(self, item_key: str, acao: str, **corpo) -> dict:
+        r = self.client.post(f"/api/v1/student/guided-practice/{item_key}/{acao}",
+                             json=corpo or None)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_depois_de_estudar_o_passo_e_a_PRATICA_GUIADA(self):
+        """Antes deste bloco, estudar levava direto à prática autônoma —
+        pulando a etapa em que o aluno tenta com ajuda."""
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        passo = self._passo()
+        self.assertEqual(passo["kind"], PASSO_GUIADA)
+        self.assertTrue(passo.get("item_key"), "a tela nao sabe qual item abrir")
+
+    def test_a_guiada_ataca_a_micro_habilidade_medida(self):
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        passo = self._passo()
+        inter = passo.get("intervention") or {}
+        if inter.get("skill"):
+            r = self.client.get(
+                f"/api/v1/student/guided-practice?content_code={BALANC}"
+                f"&skill={inter['skill']}")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["skill"], inter["skill"])
+
+    def test_concluir_a_guiada_com_ajuda_leva_a_pratica_AUTONOMA(self):
+        """O ciclo que o bloco pede: tentou com ajuda, agora tenta sozinho."""
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        item = self._passo()["item_key"]
+        self._guiada(item, "hint")
+        estado = self.client.get(
+            f"/api/v1/student/guided-practice?content_code={BALANC}").json()
+        # acerta pela forca bruta, sem gabarito - o servidor e quem confere
+        for letra in [o["key"] for o in estado["options"]]:
+            r = self._guiada(item, "answer", selected_option=letra)
+            if r["correct"]:
+                break
+        self.assertTrue(r["completed"])
+        self.assertFalse(r["solved_unaided"], "usou ajuda e saiu como sozinho")
+        self.assertEqual(self._passo()["kind"], PASSO_PRATICA)
+
+    def test_a_guiada_concluida_NAO_produz_evidencia_de_dominio(self):
+        """A asserção central do bloco, pela API real."""
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        antes = self._dominio()
+        item = self._passo()["item_key"]
+        self._guiada(item, "hint")
+        estado = self.client.get(
+            f"/api/v1/student/guided-practice?content_code={BALANC}").json()
+        for letra in [o["key"] for o in estado["options"]]:
+            if self._guiada(item, "answer", selected_option=letra)["correct"]:
+                break
+        depois = self._dominio()
+        for campo in ("questions_answered", "questions_correct", "accuracy",
+                      "evidence_count", "origin_breakdown"):
+            with self.subTest(campo=campo):
+                self.assertEqual(antes.get(campo), depois.get(campo),
+                                 f"a pratica guiada mexeu em {campo}")
+
+    def test_a_pratica_autonoma_DEPOIS_da_guiada_produz_evidencia(self):
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        item = self._passo()["item_key"]
+        estado = self.client.get(
+            f"/api/v1/student/guided-practice?content_code={BALANC}").json()
+        for letra in [o["key"] for o in estado["options"]]:
+            if self._guiada(item, "answer", selected_option=letra)["correct"]:
+                break
+        antes = (self._dominio().get("questions_answered") or 0)
+        self._responder(BALANC, quantas=3, acertos=3)
+        self.assertGreater(self._dominio().get("questions_answered") or 0, antes)
+
+    def test_a_correta_nao_vaza_no_payload_da_rota(self):
+        self._responder(BALANC, quantas=3, acertos=0)
+        self._estudar()
+        r = self.client.get(
+            f"/api/v1/student/guided-practice?content_code={BALANC}")
+        self.assertEqual(r.status_code, 200, r.text)
+        corpo = r.json()
+        self.assertNotIn("correct_option", corpo)
+        self.assertNotIn("correta", r.text)
+        self.assertNotIn("balanceada", r.text)
 
     # -- o ciclo conta PRATICAS, nao tudo ----------------------------------
 
@@ -321,10 +436,12 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
         self.assertEqual(passo["state"], "NOT_STARTED")
         self.assertNotIn("Continuar", passo["cta"])
 
-    def test_concluida_a_explicacao_o_rotulo_leva_a_pratica(self):
+    def test_concluida_a_explicacao_o_rotulo_leva_a_TENTATIVA(self):
+        """"Praticar agora" ate 2026-10-05; agora "Tentar com ajuda", porque
+        e isso que vem depois da explicacao."""
         self._responder(BALANC, quantas=3, acertos=0)
         self._estudar()
-        self.assertEqual(self._passo()["cta"], "Praticar agora")
+        self.assertIn("entar", self._passo()["cta"])
 
     # -- F e G: so a evidencia avanca --------------------------------------
 
@@ -360,7 +477,7 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
         """
         self._responder(BALANC, quantas=3, acertos=0)
         self._estudar()
-        self.assertEqual(self._passo()["kind"], PASSO_PRATICA)
+        self.assertIn(self._passo()["kind"], (PASSO_GUIADA, PASSO_PRATICA))
         self._responder(BALANC, quantas=3, acertos=0)
         self.assertEqual(self._passo()["kind"], PASSO_ENSINO,
                          "so ofereceu mais questoes a quem ja tinha estudado "
@@ -391,8 +508,8 @@ class IntervencaoNoReadinessTests(unittest.TestCase):
         passo_1 = self._passo()["kind"]
         self._responder(BALANC, quantas=3, acertos=0)
         passo_2 = self._passo()["kind"]
-        self.assertIn(passo_1, (PASSO_PRATICA, PASSO_ENSINO))
-        self.assertIn(passo_2, (PASSO_PRATICA, PASSO_ENSINO))
+        self.assertIn(passo_1, (PASSO_PRATICA, PASSO_ENSINO, PASSO_GUIADA))
+        self.assertIn(passo_2, (PASSO_PRATICA, PASSO_ENSINO, PASSO_GUIADA))
         inter = self._passo().get("intervention") or {}
         self.assertGreaterEqual(inter.get("cycle") or 0, 2,
                                 "o ciclo nao avancou - o sistema nao percebeu "

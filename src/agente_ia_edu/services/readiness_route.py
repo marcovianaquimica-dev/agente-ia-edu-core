@@ -293,7 +293,9 @@ class ReadinessRouteService:
         from agente_ia_edu.services.assessor_pedagogico import (
             ACAO_ENSINAR, decidir_intervencao,
         )
-        from agente_ia_edu.services.proximo_passo import PASSO_ENSINO
+        from agente_ia_edu.services.proximo_passo import (
+            PASSO_ENSINO, PASSO_GUIADA,
+        )
 
         codigo = passo.get("content_code")
         if not codigo:
@@ -323,7 +325,44 @@ class ReadinessRouteService:
             # Ensinar e preparar: a jornada precisa acender "Preparacao", e
             # sem isto a rota continuaria dizendo que o passo e diagnostico.
             passo["readiness_route"] = ROTA_PREPARACAO
+            return passo
+
+        # PRATICA GUIADA, entre o ensino e a pratica autonoma.
+        #
+        # Quem acabou de estudar nao deve ir direto para cinco questoes
+        # sozinho: ha uma etapa em que ele TENTA e a ajuda chega quando
+        # precisa. Ela so entra se houver item guiado para a lacuna - e se o
+        # aluno ainda nao a concluiu, porque concluir a guiada e justamente
+        # o sinal de "agora tente sozinho".
+        guiado = await self._guiada_pendente(
+            codigo, intervencao.get("skill"), aluno, requester=requester)
+        if guiado is not None:
+            passo["kind"] = PASSO_GUIADA
+            passo["item_key"] = guiado["item_key"]
+            passo["readiness_route"] = ROTA_PREPARACAO
         return passo
+
+    async def _guiada_pendente(self, codigo: str, skill: str | None, aluno: str,
+                               *, requester) -> dict | None:
+        """O item guiado daquela lacuna, se houver um e ele ainda nao foi feito.
+
+        Conteudo sem item guiado devolve None e o aluno segue para a pratica
+        comum: inventar uma pratica guiada generica seria pior que nao ter.
+        """
+        from agente_ia_edu.services.itens_guiados import item_para
+        from agente_ia_edu.services.pratica_guiada import PraticaGuiadaService
+
+        item = item_para(codigo, skill)
+        if item is None:
+            return None
+        try:
+            estado = await PraticaGuiadaService(self._session).estado(
+                aluno, item["key"], requester=requester)
+        except Exception:  # noqa: BLE001 - sem registro: ainda nao fez
+            return {"item_key": item["key"]}
+        if estado.get("completed"):
+            return None
+        return {"item_key": item["key"]}
 
     def _banda(self, evidencia: dict) -> str:
         from agente_ia_edu.services.pedagogical_analysis import (

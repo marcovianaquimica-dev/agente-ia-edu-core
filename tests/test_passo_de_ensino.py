@@ -55,10 +55,17 @@ class OEnsinoTemCTAProprioTests(unittest.TestCase):
     def test_quem_nao_comecou_nao_le_continuar(self):
         self.assertNotIn("Continuar", cta_para(PASSO_ENSINO, ESTADO_NAO_INICIADO))
 
-    def test_terminado_o_ensino_o_rotulo_leva_a_pratica(self):
+    def test_terminado_o_ensino_o_rotulo_leva_a_TENTAR(self):
         """Depois de entender, o passo é tentar — e o botão diz isso, em vez
-        de um "Continuar" que não conta para onde."""
-        self.assertIn("ratic", cta_para(PASSO_ENSINO, ESTADO_CONCLUIDO))
+        de um "Continuar" que não conta para onde.
+
+        Este teste exigia "praticar" até 2026-10-05, quando a PRÁTICA GUIADA
+        entrou entre o exemplo e a prática autônoma. Mandar "Praticar agora"
+        logo depois da explicação pularia justamente a etapa em que o aluno
+        tenta com ajuda. O verbo continua sendo o ponto; o destino é que
+        mudou.
+        """
+        self.assertIn("entar", cta_para(PASSO_ENSINO, ESTADO_CONCLUIDO))
 
     def test_um_tipo_desconhecido_continua_sem_botao(self):
         self.assertIsNone(cta_para("QUALQUER_COISA", ESTADO_NAO_INICIADO))
