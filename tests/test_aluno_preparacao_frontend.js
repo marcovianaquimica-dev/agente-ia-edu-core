@@ -99,3 +99,26 @@ test('o feedback do backend nunca e tratado como HTML', () => {
                                  { titulo: '<b>oi</b>', detalhe: 'x' });
   assert.equal(r.titulo, '<b>oi</b>', 'o modulo nao deve escapar nem desescapar');
 });
+
+// -- revelar o proximo passo do exemplo ------------------------------------
+
+test('revelar leva a vista ao passo recem-revelado, nao ao topo', () => {
+  const r = Prep.comoRevelar({ indice: 1, total: 3 });
+  assert.equal(r.indice, 1);
+  assert.equal(r.block, 'start');
+});
+
+test('quem pediu menos movimento recebe o mesmo destino sem percurso', () => {
+  assert.equal(Prep.comoRevelar({ indice: 1, total: 3 }).behavior, 'smooth');
+  assert.equal(Prep.comoRevelar({ indice: 1, total: 3, reduzido: true }).behavior,
+               'auto');
+});
+
+test('indice fora da lista nao rola nada', () => {
+  // Rolar para um passo que nao existe moveria a pagina para lugar nenhum -
+  // que e exatamente o bug que isto corrige, so que ao contrario.
+  assert.equal(Prep.comoRevelar({ indice: 3, total: 3 }), null);
+  assert.equal(Prep.comoRevelar({ indice: -1, total: 3 }), null);
+  assert.equal(Prep.comoRevelar({ total: 3 }), null);
+  assert.equal(Prep.comoRevelar(null), null);
+});

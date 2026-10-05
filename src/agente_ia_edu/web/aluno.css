@@ -1005,3 +1005,15 @@ p  { margin: 0 0 .75rem; }
   font-size: .9375rem;
   color: var(--tinta-fraca);
 }
+
+/* ----------------------------------------- o botao do proximo passo ----
+   Medido no teste humano de 2026-10-05: respiro de ZERO pixel entre a tabela
+   de contagem e o botao - ele encostava na borda do `<ol class="exemplo">` e
+   parecia parte dela, nao o convite ao passo seguinte.
+
+   `scroll-margin-top` existe pelo mesmo motivo que a margem: quando o passo
+   recem-revelado e levado a vista, ele precisa parar um pouco abaixo do topo,
+   senao encosta no cabecalho e o aluno le a primeira linha espremida. */
+.botao-proximo-passo { margin-top: 1.25rem; }
+
+.passo-exemplo { scroll-margin-top: 1rem; }

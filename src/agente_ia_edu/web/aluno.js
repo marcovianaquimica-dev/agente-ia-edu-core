@@ -483,8 +483,12 @@
         </li>`;
     }).join('');
     const faltam = passos.length - vistos.length;
+    // O botao e o fim de um passo e o convite ao proximo - e por isso precisa
+    // de ar entre ele e a tabela de cima. Medido no teste humano: respiro de
+    // ZERO pixel, colado na borda do `<ol class="exemplo">`.
     const proximo = faltam > 0
-      ? `<button class="botao botao-secundario" data-acao="passo-exemplo"
+      ? `<button class="botao botao-secundario botao-proximo-passo"
+                 data-acao="passo-exemplo"
                  data-passo="${vistos.length}">Ver o próximo passo</button>`
       : '';
     return `
@@ -562,8 +566,38 @@
     const e = app.estudo;
     if (!e) return;
     e.exemplo = indice;
+    // ONDE O ALUNO ESTAVA, E PARA ONDE ELE OLHA DEPOIS.
+    //
+    // Medido no teste humano: um clique em "Ver o proximo passo" levava a
+    // pagina de scrollY 889 para 0 - de volta ao topo, no meio de uma leitura.
+    // A causa e que `pintarEstudo` reescreve o `innerHTML` do bloco inteiro, e
+    // o navegador perde a ancora.
+    //
+    // Guardamos a posicao, repintamos, e levamos a vista ao INICIO DO PASSO
+    // RECEM-REVELADO - que e o que o aluno quer ler. Nao ao topo, nao ao fim,
+    // e nao a posicao antiga: o conteudo mudou embaixo dela.
+    const antes = window.scrollY;
     pintarEstudo();
+    window.scrollTo(0, antes);
+    revelarPasso(indice);
     marcarLeitura({ ateOFim: false });
+  }
+
+  /** Leva a vista ao passo recem-revelado, sem sacudir quem pediu menos.
+   *
+   * A DECISAO e de `PrepUI.comoRevelar`, que tem teste proprio; aqui so se
+   * executa o que ela devolveu. */
+  function revelarPasso(indice) {
+    const passos = document.querySelectorAll('.passo-exemplo');
+    const menos = !!(window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const como = PrepUI.comoRevelar({ indice, total: passos.length,
+                                      reduzido: menos });
+    if (!como) return;
+    const alvo = passos[como.indice];
+    if (alvo && alvo.scrollIntoView) {
+      alvo.scrollIntoView({ behavior: como.behavior, block: como.block });
+    }
   }
 
   async function marcarLeitura({ ateOFim }) {

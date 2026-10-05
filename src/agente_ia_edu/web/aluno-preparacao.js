@@ -84,9 +84,34 @@
     };
   }
 
+  /**
+   * Para onde olhar depois de revelar um passo do exemplo.
+   *
+   * Medido no teste humano de 2026-10-05: o clique em "Ver o próximo passo"
+   * levava a página de scrollY 889 para 0 - de volta ao topo, no meio de uma
+   * leitura. A causa é a repintura do bloco, que apaga a âncora do navegador.
+   *
+   * O destino certo não é a posição antiga (o conteúdo mudou embaixo dela) nem
+   * o topo: é o INÍCIO DO PASSO RECÉM-REVELADO, que é o que o aluno pediu
+   * para ler.
+   *
+   * `reduzido` vem de `prefers-reduced-motion`. Não é preferência estética:
+   * para parte das pessoas a rolagem animada causa enjoo. O destino é o
+   * mesmo; o que muda é haver percurso.
+   */
+  function comoRevelar(opcoes) {
+    var o = opcoes || {};
+    var indice = o.indice;
+    var total = o.total || 0;
+    if (typeof indice !== 'number' || indice < 0 || indice >= total) return null;
+    return { indice: indice, behavior: o.reduzido ? 'auto' : 'smooth',
+             block: 'start' };
+  }
+
   var PrepUI = {
     subpassos: subpassos,
     falaDoResultado: falaDoResultado,
+    comoRevelar: comoRevelar,
     TRILHA: TRILHA,
   };
 
