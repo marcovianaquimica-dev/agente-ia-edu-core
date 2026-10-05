@@ -80,6 +80,7 @@
     diagnostico: null,    // {assignment_id, questions, pos, respostas}
     atividade: null,      // a tarefa da escola em andamento
     estudo: null,         // a explicacao aberta {material_id, secoes, exemplo}
+    guiada: null,         // a pratica guiada aberta {dados, escolha, ultimo}
   };
 
   const $ = (id) => document.getElementById(id);
@@ -149,6 +150,7 @@
   const ACOES = {
     DIAGNOSTIC: { acao: 'diagnosticar' },
     LEARN: { acao: 'estudar' },
+    GUIDED_PRACTICE: { acao: 'guiada' },
     PRACTICE: { acao: 'praticar' },
     ACTIVITY: { acao: 'abrir-tarefa' },
   };
@@ -507,6 +509,155 @@
     const codigo = ((app.prontidao && app.prontidao.next_step) || {}).content_code;
     await marcarLeitura({ ateOFim: true });
     app.estudo = null;
+    // Depois de entender vem TENTAR COM AJUDA. `abrirGuiada` cai na pratica
+    // comum sozinha quando nao ha item guiado para o conteudo.
+    return abrirGuiada(codigo);
+  }
+
+  // ============================================== a pratica guiada ========
+  //
+  // O aluno TENTA, e a ajuda chega quando precisa. As decisoes de interface
+  // (qual botao fica ativo, que frase aparece) estao em `aluno-guiada.js`,
+  // fora deste IIFE, para poderem ser exercitadas por `node --test`.
+  //
+  // Nada aqui decide pedagogia: se acertou, quantas ajudas foram usadas, se
+  // resolveu sozinho - tudo chega pronto do servidor, que e quem confere.
+
+  async function abrirGuiada(contentCode, skill) {
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const codigo = contentCode || passo.content_code;
+    if (!codigo) return;
+    irPara('sessao');
+    $('bloco').innerHTML = aviso('Preparando…');
+    const inter = passo.intervention || {};
+    const habilidade = skill || inter.skill;
+    try {
+      const dados = await api('/api/v1/student/guided-practice'
+        + `?content_code=${encodeURIComponent(codigo)}`
+        + (habilidade ? `&skill=${encodeURIComponent(habilidade)}` : ''));
+      app.guiada = { dados, escolha: null, ultimo: null };
+      pintarGuiada();
+    } catch (e) {
+      // Sem item guiado para este conteudo, segue a pratica comum - e e isso
+      // que a tela diz, em vez de um botao sem destino.
+      return praticar(codigo);
+    }
+  }
+
+  function pintarGuiada() {
+    const g = app.guiada;
+    if (!g) return;
+    const v = GuiadaUI.estado(g.dados, { escolha: g.escolha });
+    $('trilho').innerHTML = '';
+    $('sessao-resumo').textContent = v.resumoDaAjuda;
+    pintarJornada();
+
+    const alvo = (app.prontidao && app.prontidao.title) || null;
+    $('objetivo').hidden = !alvo;
+    if (alvo) $('objetivo-texto').textContent = alvo;
+
+    const alternativas = (g.dados.options || []).map((o) => {
+      const marcada = g.escolha === o.key;
+      const certa = v.concluido && v.correta === o.key;
+      return `
+        <button class="alternativa${marcada ? ' alternativa-escolhida' : ''}${certa ? ' alternativa-certa' : ''}"
+                data-opcao-guiada="${esc(o.key)}"
+                type="button"${v.concluido ? ' disabled' : ''}>
+          <span class="alternativa-letra">${esc(o.key)}</span>
+          <span class="alternativa-texto">${esc(o.text)}</span>
+          ${certa ? '<span class="alternativa-marca">✓ é esta</span>' : ''}
+        </button>`;
+    }).join('');
+
+    // As ajudas ja liberadas, na ordem. O nivel aparece para o aluno saber
+    // que ha uma progressao - e que ele nao esta recebendo a mesma coisa de
+    // novo com outras palavras.
+    const ajudas = v.ajudas.map((a) => `
+      <li class="ajuda">
+        <span class="ajuda-nivel">Ajuda ${a.nivel}</span>
+        <p>${esc(a.texto)}</p>
+      </li>`).join('');
+
+    const fala = g.ultimo
+      ? `<p class="assessor-fala">${esc(GuiadaUI.falaDoAssessor(g.dados, g.ultimo))}</p>`
+      : `<p class="assessor-fala">Tente primeiro por conta própria. Se travar,
+         é só pedir ajuda — ela vem em partes, não de uma vez.</p>`;
+
+    const acoes = v.concluido
+      ? `<button class="botao botao-principal" data-acao="guiada-seguir">
+           ${esc(v.cta)}</button>`
+      : `
+        <button class="botao botao-principal" data-acao="guiada-responder"
+                ${v.responderHabilitado ? '' : 'disabled'}>Responder</button>
+        ${v.podePedirAjuda
+          ? '<button class="botao botao-secundario" data-acao="guiada-ajuda">Quero uma dica</button>'
+          : ''}`;
+
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco cartao-assessor">
+        <p class="bloco-etiqueta assessor-etiqueta">
+          <img class="assessor-marca" src="assets/nucleo-edu-360-simbolo.png"
+               alt="" width="128" height="108" aria-hidden="true">
+          Vamos tentar juntos
+        </p>
+        ${fala}
+        <p class="bloco-titulo">${esc(g.dados.question || '')}</p>
+        <div class="alternativas">${alternativas}</div>
+        ${ajudas ? `<ol class="ajudas">${ajudas}</ol>` : ''}
+        ${v.concluido && v.fecho ? `<p class="assessor-meta">${esc(v.fecho)}</p>` : ''}
+        ${acoes}
+      </div>`;
+  }
+
+  function escolherGuiada(letra) {
+    if (!app.guiada) return;
+    app.guiada.escolha = letra;
+    pintarGuiada();
+  }
+
+  async function responderGuiada() {
+    const g = app.guiada;
+    if (!g || !g.escolha) return;
+    try {
+      const r = await api(
+        `/api/v1/student/guided-practice/${encodeURIComponent(g.dados.item_key)}/answer`,
+        { method: 'POST', body: JSON.stringify({ selected_option: g.escolha }) });
+      g.dados = r;
+      g.ultimo = { correct: !!r.correct };
+      // Errou: a alternativa sai desmarcada, para a proxima tentativa ser
+      // uma escolha de novo e nao um clique no mesmo lugar.
+      if (!r.correct) g.escolha = null;
+      pintarGuiada();
+    } catch (e) {
+      $('bloco').innerHTML += aviso(`Não consegui registrar (erro ${esc(e.status || '')}).`);
+    }
+  }
+
+  async function pedirAjudaGuiada() {
+    const g = app.guiada;
+    if (!g) return;
+    try {
+      g.dados = await api(
+        `/api/v1/student/guided-practice/${encodeURIComponent(g.dados.item_key)}/hint`,
+        { method: 'POST' });
+      g.ultimo = null;
+      pintarGuiada();
+    } catch (e) {
+      $('bloco').innerHTML += aviso(`Não consegui trazer a ajuda agora.`);
+    }
+  }
+
+  // Concluida a guiada, o proximo passo e a pratica AUTONOMA - e quem diz
+  // isso e o backend, relido aqui com o estado novo.
+  async function seguirDaGuiada() {
+    const codigo = app.guiada && app.guiada.dados.content_code;
+    app.guiada = null;
+    if (app.prontidao && app.prontidao.assignment_id) {
+      try {
+        app.prontidao = await api(
+          `/api/v1/student/activities/${app.prontidao.assignment_id}/readiness`);
+      } catch (_) { /* a prontidao velha ainda leva a praticar o mesmo conteudo */ }
+    }
     return praticar(codigo);
   }
 
@@ -1289,17 +1440,30 @@
   // ===================================================== acoes ============
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest(
-      '[data-acao], [data-opcao], [data-opcao-oficial], [data-tela], [data-fechar-folha]');
+      '[data-acao], [data-opcao], [data-opcao-oficial], [data-opcao-guiada],'
+      + ' [data-tela], [data-fechar-folha]');
     if (!alvo) return;
 
+    // Cada tipo de alternativa tem o SEU atributo. A guiada chegou usando
+    // `data-opcao`, que ja pertencia ao diagnostico - e como este ramo vem
+    // ANTES do `data-acao`, o clique caia em `escolher()`, que mexe em
+    // `app.diagnostico`, nulo ali, e morria em silencio. O botao "Responder"
+    // nunca acendia e nada no console explicava por que.
     if (alvo.dataset.opcao !== undefined) { escolher(alvo.dataset.opcao); return; }
     if (alvo.dataset.opcaoOficial !== undefined) {
       responderOficial(alvo.dataset.opcaoOficial); return;
+    }
+    if (alvo.dataset.opcaoGuiada !== undefined) {
+      escolherGuiada(alvo.dataset.opcaoGuiada); return;
     }
 
     switch (alvo.dataset.acao) {
       case 'diagnosticar': abrirDiagnostico(); return;
       case 'estudar': estudar(alvo.dataset.material); return;
+      case 'guiada': abrirGuiada(alvo.dataset.conteudo); return;
+      case 'guiada-responder': responderGuiada(); return;
+      case 'guiada-ajuda': pedirAjudaGuiada(); return;
+      case 'guiada-seguir': seguirDaGuiada(); return;
       case 'passo-exemplo': passoDoExemplo(Number(alvo.dataset.passo)); return;
       case 'entendi': concluirEstudo(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
@@ -1311,7 +1475,7 @@
       case 'revisar': pintarRevisao(); return;
       case 'revisao-anterior': navegarRevisao(-1); return;
       case 'revisao-proxima': navegarRevisao(1); return;
-      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; irPara('inicio'); return;
+      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; app.guiada = null; irPara('inicio'); return;
       case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
       default: break;
     }

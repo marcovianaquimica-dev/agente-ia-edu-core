@@ -901,3 +901,49 @@ p  { margin: 0 0 .75rem; }
   .assessor-marca { height: 1.75rem; }
   .equacao { font-size: 1.25rem; }
 }
+
+
+/* ------------------------------------------------- a pratica guiada ---- */
+
+.alternativas { display: grid; gap: .5rem; margin: .75rem 0; }
+
+/* A alternativa certa so ganha marca DEPOIS de concluir - antes disso o
+   backend nem manda qual e. */
+.alternativa-certa {
+  border-color: var(--sucesso);
+  background: var(--sucesso-claro);
+}
+.alternativa-marca {
+  font-size: .8125rem;
+  font-weight: 600;
+  color: var(--sucesso-tinta);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ajudas {
+  list-style: none;
+  margin: .75rem 0;
+  padding: 0;
+  display: grid;
+  gap: .5rem;
+}
+
+/* Cada ajuda numerada: o aluno ve que ha uma progressao, e que nao esta
+   recebendo a mesma coisa de novo com outras palavras. */
+.ajuda {
+  background: var(--fundo);
+  border-left: 3px solid var(--primaria);
+  border-radius: 0 var(--r-m) var(--r-m) 0;
+  padding: .6rem .8rem;
+}
+.ajuda-nivel {
+  display: block;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--primaria);
+  margin-bottom: .2rem;
+}
+.ajuda p { margin: 0; }

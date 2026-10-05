@@ -51,8 +51,13 @@ class PraticaGuiadaTests(unittest.TestCase):
         self.loop = asyncio.new_event_loop()
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:",
                                           poolclass=StaticPool)
+        # `expire_on_commit=True` DE PROPOSITO - e o que a aplicacao usa
+        # (`create_session_factory` nao passa a opcao, e o padrao do
+        # SQLAlchemy e expirar). Com False, ler um atributo depois do commit
+        # funciona no teste e levanta MissingGreenlet em producao: foi
+        # exatamente o que aconteceu aqui, e so o navegador pegou.
         self.factory = async_sessionmaker(self.engine, class_=AsyncSession,
-                                          expire_on_commit=False)
+                                          expire_on_commit=True)
 
         async def prep():
             async with self.engine.begin() as conn:

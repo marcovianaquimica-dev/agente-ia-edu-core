@@ -101,6 +101,22 @@ class PraticaGuiadaService:
             )
         )).scalar_one_or_none()
 
+    async def _fresca(self, linha: GuidedPracticeItem) -> GuidedPracticeItem:
+        """Recarrega a linha DEPOIS de um commit.
+
+        A fabrica de sessao da aplicacao nao passa `expire_on_commit=False`,
+        entao o commit expira os objetos e o primeiro acesso a um atributo
+        tenta ir ao banco - fora do contexto async, o que levanta
+        MissingGreenlet. Recarregar aqui mantem esse IO onde ele pode
+        acontecer.
+
+        Os testes deste servico usam `expire_on_commit=True` pelo mesmo
+        motivo: com False o bug nao aparece no teste e aparece no navegador,
+        que foi o que aconteceu.
+        """
+        await self._session.refresh(linha)
+        return linha
+
     def _visao(self, item: dict, linha: GuidedPracticeItem | None) -> dict:
         """O que o cliente recebe. Nada alem disto sai daqui."""
         usadas = linha.hints_used if linha else 0
@@ -154,7 +170,8 @@ class PraticaGuiadaService:
             linha = await self._linha(aluno, item["key"])
             if linha is None:  # pragma: no cover - a UNIQUE garante que existe
                 raise
-        return linha
+            return linha
+        return await self._fresca(linha)
 
     async def abrir(self, aluno: str, content_code: str, skill: str | None, *,
                     requester: Requester) -> dict:
@@ -185,6 +202,7 @@ class PraticaGuiadaService:
             linha.max_hint_level = max(linha.max_hint_level, linha.hints_used)
             linha.updated_at = _agora()
             await self._session.commit()
+            linha = await self._fresca(linha)
         return self._visao(item, linha)
 
     async def responder(self, aluno: str, item_key: str, escolha: str, *,
@@ -208,6 +226,7 @@ class PraticaGuiadaService:
             # uma regra desta importancia nao pode depender so do codigo.
             linha.solved_unaided = (linha.hints_used == 0)
         await self._session.commit()
+        linha = await self._fresca(linha)
 
         saida = self._visao(item, linha)
         saida["correct"] = acertou
