@@ -34,7 +34,9 @@ import unittest
 RAIZ = pathlib.Path(__file__).resolve().parent
 
 # Os que EXECUTAM o codigo. Os de varredura de fonte nao entram - ver docstring.
-COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js", "test_portal_ui_frontend.js")
+COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js",
+                   "test_portal_ui_frontend.js",
+                   "test_essay_rotulos_frontend.js")
 
 
 class FrontendComportamentalTests(unittest.TestCase):
@@ -56,6 +58,29 @@ class FrontendComportamentalTests(unittest.TestCase):
             "os testes de comportamento do frontend falharam:\n"
             f"{r.stdout}\n{r.stderr}")
 
+    def test_toda_pagina_que_usa_essay_report_carrega_os_rotulos_antes(self):
+        """`essay-report.js` passou a usar `EssayRotulos`.
+
+        Esqueci `teacher.html` na primeira versao: ele carrega o report sem os
+        rotulos, e a devolutiva quebraria la - numa tela que a demonstracao
+        pode abrir. Este teste existe porque a dependencia e invisivel para
+        quem edita so o report.
+
+        E tambem checa a ORDEM: carregado depois, o modulo ainda nao existe
+        quando o report e avaliado.
+        """
+        web = RAIZ.parent / "src" / "agente_ia_edu" / "web"
+        for pagina in web.glob("*.html"):
+            html = pagina.read_text(encoding="utf-8")
+            if "essay-report.js" not in html:
+                continue
+            with self.subTest(pagina=pagina.name):
+                self.assertIn("essay-rotulos.js", html,
+                              "usa essay-report.js sem carregar os rotulos")
+                self.assertLess(html.index("essay-rotulos.js"),
+                                html.index('src="essay-report.js"'),
+                                "os rotulos precisam vir ANTES do report")
+
     def test_os_modulos_testados_sao_os_que_as_paginas_carregam(self):
         """Um módulo testado que a página não carrega testa nada.
 
@@ -65,7 +90,8 @@ class FrontendComportamentalTests(unittest.TestCase):
         """
         web = RAIZ.parent / "src" / "agente_ia_edu" / "web"
         for pagina, modulo in (("aluno.html", "aluno-guiada.js"),
-                               ("portal.html", "portal.js")):
+                               ("portal.html", "portal.js"),
+                               ("redacao.html", "essay-rotulos.js")):
             with self.subTest(pagina=pagina):
                 html = (web / pagina).read_text(encoding="utf-8")
                 self.assertIn(modulo, html,
