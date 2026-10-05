@@ -32,6 +32,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const filterTeacherId = document.getElementById('filter-teacher-id');
   const filterTeacherSchool = document.getElementById('filter-teacher-school');
+  // QUEM ESTA OLHANDO, EM LINGUAGEM DE GENTE.
+  //
+  // O cabecalho mostrava `user:prof_mendes` e um UUID rotulado "Escola".
+  // O nome e a instituicao existem no banco e sao servidos pela MESMA rota
+  // que o Portal ja usa - nao ha endpoint novo nem segunda fonte de verdade.
+  //
+  // Falhar aqui nao bloqueia nada: sem resposta, a linha fica vazia e a tela
+  // segue. Identidade humana e acabamento, nao pre-requisito de
+  // funcionamento.
+  (async function contextoHumano() {
+    const alvo = document.getElementById('teacher-contexto-humano');
+    if (!alvo) return;
+    try {
+      const r = await fetch('/api/v1/portal/overview', {
+        headers: { Authorization: `Bearer ${state.teacherId}` },
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      const pessoa = (d.user && d.user.name) || '';
+      const escola = (d.institution && d.institution.name) || '';
+      const partes = [pessoa, escola].filter(Boolean);
+      if (partes.length) alvo.textContent = partes.join(' · ');
+    } catch (_) { /* sem nome, a tela segue sem a linha */ }
+  }());
+
   const filterClassroom = document.getElementById('filter-classroom-select');
   const filterPeriod = document.getElementById('filter-period-select');
 
@@ -111,18 +136,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const titleMap = {
       'dashboard': { title: 'Dashboard do Professor', sub: 'Acompanhamento pedagógico e orientação para turmas' },
-      'classrooms': { title: 'Minhas Turmas', sub: 'Visão geral das turmas dentro do seu escopo autorizado' },
+      'classrooms': { title: 'Turmas', sub: 'Visão geral das turmas dentro do seu escopo autorizado' },
       'contents': { title: 'Desempenho por Conteúdo', sub: 'Média de domínio da turma para cada conteúdo' },
       'students': { title: 'Consulta de Alunos', sub: 'Análise do perfil e histórico individual de aprendizado' },
       'lessons': { title: 'Registro de Aulas', sub: 'Aulas ministradas e sincronização com a Trilha do Aluno' },
-      'materials': { title: 'Listas e Avaliações', sub: 'Crie e revise listas de exercícios com questões existentes' },
-      'theory-materials': { title: 'Meus Materiais', sub: 'Materiais teóricos autorais — estruturados, versionáveis e ligados ao currículo e às questões' },
-      'material-ingestion': { title: 'Importar Material', sub: 'Extração e estruturação automática — revisão humana antes de publicar' },
+      'materials': { title: 'Atividades', sub: 'Crie e revise listas de exercícios com questões existentes' },
+      'theory-materials': { title: 'Materiais', sub: 'Materiais teóricos autorais — estruturados, versionáveis e ligados ao currículo e às questões' },
+      'material-ingestion': { title: 'Importar material', sub: 'Extração e estruturação automática — revisão humana antes de publicar' },
       'performance': { title: 'Análise de Desempenho', sub: 'Gráficos e distribuição de maestria da turma' },
-      'action-plan': { title: 'Plano de Ação da Turma', sub: 'Ações pedagógicas prioritárias calculadas pelo sistema' },
+      'action-plan': { title: 'Plano de ação da turma', sub: 'Ações pedagógicas prioritárias calculadas pelo sistema' },
       'reports': { title: 'Exportação de Relatórios', sub: 'Relatórios pedagógicos em PDF e XLSX' },
       'essay-review': { title: 'Redação', sub: 'Propostas de redação e correções pendentes de revisão' },
-      'profile': { title: 'Meu Perfil', sub: 'Informações do usuário e escopo autorizado' },
+      'profile': { title: 'Meu perfil', sub: 'Informações do usuário e escopo autorizado' },
     };
 
     if (titleMap[viewName]) {

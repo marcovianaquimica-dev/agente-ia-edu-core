@@ -160,3 +160,78 @@
 }
 
 .brand-text { line-height: 1.15; }
+
+/* ------------------------------------- quem esta olhando a tela --------
+   Nome e instituicao em linguagem de gente. Discreto: e contexto, nao
+   conteudo. */
+.contexto-humano {
+  margin: 0;
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--nucleo-tinta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22rem;
+}
+
+/* ------------------------------ as entradas de desenvolvimento ---------
+   Elas continuam funcionando - sao o mecanismo real de troca de identidade
+   neste ambiente. O que mudou e nao estarem abertas na cara de quem nao e
+   desenvolvedor. */
+.dev-identidade {
+  font-size: .75rem;
+  color: var(--nucleo-tinta-fraca);
+}
+
+.dev-identidade > summary {
+  cursor: pointer;
+  padding: .3rem .5rem;
+  border-radius: var(--nucleo-r-p);
+  list-style: none;
+  user-select: none;
+}
+
+.dev-identidade > summary::-webkit-details-marker { display: none; }
+
+.dev-identidade > summary::before {
+  content: "⚙ ";
+  opacity: .6;
+}
+
+.dev-identidade > summary:hover { background: var(--nucleo-primaria-clara); }
+
+.dev-identidade > summary:focus-visible {
+  outline: 3px solid var(--nucleo-primaria);
+  outline-offset: 2px;
+}
+
+.dev-identidade[open] {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  padding-bottom: .4rem;
+}
+
+/* -------------------------------------- os grupos da navegacao --------
+   Catorze itens numa lista plana sao um inventario do que o sistema sabe
+   fazer, nao a arquitetura mental de quem usa. O grupo e so um rotulo
+   discreto: ele organiza a leitura sem acrescentar um nivel de clique. */
+.nav-grupo {
+  margin: 1.1rem .75rem .3rem;
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, .45);
+}
+
+.nav-grupo:first-of-type { margin-top: .9rem; }
+
+/* A VOLTA AO ECOSSISTEMA fica visualmente separada dos itens do modulo:
+   ela sai daqui, nao navega dentro. */
+.nav-item-portal {
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  margin-top: .2rem;
+  padding-top: .8rem;
+}

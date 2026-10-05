@@ -27,49 +27,42 @@
         <div class="brand-text">Núcleo <span>Edu 360</span></div>
       </div>
 
-      <nav class="nav-menu" id="teacher-navigation">
-        <button class="nav-item active" data-view="dashboard">
-          <span class="icon">🏠</span> Início
-        </button>
-        <button class="nav-item" data-view="classrooms">
-          <span class="icon">🏫</span> Minhas Turmas
-        </button>
-        <button class="nav-item" data-view="contents">
-          <span class="icon">📚</span> Conteúdos
-        </button>
-        <button class="nav-item" data-view="students">
-          <span class="icon">👨‍🎓</span> Alunos
-        </button>
-        <button class="nav-item" data-view="lessons">
-          <span class="icon">📝</span> Aulas
-        </button>
-        <button class="nav-item" data-view="materials">
-          <span class="icon">📋</span> Listas e Avaliações
-        </button>
-        <a class="nav-item" href="/question-bank" title="Criar listas de exercícios e distribuir para turmas ou alunos">
-          <span class="icon">🗂️</span> Banco de Questões
-        </a>
-        <button class="nav-item" data-view="theory-materials">
-          <span class="icon">📖</span> Meus Materiais
-        </button>
-        <button class="nav-item" data-view="material-ingestion">
-          <span class="icon">📥</span> Importar Material
-        </button>
-        <button class="nav-item" data-view="performance">
-          <span class="icon">📊</span> Desempenho
-        </button>
-        <button class="nav-item" data-view="action-plan">
-          <span class="icon">🎯</span> Plano de Ação
-        </button>
-        <button class="nav-item" data-view="reports">
-          <span class="icon">📤</span> Relatórios
-        </button>
-        <button class="nav-item" data-view="essay-review">
-          <span class="icon">📝</span> Redação
-        </button>
-        <button class="nav-item" data-view="profile">
-          <span class="icon">👤</span> Meu Perfil
-        </button>
+      <nav class="nav-menu" id="teacher-navigation" aria-label="Navegação do professor">
+        <button class="nav-item active" data-view="dashboard">Início</button>
+
+        <p class="nav-grupo">Ensino</p>
+        <button class="nav-item" data-view="classrooms">Turmas</button>
+        <button class="nav-item" data-view="students">Alunos</button>
+        <button class="nav-item" data-view="lessons">Aulas</button>
+        <!-- "Listas e Avaliações" era o nome da estrutura, não da tarefa. O
+             professor pensa em ATIVIDADES; lista e avaliação são formatos
+             dela. O painel é o mesmo. -->
+        <button class="nav-item" data-view="materials">Atividades</button>
+
+        <p class="nav-grupo">Recursos</p>
+        <a class="nav-item" href="/question-bank"
+           title="Criar listas de exercícios e distribuir para turmas ou alunos">Banco de Questões</a>
+        <button class="nav-item" data-view="theory-materials">Materiais</button>
+        <button class="nav-item" data-view="material-ingestion">Importar material</button>
+
+        <p class="nav-grupo">Acompanhamento</p>
+        <!-- "Conteúdos" e "Desempenho" apontavam para o MESMO painel
+             (`view-contents`, documentado em teacher.js). Dois nomes para um
+             lugar não dão duas funções ao professor: dão a dúvida de qual é a
+             certa. Ficou o nome que descreve o que a tela mostra - a
+             distribuição de domínio por conteúdo. -->
+        <button class="nav-item" data-view="performance">Desempenho</button>
+        <button class="nav-item" data-view="action-plan">Plano de ação</button>
+        <button class="nav-item" data-view="reports">Relatórios</button>
+
+        <p class="nav-grupo">Módulos</p>
+        <button class="nav-item" data-view="essay-review">Redação</button>
+        <!-- A SAÍDA. Nenhuma tela de professor ou coordenação tinha volta ao
+             Portal: quem entrava no módulo ficava dentro dele. -->
+        <a class="nav-item nav-item-portal" href="/portal">Núcleo Edu 360</a>
+
+        <p class="nav-grupo">Conta</p>
+        <button class="nav-item" data-view="profile">Meu perfil</button>
       </nav>
 
       <div class="user-badge">
@@ -96,15 +89,31 @@
 
         <div class="header-actions">
           <div class="filters-bar">
-            <div class="filter-group">
-              <span class="filter-label">🆔 Usuário:</span>
-              <input type="text" id="filter-teacher-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes">
-            </div>
+            <!-- QUEM ESTA OLHANDO, EM LINGUAGEM DE GENTE.
+                 Ate 2026-10-05 o cabecalho mostrava `user:prof_mendes` e um
+                 UUID rotulado "Escola". Um identificador tecnico e um UUID
+                 numa tela projetada dizem "ferramenta interna", nao
+                 "produto". O nome e a escola vem de /portal/overview - a
+                 mesma rota que o Portal ja usa. -->
+            <p class="contexto-humano" id="teacher-contexto-humano"></p>
 
-            <div class="filter-group">
-              <span class="filter-label">🏢 Escola:</span>
-              <input type="text" id="filter-teacher-school" class="text-input" value="6f26cd3c-63d5-4509-a041-13714f75e53e" placeholder="school_id (UUID)">
-            </div>
+            <!-- AS ENTRADAS DE DESENVOLVIMENTO CONTINUAM, FECHADAS.
+                 Elas sao o mecanismo real de troca de identidade neste
+                 ambiente, e o JavaScript le as duas. Remove-las quebraria a
+                 tela; o que se corrige aqui e elas estarem ABERTAS na cara de
+                 quem nao e desenvolvedor. -->
+            <details class="dev-identidade">
+              <summary>Ambiente de desenvolvimento</summary>
+              <div class="filter-group">
+                <span class="filter-label">Usuário</span>
+                <input type="text" id="filter-teacher-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes">
+              </div>
+
+              <div class="filter-group">
+                <span class="filter-label">Escola (id)</span>
+                <input type="text" id="filter-teacher-school" class="text-input" value="6f26cd3c-63d5-4509-a041-13714f75e53e" placeholder="school_id (UUID)">
+              </div>
+            </details>
 
             <div class="filter-group">
               <span class="filter-label">🏫 Turma:</span>
