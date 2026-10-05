@@ -1,20 +1,23 @@
 /* Modern, Vibrant, High-School Friendly Student Portal CSS */
 
+/* OS TOKENS COMPARTILHADOS SAIRAM DAQUI.
+   ========================================
+   `--font-family`, `--bg-*`, `--text-main`, `--text-muted`, `--primary*` e
+   `--border-color` agora vem de `nucleo.css`, que e carregado ANTES desta
+   folha em toda pagina do produto.
+
+   Nao foi organizacao: era um bug. Esta folha redefinia `--text-muted` como
+   #64748b, que da 4,34 sobre o papel e REPROVA em AA para texto normal. O
+   Portal ja tinha corrigido para #5b6b82 no seu proprio vocabulario, com um
+   comentario explicando - e a correcao nunca chegava aqui porque eram duas
+   definicoes do mesmo conceito. Medido no navegador: `--text-muted` continuava
+   #64748b mesmo depois de `nucleo.css` entrar, porque esta regra vinha
+   depois e ganhava.
+
+   O que sobrou abaixo e o que SO existe deste lado do produto. */
 :root {
-  --font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  
-  --bg-app: #f4f6fb;
-  --bg-card: #ffffff;
-  --bg-sidebar: #0f172a;
-  
-  --text-main: #1e293b;
-  --text-muted: #64748b;
   --text-white: #f8fafc;
-  
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --primary-light: #eef2ff;
-  
+
   --accent: #06b6d4;
   --accent-light: #ecfeff;
   
@@ -25,7 +28,6 @@
   --success: #10b981;
   --success-light: #ecfdf5;
   
-  --border-color: #e2e8f0;
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;

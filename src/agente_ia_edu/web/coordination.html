@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Portal da Coordenação</title>
+  <title>Núcleo Edu 360 — Coordenação</title>
   <!-- served at /coordination but its static assets are mounted at
        /coordination/assets/ - resolve every relative asset there. -->
   <base href="/coordination/assets/">
+  <link rel="stylesheet" href="nucleo.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="stylesheet" href="coordination.css">
@@ -18,8 +19,11 @@
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">🏛️</div>
-        <div class="brand-text">AGENTE IA <span>EDU</span></div>
+        <div class="brand-logo">
+          <img src="assets/nucleo-edu-360-simbolo.png" alt="" aria-hidden="true"
+               width="128" height="108">
+        </div>
+        <div class="brand-text">Núcleo <span>Edu 360</span></div>
       </div>
 
       <nav class="nav-menu">
@@ -497,5 +501,6 @@
   </div>
 
   <script src="coordination.js"></script>
+  <footer class="nucleo-rodape">© 2026 Núcleo Edu 360 · Alfa 1.0</footer>
 </body>
 </html>
