@@ -457,8 +457,12 @@ class Phase18Tests(unittest.TestCase):
         self._correct(aid)
         # another student
         self._student("intruder_stu", "school-A")
-        self.assertEqual(self._result(aid).status_code, 403)
-        self.assertEqual(self._correct(aid).status_code, 403)
+        # 404, nao 403, desde 2026-10-04: nas rotas do ALUNO "nao existe"
+        # e "nao e seu" respondem igual, para nao revelar quais ids
+        # existem. A propriedade medida - o intruso NAO le o resultado
+        # alheio - nao mudou. Ver tests/test_anti_enumeracao.py.
+        self.assertEqual(self._result(aid).status_code, 404)
+        self.assertEqual(self._correct(aid).status_code, 404)
         # another tenant's teacher
         self._as(_ctx("prof_Z", "school-Z"))
         self.assertIn(self._result(aid).status_code, (403, 404))
