@@ -48,7 +48,7 @@ from ..essay_engine_contract.v5 import (
     Feedback,
     Scores,
 )
-from ..essay_prompts import alert_review_v1, competency_scoring_v1, get_essay_prompt
+from ..essay_prompts import alert_review_v1, competency_scoring_v2, get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_image_corrector, build_text_provider
@@ -66,7 +66,7 @@ from .institution_settings import InstitutionSettingsService
 
 logger = logging.getLogger(__name__)
 
-_ENGINE_VERSION = "r3_correction_engine_v2"
+_ENGINE_VERSION = "r3_correction_engine_v3"
 _PROMPT_VERSION = "essay_correction_v15"
 _RUBRIC_FILE_NAME = "enem_2025"
 
@@ -727,19 +727,23 @@ class EssayCorrectionService:
     async def _score_competencies_from_evidence(
         self, *, output: EssayEngineOutput, rubric_file: RubricFile,
     ) -> dict[str, int]:
-        """Phase 2 of the correction pipeline (r3_correction_engine_v2): one
+        """Phase 2 of the correction pipeline (r3_correction_engine_v3): one
         small, evidence-only call per competency, run concurrently - see
         essay_prompts/competency_scoring_v1.py's module docstring for the
         calibration finding that motivated this (2026-09-28: the SAME essay
         text, corrected 4 times with an identical phase-1 prompt and a fixed
         seed, swung C1 from 0 to 80 points; isolating "decide the level"
         from "find the evidence" into its own small call answered
-        identically across 5/5 repeated calls on two different essays).
+        identically across 5/5 repeated calls on two different essays), and
+        competency_scoring_v2.py's for a later finding (2026-10-05: the top
+        band was awarded far more often than real ENEM data supports).
 
         Raises ProviderError / json.JSONDecodeError / KeyError / ValueError
         on any failure - the caller (_run_ai) turns those into the same
         NEEDS_REVIEW failure_reason shape every other AI-side failure in
-        this module already uses. Never called for FORMATIVO (see caller).
+        this module already uses. Only called when output.scores is not
+        None (see caller) - that used to mean "never for FORMATIVO", but
+        FORMATIVO now gets a real grade too (2026-10-05, see _run_ai).
         """
         competency_by_code = {c.code: c for c in rubric_file.competencies}
         annotations_by_code: dict[str, list] = {code: [] for code in COMPETENCY_CODES}
@@ -769,7 +773,7 @@ class EssayCorrectionService:
                     "strengths": rationale_obj.strengths,
                     "growth_area": rationale_obj.growth_area,
                 }
-            prompt_text = competency_scoring_v1.build_prompt(
+            prompt_text = competency_scoring_v2.build_prompt(
                 competency_code=code, competency_label=competency.official_title,
                 levels=levels, annotations=annotations,
                 # mechanical_review is exclusively C1's own domain (norma
@@ -795,7 +799,7 @@ class EssayCorrectionService:
     async def _review_anula_redacao_alerts(
         self, *, output: EssayEngineOutput, essay_statement: str,
     ) -> set[str]:
-        """Phase 2b of the correction pipeline (r3_correction_engine_v2): a
+        """Phase 2b of the correction pipeline (r3_correction_engine_v3): a
         small, focused re-check of any whole-essay-zero alert phase 1
         raised - see essay_prompts/alert_review_v1.py's module docstring
         for the calibration finding that motivated this (2026-09-28: a

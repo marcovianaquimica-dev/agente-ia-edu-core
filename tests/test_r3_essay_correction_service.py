@@ -841,9 +841,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
         self.assertEqual(_PROMPT_VERSION, "essay_correction_v15")
 
-    def test_production_engine_version_is_v2(self):
+    def test_production_engine_version_is_v3(self):
         from agente_ia_edu.services.essay_correction import _ENGINE_VERSION
-        self.assertEqual(_ENGINE_VERSION, "r3_correction_engine_v2")
+        self.assertEqual(_ENGINE_VERSION, "r3_correction_engine_v3")
 
     async def test_phase2_scores_override_phase1_raw_scores_in_final_scores(self):
         """The whole point of phase 2 (calibration run 2026-09-28, see
@@ -960,7 +960,13 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.status, "APPROVED")
             self.assertIn("ORTOGRAFIA", seen_prompts["C1"])
             for code in ("C2", "C3", "C4", "C5"):
-                self.assertNotIn("ocorrencias mecanicas", seen_prompts[code])
+                # O marcador especifico do BLOCO mecanico, nao a substring
+                # solta "ocorrencias mecanicas" - _RULES_TOP_BAND (v2) tambem
+                # usa essas duas palavras numa frase sem relacao nenhuma com
+                # o bloco mecanico em si.
+                self.assertNotIn(
+                    "EVIDENCIA - ocorrencias mecanicas confirmadas", seen_prompts[code]
+                )
 
     async def test_phase2_prompt_carries_that_competencys_own_rationale(self):
         """2026-09-28 calibration fix: phase 1's per-competency rationale
