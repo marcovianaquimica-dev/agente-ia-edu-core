@@ -174,6 +174,33 @@ class CicloAdaptativoE2E(IntervencaoNoReadinessTests):
         self.assertNotIn(self._passo()["kind"], INTERVENCOES,
                          "confirmou duas vezes e continuou na preparacao")
 
+    def test_F_a_confirmacao_e_DITA_ao_aluno(self):
+        """Medido no navegador: ao confirmar, a tela mostrava
+
+            VERIFICAÇÃO CONCLUÍDA
+            Você acertou 3 de 3.
+            Suas respostas foram registradas.
+
+        - o texto de reserva. Justamente no momento que o aluno esperou o
+        bloco inteiro, ninguem disse que a base ficou firme. O `feedback` so
+        era montado para passos de intervencao, e depois de confirmar o passo
+        deixa de ser um.
+        """
+        # DUAS tentativas ruins antes, de proposito: com uma so, 6 de 9 ja
+        # passa o corte acumulado e o aluno sai pela media - sem passar pela
+        # confirmacao, que e o que este teste quer ver. Com duas, 6 de 12
+        # continua abaixo do corte e e a TRAJETORIA que o libera.
+        self._ate_praticar()
+        self._responder(BALANC, quantas=AMOSTRA, acertos=0)
+        self._avancar_ate_praticar()
+        self._responder(BALANC, quantas=AMOSTRA, acertos=AMOSTRA)
+        self._responder(BALANC, quantas=AMOSTRA, acertos=AMOSTRA)
+        passo = self._passo()
+        fb = passo.get("feedback") or {}
+        self.assertTrue((fb.get("titulo") or "").strip(),
+                        f"confirmou e a tela nao teve o que dizer: {passo}")
+        self.assertEqual(fb.get("tom"), "BOM")
+
     def test_G_verificacao_ruim_volta_para_a_intervencao(self):
         self._ate_praticar()
         self._responder(BALANC, quantas=AMOSTRA, acertos=AMOSTRA)

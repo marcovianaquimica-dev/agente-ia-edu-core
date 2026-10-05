@@ -120,6 +120,8 @@
          `readiness.journey`, calculada no backend a partir de evidencia
          real - nao de navegacao. -->
     <ol class="jornada" id="jornada" aria-label="Etapas da jornada"></ol>
+    <!-- Dentro da Preparacao, qual sub-passo. Fica escondido fora dela. -->
+    <div class="trilha-caixa" id="trilha" hidden></div>
 
     <!-- O trilho mede questoes DENTRO da etapa atual. Sao coisas diferentes. -->
     <div class="trilho" id="trilho" role="img" aria-label="Progresso nesta etapa"></div>
@@ -204,6 +206,7 @@
      tests/test_aluno_guiada_frontend.js e a ponte em
      tests/test_frontend_comportamental.py. -->
 <script src="aluno-guiada.js"></script>
+<script src="aluno-preparacao.js"></script>
 <script src="aluno.js"></script>
 </body>
 </html>

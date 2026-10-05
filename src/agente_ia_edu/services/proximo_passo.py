@@ -194,6 +194,13 @@ def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
             PASSO_ENSINO: ETAPA_PREPARACAO,
             PASSO_GUIADA: ETAPA_PREPARACAO,
             PASSO_PRATICA: ETAPA_PREPARACAO,
+            # VERIFICAR e ESCALAR tambem sao preparacao. Sem estas duas linhas
+            # eles caiam no ramo "passo desconhecido" e a barra acendia
+            # ATIVIDADE: medido no navegador em 2026-10-05, a tela pedia uma
+            # verificacao da base enquanto a barra dizia que o aluno ja estava
+            # na atividade.
+            PASSO_VERIFICACAO: ETAPA_PREPARACAO,
+            PASSO_ESCALONAMENTO: ETAPA_PREPARACAO,
             PASSO_ATIVIDADE: ETAPA_ATIVIDADE,
         }.get(kind)
     if atual is None or atual not in etapas:

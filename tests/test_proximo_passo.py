@@ -24,10 +24,17 @@ from __future__ import annotations
 import unittest
 
 from agente_ia_edu.services.proximo_passo import (
+    ESTADO_EM_ANDAMENTO,
+    ESTADO_NAO_INICIADO,
+    ETAPA_ATIVIDADE,
+    ETAPA_PREPARACAO,
     PASSO_ATIVIDADE,
     PASSO_DIAGNOSTICO,
+    PASSO_ESCALONAMENTO,
     PASSO_NENHUM,
     PASSO_PRATICA,
+    PASSO_VERIFICACAO,
+    jornada_de,
     passo_para,
 )
 from agente_ia_edu.services.readiness_route import (
@@ -264,3 +271,33 @@ class NaoHaCorteNovoAquiTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class VerificarEEscalarSaoPreparacao(unittest.TestCase):
+    """Medido no navegador em 2026-10-05, com o passo em VERIFY:
+
+        Diagnóstico ✓   Preparação ✓   Atividade ●   Resultado ○
+
+    A barra dizia que ele estava NA ATIVIDADE enquanto a tela abaixo pedia
+    uma verificação da base. `jornada_de` não conhecia os dois passos novos e
+    caía na etapa seguinte - o tipo exato de contradição que esta barra existe
+    para não cometer.
+    """
+
+    def _etapa_atual(self, kind):
+        etapas = jornada_de(origens={"MICRO_DIAGNOSTIC": 3, "PRACTICE": 5},
+                            estado_atividade=ESTADO_NAO_INICIADO,
+                            rota=ROTA_PREPARACAO, kind=kind)
+        return next(e["id"] for e in etapas if e["state"] == ESTADO_EM_ANDAMENTO)
+
+    def test_verificar_acende_preparacao(self):
+        self.assertEqual(self._etapa_atual(PASSO_VERIFICACAO), ETAPA_PREPARACAO)
+
+    def test_escalar_acende_preparacao(self):
+        self.assertEqual(self._etapa_atual(PASSO_ESCALONAMENTO),
+                         ETAPA_PREPARACAO)
+
+    def test_e_nao_pulam_para_a_atividade(self):
+        for kind in (PASSO_VERIFICACAO, PASSO_ESCALONAMENTO):
+            with self.subTest(kind=kind):
+                self.assertNotEqual(self._etapa_atual(kind), ETAPA_ATIVIDADE)

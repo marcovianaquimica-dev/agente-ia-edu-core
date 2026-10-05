@@ -35,6 +35,7 @@ RAIZ = pathlib.Path(__file__).resolve().parent
 
 # Os que EXECUTAM o codigo. Os de varredura de fonte nao entram - ver docstring.
 COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js",
+                   "test_aluno_preparacao_frontend.js",
                    "test_portal_ui_frontend.js",
                    "test_essay_rotulos_frontend.js")
 

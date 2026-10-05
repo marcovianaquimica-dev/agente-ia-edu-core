@@ -246,7 +246,18 @@ class ReadinessRouteService:
                     or intervencao.get("trend") != TENDENCIA_CONFIRMADA):
                 break
             confirmados.add(passo.get("content_code"))
+            confirmado_agora = {"content_name": passo.get("content_name"),
+                                "for_content_name": passo.get("for_content_name"),
+                                "feedback": passo.get("feedback")}
             passo = passo_para(detalhes, confirmados=confirmados)
+            # A CONFIRMACAO PRECISA SER DITA.
+            #
+            # Medido no navegador: ao confirmar, o aluno via "Voce acertou 3
+            # de 3. Suas respostas foram registradas." - o texto de reserva.
+            # O `feedback` so era montado para passos de intervencao, e
+            # confirmar e justamente deixar de ter um. A frase do momento que
+            # ele esperou o ciclo inteiro vinha vazia.
+            passo.setdefault("feedback", confirmado_agora["feedback"])
         rota = passo["readiness_route"]
 
         # EM QUE PE ESTA O PASSO. Sem isto o CTA so sabia o TIPO da proxima

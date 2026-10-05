@@ -947,3 +947,61 @@ p  { margin: 0 0 .75rem; }
   margin-bottom: .2rem;
 }
 .ajuda p { margin: 0; }
+
+/* ------------------------------------------- a trilha da preparacao ----
+   DENTRO da Preparacao, qual sub-passo. A barra de quatro etapas continua
+   acima; esta linha so existe enquanto o aluno esta na preparacao, e some
+   fora dela - desenha-la no diagnostico ou na atividade diria que ele esta
+   numa etapa em que nao esta.
+
+   Deliberadamente mais discreta que a jornada: fonte menor, sem marca, sem
+   cor forte. Ela informa, nao compete com a barra principal. */
+.trilha-caixa { margin: -.25rem 0 .75rem; }
+
+.trilha-titulo {
+  margin: 0 0 .2rem;
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
+.trilha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .2rem .4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.subpasso {
+  font-size: .75rem;
+  color: var(--tinta-fraca);
+  white-space: nowrap;
+}
+
+.subpasso:not(:last-child)::after {
+  content: "→";
+  margin-left: .3rem;
+  color: var(--borda);
+}
+
+.subpasso-feito { color: var(--sucesso-tinta); }
+.subpasso-agora { color: var(--primaria); font-weight: 700; }
+
+.trilha .sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* O placar da pratica: informacao, nao conclusao. Fica abaixo da frase
+   pedagogica porque e ela que responde "e agora?" - o numero sozinho nunca
+   respondeu. */
+.bloco-placar {
+  margin: .15rem 0 .35rem;
+  font-size: .9375rem;
+  color: var(--tinta-fraca);
+}

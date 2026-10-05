@@ -165,6 +165,11 @@
     LEARN: { acao: 'estudar' },
     GUIDED_PRACTICE: { acao: 'guiada' },
     PRACTICE: { acao: 'praticar' },
+    VERIFY: { acao: 'verificar' },
+    // ESCALONAMENTO nao tem acao do sistema: o proximo movimento e procurar o
+    // professor, e nao ha botao que faca isso por ele. O cartao mostra o texto
+    // e um caminho de volta, sem prometer um aviso que ninguem recebe.
+    ESCALATE: { acao: null },
     ACTIVITY: { acao: 'abrir-tarefa' },
   };
 
@@ -229,6 +234,13 @@
            de ${para}. A atividade continua te esperando.`
         : `Vamos praticar <strong>${alvo}</strong> um pouco.`;
     }
+    // VERIFICACAO e ESCALONAMENTO falam pela voz do backend. Escrever aqui um
+    // texto proprio para eles seria repetir o achado 3 do teste humano, que
+    // foi exatamente pedagogia montada no navegador.
+    if (passo.kind === 'VERIFY' || passo.kind === 'ESCALATE') {
+      const fb = passo.feedback || {};
+      return esc(fb.detalhe || fb.titulo || '');
+    }
     if (passo.kind === 'ACTIVITY') {
       if (passo.state === 'COMPLETED') return 'Você já entregou esta atividade.';
       if (passo.state === 'IN_PROGRESS') return 'Você começou e ainda não entregou.';
@@ -243,6 +255,27 @@
     const passo = (p && p.next_step) || { kind: 'NONE' };
     const cfg = ACOES[passo.kind];
     const ola = `<p class="saudacao">Olá, ${esc(nomeDoAluno())} 👋</p>`;
+
+    // ESCALONAMENTO: o unico passo cujo proximo movimento nao e do sistema.
+    //
+    // Nao ha botao, porque nao ha nada que o sistema possa fazer por ele
+    // aqui - e um botao que nao leva a lugar nenhum e pior que nenhum. O
+    // texto e do backend, e NAO afirma que alguem foi avisado: nao existe
+    // tela de professor que receba isso, e prometer um aviso inexistente
+    // deixaria o aluno esperando algo que nao vem.
+    if (passo.kind === 'ESCALATE') {
+      const fb = passo.feedback || {};
+      return `
+        <div class="contexto">
+          ${ola}
+          ${prazo}
+          <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
+          <ol class="jornada jornada-cartao" aria-label="Etapas da jornada">${jornadaHTML()}</ol>
+          <p class="bloco-titulo">${esc(fb.titulo || 'Vamos pedir ajuda.')}</p>
+          <p class="detalhe">${esc(fb.detalhe || '')}</p>
+          <button class="botao botao-secundario" data-tela="atividades">Ver minhas atividades</button>
+        </div>`;
+    }
 
     // Sem acao possivel: dizemos o motivo em vez de oferecer um botao morto.
     if (!cfg) {
@@ -280,6 +313,7 @@
         ${selo}
         <p class="chamada">Você tem <strong>${esc(t.title)}</strong>.</p>
         <ol class="jornada jornada-cartao" aria-label="Etapas da jornada">${jornadaHTML()}</ol>
+        ${trilhaHTML()}
         <p class="detalhe">${explicacao(passo, t, estadoAtividade === 'COMPLETED')}</p>
         <button class="botao botao-principal" data-acao="${cfg.acao}"${id}${codigo}${material}>${esc(rotuloDaAcao(passo))}</button>
       </div>`;
@@ -339,12 +373,42 @@
     }).join('');
   }
 
+  // DENTRO DA PREPARACAO, ONDE ELE ESTA.
+  //
+  // A barra de quatro etapas esta certa, e o teste humano de 2026-10-05
+  // mostrou que ela nao basta: ele ficava em "Preparacao ●" sem perceber o
+  // que mudava de uma volta para a outra. A trilha abaixo mostra o sub-passo
+  // atual - e so aparece DENTRO da preparacao, porque so la ela existe.
+  function trilhaHTML() {
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const subs = PrepUI.subpassos(passo);
+    if (!subs.length) return '';
+    const itens = subs.map((s) => {
+      const classe = s.atual ? 'subpasso subpasso-agora'
+        : s.cumprido ? 'subpasso subpasso-feito' : 'subpasso';
+      const dito = s.atual ? 'agora' : s.cumprido ? 'feito' : 'a seguir';
+      return `<li class="${classe}"
+                  aria-current="${s.atual ? 'step' : 'false'}">
+                <span class="subpasso-nome">${esc(s.rotulo)}</span>
+                <span class="sr">(${dito})</span>
+              </li>`;
+    }).join('');
+    return `<p class="trilha-titulo">Preparação</p>
+            <ol class="trilha">${itens}</ol>`;
+  }
+
   function pintarJornada() {
     const el = $('jornada');
     if (!el) return;
     const html = jornadaHTML();
     el.innerHTML = html;
     el.hidden = !html;
+    const trilha = $('trilha');
+    if (trilha) {
+      const t = trilhaHTML();
+      trilha.innerHTML = t;
+      trilha.hidden = !t;
+    }
   }
 
   // ============================================ o assessor pedagogico =====
@@ -545,6 +609,13 @@
       case 'LEARN': return estudar(passo.material_id);
       case 'GUIDED_PRACTICE': return abrirGuiada(passo.content_code);
       case 'PRACTICE': return praticar(passo.content_code);
+      // A VERIFICACAO e uma pratica CURTA, pelo mesmo motor - nao ha segundo
+      // motor de questoes. O que muda e o tamanho e o que a tela diz: sao
+      // poucas questoes, e sao elas que decidem se ele avanca.
+      case 'VERIFY': return praticar(passo.content_code,
+                                     { quantas: passo.question_count || 3,
+                                       verificacao: true });
+      case 'ESCALATE': return irPara('inicio');
       case 'DIAGNOSTIC': return abrirDiagnostico();
       case 'ACTIVITY': return abrirTarefa(app.prontidao.assignment_id);
       default: return irPara('inicio');
@@ -948,8 +1019,11 @@
 
     $('bloco').innerHTML = `
       <div class="cartao-bloco cartao-${esc((fb.tom || 'NEUTRO').toLowerCase())}">
-        <p class="bloco-etiqueta">${d.pratica ? 'Prática concluída' : 'Diagnóstico concluído'}</p>
+        <p class="bloco-etiqueta">${d.verificacao ? 'Verificação concluída'
+          : d.pratica ? 'Prática concluída' : 'Diagnóstico concluído'}</p>
         <p class="bloco-titulo">${esc(fb.titulo || 'Resposta registrada.')}</p>
+        ${fb.placar && fb.placar !== fb.titulo
+          ? `<p class="bloco-placar">${esc(fb.placar)}</p>` : ''}
         ${fb.detalhe ? `<p class="bloco-porque">${esc(fb.detalhe)}</p>` : ''}
         <p class="detalhe">Isto não vale nota e não conta como atividade
            entregue — ${d.pratica
@@ -961,23 +1035,29 @@
   }
 
   function resumoDaPratica(d) {
+    // O ACHADO 3 DO TESTE HUMANO MORAVA AQUI.
+    //
+    // Esta funcao montava "Você acertou 1 de 5. Isso entra no seu progresso e
+    // ajusta o próximo passo." — duas frases sobre o SISTEMA, escritas no
+    // navegador. O aluno nao ficava sabendo o que foi observado, o que vem
+    // agora, nem por que esse proximo passo ajuda.
+    //
+    // Agora a frase vem da DECISAO (`next_step.feedback`), ja recalculada
+    // pelo rebuild que acontece ao finalizar. A tela acrescenta o placar, que
+    // e informacao e nao conclusao, e nada mais. Sem o campo ela informa o
+    // placar e PARA: inventar pedagogia aqui foi o erro que se corrigiu.
+    //
     // Os numeros ficam em `result`, um nivel abaixo do envelope devolvido por
     // /attempt/correct — ler do envelope dava undefined e a tela caia no
     // texto generico "suas respostas foram registradas".
     const r = (d.resultado && d.resultado.result) || {};
-    const acertos = r.correct_count;
-    const total = r.question_count;
-    if (acertos === undefined || total === undefined) {
-      return { tom: 'NEUTRO', titulo: 'Prática concluída.',
-               detalhe: 'Suas respostas foram registradas.' };
-    }
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const fala = PrepUI.falaDoResultado(r, passo.feedback);
     return {
-      tom: 'NEUTRO',
-      titulo: `Você acertou ${acertos} de ${total}.`,
-      // Deliberadamente NAO diz "voce ja domina": quem decide isso e a
-      // politica, no proximo calculo de prontidao, e o botao abaixo leva
-      // exatamente para o que ela decidir.
-      detalhe: 'Isso entra no seu progresso e ajusta o próximo passo.',
+      tom: fala.tom,
+      titulo: fala.titulo,
+      detalhe: fala.detalhe,
+      placar: fala.placar,
     };
   }
 
@@ -985,7 +1065,10 @@
   // PRATICA de um conteudo, pelo AdaptivePracticeService que ja existe. Nao ha
   // segundo motor: e a mesma selecao que o microdiagnostico usa, com origem
   // PRACTICE em vez de MICRO_DIAGNOSTIC.
-  async function praticar(contentCode) {
+  async function praticar(contentCode, opcoes) {
+    const o = opcoes || {};
+    const quantas = o.quantas || 5;
+    const titulo = o.verificacao ? 'Vamos confirmar' : 'Vamos praticar';
     const codigo = contentCode
       || (app.prontidao && app.prontidao.next_step && app.prontidao.next_step.content_code);
     if (!codigo) return;
@@ -994,14 +1077,15 @@
 
     const aberta = aRetomar('PRACTICE', codigo);
     if (aberta) return retomar(aberta, {
-      content_code: codigo, titulo: 'Vamos praticar', pratica: true,
+      content_code: codigo, titulo: titulo, pratica: true,
+      verificacao: !!o.verificacao,
     });
 
     let pr;
     try {
       pr = await api('/api/v1/student/practice', {
         method: 'POST',
-        body: JSON.stringify({ content_code: codigo, question_count: 5 }),
+        body: JSON.stringify({ content_code: codigo, question_count: quantas }),
       });
     } catch (e) {
       const corpo = e.corpo || {};
@@ -1022,8 +1106,15 @@
       assignment_id: pr.assignment_id,
       content_code: codigo,
       objetivo: app.prontidao,
-      titulo: pr.title || 'Vamos praticar',
+      // Na VERIFICACAO o titulo e nosso, nao o do motor de pratica: para o
+      // backend as duas sao a mesma coisa (e e isso que garante que a
+      // evidencia seja a mesma), mas para o aluno nao sao - ele precisa saber
+      // que estas poucas questoes confirmam o que ele acabou de mostrar.
+      titulo: o.verificacao ? titulo : (pr.title || titulo),
       pratica: true,
+      // A VERIFICACAO so muda o que a tela diz; a evidencia e a mesma de
+      // qualquer pratica, gravada porque o aluno respondeu questoes.
+      verificacao: !!o.verificacao,
       questoes: estado.questions || [],
       pos: 0,
       escolhas: {},
@@ -1500,6 +1591,15 @@
       case 'passo-exemplo': passoDoExemplo(Number(alvo.dataset.passo)); return;
       case 'entendi': concluirEstudo(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
+      // A VERIFICACAO e uma pratica curta pelo mesmo motor. O tamanho vem do
+      // backend (`next_step.question_count`); a tela nao escolhe quantas
+      // questoes confirmam uma recuperacao.
+      case 'verificar': {
+        const passo = (app.prontidao && app.prontidao.next_step) || {};
+        praticar(alvo.dataset.conteudo || passo.content_code,
+                 { quantas: passo.question_count || 3, verificacao: true });
+        return;
+      }
       case 'avancar': avancar(); return;
       case 'abrir-tarefa': abrirTarefa(alvo.dataset.id); return;
       case 'questao-anterior': navegarQuestao(-1); return;
