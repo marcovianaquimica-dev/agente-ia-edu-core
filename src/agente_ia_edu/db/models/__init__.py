@@ -122,6 +122,7 @@ from .pedagogical_universe import (
 from .reception import ReceptionCandidate
 from .modification_proposals import ModificationProposal
 from .study_session import StudySession
+from .guided_practice import GuidedPracticeItem
 from .material_progress import MaterialProgress
 from .authorial_ingestion import IngestionMaterialReview
 from .question_extraction import (
@@ -149,6 +150,7 @@ from .essay_correction import EssayCorrection
 
 __all__ = [
     "StudySession",
+    "GuidedPracticeItem",
     "MaterialProgress",
     "IngestionMaterialReview",
     "QuestionExtractionRun",
