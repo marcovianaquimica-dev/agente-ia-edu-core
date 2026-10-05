@@ -70,6 +70,12 @@
 
     // SEM BOTAO MORTO. Um `disabled` finge que havia uma acao ali; um selo
     // diz o que esta acontecendo, que e o que a pessoa precisa saber.
+    //
+    // O selo ocupa a MESMA posicao e a mesma altura do botao "Acessar" - o
+    // card de um modulo futuro nao pode parecer um objeto provisorio ao lado
+    // dos outros, porque ele e parte do mesmo produto. O que o distingue e o
+    // que esta escrito nele e o fato de nao ser clicavel: sem href, sem
+    // tabindex, sem role de botao. Status, nao acao.
     var selo = c.rotulo
       ? '<span class="modulo-selo">' + esc(c.rotulo) + '</span>' : '';
     var nota = c.nota

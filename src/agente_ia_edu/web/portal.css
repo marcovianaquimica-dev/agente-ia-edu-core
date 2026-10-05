@@ -142,17 +142,20 @@ h1, h2, h3 { line-height: 1.25; margin: 0; font-weight: 700; }
 .modulo-acao:hover { background: var(--primaria-escura); }
 .modulo-acao:focus-visible { outline: 3px solid #1e293b; outline-offset: 2px; }
 
-/* EM BREVE e os demais estados sem acao: o card inteiro recua, e um selo
-   diz o que esta acontecendo.
-   NAO HA BOTAO `disabled` aqui - um botao desabilitado finge que existia uma
-   acao; um selo informa, que e o que a pessoa precisa. */
-.modulo-em_breve,
-.modulo-nao_contratado,
-.modulo-sem_permissao {
-  background: transparent;
-  border-style: dashed;
-  box-shadow: none;
-}
+/* EM BREVE e os demais estados sem acao.
+   ======================================
+   ANTES: `background: transparent` + borda tracejada + sem sombra. O card de
+   um modulo futuro parecia um rascunho ao lado dos outros - e ele nao e um
+   rascunho, e parte do mesmo produto. Num Portal apresentado a quem avalia
+   comprar, quatro dos seis modulos pareciam provisorios.
+
+   AGORA o card e o MESMO: mesmo papel, mesma borda, mesma sombra, mesmo
+   tamanho. O que muda e o selo no lugar do botao, e o icone e o titulo em
+   tom de apoio - hierarquia, nao degradacao.
+
+   NAO HA BOTAO `disabled` aqui. Um botao desabilitado finge que existia uma
+   acao; o selo informa um ESTADO, e nao e clicavel por construcao: sem href,
+   sem tabindex, sem role. */
 .modulo-em_breve .modulo-icone,
 .modulo-nao_contratado .modulo-icone,
 .modulo-sem_permissao .modulo-icone { stroke: var(--tinta-fraca); }
@@ -161,16 +164,24 @@ h1, h2, h3 { line-height: 1.25; margin: 0; font-weight: 700; }
 .modulo-nao_contratado .modulo-titulo,
 .modulo-sem_permissao .modulo-titulo { color: var(--tinta-fraca); }
 
+/* O selo ocupa a posicao e a altura do botao "Acessar": o card nao fica
+   torto ao lado de um modulo disponivel. */
 .modulo-selo {
-  align-self: flex-start;
+  align-self: stretch;
   margin-top: auto;
-  padding: .25rem .6rem;
-  border-radius: 999px;
-  background: var(--primaria-clara);
-  color: var(--primaria-escura);
-  font-size: .8125rem; font-weight: 700;
+  padding: .7rem 1rem;
+  border-radius: var(--r-m);
+  background: var(--fundo);
+  border: 1px solid var(--borda);
+  color: var(--tinta-fraca);
+  font-size: .9375rem; font-weight: 700;
   letter-spacing: .02em;
+  text-align: center;
 }
+
+/* Os tres estados SEM acao nao sao a mesma coisa, e o selo diz qual e. */
+.modulo-nao_contratado .modulo-selo,
+.modulo-sem_permissao .modulo-selo { display: none; }
 
 .modulo-nota {
   margin: 0; margin-top: auto;
@@ -191,3 +202,30 @@ h1, h2, h3 { line-height: 1.25; margin: 0; font-weight: 700; }
   .portal-palco { padding: 2.5rem 2rem 4rem; }
   .portal-abertura h1 { font-size: 2rem; }
 }
+
+/* ------------------------------------------ as telas grandes -----------
+   Medido na auditoria do ensaio executivo: a 1920x1080 o Portal ocupava 55%
+   da largura e sobravam 342px abaixo. Projetado, parecia um prototipo
+   pequeno no meio do telao.
+
+   A correcao NAO e esticar tudo ate as bordas. O palco cresce por degraus,
+   os cards ganham largura minima maior (e o `auto-fit` acomoda mais por
+   linha), e o TEXTO de apoio continua com largura de leitura - alargar
+   paragrafo e piorar, nao melhorar. */
+@media (min-width: 1400px) {
+  .portal-palco { max-width: 1320px; padding: 3rem 2.5rem 4.5rem; }
+  .portal-abertura h1 { font-size: 2.25rem; }
+  .portal-chamada { font-size: 1.125rem; }
+  .portal-grade {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  }
+}
+
+@media (min-width: 1700px) {
+  .portal-palco { max-width: 1480px; }
+}
+
+/* A linha mais longa do Portal tinha ~141 caracteres a 1920 - quase o dobro
+   do confortavel. Texto de apoio para de crescer com a caixa. */
+.portal-chamada,
+.portal-nota { max-width: 62ch; }
