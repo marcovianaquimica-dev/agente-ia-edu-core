@@ -61,6 +61,14 @@ class EmbeddingResult:
 class EssayPageTranscriptionRequest:
     image_path: Path
     mime_type: str
+    # Sobrescreve TRANSCRIPTION_SYSTEM_PROMPT (openai.py) quando preenchido.
+    # Existe porque esse prompt padrao e escrito pro CORPO da redacao e
+    # explicitamente instrui o modelo a NAO transcrever campos de
+    # identificacao (nome, etc.) - o oposto do que services/essay_batch.py
+    # precisa ao ler a regiao de CABECALHO de uma folha (nome/CPF). Usar o
+    # prompt errado ali nao so devolve vazio, como confundia o modelo a
+    # ponto de recusar a chamada inteira (confirmado ao vivo 2026-10-05).
+    system_prompt: str | None = None
 
 
 @dataclass(frozen=True)

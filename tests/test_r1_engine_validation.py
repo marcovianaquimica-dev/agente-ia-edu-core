@@ -673,6 +673,65 @@ class TestEngineValidation(unittest.TestCase):
         self.assertEqual(caught.exception.raw_output, raw)
         self.assertEqual(caught.exception.input_hash, "abc123")
 
+    # --- live mid-quote "\n\n" case (batch upload, 2026-10-05) -------------
+    #
+    # _extract_pdf_paragraphs (essay_submission.py) joins a digital PDF's text
+    # by PyMuPDF's own block detection, and that detection occasionally
+    # mis-splits a single sentence into two blocks - inserting a spurious
+    # "\n\n" paragraph break in the MIDDLE of a sentence, not at a real
+    # paragraph boundary. _quote_matches already tolerated this AT THE EDGES
+    # of a quote (2026-09-25); these cases are the same bug in the middle.
+
+    def test_reanchors_a_quote_whose_canonical_text_has_a_spurious_mid_sentence_break(self):
+        """Live case (2026-10-05): canonical_text read '...produzem\\n\\n
+        respostas...' (a false block split mid-sentence) where the model
+        quoted '...produzem respostas...' with a plain space, exactly as any
+        reader would say the sentence aloud. Must re-anchor onto the real
+        span - including the "\\n\\n" the text actually has - not reject."""
+        text = (
+            "Modelos generativos não verificam a verdade como um "
+            "pesquisador; produzem\n\nrespostas a partir de padrões "
+            "aprendidos durante o treinamento."
+        )
+        quote = "produzem respostas a partir de padrões aprendidos"
+        real_start = text.index("produzem\n\nrespostas")
+        real_end = real_start + len("produzem\n\nrespostas a partir de padrões aprendidos")
+        output = self._anchored(start=real_start, end=real_start + len(quote), quote=quote)
+        validate_engine_output(output, rubric=RUBRIC, text=text)
+
+        anchor = output.annotations[0].anchor
+        self.assertEqual((anchor.start, anchor.end), (real_start, real_end))
+        self.assertEqual(text[anchor.start : anchor.end].replace("\n\n", " "), quote)
+
+    def test_mid_quote_whitespace_normalization_still_requires_a_unique_match(self):
+        """Same ambiguity guard as the exact-match path: two candidate
+        positions for the whitespace-normalized quote means we still cannot
+        tell which one the model meant."""
+        text = (
+            "1 o trabalho de\n\ncuidado é essencial.\n"
+            "2 o trabalho de\n\ncuidado é essencial."
+        )
+        quote = "o trabalho de cuidado"
+        output = self._anchored(start=0, end=len(quote), quote=quote)
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
+    def test_mid_quote_whitespace_normalization_is_not_a_fuzzy_content_match(self):
+        """The same anti-hallucination guard as
+        test_still_rejects_a_quote_that_is_only_approximately_in_the_text,
+        just with internal whitespace involved too: a quote that differs from
+        the text by actual CONTENT (not just whitespace style) must still be
+        rejected, whitespace collapsing or not."""
+        text = "a herança\n\nhistórica da escravidão marcou o país."
+        quote = "a heranca historica da escravidao"  # accents dropped
+        self.assertNotIn(quote, text)
+        start = text.index("a herança")
+        output = self._anchored(start=start, end=start + len(quote), quote=quote)
+        with self.assertRaises(EssayEngineOutputRejected) as caught:
+            validate_engine_output(output, rubric=RUBRIC, text=text)
+        self.assertEqual(caught.exception.reason_code, "QUOTE_DOES_NOT_MATCH_TEXT")
+
 
 class TestLoadRubricView(unittest.IsolatedAsyncioTestCase):
     """``load_rubric_view`` is the only part of the module that touches the

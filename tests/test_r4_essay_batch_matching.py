@@ -114,6 +114,17 @@ class ParseHeaderTextTests(unittest.TestCase):
         self.assertIsNone(name)
         self.assertEqual(cpf, "12345678900")
 
+    def test_box_by_box_ocr_with_trailing_blank_boxes_before_the_newline(self):
+        # Formato real devolvido pelo OpenAI pro cabecalho em caixinhas
+        # (confirmado ao vivo 2026-10-05): espacos extras antes da quebra de
+        # linha, vindos de caixinhas vazias no final do campo nome.
+        name, cpf = parse_header_text(
+            "NOME COMPLETO DO PARTICIPANTE: MARCO ANTONIO PEREIRA DA SILVA  \n"
+            "CPF: 00000000001"
+        )
+        self.assertEqual(name, "MARCO ANTONIO PEREIRA DA SILVA")
+        self.assertEqual(cpf, "00000000001")
+
 
 class MatchStudentTests(unittest.TestCase):
     def setUp(self):
@@ -140,6 +151,15 @@ class MatchStudentTests(unittest.TestCase):
 
     def test_empty_name_returns_none(self):
         self.assertIsNone(match_student(None, self.roster))
+
+    def test_matches_when_the_ocr_glued_every_word_together(self):
+        # OCR em caixinhas as vezes perde a caixinha vazia entre palavras e
+        # devolve o nome inteiro colado - confirmado ao vivo 2026-10-05.
+        self.assertEqual(match_student("ANALUCIAFERREIRA", self.roster), self.ana)
+
+    def test_glued_fallback_still_refuses_homonyms(self):
+        roster = self.roster + [(self.joao2, "Joao Da Silva")]
+        self.assertIsNone(match_student("JOAODASILVA", roster))
         self.assertIsNone(match_student("   ", self.roster))
 
     def test_empty_roster_returns_none(self):

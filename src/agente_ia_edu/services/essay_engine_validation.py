@@ -270,19 +270,21 @@ def validate_engine_output(
                     f"annotation {annotation.letter!r} quotes {anchor.quote!r} but "
                     f"the text reads {text[anchor.start : anchor.end]!r}",
                 )
-            elif (anchor.start, anchor.end) != (resolved, resolved + len(anchor.quote)):
-                # Re-anchor in place: the quote was found verbatim, just not
+            elif (anchor.start, anchor.end) != resolved:
+                # Re-anchor in place: the quote was found verbatim (or
+                # whitespace-equivalent - see _resolve_text_offset), just not
                 # where the model claimed. ``output`` is what the caller
                 # persists as ai_output (see EssayCorrectionService.correct),
                 # so the corrected offsets - not the model's drifted ones -
                 # are what the student's highlighted text will use.
+                resolved_start, resolved_end = resolved
                 logger.info(
                     "re-anchored annotation %r: model claimed start=%d, real "
                     "offset was %d (delta=%+d)",
-                    annotation.letter, anchor.start, resolved, resolved - anchor.start,
+                    annotation.letter, anchor.start, resolved_start,
+                    resolved_start - anchor.start,
                 )
-                anchor.start = resolved
-                anchor.end = resolved + len(anchor.quote)
+                anchor.start, anchor.end = resolved_start, resolved_end
             _require_evidence(annotation, anchor.quote, reject)
     else:
         if page_boxes is None:
@@ -382,15 +384,22 @@ _ANCHOR_DRIFT_WINDOW = 400
 _MIN_UNIQUE_REANCHOR_CHARS = 12
 
 
-def _resolve_text_offset(text: str, start: int, end: int, quote: str) -> int | None:
-    """Where ``quote`` really starts in ``text``, or ``None`` if it isn't there.
+def _resolve_text_offset(
+    text: str, start: int, end: int, quote: str
+) -> tuple[int, int] | None:
+    """The (start, end) ``quote`` really occupies in ``text``, or ``None`` if
+    it cannot be resolved at all.
 
     ``start``/``end`` are what the model claimed. When they are right (exactly,
     or with the whitespace padding :func:`_quote_matches` already tolerated),
-    this returns the offset the quote occupies inside that claimed span. When
+    this returns the span the quote occupies inside that claimed span. When
     they are wrong but the quote itself appears verbatim in the text, this
-    returns the real offset so the caller can re-anchor the annotation instead
-    of throwing the whole correction away.
+    returns the real span so the caller can re-anchor the annotation instead
+    of throwing the whole correction away. When the quote appears nowhere
+    verbatim but does appear once its own internal whitespace is collapsed to
+    match the text's (see :func:`_resolve_with_whitespace_normalization`),
+    the returned span still covers the ORIGINAL text - including whatever
+    whitespace it actually contains - never just ``len(quote)`` characters.
 
     Why this exists - confirmed live, not hypothetical
     -------------------------------------------------
@@ -436,7 +445,8 @@ def _resolve_text_offset(text: str, start: int, end: int, quote: str) -> int | N
         # it onto the quote itself (the quote is inside the span by
         # construction - _quote_matches only trims whitespace off the span).
         found = text.find(quote, start, end)
-        return found if found >= 0 else start
+        resolved_start = found if found >= 0 else start
+        return resolved_start, resolved_start + len(quote)
 
     occurrences: list[int] = []
     at = text.find(quote)
@@ -444,7 +454,7 @@ def _resolve_text_offset(text: str, start: int, end: int, quote: str) -> int | N
         occurrences.append(at)
         at = text.find(quote, at + 1)
     if not occurrences:
-        return None
+        return _resolve_with_whitespace_normalization(text, start, quote)
 
     nearby = [
         offset
@@ -452,9 +462,82 @@ def _resolve_text_offset(text: str, start: int, end: int, quote: str) -> int | N
         if abs(offset - start) <= _ANCHOR_DRIFT_WINDOW
     ]
     if len(nearby) == 1:
-        return nearby[0]
+        return nearby[0], nearby[0] + len(quote)
     if len(occurrences) == 1 and len(quote.strip()) >= _MIN_UNIQUE_REANCHOR_CHARS:
-        return occurrences[0]
+        return occurrences[0], occurrences[0] + len(quote)
+    return None
+
+
+def _collapse_whitespace_with_map(s: str) -> tuple[str, list[int]]:
+    """Collapses every run of whitespace in ``s`` into a single space,
+    returning the collapsed string together with a list mapping each of its
+    character positions back to the offset in ``s`` it came from (with one
+    extra trailing entry, ``len(s)``, so a match ending at the collapsed
+    string's own length still resolves to a real offset)."""
+    collapsed: list[str] = []
+    index_map: list[int] = []
+    i, length = 0, len(s)
+    while i < length:
+        if s[i].isspace():
+            collapsed.append(" ")
+            index_map.append(i)
+            while i < length and s[i].isspace():
+                i += 1
+        else:
+            collapsed.append(s[i])
+            index_map.append(i)
+            i += 1
+    index_map.append(length)
+    return "".join(collapsed), index_map
+
+
+def _resolve_with_whitespace_normalization(
+    text: str, start: int, quote: str
+) -> tuple[int, int] | None:
+    """Same safety rules as the exact-match search above - a single nearby
+    occurrence, or a single occurrence anywhere for a long-enough quote -
+    except both ``text`` and ``quote`` have every run of whitespace collapsed
+    to one space before comparing. This is NOT a fuzzy content match (every
+    non-whitespace character must still agree); it only treats different
+    whitespace STYLES - a run of spaces, a single newline, a paragraph-break
+    "\\n\\n" - as the same separator.
+
+    Exists because _extract_pdf_paragraphs (essay_submission.py) joins text
+    by PyMuPDF's own block detection, and that detection occasionally
+    mis-splits a single sentence into two blocks, inserting a spurious
+    "\\n\\n" in the middle of what should be continuous prose (confirmed
+    live 2026-10-05, batch-upload PDF: canonical text read "...produzem\\n
+    \\nrespostas..." where the model quoted "...produzem respostas..." with
+    a plain space, exactly as any reader would say the sentence aloud). Same
+    family of bug as _quote_matches' boundary-whitespace tolerance above,
+    just in the middle of the quote instead of at its edges, so it gets the
+    same treatment: the model's reading of the text is right, the text's own
+    incidental formatting is what gets normalized away."""
+    norm_quote = " ".join(quote.split())
+    if not norm_quote:
+        return None
+    collapsed_text, index_map = _collapse_whitespace_with_map(text)
+
+    occurrences: list[int] = []
+    at = collapsed_text.find(norm_quote)
+    while at >= 0:
+        occurrences.append(at)
+        at = collapsed_text.find(norm_quote, at + 1)
+    if not occurrences:
+        return None
+
+    def to_span(offset: int) -> tuple[int, int]:
+        return index_map[offset], index_map[offset + len(norm_quote)]
+
+    nearby = [
+        offset
+        for offset in occurrences
+        if abs(index_map[offset] - start) <= _ANCHOR_DRIFT_WINDOW
+    ]
+    if len(nearby) == 1:
+        return to_span(nearby[0])
+    if len(occurrences) == 1 and len(norm_quote) >= _MIN_UNIQUE_REANCHOR_CHARS:
+        return to_span(occurrences[0])
     return None
 
 

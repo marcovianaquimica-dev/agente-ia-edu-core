@@ -443,7 +443,9 @@ class EssaySubmissionService:
     # certainty).
     _RECONCILED_TOKEN_CONFIDENCE = 0.85
 
-    async def _ocr_page(self, page: EssaySubmissionPage, image_path: Path) -> None:
+    async def _ocr_page(
+        self, page: EssaySubmissionPage, image_path: Path, *, system_prompt: str | None = None
+    ) -> None:
         last_error: ProviderError | None = None
         best_tokens: tuple | None = None
         best_average_confidence = -1.0
@@ -458,7 +460,8 @@ class EssaySubmissionService:
             try:
                 result = await self._get_transcriber().transcribe_page(
                     EssayPageTranscriptionRequest(
-                        image_path=image_path, mime_type=_guess_mime(image_path)
+                        image_path=image_path, mime_type=_guess_mime(image_path),
+                        system_prompt=system_prompt,
                     )
                 )
                 if result.input_tokens is not None:
@@ -475,7 +478,7 @@ class EssaySubmissionService:
                 if average_confidence >= self._MIN_AVERAGE_CONFIDENCE:
                     await self._finalize_page_tokens(
                         page, tokens, image_path, total_input_tokens, total_output_tokens,
-                        allow_reconciliation=True,
+                        allow_reconciliation=True, system_prompt=system_prompt,
                     )
                     return
                 logger.warning(
@@ -505,7 +508,7 @@ class EssaySubmissionService:
         if best_tokens is not None:
             await self._finalize_page_tokens(
                 page, best_tokens, image_path, total_input_tokens, total_output_tokens,
-                allow_reconciliation=False,
+                allow_reconciliation=False, system_prompt=system_prompt,
             )
             return
         raise last_error
@@ -513,7 +516,7 @@ class EssaySubmissionService:
     async def _finalize_page_tokens(
         self, page: EssaySubmissionPage, tokens: tuple, image_path: Path,
         total_input_tokens: int | None, total_output_tokens: int | None,
-        *, allow_reconciliation: bool,
+        *, allow_reconciliation: bool, system_prompt: str | None = None,
     ) -> None:
         # Persisted from the FIRST reading immediately, before attempting
         # reconciliation - if reconciliation raises anything unexpected
@@ -530,7 +533,9 @@ class EssaySubmissionService:
             return
 
         reconciled, extra_input_tokens, extra_output_tokens = (
-            await self._reconcile_low_confidence_tokens(tokens, image_path)
+            await self._reconcile_low_confidence_tokens(
+                tokens, image_path, system_prompt=system_prompt
+            )
         )
         if extra_input_tokens is not None:
             page.input_tokens = (page.input_tokens or 0) + extra_input_tokens
@@ -543,7 +548,7 @@ class EssaySubmissionService:
             ]
 
     async def _reconcile_low_confidence_tokens(
-        self, tokens: tuple, image_path: Path
+        self, tokens: tuple, image_path: Path, *, system_prompt: str | None = None
     ) -> tuple[tuple, int | None, int | None]:
         """A second, fully independent transcription of the SAME page,
         requested ONLY when `tokens` has at least one low-confidence entry -
@@ -575,7 +580,8 @@ class EssaySubmissionService:
         try:
             second_result = await self._get_transcriber().transcribe_page(
                 EssayPageTranscriptionRequest(
-                    image_path=image_path, mime_type=_guess_mime(image_path)
+                    image_path=image_path, mime_type=_guess_mime(image_path),
+                    system_prompt=system_prompt,
                 )
             )
         except ProviderError as exc:

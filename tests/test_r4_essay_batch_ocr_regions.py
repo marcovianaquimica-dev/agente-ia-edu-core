@@ -14,7 +14,10 @@ from pathlib import Path
 from agente_ia_edu.providers.errors import ProviderError
 from agente_ia_edu.providers.models import EssayOcrToken, EssayPageTranscriptionResult
 from agente_ia_edu.services.essay_answer_sheet import HEADER_REGION_FRACTION
-from agente_ia_edu.services.essay_batch import EssayBatchService
+from agente_ia_edu.services.essay_batch import (
+    HEADER_TRANSCRIPTION_SYSTEM_PROMPT,
+    EssayBatchService,
+)
 
 
 def _tokens(text: str, confidence: float = 0.95):
@@ -30,10 +33,14 @@ class FakeTranscriber:
         self.body_text = body_text
         self.fail_on = fail_on
         self.calls: list[str] = []
+        # Nome do arquivo -> request.system_prompt recebido nessa chamada -
+        # prova que o cabecalho e o corpo pedem prompts diferentes.
+        self.system_prompts: dict[str, str | None] = {}
 
     async def transcribe_page(self, request):
         name = request.image_path.name
         self.calls.append(name)
+        self.system_prompts[name] = request.system_prompt
         if self.fail_on and self.fail_on in name:
             raise ProviderError("transcricao indisponivel")
         text = self.header_text if "_header" in name else self.body_text
@@ -144,6 +151,31 @@ class ReadPageRegionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(transcriber.calls), 2)
         self.assertTrue(any("_header" in call for call in transcriber.calls))
         self.assertTrue(any("_body" in call for call in transcriber.calls))
+
+    async def test_header_and_body_use_different_system_prompts(self):
+        """O prompt padrao de transcricao (corpo) instrui explicitamente
+        "nao transcreva... nome completo" - usa-lo tambem no cabecalho
+        confundia o modelo a ponto de recusar a chamada inteira (confirmado
+        ao vivo 2026-10-05). O cabecalho precisa do SEU proprio prompt,
+        pedindo especificamente nome/CPF; o corpo continua com o padrao
+        (request.system_prompt None, que o provider resolve pro default)."""
+        source = _write_page_image(
+            self.tmp_dir / "page_7.png", header_text="cabecalho", body_text="corpo"
+        )
+        transcriber = FakeTranscriber(
+            header_text="NOME COMPLETO DO PARTICIPANTE Joao da Silva",
+            body_text="Texto do corpo.",
+        )
+        service = EssayBatchService(None, transcriber=transcriber)
+
+        await service.read_page_regions(source)
+
+        header_call = next(name for name in transcriber.calls if "_header" in name)
+        body_call = next(name for name in transcriber.calls if "_body" in name)
+        self.assertEqual(
+            transcriber.system_prompts[header_call], HEADER_TRANSCRIPTION_SYSTEM_PROMPT
+        )
+        self.assertIsNone(transcriber.system_prompts[body_call])
 
     async def test_unreadable_header_still_returns_the_body(self):
         source = _write_page_image(

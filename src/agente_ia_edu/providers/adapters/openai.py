@@ -109,7 +109,13 @@ class OpenAIProvider:
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._model = model or os.getenv("OPENAI_MODEL")
         self._vision_model = vision_model or os.getenv("OPENAI_VISION_MODEL")
-        self._timeout_seconds = timeout_seconds or float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+        # 30s (o default antigo) e curto demais pra correcao de redacao: uma
+        # chamada real medida ao vivo (2026-10-05) levou ~57s pra devolver o
+        # JSON completo de notas + feedback por competencia - toda correcao
+        # de lote estava batendo em ProviderTimeoutError, 100% das vezes,
+        # nunca por rate limit ou bug de parsing. 120s da folga confortavel
+        # sem deixar uma chamada presa pra sempre.
+        self._timeout_seconds = timeout_seconds or float(os.getenv("OPENAI_TIMEOUT_SECONDS", "120"))
         self._client = client
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
@@ -161,7 +167,7 @@ class OpenAIProvider:
                 messages=[
                     {
                         "role": "system",
-                        "content": TRANSCRIPTION_SYSTEM_PROMPT,
+                        "content": request.system_prompt or TRANSCRIPTION_SYSTEM_PROMPT,
                     },
                     {
                         "role": "user",
