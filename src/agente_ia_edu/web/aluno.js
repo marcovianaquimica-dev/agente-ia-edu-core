@@ -287,11 +287,64 @@
 
   // ================================================== o microdiagnostico ==
 
+  // Reabre uma pratica/diagnostico que o aluno deixou pela metade.
+  //
+  // `next_step.resume_assignment_id` diz QUAL. Sem ele, o botao "Continuar
+  // pratica" chamava POST /student/practice - que CRIA - e o aluno recomecava
+  // da questao 1 numa pratica nova, com a anterior (e as respostas dentro)
+  // inalcancavel.
+  //
+  // As escolhas vem do SERVIDOR, nao de memoria local: a aba pode ter sido
+  // fechada, ou ser outra.
+  //
+  // E a POSICAO vem das proprias respostas, nao de `current_position`: num
+  // diagnostico ou pratica o avanco e so da tela - o servidor nunca e
+  // avisado - e `current_position` fica em 1 para sempre. A primeira questao
+  // sem resposta e o que de fato falta fazer, inclusive se o aluno pulou uma
+  // e respondeu a seguinte.
+  async function retomar(assignmentId, extras) {
+    const estado = await api(
+      `/api/v1/student/activities/${assignmentId}/attempt`, { method: 'POST' });
+    const questoes = estado.questions || [];
+    const escolhas = {};
+    questoes.forEach((q) => {
+      if (q.selected_option) escolhas[q.question_version_id] = q.selected_option;
+    });
+    const falta = questoes.findIndex((q) => !q.selected_option);
+    app.diagnostico = Object.assign({
+      assignment_id: assignmentId,
+      objetivo: app.prontidao,
+      questoes,
+      // tudo respondido: para na ultima, de onde se conclui
+      pos: falta === -1 ? Math.max(0, questoes.length - 1) : falta,
+      escolhas,
+    }, extras || {});
+    pintarSessao();
+    return true;
+  }
+
+  // O que o backend mandou retomar neste passo, se mandou alguma coisa.
+  //
+  // O CONTEUDO tem de bater. "Praticar" tambem e chamado de Meu progresso com
+  // um assunto escolhido pelo aluno; sem esta comparacao, pedir pratica de um
+  // conteudo retomaria a pratica aberta de OUTRO.
+  function aRetomar(kind, codigo) {
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    if (passo.kind !== kind) return null;
+    if (codigo && passo.content_code && passo.content_code !== codigo) return null;
+    return passo.resume_assignment_id || null;
+  }
+
   async function abrirDiagnostico() {
     const p = app.prontidao;
     if (!p || !p.target_content_code) return;
     $('bloco').innerHTML = aviso('Preparando…');
     irPara('sessao');
+
+    const aberto = aRetomar('DIAGNOSTIC', p.target_content_code);
+    if (aberto) return retomar(aberto, {
+      content_code: p.target_content_code, titulo: 'Vamos ver onde você está',
+    });
 
     let d;
     try {
@@ -451,7 +504,14 @@
     const passo = (d.pratica ? null : dec.next_step)
                   || (app.prontidao && app.prontidao.next_step) || {};
     const cfg = ACOES[passo.kind];
-    $('sessao-resumo').textContent = 'Pronto';
+    // A legenda da sessao conta QUESTOES ("Pergunta 2 de 3"). Numa tela de
+    // resultado nao ha questao corrente, e "Pronto" so repetia o titulo do
+    // cartao logo abaixo de uma jornada que ja marca "Resultado". Vazia.
+    //
+    // O trilho conta as mesmas questoes e ficava desenhado aqui, com o
+    // ultimo segmento aceso, como se houvesse uma pergunta na tela.
+    $('sessao-resumo').textContent = '';
+    $('trilho').innerHTML = '';
 
     // O aluno ACABOU de concluir uma etapa: o botao leva ao proximo passo,
     // com o rotulo que o backend calculou para ele.
@@ -508,6 +568,11 @@
     if (!codigo) return;
     irPara('sessao');
     $('bloco').innerHTML = aviso('Preparando…');
+
+    const aberta = aRetomar('PRACTICE', codigo);
+    if (aberta) return retomar(aberta, {
+      content_code: codigo, titulo: 'Vamos praticar', pratica: true,
+    });
 
     let pr;
     try {
@@ -730,7 +795,7 @@
     a.revisao = { questoes, pos: 0 };
 
     $('trilho').innerHTML = '';
-    $('sessao-resumo').textContent = 'Concluída';
+    $('sessao-resumo').textContent = '';  // idem pintarResultado
     // Esta E uma atividade da escola: aqui o acerto E reportado como
     // desempenho. O que NAO se faz e concluir dominio por ter concluido - quem
     // decide isso continua sendo a politica, no proximo calculo de prontidao.

@@ -165,9 +165,14 @@ class ReadinessRouteService:
 
         # EM QUE PE ESTA O PASSO. Sem isto o CTA so sabia o TIPO da proxima
         # acao, e dizia "Responder" a quem acabara de responder.
-        passo["state"] = await self._estado_do_passo(
+        passo["state"], retomar = await self._estado_do_passo(
             passo, assignment_id, student_external_id, requester=requester)
         passo["cta"] = cta_para(passo["kind"], passo["state"])
+        # QUAL retomar. Dizer "Continuar pratica" sem dizer qual levava a tela
+        # a criar uma pratica NOVA, da questao 1, e a anterior - com as
+        # respostas dentro - ficava inalcancavel. Nulo quando nao ha nada
+        # aberto: oferecer retomar o inexistente e o mesmo erro ao contrario.
+        passo["resume_assignment_id"] = retomar
 
         # A JORNADA que o aluno ve. Derivada do que ja esta gravado - as
         # origens de evidencia e o estado da tentativa - nunca da navegacao.
@@ -248,15 +253,21 @@ class ReadinessRouteService:
         return estado.get("status") or ESTADO_NAO_INICIADO
 
     async def _estado_do_passo(self, passo: dict, assignment_id, aluno: str, *,
-                               requester) -> str:
-        """NAO_INICIADO / EM_ANDAMENTO / CONCLUIDO para o passo em questao.
+                               requester) -> tuple[str, str | None]:
+        """(estado, o que retomar) para o passo em questao.
 
-        Para a ATIVIDADE, o estado e o da tentativa dela. Para diagnostico e
-        pratica, e o da ultima pratica ABERTA daquele conteudo - se nao houver
-        nenhuma, o aluno ainda nao comecou.
+        Estado e NAO_INICIADO / EM_ANDAMENTO / CONCLUIDO. Para a ATIVIDADE, e
+        o da tentativa dela. Para diagnostico e pratica, e o da ultima pratica
+        ABERTA daquele conteudo - se nao houver nenhuma, o aluno ainda nao
+        comecou.
+
+        O segundo valor so existe quando ha algo EM ANDAMENTO, e e a atividade
+        que o aluno deve reabrir. Este metodo ja localizava essa pratica para
+        responder EM_ANDAMENTO e descartava o identificador; quem chamava
+        ficava sabendo que havia o que continuar, mas nao o que.
 
         Nada aqui decide pedagogia: so reporta o que ja esta gravado, para que
-        o botao possa dizer a verdade.
+        o botao possa dizer a verdade - e levar aonde diz.
         """
         from agente_ia_edu.services.activity_player_store import (
             ActivityPlayerStore, PlayerError,
@@ -272,11 +283,12 @@ class ReadinessRouteService:
                 estado = await ActivityPlayerStore(self._session).get_state(
                     assignment_id, requester=requester)
             except (PlayerError, LookupError, PermissionError):
-                return ESTADO_NAO_INICIADO
-            return estado.get("status") or ESTADO_NAO_INICIADO
+                return ESTADO_NAO_INICIADO, None
+            # A atividade e a que o aluno ja esta olhando: nao ha "qual".
+            return estado.get("status") or ESTADO_NAO_INICIADO, None
 
         if kind not in (PASSO_DIAGNOSTICO, PASSO_PRATICA):
-            return ESTADO_NAO_INICIADO
+            return ESTADO_NAO_INICIADO, None
 
         from agente_ia_edu.services.adaptive_practice import AdaptivePracticeService
 
@@ -284,22 +296,22 @@ class ReadinessRouteService:
             praticas = await AdaptivePracticeService(self._session).list_practices(
                 aluno, requester=requester)
         except Exception:  # noqa: BLE001 - sem praticas: nao comecou
-            return ESTADO_NAO_INICIADO
+            return ESTADO_NAO_INICIADO, None
 
         alvo = passo.get("content_code")
         minhas = [p for p in (praticas.get("items") or [])
                   if p.get("content_code") == alvo]
         if not minhas:
-            return ESTADO_NAO_INICIADO
+            return ESTADO_NAO_INICIADO, None
         # A mais recente primeiro (list_practices ordena por created_at desc).
         estado = (minhas[0].get("state") or "")
         if "IN_PROGRESS" in estado:
-            return ESTADO_EM_ANDAMENTO
+            return ESTADO_EM_ANDAMENTO, str(minhas[0].get("assignment_id") or "") or None
         if "COMPLETED" in estado or "CORRECTED" in estado:
-            return ESTADO_CONCLUIDO
+            return ESTADO_CONCLUIDO, None
         # PRACTICE_CREATED: existe, mas o aluno nao abriu - para ele, nao
         # comecou. "Continuar" sobre algo que ele nunca viu seria mentira.
-        return ESTADO_NAO_INICIADO
+        return ESTADO_NAO_INICIADO, None
 
     @staticmethod
     async def _prereqs_do_catalogo(planejador, codigo, requester, por_conteudo) -> list[dict]:

@@ -692,10 +692,14 @@ p  { margin: 0 0 .75rem; }
   white-space: nowrap;
 }
 
-/* a seta entre etapas e decorativa e some quando a linha quebra */
-.etapa + .etapa::before {
+/* A seta e decorativa (`aria-hidden` por ser ::after) e pertence ao item
+   ANTERIOR, nao ao seguinte. Era ::before do seguinte, e quando a jornada de
+   quatro etapas quebrava em 390px a linha de baixo COMECAVA com uma seta
+   solta. Presa ao item anterior, ela termina a linha de cima - que e o que
+   uma seta no fim da linha quer dizer: continua abaixo. */
+.etapa:not(:last-child)::after {
   content: "→";
-  margin-right: .2rem;
+  margin-left: .35rem;
   color: var(--borda);
 }
 
