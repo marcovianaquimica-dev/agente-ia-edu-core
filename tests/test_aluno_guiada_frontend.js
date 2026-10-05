@@ -110,6 +110,45 @@ test('a fala de quem acertou com ajuda nao humilha', () => {
   assert.doesNotMatch(texto, /errado|falhou|fraco|nao conseguiu/i);
 });
 
+test('depois de pedir ajuda, a fala nao volta a "tente primeiro"', () => {
+  // Encontrado no ensaio: o apresentador erra de proposito para mostrar a
+  // ajuda progressiva, e a tela volta a dizer "Tente primeiro por conta
+  // propria" - contradizendo o que acabou de acontecer na frente de todos.
+  const dados = recemAberto({ attempts: 1, hints_used: 1,
+                              ajudas: [{ nivel: 1, tipo: 'CONCEITO', texto: 'x' }] });
+  const texto = GuiadaUI.falaDoAssessor(dados, { pediuAjuda: true });
+  assert.doesNotMatch(texto, /primeiro por conta|tente primeiro/i);
+  assert.ok(texto.trim().length > 0);
+});
+
+test('a fala de quem pediu ajuda aponta para a dica e convida a tentar', () => {
+  const dados = recemAberto({ attempts: 1, hints_used: 2 });
+  const texto = GuiadaUI.falaDoAssessor(dados, { pediuAjuda: true });
+  assert.match(texto, /dica|ajuda|abaixo|tente/i);
+});
+
+test('quem ainda nao fez nada continua recebendo o convite inicial', () => {
+  // O convite morava solto no HTML de `aluno.js`, fora de qualquer teste.
+  // Trazido para ca, a tela passa a ter UMA fonte de fala - e foi justamente
+  // a existencia de duas que deixou a tela se contradizer no ensaio.
+  const texto = GuiadaUI.falaDoAssessor(recemAberto(), null);
+  assert.match(texto, /primeiro|conta pr/i);
+});
+
+test('quem reabre uma pratica ja comecada nao ouve "tente primeiro"', () => {
+  // Recarregar a pagina no meio da pratica perde o ultimo resultado, mas nao
+  // perde o historico: dizer "tente primeiro" a quem ja tentou duas vezes e
+  // pediu ajuda contradiz o que esta desenhado logo abaixo, na mesma tela.
+  const dados = recemAberto({ attempts: 2, hints_used: 1,
+                              ajudas: [{ nivel: 1, tipo: 'CONCEITO', texto: 'x' }] });
+  const texto = GuiadaUI.falaDoAssessor(dados, null);
+  assert.doesNotMatch(texto, /primeiro por conta|tente primeiro/i);
+  // Nem pode anunciar um erro que nao acabou de acontecer: ninguem respondeu
+  // nada agora, a pagina so foi recarregada.
+  assert.doesNotMatch(texto, /ainda n[aã]o [eé] essa/i);
+  assert.ok(texto.trim().length > 0);
+});
+
 test('o contador de ajuda e legivel para o aluno', () => {
   const v = GuiadaUI.estado(recemAberto({ hints_used: 2, ajudas_disponiveis: 4 }));
   assert.match(v.resumoDaAjuda, /2/);
@@ -152,4 +191,14 @@ test('um payload vazio nao quebra a tela', () => {
   const v = GuiadaUI.estado(null);
   assert.equal(v.podeResponder, false);
   assert.equal(v.concluido, false);
+});
+
+test('reabrir uma pratica JA CONCLUIDA nao convida a continuar tentando', () => {
+  // Concluida e concluida: o item ja foi resolvido e registrado. Dizer
+  // "continue de onde parou" aqui mandaria o aluno refazer o que acabou.
+  const dados = recemAberto({ completed: true, solved_unaided: false,
+                              hints_used: 3, attempts: 4 });
+  const texto = GuiadaUI.falaDoAssessor(dados, null);
+  assert.doesNotMatch(texto, /de onde voc[eê] parou|tente primeiro/i);
+  assert.match(texto, /com a ajuda|juntos|agora/i);
 });

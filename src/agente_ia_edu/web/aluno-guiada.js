@@ -76,7 +76,39 @@
    */
   function falaDoAssessor(dados, resultado) {
     var d = dados || {};
-    var r = resultado || {};
+
+    // NADA ACABOU DE ACONTECER: primeira abertura, ou a pagina recarregada no
+    // meio da pratica.
+    //
+    // Esta frase morava solta no HTML de `aluno.js`, fora de teste. Eram duas
+    // fontes de fala na mesma tela, e foi exatamente por isso que a tela
+    // conseguiu se contradizer. Agora e uma so, e ela sabe o historico.
+    if (resultado === null || resultado === undefined) {
+      // Concluida e concluida - o item ja foi resolvido e registrado.
+      if (d.completed) {
+        return falaDoAssessor(d, { correct: true });
+      }
+      if ((d.attempts || 0) || (d.hints_used || 0)) {
+        return 'Vamos continuar de onde você parou — o que já apareceu está '
+             + 'logo abaixo.';
+      }
+      return 'Tente primeiro por conta própria. Se travar, é só pedir ajuda '
+           + '— ela vem em partes, não de uma vez.';
+    }
+
+    var r = resultado;
+
+    // ACABOU DE PEDIR AJUDA.
+    //
+    // Encontrado no ensaio da apresentacao: o apresentador erra de proposito
+    // para mostrar a ajuda progressiva, pede a dica, e a tela volta a dizer
+    // "Tente primeiro por conta propria" - contradizendo o que acabou de
+    // acontecer na frente de todos. A fala precisa acompanhar o que o aluno
+    // fez, nao voltar ao inicio.
+    if (r.pediuAjuda) {
+      return 'Aqui vai a dica abaixo. Leia com calma e tente de novo — se '
+           + 'ainda travar, tem mais.';
+    }
 
     if (!r.correct) {
       if ((d.hints_used || 0) >= (d.ajudas_disponiveis || 0)) {

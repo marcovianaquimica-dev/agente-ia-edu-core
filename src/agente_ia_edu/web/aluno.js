@@ -615,10 +615,11 @@
         <p>${esc(a.texto)}</p>
       </li>`).join('');
 
-    const fala = g.ultimo
-      ? `<p class="assessor-fala">${esc(GuiadaUI.falaDoAssessor(g.dados, g.ultimo))}</p>`
-      : `<p class="assessor-fala">Tente primeiro por conta própria. Se travar,
-         é só pedir ajuda — ela vem em partes, não de uma vez.</p>`;
+    // UMA fonte de fala. O convite inicial ficava aqui, em HTML, fora de
+    // qualquer teste - e a tela com duas vozes acabou se contradizendo
+    // (pedia-se a ajuda, e ela voltava a dizer "tente primeiro").
+    const fala = `<p class="assessor-fala">${
+      esc(GuiadaUI.falaDoAssessor(g.dados, g.ultimo))}</p>`;
 
     const acoes = v.concluido
       ? `<button class="botao botao-principal" data-acao="guiada-seguir">
@@ -677,7 +678,9 @@
       g.dados = await api(
         `/api/v1/student/guided-practice/${encodeURIComponent(g.dados.item_key)}/hint`,
         { method: 'POST' });
-      g.ultimo = null;
+      // `null` fazia a fala VOLTAR ao convite inicial ("tente primeiro por
+      // conta propria") logo depois de o aluno pedir ajuda.
+      g.ultimo = { pediuAjuda: true };
       pintarGuiada();
     } catch (e) {
       $('bloco').innerHTML += aviso(`Não consegui trazer a ajuda agora.`);
