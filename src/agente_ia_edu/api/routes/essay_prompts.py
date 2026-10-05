@@ -636,15 +636,16 @@ class EssayPromptDetailResponse(EssayPromptResponse):
 @essay_prompts_router.get("/{essay_prompt_id}/answer-sheet.pdf")
 async def get_essay_prompt_answer_sheet(
     essay_prompt_id: UUID,
-    copies: int = Query(1, ge=1, le=60),
+    copies: int = Query(1, ge=1, le=200),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> Response:
     """A folha de resposta em branco desta proposta, pronta pra imprimir - uma
     folha por pagina do PDF gerado.
 
-    O teto de 60 copias e o mesmo teto de paginas de um lote: mais folhas do que
-    cabem num envio nao teriam pra onde ir.
+    O teto de 200 copias e o mesmo teto de paginas de um lote
+    (services/essay_batch.py::MAX_BATCH_PAGES): mais folhas do que cabem num
+    envio nao teriam pra onde ir.
 
     Logo nao cadastrada (ou ilegivel) nunca bloqueia a geracao (spec s7) - a
     folha sai com a logo do Nucleo Edu 360 no lugar, em vez de ficar em
@@ -674,7 +675,7 @@ async def get_essay_prompt_answer_sheet(
 
 @essay_prompts_router.get("/answer-sheet.pdf")
 async def get_generic_answer_sheet(
-    copies: int = Query(1, ge=1, le=60),
+    copies: int = Query(1, ge=1, le=200),
     identity: ExternalIdentityContext = Depends(get_current_identity),
     session_factory=Depends(get_session_factory),
 ) -> Response:

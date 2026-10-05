@@ -316,7 +316,7 @@ class EssayBatchesRoutesTests(unittest.TestCase):
         _school_id, class_id, prompt_id, _students = self._seed("3", ["Ana Lúcia Ferreira"])
         ScriptedTranscriber.script = {}
         files = []
-        for index in range(61):
+        for index in range(201):
             path = _write_stamped_page(self.tmp_dir / f"big{index}.png", f"big{index}")
             files.append(("files", (f"big{index}.png", path.read_bytes(), "image/png")))
         response = self.client.post(
@@ -324,7 +324,7 @@ class EssayBatchesRoutesTests(unittest.TestCase):
             data={"essay_prompt_id": prompt_id, "class_id": class_id}, files=files,
         )
         self.assertEqual(response.status_code, 422, response.text)
-        self.assertIn("60", response.json()["detail"])
+        self.assertIn("200", response.json()["detail"])
 
     def test_unsupported_file_type_is_422(self):
         _school_id, class_id, prompt_id, _students = self._seed("4", ["Ana Lúcia Ferreira"])

@@ -76,11 +76,20 @@ _CPF_LABEL_PATTERN = re.compile(r"^CPF\b\s*:?\s*")
 _PRINTED_LABELS = ("FOLHA DE REDACAO", "NOME", "CPF")
 
 # Teto do lote inteiro, somando todos os arquivos de um mesmo envio (spec s7).
-# Folga sobre uma turma tipica de ~50 alunos, sem deixar o processamento em
-# segundo plano crescer sem controle. O teto POR ARQUIVO PDF continua sendo o
-# EssaySubmissionService._MAX_PDF_PAGES (20) que a submissao individual ja usa -
-# reaproveitado, nao redeclarado, pra que os dois nunca divirjam.
-MAX_BATCH_PAGES = 60
+# Decisao do usuario 2026-10-05: subido de 60 pra 200 pra caber uma escola
+# inteira num envio so, nao so uma turma tipica. Sem risco de timeout de
+# requisicao porque create_essay_batch devolve 202 na hora e o processamento
+# roda em segundo plano (background_tasks.add_task) - o teto aqui e so pra
+# nao deixar esse processamento crescer sem controle.
+MAX_BATCH_PAGES = 200
+
+# Teto POR ARQUIVO PDF do envio em lote - DELIBERADAMENTE maior que o
+# EssaySubmissionService._MAX_PDF_PAGES (20) do envio INDIVIDUAL do aluno.
+# Os dois nao podem mais ser o mesmo numero: o envio individual roda
+# SINCRONO (risco real de timeout, ver o comentario de _MAX_PDF_PAGES), e o
+# lote roda em background (sem esse risco) - por isso aceita um PDF unico
+# bem maior, ate 200 paginas, sem precisar dividir em varios arquivos.
+_MAX_PDF_PAGES_BATCH = 200
 
 ALLOWED_BATCH_SUFFIXES = (".png", ".jpg", ".jpeg", ".pdf")
 _PDF_SUFFIXES = (".pdf",)
@@ -375,9 +384,9 @@ class EssayBatchService:
     def _expand_to_page_images(cls, source_paths: Sequence[Path]) -> list[Path]:
         """Uma lista plana de imagens de pagina, na ordem dos arquivos enviados:
         um PDF vira N imagens (via o mesmo _split_pdf_pages que a submissao
-        individual usa, com o mesmo teto de 20 paginas por arquivo), uma imagem
-        continua sendo uma pagina so. Roda fora do event loop no chamador -
-        rasterizar PDF e CPU-bound."""
+        individual usa, mas com o teto PROPRIO do lote - _MAX_PDF_PAGES_BATCH,
+        maior que o do envio individual), uma imagem continua sendo uma pagina
+        so. Roda fora do event loop no chamador - rasterizar PDF e CPU-bound."""
         if not source_paths:
             raise ValueError("Envie ao menos um arquivo de redacao.")
         page_images: list[Path] = []
@@ -387,8 +396,11 @@ class EssayBatchService:
                 raise ValueError(f"Formato de arquivo nao suportado: {suffix!r}")
             if suffix in _PDF_SUFFIXES:
                 # Levanta ValueError com a mensagem do proprio limite quando o
-                # PDF passa de EssaySubmissionService._MAX_PDF_PAGES.
-                split = EssaySubmissionService._split_pdf_pages(source_path)
+                # PDF passa de _MAX_PDF_PAGES_BATCH (teto do lote, nao o do
+                # envio individual do aluno).
+                split = EssaySubmissionService._split_pdf_pages(
+                    source_path, max_pages=_MAX_PDF_PAGES_BATCH
+                )
                 page_images.extend(image_path for image_path, _text in split)
             else:
                 page_images.append(source_path)

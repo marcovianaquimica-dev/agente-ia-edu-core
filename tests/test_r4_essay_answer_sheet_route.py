@@ -112,7 +112,7 @@ class AnswerSheetRouteTests(unittest.TestCase):
         )
         self.assertEqual(
             self.client.get(
-                f"/api/v1/catalog/essay-prompts/{prompt_id}/answer-sheet.pdf?copies=200"
+                f"/api/v1/catalog/essay-prompts/{prompt_id}/answer-sheet.pdf?copies=201"
             ).status_code, 422,
         )
 

@@ -596,22 +596,33 @@ class EssaySubmissionService:
             self._transcriber = build_essay_transcriber()
         return self._transcriber
 
+    # Teto do ENVIO INDIVIDUAL do aluno (upload_document) - esse caminho roda
+    # SINCRONO, dentro da mesma requisicao HTTP, e cada pagina pode disparar
+    # ate 3-4 chamadas de visao (OCR + reconciliacao de baixa confianca,
+    # ver _reconcile_low_confidence_tokens) - um PDF grande aqui arrisca a
+    # propria requisicao estourar o tempo limite (confirmado ao vivo
+    # 2026-09-27). O envio em lote do professor (services/essay_batch.py)
+    # roda em background (background_tasks.add_task) e por isso usa seu
+    # proprio teto, maior - ver _MAX_PDF_PAGES_BATCH la.
     _MAX_PDF_PAGES = 20
 
     @classmethod
-    def _split_pdf_pages(cls, pdf_path: Path) -> list[tuple[Path, str | None]]:
+    def _split_pdf_pages(
+        cls, pdf_path: Path, *, max_pages: int | None = None
+    ) -> list[tuple[Path, str | None]]:
         try:
             import pymupdf as _mu
         except ImportError:
             import fitz as _mu  # type: ignore
 
+        limit = cls._MAX_PDF_PAGES if max_pages is None else max_pages
         dest_dir = pdf_path.parent / f"{pdf_path.stem}_pages"
         dest_dir.mkdir(exist_ok=True)
         doc = _mu.open(str(pdf_path))
         try:
-            if len(doc) > cls._MAX_PDF_PAGES:
+            if len(doc) > limit:
                 raise ValueError(
-                    f"PDF has {len(doc)} pages, more than the {cls._MAX_PDF_PAGES}-page limit"
+                    f"PDF has {len(doc)} pages, more than the {limit}-page limit"
                 )
             results: list[tuple[Path, str | None]] = []
             for index in range(len(doc)):
