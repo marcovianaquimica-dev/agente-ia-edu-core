@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Núcleo Edu 360 — Banco de Questões</title>
   <base href="/question-bank/assets/">
+  <!-- A camada compartilhada vem PRIMEIRO: ela define os tokens que as
+       folhas seguintes usam, e e dela que saem `.contexto-humano` e
+       `.dev-identidade` deste cabecalho. -->
+  <link rel="stylesheet" href="nucleo.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="stylesheet" href="question-bank.css">
@@ -27,10 +31,24 @@
           <button class="btn btn-secondary qb-tab" data-qb-view="list" role="tab" aria-selected="false">Configurar Lista</button>
           <button class="btn btn-secondary qb-tab" data-qb-view="mylists" role="tab" aria-selected="false">Minhas Listas</button>
         </div>
-        <div class="filter-group">
-          <span class="filter-label">🆔 Usuário:</span>
-          <input type="text" id="qb-identity-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes ou user:coord_a">
-        </div>
+        <!-- QUEM ESTA AQUI, EM LINGUAGEM DE GENTE.
+             O cabecalho mostrava `user:prof_mendes` aberto na tela. Um
+             identificador tecnico num cabecalho diz "ferramenta interna",
+             nao "produto". O nome vem de /portal/overview - a mesma rota que
+             o Portal e a tela do professor ja usam. -->
+        <p class="contexto-humano" id="qb-contexto-humano"></p>
+
+        <!-- A ENTRADA DE DESENVOLVIMENTO CONTINUA, FECHADA.
+             Ela e o mecanismo real de troca de identidade neste ambiente, e
+             o JavaScript a le. Remove-la quebraria a tela; o que se corrige
+             e ela estar ABERTA na cara de quem nao e desenvolvedor. -->
+        <details class="dev-identidade">
+          <summary>Ambiente de desenvolvimento</summary>
+          <div class="filter-group">
+            <span class="filter-label">Usuário</span>
+            <input type="text" id="qb-identity-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes">
+          </div>
+        </details>
       </header>
 
       <div id="qb-alert" class="alert-box" hidden role="status"></div>
@@ -68,9 +86,9 @@
                 <option value="MATH">Matemática</option>
               </select></label>
             <label class="qb-field"><span>Conteúdo</span>
-              <input type="text" id="qb-filter-content" placeholder="código curriculum-v2" /></label>
+              <input type="text" id="qb-filter-content" placeholder="Ex.: Estequiometria" /></label>
             <label class="qb-field"><span>Subconteúdo</span>
-              <input type="text" id="qb-filter-subcontent" placeholder="código curriculum-v2" /></label>
+              <input type="text" id="qb-filter-subcontent" placeholder="Ex.: Concentração" /></label>
             <label class="qb-field"><span>Status</span>
               <select id="qb-filter-status">
                 <option value="">Todos</option>
@@ -83,7 +101,7 @@
             <label class="qb-field"><span>Dificuldade</span>
               <select id="qb-filter-difficulty">
                 <option value="">Todas</option><option value="EASY">Fácil</option>
-                <option value="MEDIUM">Média</option><option value="HARD">Difícil</option>
+                <option value="MEDIUM">Médio</option><option value="HARD">Difícil</option>
               </select></label>
             <label class="qb-field"><span>Origem</span>
               <select id="qb-filter-source">

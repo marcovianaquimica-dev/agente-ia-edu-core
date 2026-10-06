@@ -56,6 +56,24 @@ class QBAsset(BaseModel):
     present: bool
 
 
+class QBLabels(BaseModel):
+    """COMO CHAMAR, NA TELA, O QUE O SISTEMA CHAMA POR CODIGO.
+
+    Nao substitui campo nenhum: anda ao lado deles. Os codigos canonicos
+    continuam em `classification`, `content_code` e `recommended_difficulty`,
+    porque e por eles que o filtro, a selecao e a geracao de lista conversam -
+    trocar um pelo rotulo quebraria as tres e esconderia a quebra atras de uma
+    tela bonita.
+
+    `taxonomy` vem de `catalog_nodes.name`, escrito por gente, e nao de um
+    dicionario paralelo que divergiria no primeiro conteudo novo. Codigo sem no
+    volta como ele mesmo: mostrar o codigo e honesto, chutar um nome nao.
+    """
+
+    taxonomy: dict[str, str] = Field(default_factory=dict)
+    difficulty: dict[str, str] = Field(default_factory=dict)
+
+
 class QBQuestion(BaseModel):
     """Full question detail (preview). Returned only by GET /questions/{id}."""
 
@@ -79,6 +97,7 @@ class QBQuestion(BaseModel):
     has_visual_dependency: bool
     assets: list[QBAsset] = Field(default_factory=list)
     evidence_uri: str | None
+    labels: QBLabels = Field(default_factory=QBLabels)
 
 
 class QBQuestionSummary(BaseModel):
@@ -117,6 +136,9 @@ class QBPagination(BaseModel):
 class QBQuestionListResponse(BaseModel):
     items: list[QBQuestionSummary]
     pagination: QBPagination
+    # Uma consulta por PAGINA, nao por questao: vinte questoes com ate quatro
+    # codigos cada seriam oitenta consultas para desenhar uma lista.
+    labels: QBLabels = Field(default_factory=QBLabels)
 
 
 class QBSelectionEntry(BaseModel):
