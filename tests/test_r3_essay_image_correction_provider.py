@@ -17,12 +17,19 @@ from agente_ia_edu.providers.models import EssayImageCorrectionRequest
 
 class OpenAIImageCorrectionTests(unittest.TestCase):
     def test_raises_when_not_configured(self):
-        provider = OpenAIProvider(api_key=None, vision_model=None)
-        request = EssayImageCorrectionRequest(
-            image_paths=(Path("/tmp/page1.png"),), mime_type="image/png", prompt="corrija",
-        )
-        with self.assertRaises(ProviderConfigurationError):
-            asyncio.run(provider.correct_from_images(request))
+        # Hermetic: conftest.py loads OPENAI_API_KEY from .env for every
+        # pytest session (needed for the live Quality Gate regression
+        # test), so this test must explicitly ensure it is absent for its
+        # own duration regardless of what the ambient environment has.
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("OPENAI_API_KEY", None)
+            provider = OpenAIProvider(api_key=None, vision_model=None)
+            request = EssayImageCorrectionRequest(
+                image_paths=(Path("/tmp/page1.png"),), mime_type="image/png", prompt="corrija",
+            )
+            with self.assertRaises(ProviderConfigurationError):
+                asyncio.run(provider.correct_from_images(request))
 
     def test_sends_one_image_block_per_page_and_returns_json_text(self):
         page1 = Path("/tmp/r3_test_page1.png")
@@ -125,12 +132,18 @@ class OpenAIImageCorrectionTests(unittest.TestCase):
     def test_raises_when_vision_model_not_configured_but_key_present(self):
         # Distinct branch from test_raises_when_not_configured: api_key IS
         # set (and request.model is unset), only vision_model is missing.
-        provider = OpenAIProvider(api_key="sk-test", vision_model=None)
-        request = EssayImageCorrectionRequest(
-            image_paths=(Path("/tmp/page1.png"),), mime_type="image/png", prompt="corrija",
-        )
-        with self.assertRaises(ProviderConfigurationError):
-            asyncio.run(provider.correct_from_images(request))
+        # Hermetic for the same reason as that test, but here it is
+        # OPENAI_VISION_MODEL (also loaded from .env by conftest.py) that
+        # must be absent, not OPENAI_API_KEY.
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("OPENAI_VISION_MODEL", None)
+            provider = OpenAIProvider(api_key="sk-test", vision_model=None)
+            request = EssayImageCorrectionRequest(
+                image_paths=(Path("/tmp/page1.png"),), mime_type="image/png", prompt="corrija",
+            )
+            with self.assertRaises(ProviderConfigurationError):
+                asyncio.run(provider.correct_from_images(request))
 
     def test_raises_invalid_response_on_empty_correction(self):
         page = Path("/tmp/r3_empty_test_page.png")
@@ -167,8 +180,16 @@ class OpenAIImageCorrectionTests(unittest.TestCase):
 
 class FactoryTests(unittest.TestCase):
     def test_build_essay_image_corrector_requires_configuration(self):
-        with self.assertRaises(ProviderConfigurationError):
-            build_essay_image_corrector("openai")
+        # Hermetic for the same reason as OpenAIImageCorrectionTests' two
+        # configuration tests above: conftest.py loads both
+        # OPENAI_API_KEY and OPENAI_VISION_MODEL from .env for every pytest
+        # session.
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("OPENAI_API_KEY", None)
+            _os.environ.pop("OPENAI_VISION_MODEL", None)
+            with self.assertRaises(ProviderConfigurationError):
+                build_essay_image_corrector("openai")
 
     def test_build_essay_image_corrector_raises_when_vision_model_missing(self):
         with patch.dict(
