@@ -235,3 +235,17 @@
   margin-top: .2rem;
   padding-top: .8rem;
 }
+
+/* `hidden` SIGNIFICA ESCONDIDO.
+ *
+ * O atributo só esconde pela folha do navegador, e qualquer `display` do
+ * autor a vence. Isto já foi corrigido caso a caso três vezes em styles.css
+ * (`.activity-player-dialog-backdrop`, `.activity-result-questions`,
+ * `.ss-time-custom`) e quebrou de novo nos filtros globais: `switchView`
+ * marcava `hidden` na view da Redação, o JS decidia certo, e os filtros
+ * continuavam na tela por causa do `display: flex` de `.filter-group`.
+ *
+ * Aqui a regra passa a valer para o produto inteiro, de uma vez. Quem
+ * precisar mostrar um elemento tira o atributo - que é o que ele quer dizer.
+ */
+[hidden] { display: none !important; }
