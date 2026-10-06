@@ -54,6 +54,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "agente_ia_edu.rubrics" = ["*.yaml"]
+"agente_ia_edu.data" = ["*.txt"]
 
 [tool.pytest.ini_options]
 # The editable install pins src/ in the primary checkout, so a worktree would
