@@ -68,6 +68,7 @@ where = ["src"]
 # two files.
 pythonpath = ["src", "."]
 testpaths = ["tests"]
+markers = ["live: faz chamadas reais de IA - nao roda no CI padrao"]
 
 [tool.coverage.run]
 # Without this, coverage silently under-reports every route/service that goes
