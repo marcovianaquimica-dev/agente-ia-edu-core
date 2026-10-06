@@ -25,6 +25,10 @@ def html(nome: str) -> str:
     return (WEB / nome).read_text(encoding="utf-8")
 
 
+def texto_css(nome: str) -> str:
+    return (WEB / nome).read_text(encoding="utf-8")
+
+
 def itens_da_lateral(pagina: str) -> list[dict]:
     """Cada item da nav: o destino (view ou href) e o rótulo visível."""
     marcacao = html(pagina)
@@ -115,6 +119,41 @@ class NadaDeEmojiNaNavegacao(unittest.TestCase):
             with self.subTest(item=item["rotulo"]):
                 for e in proibidos:
                     self.assertNotIn(e, item["rotulo"])
+
+
+class ODrawerTemOContratoCompleto(unittest.TestCase):
+    """O que o drawer PRECISA ter para ser usável — travado no HTML.
+
+    O comportamento (abre, fecha, ESC, clique fora, body livre) foi validado
+    no navegador a 390px; este teste guarda as peças de que ele depende, que
+    são as que alguém poderia remover sem perceber.
+    """
+
+    def test_as_tres_pecas_existem(self):
+        marcacao = html("teacher.html")
+        for peca, oque in (
+                ("teacher-mobile-menu-toggle", "botão que abre"),
+                ("teacher-mobile-menu-close", "botão que fecha"),
+                ("teacher-sidebar-backdrop", "fundo que fecha ao clicar")):
+            with self.subTest(peca=oque):
+                self.assertIn(peca, marcacao, f"drawer sem {oque}")
+
+    def test_o_botao_declara_o_estado_para_quem_nao_ve(self):
+        marcacao = html("teacher.html")
+        trecho = marcacao[marcacao.index("teacher-mobile-menu-toggle") - 300:]
+        trecho = trecho[:600]
+        self.assertIn("aria-expanded", trecho,
+                      "o botão não diz se o menu está aberto")
+        self.assertIn("aria-label", trecho, "botão de ícone sem nome")
+
+    def test_o_alvo_de_toque_nao_regride(self):
+        """36x36 foi medido e corrigido. O token existe para não voltar."""
+        css = texto_css("styles.css")
+        inicio = css.index(".mobile-menu-toggle")
+        bloco = css[inicio:inicio + 420]
+        self.assertIn("--nucleo-toque", bloco,
+                      "o alvo de toque voltou a ser um número solto")
+        self.assertNotIn("36px", bloco)
 
 
 if __name__ == "__main__":
