@@ -20,6 +20,17 @@ A QUÍMICA CONTINUA SENDO CONFERIDA POR CONTAGEM
 Cada alternativa declara se está balanceada, e a declaração passa pelo mesmo
 verificador que já aprova os itens do banco diagnóstico. Exatamente uma
 alternativa fecha — se duas fechassem, o item teria duas respostas certas.
+
+DOIS CONJUNTOS, DOIS VERIFICADORES
+===================================
+Desde que Estequiometria ganhou itens próprios, `ITENS` tem dois conteúdos.
+As asserções sobre EQUAÇÕES — contagem de átomos, `balanceada`, não repetir
+a equação certa na dica — só fazem sentido para balanceamento, e por isso
+iteram `ITENS_DE_BALANCEAMENTO`. Isso é um escopo, não um afrouxamento: as
+garantias genéricas (nenhum nível entrega a letra, níveis sem buraco, o
+gabarito não viaja) continuam varrendo `ITENS` inteiro, e a aritmética de
+Estequiometria tem o verificador dela em
+`test_itens_guiados_estequiometria.py`.
 """
 
 from __future__ import annotations
@@ -29,17 +40,22 @@ import unittest
 from agente_ia_edu.services.chemistry_balance import equacao_balanceada
 from agente_ia_edu.services.conteudo_balanceamento import para_exibicao
 from agente_ia_edu.services.itens_guiados import (
+    CONTENT_CODE as BALANCEAMENTO,
     NIVEIS_DE_AJUDA,
     ITENS,
     item_para,
     para_o_aluno,
 )
 
+# Só os que declaram equação. Ver o cabeçalho.
+ITENS_DE_BALANCEAMENTO = [i for i in ITENS if i["content_code"] == BALANCEAMENTO]
+
 
 class AQuimicaDeCadaItemEhConferidaTests(unittest.TestCase):
+    """Balanceamento. A aritmética de Estequiometria tem arquivo próprio."""
 
     def test_cada_alternativa_esta_no_estado_declarado(self):
-        for item in ITENS:
+        for item in ITENS_DE_BALANCEAMENTO:
             for letra, alt in item["alternativas"].items():
                 with self.subTest(item=item["key"], letra=letra):
                     self.assertEqual(
@@ -49,13 +65,13 @@ class AQuimicaDeCadaItemEhConferidaTests(unittest.TestCase):
 
     def test_exatamente_uma_alternativa_fecha(self):
         """Duas que fechassem dariam duas respostas certas; nenhuma, nenhuma."""
-        for item in ITENS:
+        for item in ITENS_DE_BALANCEAMENTO:
             fecham = [l for l, a in item["alternativas"].items() if a["balanceada"]]
             with self.subTest(item=item["key"]):
                 self.assertEqual(len(fecham), 1, f"fecham: {fecham}")
 
     def test_a_correta_e_a_que_fecha(self):
-        for item in ITENS:
+        for item in ITENS_DE_BALANCEAMENTO:
             fecha = next(l for l, a in item["alternativas"].items() if a["balanceada"])
             with self.subTest(item=item["key"]):
                 self.assertEqual(item["correta"], fecha)
@@ -76,7 +92,7 @@ class AAjudaNaoEntregaARespostaTests(unittest.TestCase):
 
     def test_nenhum_nivel_reproduz_a_equacao_correta_inteira(self):
         """Escrever a equação certa por extenso é apontar a alternativa."""
-        for item in ITENS:
+        for item in ITENS_DE_BALANCEAMENTO:
             crua = item["alternativas"][item["correta"]]["equacao"]
             for ajuda in item["ajudas"]:
                 with self.subTest(item=item["key"], nivel=ajuda["nivel"]):

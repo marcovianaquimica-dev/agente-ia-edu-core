@@ -35,18 +35,24 @@ from __future__ import annotations
 
 from agente_ia_edu.services.conteudo_balanceamento import para_exibicao
 
+# O contrato mora em `itens_guiados_contrato` desde que este modulo passou a
+# importar o conteudo de outras disciplinas - importa-lo de volta daqui seria
+# um ciclo. Reexportado para nao quebrar quem ja importava daqui.
+from agente_ia_edu.services.itens_guiados_contrato import (
+    AJUDA_ASSISTIDA,
+    AJUDA_CONCEITO,
+    AJUDA_ONDE_OLHAR,
+    AJUDA_OPERACAO,
+    NIVEIS_DE_AJUDA,
+)
+from agente_ia_edu.services.itens_guiados_estequiometria import (
+    ITENS as _ITENS_ESTEQUIOMETRIA,
+)
+
 CONTENT_CODE = "CHEMISTRY-GENERAL-BALANCING"
 
-AJUDA_CONCEITO = "CONCEITO"
-AJUDA_ONDE_OLHAR = "ONDE_OLHAR"
-AJUDA_OPERACAO = "OPERACAO"
-AJUDA_ASSISTIDA = "ASSISTIDA"
 
-NIVEIS_DE_AJUDA = (AJUDA_CONCEITO, AJUDA_ONDE_OLHAR, AJUDA_OPERACAO,
-                   AJUDA_ASSISTIDA)
-
-
-ITENS: list[dict] = [
+_ITENS_BALANCEAMENTO: list[dict] = [
     {
         "key": "BAL-CONSERVACAO-1",
         "content_code": CONTENT_CODE,
@@ -139,6 +145,14 @@ ITENS: list[dict] = [
 ]
 
 
+# O REGISTRO. Uma lista por conteudo, concatenadas aqui.
+#
+# `item_para` ja filtrava por `content_code`, entao acrescentar um conteudo
+# nao muda o comportamento de nenhum outro - e ha teste de que um item de
+# Estequiometria nunca e servido a quem pediu Balanceamento.
+ITENS: list[dict] = [*_ITENS_BALANCEAMENTO, *_ITENS_ESTEQUIOMETRIA]
+
+
 def item_para(content_code: str, skill: str | None) -> dict | None:
     """O item guiado para aquela lacuna, ou None se o conteudo nao tem nenhum.
 
@@ -174,7 +188,7 @@ def para_o_aluno(item: dict, *, ajudas_liberadas: int) -> dict:
         "skill": item["skill"],
         "question": item["pergunta"],
         "options": [
-            {"key": letra, "text": para_exibicao(alt["equacao"])}
+            {"key": letra, "text": _texto_da_alternativa(alt)}
             for letra, alt in sorted(item["alternativas"].items())
         ],
         "ajudas": [
@@ -183,6 +197,26 @@ def para_o_aluno(item: dict, *, ajudas_liberadas: int) -> dict:
         ],
         "ajudas_disponiveis": len(item["ajudas"]),
     }
+
+
+def _texto_da_alternativa(alt: dict) -> str:
+    """O que o aluno LE numa alternativa.
+
+    Duas formas, porque sao duas verdades diferentes. Balanceamento declara
+    uma EQUACAO, e a formatacao (subscritos, seta) mora junto da quimica, em
+    `conteudo_balanceamento.para_exibicao` - assim ela entra na suite e nao
+    ha duas grafias da mesma equacao na mesma pagina.
+
+    Estequiometria declara um TEXTO ja pronto: um numero com unidade, onde
+    nao ha o que formatar e onde a unidade e parte da resposta.
+
+    `balanceada` nao sai por nenhum dos dois caminhos - dizer quais equacoes
+    fecham e dizer a resposta com outras palavras.
+    """
+    texto = alt.get("texto")
+    if texto:
+        return texto
+    return para_exibicao(alt["equacao"])
 
 
 def conferir(item: dict, escolha: str) -> bool:
