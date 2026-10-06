@@ -997,18 +997,31 @@
       return;
     }
 
+    // Selecao em lote so faz sentido pra PENDING_REVIEW - aprovar e a unica
+    // acao em massa que existe (rejeitar/reprocessar continuam uma a uma,
+    // decisoes que pedem mais cuidado individual).
+    const allowBulk = currentStatus === 'PENDING_REVIEW' && currentCorrections.length > 0;
     body.innerHTML = `
+      ${allowBulk ? `
+        <div class="tm-form-row" style="margin: 0 0 12px; align-items:center; gap:12px;">
+          <button class="btn btn-primary" type="button" id="er-bulk-approve-btn" disabled>Aprovar selecionadas</button>
+          <span id="er-bulk-approve-msg" class="empty-text" hidden></span>
+        </div>` : ''}
       <div class="tm-table-wrap" style="overflow-x:auto;">
         <table class="tm-table">
-          <thead><tr><th>Aluno</th><th>Proposta</th><th>Enviada em</th><th></th></tr></thead>
+          <thead><tr>
+            ${allowBulk ? '<th><input type="checkbox" id="er-bulk-select-all" aria-label="Selecionar todas"></th>' : ''}
+            <th>Aluno</th><th>Proposta</th><th>Enviada em</th><th></th>
+          </tr></thead>
           <tbody>
             ${currentCorrections.map((c) => `
               <tr>
+                ${allowBulk ? `<td><input type="checkbox" class="er-bulk-select" value="${tmEsc(c.id)}" aria-label="Selecionar ${tmEsc(c.student_name || 'correção')}"></td>` : ''}
                 <td>${tmEsc(c.student_name || '—')}</td>
                 <td>${tmEsc(c.prompt_title || '—')}</td>
                 <td>${c.submitted_at ? new Date(c.submitted_at).toLocaleString('pt-BR') : '—'}</td>
                 <td><button class="btn btn-secondary" type="button" data-open-correction="${tmEsc(c.id)}">Revisar</button></td>
-              </tr>`).join('') || '<tr><td colspan="4" class="empty-text">Nenhuma correção com este status.</td></tr>'}
+              </tr>`).join('') || `<tr><td colspan="${allowBulk ? 5 : 4}" class="empty-text">Nenhuma correção com este status.</td></tr>`}
           </tbody>
         </table>
       </div>`;
@@ -1016,6 +1029,51 @@
     body.querySelectorAll('[data-open-correction]').forEach((btn) => {
       btn.addEventListener('click', () => renderReviewPanel(btn.dataset.openCorrection, currentStatus));
     });
+
+    if (allowBulk) {
+      const selectAll = body.querySelector('#er-bulk-select-all');
+      const checkboxes = () => Array.from(body.querySelectorAll('.er-bulk-select'));
+      const approveBtn = body.querySelector('#er-bulk-approve-btn');
+      const msg = body.querySelector('#er-bulk-approve-msg');
+
+      const refreshApproveBtn = () => {
+        const selected = checkboxes().filter((cb) => cb.checked).length;
+        approveBtn.disabled = selected === 0;
+        approveBtn.textContent = selected > 0
+          ? `Aprovar selecionadas (${selected})` : 'Aprovar selecionadas';
+      };
+      selectAll.addEventListener('change', () => {
+        checkboxes().forEach((cb) => { cb.checked = selectAll.checked; });
+        refreshApproveBtn();
+      });
+      checkboxes().forEach((cb) => cb.addEventListener('change', () => {
+        if (!cb.checked) selectAll.checked = false;
+        refreshApproveBtn();
+      }));
+
+      approveBtn.addEventListener('click', async () => {
+        const ids = checkboxes().filter((cb) => cb.checked).map((cb) => cb.value);
+        if (!ids.length) return;
+        approveBtn.disabled = true;
+        msg.hidden = true;
+        try {
+          const result = await reviewRequest('/api/v1/teacher/essay-corrections/bulk-approve', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ essay_correction_ids: ids }),
+          });
+          const failureCount = Object.keys(result.failures || {}).length;
+          msg.hidden = false;
+          msg.textContent = failureCount
+            ? `${result.approved.length} aprovada(s), ${failureCount} falharam.`
+            : `${result.approved.length} aprovada(s).`;
+          await renderReviewQueue(currentStatus);
+        } catch (e) {
+          msg.hidden = false;
+          msg.textContent = e.message;
+          approveBtn.disabled = false;
+        }
+      });
+    }
   }
 
   async function renderEvolutionTab() {
