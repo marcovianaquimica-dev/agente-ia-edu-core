@@ -79,18 +79,25 @@
                 <option value="CN">Ciências da Natureza</option>
                 <option value="MT">Matemática</option>
               </select></label>
+            <!-- DISCIPLINA, CONTEUDO E SUBCONTEUDO VEM DO CATALOGO.
+                 A lista de disciplinas era escrita a mao aqui, com quatro
+                 traducoes fixas: uma disciplina nova ficaria de fora sem
+                 ninguem perceber. E Conteudo/Subconteudo eram texto livre
+                 que so funcionava com o codigo canonico - medido: o codigo
+                 achava 21 questoes e o nome achava zero. Agora o professor
+                 escolhe pelo nome e a requisicao manda o codigo. -->
             <label class="qb-field"><span>Disciplina</span>
               <select id="qb-filter-discipline">
                 <option value="">Todas</option>
-                <option value="PHYSICS">Física</option>
-                <option value="CHEMISTRY">Química</option>
-                <option value="BIOLOGY">Biologia</option>
-                <option value="MATH">Matemática</option>
               </select></label>
             <label class="qb-field"><span>Conteúdo</span>
-              <input type="text" id="qb-filter-content" placeholder="Ex.: Estequiometria" /></label>
+              <select id="qb-filter-content">
+                <option value="">Todos</option>
+              </select></label>
             <label class="qb-field"><span>Subconteúdo</span>
-              <input type="text" id="qb-filter-subcontent" placeholder="Ex.: Concentração" /></label>
+              <select id="qb-filter-subcontent">
+                <option value="">Todos</option>
+              </select></label>
             <label class="qb-field"><span>Status</span>
               <select id="qb-filter-status">
                 <option value="">Todos</option>
@@ -336,6 +343,7 @@
       </div>
     </main>
   </div>
-  <script src="question-bank.js"></script>
+  <script src="qbank-taxonomia.js"></script>
+<script src="question-bank.js"></script>
 </body>
 </html>

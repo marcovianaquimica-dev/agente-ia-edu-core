@@ -35,14 +35,34 @@ class NadaDeEsquemaInternoNaTela(unittest.TestCase):
             with self.subTest(placeholder=p):
                 self.assertNotIn("curriculum-v2", p.lower())
 
-    def test_os_filtros_de_conteudo_dizem_o_que_fazer(self):
-        """Vazio também não serve: o campo precisa dizer o que aceita."""
-        for campo in ("qb-filter-content", "qb-filter-subcontent"):
+    def test_conteudo_e_subconteudo_sao_ESCOLHIDOS_e_nao_digitados(self):
+        """Medido em 2026-10-06: o campo de texto só funcionava com o código.
+
+            content=CHEMISTRY-PHYSICAL-STOICHIOMETRY  -> 21 questões
+            content=Estequiometria                    -> 0
+
+        Um placeholder honesto ali seria o código canônico; um placeholder
+        em português seria uma promessa falsa. A saída é a lista.
+        """
+        for campo in ("qb-filter-content", "qb-filter-subcontent",
+                      "qb-filter-discipline"):
             with self.subTest(campo=campo):
-                trecho = HTML[HTML.index(campo):][:300]
-                achado = re.search(r'placeholder="([^"]*)"', trecho)
-                self.assertTrue(achado, f"{campo} ficou sem placeholder")
-                self.assertTrue(achado.group(1).strip())
+                trecho = HTML[HTML.index(campo) - 120:][:200]
+                self.assertIn("<select", trecho,
+                              f"{campo} continua sendo campo de texto")
+
+    def test_a_lista_de_disciplinas_nao_e_escrita_a_mao(self):
+        """Quatro traduções fixas no HTML deixariam de fora qualquer
+        disciplina nova, sem ninguém perceber."""
+        inicio = HTML.index("qb-filter-discipline")
+        bloco = HTML[inicio:inicio + 400]
+        for codigo in ("PHYSICS", "CHEMISTRY", "BIOLOGY", "MATH"):
+            with self.subTest(codigo=codigo):
+                self.assertNotIn(f'value="{codigo}"', bloco)
+
+    def test_as_opcoes_vem_do_catalogo(self):
+        self.assertIn("/api/v1/catalog/nodes", JS)
+        self.assertIn("QBankTaxonomia", JS)
 
 
 class NemVersaoDEESQUEMANemEnumCruNoDetALHE(unittest.TestCase):

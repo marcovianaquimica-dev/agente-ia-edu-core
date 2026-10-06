@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // {codigo canonico -> nome em portugues}, vindo do backend. Nunca um
     // dicionario escrito aqui: ver `rotulo()`.
     labels: { taxonomy: {}, difficulty: {} },
+    // Os nos do catalogo, carregados uma vez: e deles que saem as opcoes de
+    // Disciplina, Conteudo e Subconteudo.
+    taxonomia: null,
     // reused auth pattern (Bearer <subject>); host replaces the provider in prod
     teacherId: 'user:prof_mendes',
     view: 'bank',
@@ -161,6 +164,69 @@ document.addEventListener('DOMContentLoaded', () => {
                       (d.institution && d.institution.name) || ''].filter(Boolean);
       if (partes.length) alvo.textContent = partes.join(' · ');
     } catch (_) { /* sem nome, a tela segue sem a linha */ }
+  }
+
+  // ====================================== os filtros de taxonomia ========
+  // O CAMPO DE CONTEUDO SO FUNCIONAVA COM O CODIGO CANONICO.
+  //
+  // Medido em 2026-10-06: `content=CHEMISTRY-PHYSICAL-STOICHIOMETRY` achava
+  // 21 questoes; `content=Estequiometria` achava zero. O placeholder dizia
+  // "codigo curriculum-v2" - verdade, e a versao do esquema interno na cara
+  // de quem da aula.
+  //
+  // Agora o professor escolhe numa lista com os nomes do catalogo, e a
+  // requisicao continua mandando o codigo. Uma consulta, no inicio.
+  //
+  // Falhar aqui nao apaga o resto: as listas ficam so com "Todos" e os
+  // demais filtros seguem funcionando. Melhor um filtro indisponivel que um
+  // campo que promete o nome e devolve nada.
+  async function carregarTaxonomia() {
+    try {
+      // `/catalog/nodes` devolve so as RAIZES (as disciplinas) - medido: 4.
+      // A arvore de cada uma vem inteira pelo endpoint de arvore, entao sao
+      // 1 + N chamadas, e nao uma lista paginada que truncaria em silencio
+      // e deixaria um conteudo de fora do filtro sem ninguem perceber.
+      const res = await fetch('/api/v1/catalog/nodes?limit=100',
+                              { headers: authHeaders() });
+      if (!res.ok) return;
+      const raizes = await res.json();
+      const arvores = await Promise.all(raizes.map(async (r) => {
+        try {
+          const t = await fetch(`/api/v1/catalog/nodes/${r.id}/tree`,
+                                { headers: authHeaders() });
+          if (!t.ok) return [];
+          const d = await t.json();
+          return d.nodes || [];
+        } catch (_) { return []; }
+      }));
+      state.taxonomia = raizes.concat(...arvores);
+      montarFiltrosDaTaxonomia();
+    } catch (_) { /* sem catalogo, as listas ficam so com "Todos" */ }
+  }
+
+  function _encher(id, opcoes, rotuloVazio) {
+    const sel = $(id);
+    if (!sel) return;
+    const atual = sel.value;
+    const vale = window.QBankTaxonomia.aindaVale(atual, opcoes);
+    sel.innerHTML = `<option value="">${rotuloVazio}</option>`
+      + opcoes.map((o) => `<option value="${esc(o.value)}">${esc(o.rotulo)}</option>`).join('');
+    sel.value = vale ? atual : '';
+  }
+
+  function montarFiltrosDaTaxonomia() {
+    const nos = state.taxonomia;
+    if (!nos) return;
+    const T = window.QBankTaxonomia;
+    _encher('qb-filter-discipline', T.opcoes(nos, 'DISCIPLINE'), 'Todas');
+    // O conteudo segue a disciplina escolhida, e o subconteudo segue o
+    // conteudo: oferecer os 37 conteudos de todas as disciplinas numa lista
+    // so seria o inventario do catalogo, nao uma escolha.
+    const disc = $('qb-filter-discipline').value;
+    _encher('qb-filter-content', T.opcoes(nos, 'CONTENT', disc), 'Todos');
+    const cont = $('qb-filter-content').value;
+    _encher('qb-filter-subcontent',
+            T.opcoes(nos, 'SUBCONTENT', cont || disc), 'Todos');
   }
 
   // ---------- rendering: list (light rows, no full body) ----------
@@ -935,12 +1001,18 @@ document.addEventListener('DOMContentLoaded', () => {
       loadList();
     });
     $('qb-search-text').addEventListener('input', (e) => { state.search = e.target.value; debouncedReload(); });
-    ['qb-filter-year', 'qb-filter-day', 'qb-filter-area', 'qb-filter-discipline', 'qb-filter-status',
+    ['qb-filter-content', 'qb-filter-subcontent',
+     'qb-filter-year', 'qb-filter-day', 'qb-filter-area', 'qb-filter-discipline', 'qb-filter-status',
      'qb-filter-difficulty', 'qb-filter-source', 'qb-filter-provisional', 'qb-filter-visual',
      'qb-filter-protected'].forEach((id) => {
-      $(id).addEventListener('change', () => { readFiltersFromForm(); state.page = 1; loadList(); });
+      $(id).addEventListener('change', () => {
+        if (id === 'qb-filter-discipline' || id === 'qb-filter-content') {
+          montarFiltrosDaTaxonomia();
+        }
+        readFiltersFromForm(); state.page = 1; loadList();
+      });
     });
-    ['qb-filter-content', 'qb-filter-subcontent', 'qb-filter-mode'].forEach((id) => {
+    ['qb-filter-mode'].forEach((id) => {
       $(id).addEventListener('input', () => { readFiltersFromForm(); debouncedReload(); });
     });
     $('qb-clear-filters').addEventListener('click', () => {
@@ -1131,6 +1203,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('qb-preview').hidden) closePreview(); });
 
     contextoHumano();
+    carregarTaxonomia();
     loadList();
   }
 
