@@ -310,6 +310,18 @@ def consecutive_runs(pages: Sequence[EssayBatchPage]) -> list[list[EssayBatchPag
     return runs
 
 
+# Module-level (nao de instancia, nao de sessao) de proposito: cada requisicao
+# HTTP cria sua propria EssayBatchService, mas todas compartilham a MESMA cota
+# de rate limit da OpenAI (uma unica API key pro processo inteiro). Confirmado
+# ao vivo (2026-10-05): dois lotes de 21 paginas enviados em sequencia rapida
+# processavam em PARALELO (cada um sua propria background task) e dobravam a
+# carga de chamadas de visao, estourando o limite de tokens/min pra quase
+# todo mundo - nao e sobre corretude de um lote sozinho, e sobre dois lotes
+# nunca competirem pela mesma cota ao mesmo tempo. _PAGE_PACING_SECONDS so
+# paceia chamadas DENTRO de um lote; este lock paceia lotes ENTRE si.
+_BATCH_PROCESSING_LOCK = asyncio.Lock()
+
+
 class EssayBatchService:
     """Processa um lote de folhas de redacao fisicas.
 
@@ -906,44 +918,54 @@ class EssayBatchService:
         de OCR), commitando depois de cada uma, pra que uma leitura de status
         feita no meio do caminho sempre reflita o progresso real (spec s5).
 
+        O trecho que le as paginas (OCR de cabecalho/corpo) roda sob
+        _BATCH_PROCESSING_LOCK: dois lotes nunca disparam rajadas de visao ao
+        mesmo tempo, que era o cenario que de fato estourava o limite de
+        tokens/min (confirmado ao vivo 2026-10-05, dois lotes de 21 paginas
+        em sequencia rapida). run_corrections, no fim, roda FORA do lock de
+        proposito - e sequencial por si so e muito mais lenta (20-30min pra
+        um lote de 21), travar um segundo lote inteiro atras dela faria um
+        segundo professor esperar o OCR dele sem necessidade.
+
         Ao fim marca o lote DONE. Nunca levanta por falha de uma pagina - ver
         _process_page.
         """
-        batch = await self.session.get(EssayBatchUpload, batch_id)
-        if batch is None:
-            raise ValueError(f"EssayBatchUpload not found: {batch_id}")
-        roster = await self.roster_for_batch(batch)
-        pages = (await self.session.execute(
-            select(EssayBatchPage)
-            .where(EssayBatchPage.batch_id == batch_id)
-            .order_by(EssayBatchPage.page_number)
-        )).scalars().all()
-        # Capturado ANTES do loop, enquanto nada ainda expirou - ver o
-        # docstring de _process_page pro porque isto e necessario a partir da
-        # segunda pagina.
-        page_reads = [
-            (p.storage_uri, p.page_number, p.batch_id, p.extracted_pdf_text) for p in pages
-        ]
+        async with _BATCH_PROCESSING_LOCK:
+            batch = await self.session.get(EssayBatchUpload, batch_id)
+            if batch is None:
+                raise ValueError(f"EssayBatchUpload not found: {batch_id}")
+            roster = await self.roster_for_batch(batch)
+            pages = (await self.session.execute(
+                select(EssayBatchPage)
+                .where(EssayBatchPage.batch_id == batch_id)
+                .order_by(EssayBatchPage.page_number)
+            )).scalars().all()
+            # Capturado ANTES do loop, enquanto nada ainda expirou - ver o
+            # docstring de _process_page pro porque isto e necessario a partir
+            # da segunda pagina.
+            page_reads = [
+                (p.storage_uri, p.page_number, p.batch_id, p.extracted_pdf_text) for p in pages
+            ]
 
-        for index, (page, (storage_uri, page_number, page_batch_id, extracted_pdf_text)) in enumerate(
-            zip(pages, page_reads)
-        ):
-            if index > 0:
-                await asyncio.sleep(self._PAGE_PACING_SECONDS)
-            await self._process_page(
-                page, roster,
-                storage_uri=storage_uri, page_number=page_number, batch_id=page_batch_id,
-                extracted_pdf_text=extracted_pdf_text,
-            )
-            await self.session.commit()
+            for index, (page, (storage_uri, page_number, page_batch_id, extracted_pdf_text)) in enumerate(
+                zip(pages, page_reads)
+            ):
+                if index > 0:
+                    await asyncio.sleep(self._PAGE_PACING_SECONDS)
+                await self._process_page(
+                    page, roster,
+                    storage_uri=storage_uri, page_number=page_number, batch_id=page_batch_id,
+                    extracted_pdf_text=extracted_pdf_text,
+                )
+                await self.session.commit()
 
-        # Agrupa as corridas e cria as submissoes SO depois que todas as
-        # paginas foram lidas: uma corrida so e conhecida quando se sabe quem
-        # esta na pagina seguinte.
-        submission_ids = await self.materialize_batch(batch_id)
+            # Agrupa as corridas e cria as submissoes SO depois que todas as
+            # paginas foram lidas: uma corrida so e conhecida quando se sabe
+            # quem esta na pagina seguinte.
+            submission_ids = await self.materialize_batch(batch_id)
 
-        batch = await self.session.get(EssayBatchUpload, batch_id)
-        batch.status = "DONE"
+            batch = await self.session.get(EssayBatchUpload, batch_id)
+            batch.status = "DONE"
         await self.session.commit()
 
         # Correcao por ultimo, com o lote ja DONE: e a parte lenta, e o
