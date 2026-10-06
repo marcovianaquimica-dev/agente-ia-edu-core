@@ -115,7 +115,12 @@
               </div>
             </details>
 
-            <div class="filter-group">
+            <!-- OS FILTROS GLOBAIS. Eles valem para as views do professor,
+                 e NAO para a Redacao - que tem a sua propria Turma. Medido no
+                 navegador: na Redacao eles continuavam visiveis e nao
+                 recalculavam nada. `filter-group-global` e o que o
+                 `switchView` esconde. -->
+            <div class="filter-group filter-group-global">
               <span class="filter-label">🏫 Turma:</span>
               <select id="filter-classroom-select" class="select-input">
                 <option value="" selected>Todas as Turmas</option>
@@ -124,7 +129,7 @@
               </select>
             </div>
 
-            <div class="filter-group">
+            <div class="filter-group filter-group-global">
               <span class="filter-label">📅 Período:</span>
               <select id="filter-period-select" class="select-input">
                 <option value="academic_year" selected>Ano Letivo 2026</option>
@@ -846,6 +851,7 @@
   <script src="essay-annotations.js"></script>
   <script src="essay-report.js"></script>
   <script src="essay-evolution.js"></script>
+  <script src="redacao-navegacao.js"></script>
   <script src="essay-review.js"></script>
   <script src="teacher.js"></script>
   <footer class="nucleo-rodape">© 2026 Núcleo Edu 360 · Alfa 1.0</footer>

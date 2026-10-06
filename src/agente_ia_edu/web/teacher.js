@@ -134,6 +134,23 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    // OS FILTROS GLOBAIS SOMEM ONDE NAO FAZEM NADA.
+    //
+    // Medido no navegador: na view da Redacao, "Turma" e "Periodo" do
+    // cabecalho continuavam visiveis, nao recalculavam coisa alguma, e a
+    // propria Redacao tinha a sua Turma logo abaixo. Filtro inerte e pior que
+    // filtro duplicado: ele promete recalcular e nao recalcula.
+    //
+    // Quem decide e `RedacaoNav.filtrosGlobaisValem`, que tem teste - e que
+    // trabalha por lista de EXCECOES: view desconhecida mantem os filtros,
+    // porque esconder por engano um que funciona e pior que mostrar um
+    // inerte.
+    const filtrosValem = !window.RedacaoNav
+      || window.RedacaoNav.filtrosGlobaisValem(viewName);
+    document.querySelectorAll('.filter-group-global').forEach((g) => {
+      g.hidden = !filtrosValem;
+    });
+
     const titleMap = {
       'dashboard': { title: 'Dashboard do Professor', sub: 'Acompanhamento pedagógico e orientação para turmas' },
       'classrooms': { title: 'Turmas', sub: 'Visão geral das turmas dentro do seu escopo autorizado' },

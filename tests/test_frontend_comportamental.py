@@ -38,7 +38,8 @@ COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js",
                    "test_aluno_preparacao_frontend.js",
                    "test_aluno_conversa_frontend.js",
                    "test_portal_ui_frontend.js",
-                   "test_essay_rotulos_frontend.js")
+                   "test_essay_rotulos_frontend.js",
+                   "test_redacao_navegacao_frontend.js")
 
 
 class FrontendComportamentalTests(unittest.TestCase):

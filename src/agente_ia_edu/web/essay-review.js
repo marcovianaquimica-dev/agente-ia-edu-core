@@ -62,15 +62,32 @@
     return data;
   }
 
+  // A ORDEM, OS ROTULOS E O QUE E SECUNDARIO ficam em `RedacaoNav`, que tem
+  // teste proprio. Aqui so se desenha o que ela decidiu.
+  //
+  // As CHAVES continuam as mesmas (`prompts`, `queue`, ...): elas sao o
+  // contrato com `wireTabs` logo abaixo, e renomea-las seria risco cosmetico.
   function renderTabs(activeTab) {
+    const nav = window.RedacaoNav;
+    const area = (a) => `
+        <button class="er-aba${a.ativa ? ' er-aba-ativa' : ''}" type="button"
+                data-tab="${a.aba}"
+                ${a.ativa ? 'aria-current="page"' : ''}>${tmEsc(a.rotulo)}</button>`;
+    const secundario = (s) => `
+          <button class="er-secundario${s.ativa ? ' er-aba-ativa' : ''}"
+                  type="button" data-tab="${s.aba}"
+                  ${s.ativa ? 'aria-current="page"' : ''}>${tmEsc(s.rotulo)}</button>`;
     return `
-      <div class="essay-review-tabs">
-        <button class="btn ${activeTab === 'prompts' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="prompts">Propostas</button>
-        <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
-        <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
-        <button class="btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="dashboard">Dashboard</button>
-        <button class="btn ${activeTab === 'trash' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="trash">🗑️ Lixeira</button>
-      </div>`;
+      <nav class="essay-review-tabs" aria-label="Áreas da Redação">
+        <div class="er-abas">${nav.areas(activeTab).map(area).join('')}</div>
+        <details class="er-mais"${nav.secundarios(activeTab)
+          .some((s) => s.ativa) ? ' open' : ''}>
+          <summary aria-label="Mais opções">⋯</summary>
+          <div class="er-mais-itens">
+            ${nav.secundarios(activeTab).map(secundario).join('')}
+          </div>
+        </details>
+      </nav>`;
   }
 
   function wireTabs() {
@@ -1127,7 +1144,13 @@
     schoolId = currentSchoolId || '';
     teacherId = currentTeacherId || '';
     if (!container) return;
-    renderPromptsList();
+    // A ENTRADA E A VISAO GERAL. "Como estao meus alunos?" vem antes de "o
+    // que eu quero cadastrar?" - e a resposta estava na quarta aba.
+    if (window.RedacaoNav && window.RedacaoNav.ABA_INICIAL === 'dashboard') {
+      renderDashboardTab();
+    } else {
+      renderPromptsList();
+    }
   }
 
   return { init };
