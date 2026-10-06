@@ -283,3 +283,81 @@ entre o que existe e o cenário de aceitação completo.
 persistido; a escada L3→L0 lida pelo readiness.
 
 **P2** — spacing, geração de variantes, grafo editável sem deploy.
+
+---
+
+# Addendum — assimetria diagnóstica (2026-10-06)
+
+## O princípio, e de onde vem
+
+> Evidência insuficiente para **afirmar domínio** pode bastar para
+> **orientar uma intervenção**.
+
+A assimetria não é frouxidão de critério — é diferença de custo:
+
+| | custo |
+|---|---|
+| intervir sobre suspeita | barato e reversível: o aluno recebe uma explicação que talvez já soubesse |
+| afirmar domínio | caro e errado: com quatro alternativas, o chute acerta uma vez em quatro |
+
+Então **um erro basta para suspeitar; um acerto não basta para confirmar**.
+
+## A separação é estrutural
+
+`sinal_diagnostico` não importa a política de domínio, não toca banco, não
+tem literal float e **não tem nenhum valor que signifique domínio** — há teste
+varrendo as constantes do módulo atrás de "CONFIRM", "MASTER" e "DOMIN".
+
+Depois da sondagem, a banda continua `INSUFFICIENT_SAMPLE` e `fracas_do_mapa`
+continua vazia. A suspeita escolhe **alvo**; ela não entra no mapa.
+
+**Medida vence suspeita.** Uma habilidade com três respostas e 0,2 de acerto é
+escolhida antes de um erro isolado em outra, mesmo estando mais alta na
+cadeia.
+
+## O percurso, no navegador
+
+```
+sondagem real                   3 itens curados, um por micro-habilidade
+acerta leitura de fórmula       1/1
+erra massa molar                0/1
+→ suspeita                      SUSPECTED_GAP em MASSA_MOLAR
+→ primeiro gargalo              MASSA_MOLAR (a base já está certa)
+→ alvo na tela                  "Algumas questões de massa molar…"
+→ prática do alvo               0/5
+→ "Entenda o que aconteceu"     ação principal do resultado
+→ explicação                    aponta o desvio, não só a correta
+→ "Explique de outro jeito"     outra estratégia, com 14 + 3×1 = 17
+→ domínio                       intacto em todo o percurso
+```
+
+A primeira explicação: *"Você provavelmente encontrou a quantidade de NH₃, mas
+usou apenas a massa do nitrogênio… A massa molar do NH₃ precisa considerar o
+nitrogênio e também os três hidrogênios."* A segunda veio em passos numerados.
+
+## O próximo bloqueio, medido
+
+A etapa **prática guiada** não acontece para Estequiometria. Duas razões, as
+duas de dados e não de código:
+
+| | estado |
+|---|---|
+| `itens_guiados.ITENS` | só tem itens de `CHEMISTRY-GENERAL-BALANCING` |
+| `theory_materials` para Estequiometria | existe, mas é `PRIVATE` — não é servido |
+
+Sem item guiado e sem material público, `_acao` não tem como oferecer GUIDED
+nem LEARN, e o passo cai em PRACTICE. A escada L3→L0 está implementada e
+testada, e nada no fluxo vivo ainda a percorre.
+
+Isso é **conteúdo pedagógico curado**, não arquitetura — e criá-lo por dedução
+seria inventar currículo.
+
+## Dívidas atualizadas
+
+**P0** — itens guiados e material público por micro-habilidade de
+Estequiometria (pelo menos `LEITURA_DE_FORMULA` e `MASSA_MOLAR`). É o que
+falta para a escada de apoio existir no fluxo vivo.
+
+**P1** — histórico de estratégias persistido; a escada lida pelo readiness.
+
+**P2** — spacing, variantes por IA, grafo editável sem deploy.
