@@ -88,6 +88,12 @@ class AIdentIDADEEDeGente(unittest.TestCase):
         """Sem endpoint novo e sem segunda fonte de verdade."""
         self.assertIn("/api/v1/portal/overview", JS)
 
+    def test_a_entrada_de_identidade_tem_nome_para_quem_nao_ve(self):
+        """O rótulo ao lado é um <span>, não um <label>: um leitor de tela
+        anuncia "editar texto" e nada mais."""
+        trecho = HTML[HTML.index("qb-identity-id") - 200:][:400]
+        self.assertIn("aria-label", trecho)
+
     def test_o_nome_nao_e_escrito_a_mao_no_codigo(self):
         self.assertNotIn("Prof. Mendes", JS)
         self.assertNotIn("Prof. Mendes", HTML)

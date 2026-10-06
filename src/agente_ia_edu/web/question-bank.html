@@ -46,7 +46,9 @@
           <summary>Ambiente de desenvolvimento</summary>
           <div class="filter-group">
             <span class="filter-label">Usuário</span>
-            <input type="text" id="qb-identity-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes">
+            <!-- O rotulo ao lado e um <span>, nao um <label>: sem isto um
+                 leitor de tela anuncia "editar texto" e nada mais. -->
+            <input type="text" id="qb-identity-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes" aria-label="Identificador do usuário (ambiente de desenvolvimento)">
           </div>
         </details>
       </header>
