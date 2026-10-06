@@ -20,6 +20,8 @@ O QUE ESTE MODULO DECIDE
 =========================
 Uma coisa so: qual e a proxima intervencao.
 
+    INVESTIGAR  ha uma cadeia de microperguntas para a lacuna, e ele ainda
+                nao a percorreu - o degrau mais alto da escada de apoio
     ENSINAR     ha uma explicacao e ele ainda nao a usou neste ciclo
     GUIADA      tentar com ajuda progressiva, antes de tentar sozinho
     PRATICAR    tentar sozinho - a evidencia que o dominio le
@@ -94,6 +96,13 @@ from agente_ia_edu.services.trajetoria_do_aluno import (
 ABORDAGEM_CONCEITO = "CONCEITO"   # a ideia, do comeco
 ABORDAGEM_EXEMPLO = "EXEMPLO"     # direto no exemplo resolvido
 
+# INVESTIGAR e o degrau mais alto da escada de apoio, e entra ANTES de
+# ensinar. Despejar a resolucao completa em quem errou so a ultima etapa e
+# repetir o que ele ja sabia; em quem errou a primeira, e construir tres
+# etapas sobre a que falhou. A micropergunta descobre qual dos dois casos e
+# antes de a explicacao ser gasta - e, de quebra, o sistema fica sabendo algo
+# que nao sabia, que uma explicacao nunca produz.
+ACAO_INVESTIGAR = "INVESTIGATE"
 ACAO_ENSINAR = "TEACH"
 ACAO_GUIADA = "GUIDED"
 ACAO_PRATICAR = "PRACTICE"
@@ -193,6 +202,7 @@ def decidir_intervencao(
     praticas_concluidas: int,
     ha_material: bool,
     ha_guiada_pendente: bool = False,
+    ha_investigacao_pendente: bool = False,
     tentativas: Sequence[dict] | None = None,
     objetivo_nome: str | None = None,
     conteudo_nome: str | None = None,
@@ -267,6 +277,7 @@ def decidir_intervencao(
     acao = _acao(
         trajeto=trajeto, escalar=escalar, ja_ensinado=ja_ensinado,
         ha_material=ha_material, ha_guiada_pendente=ha_guiada_pendente,
+        ha_investigacao_pendente=ha_investigacao_pendente,
         verificacao_falhou=(bool(ultima_foi_verificacao)
                             and trajeto != TENDENCIA_RECUPERANDO))
     base.update({
@@ -301,7 +312,8 @@ def _abordagem(acao: str, ciclo: int) -> str | None:
 
 def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
           ha_material: bool, ha_guiada_pendente: bool,
-          verificacao_falhou: bool = False) -> str:
+          verificacao_falhou: bool = False,
+          ha_investigacao_pendente: bool = False) -> str:
     """A estrategia desta vez - e ela precisa MUDAR quando a anterior falhou.
 
     A ordem e a propria politica, e cada linha existe por um motivo:
@@ -312,13 +324,16 @@ def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
     2. ESCALAR vem antes de qualquer nova tentativa. Depois de
        LIMITE_DE_CICLOS praticas sem destravar, "mais cinco questoes" ja foi
        respondido tres vezes - e e aqui que o loop TERMINA.
-    3. ENSINAR, sempre que a leitura anterior ja nao vale. Quem consome
+    3. INVESTIGAR, quando ha uma cadeia de microperguntas escrita para
+       aquela lacuna e o aluno ainda nao a percorreu. E o degrau mais alto da
+       escada de apoio, e tambem o mais barato: ele ENSINA O SISTEMA.
+    4. ENSINAR, sempre que a leitura anterior ja nao vale. Quem consome
        `ja_ensinado` o envelhece a cada tentativa: praticou e continuou mal,
        entao aquela leitura nao bastou.
-    4. GUIADA antes de PRATICAR: tentar com ajuda antes de tentar sozinho. Ela
+    5. GUIADA antes de PRATICAR: tentar com ajuda antes de tentar sozinho. Ela
        volta a entrar nos ciclos seguintes quando a habilidade que trava muda,
        porque muda tambem o item guiado.
-    5. PRATICAR, a unica das cinco que produz evidencia de dominio.
+    6. PRATICAR, a unica das seis que produz evidencia de dominio.
 
     O QUE GARANTE QUE NAO E UM BANCO DE QUESTOES
     =============================================
@@ -337,6 +352,8 @@ def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
         return ACAO_VERIFICAR
     if escalar:
         return ACAO_ESCALAR
+    if ha_investigacao_pendente:
+        return ACAO_INVESTIGAR
     if ha_material and not ja_ensinado:
         return ACAO_ENSINAR
     if ha_guiada_pendente:

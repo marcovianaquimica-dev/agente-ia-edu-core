@@ -29,6 +29,7 @@ from agente_ia_edu.services.assessor_pedagogico import (
     ACAO_ENSINAR,
     ACAO_ESCALAR,
     ACAO_GUIADA,
+    ACAO_INVESTIGAR,
     ACAO_VERIFICAR,
 )
 from agente_ia_edu.services.micro_diagnostic import (
@@ -140,17 +141,46 @@ def feedback_do_passo(*, action: str | None, trend: str, cycle: int,
                            "que essa base ficou firme. São poucas questões."}
 
     if action == ACAO_ESCALAR:
-        # ESCALONAMENTO. NAO DIZ QUE ALGUEM FOI AVISADO: nao ha tela de
-        # professor que receba isto, e prometer um aviso que nao existe deixa
-        # o aluno esperando por algo que nao vem. O que ele pode fazer de
-        # verdade e procurar o professor - e e isso que a frase diz.
+        # ESCALONAMENTO. DUAS COISAS QUE A FRASE NAO PODE FAZER.
+        #
+        # A primeira: prometer que alguem foi avisado. Nao ha tela de
+        # professor que receba isto, e um aviso inexistente deixa o aluno
+        # esperando por algo que nao vem.
+        #
+        # A segunda, medida no navegador em 2026-10-06: dizer "o melhor
+        # proximo passo e conversar com seu professor" e, logo abaixo,
+        # oferecer "Pergunte ao Assessor". As duas frases juntas dizem ao
+        # aluno que o sistema desistiu e que ele continue nele - e a primeira
+        # soa como fim de linha quando nao e.
+        #
+        # ESCALAR nao quer dizer que o Edu desistiu. Quer dizer que ESTA
+        # ESTRATEGIA chegou ao limite previsto. O que continua disponivel
+        # continua disponivel, e a frase diz isso sem fingir um canal que nao
+        # existe.
         return {"tom": TOM_NEUTRO,
-                "titulo": f"{onde} continua difícil, e tudo bem.",
-                "detalhe": "Já tentamos de algumas formas por aqui. O melhor "
-                           "próximo passo agora é conversar com seu professor "
-                           "sobre este ponto."}
+                "titulo": f"{onde} continua difícil — e isso acontece.",
+                "detalhe": "Já tentei pelos caminhos que tenho aqui, e seguir "
+                           "repetindo não ajudaria. Você pode voltar à "
+                           "explicação, me perguntar sobre o ponto exato onde "
+                           "travou, ou levar esta dúvida para o seu professor "
+                           "— ele vê coisas que eu não vejo."}
 
     primeira_vez = int(cycle or 1) <= 1
+
+    if action == ACAO_INVESTIGAR:
+        # INVESTIGAR. A frase precisa dizer POR QUE o aluno vai responder mais
+        # perguntas logo depois de ter errado - sem isso, microperguntas
+        # parecem mais do mesmo.
+        #
+        # E ela nao afirma o que ele fez. "Vamos conferir uma etapa de cada
+        # vez" e verdade; "voce esqueceu a proporcao" seria afirmar sobre a
+        # cabeca de alguem a partir de uma letra marcada.
+        return {"tom": TOM_REVISAR,
+                "titulo": f"Vamos localizar onde {assunto} está travando.",
+                "detalhe": "São três perguntas curtas, uma etapa de cada vez. "
+                           "Não valem nota — servem para eu descobrir o que "
+                           "explicar, em vez de explicar tudo de novo."}
+
     if action == ACAO_ENSINAR:
         if primeira_vez:
             return {"tom": TOM_REVISAR,

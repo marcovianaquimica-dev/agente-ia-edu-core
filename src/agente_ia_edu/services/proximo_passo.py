@@ -49,8 +49,9 @@ from agente_ia_edu.services.readiness_route import (
     ROTA_PREPARACAO,
 )
 
-# O que o aluno faz AGORA. Quatro, e o quarto e honesto.
+# O que o aluno faz AGORA. O ultimo e honesto: nao ha o que oferecer.
 PASSO_DIAGNOSTICO = "DIAGNOSTIC"   # responder o microdiagnostico
+PASSO_INVESTIGACAO = "INVESTIGATE"  # LOCALIZAR o ponto, uma pergunta por vez
 PASSO_ENSINO = "LEARN"             # ENTENDER antes de responder de novo
 PASSO_GUIADA = "GUIDED_PRACTICE"   # TENTAR com ajuda progressiva do Assessor
 PASSO_PRATICA = "PRACTICE"         # praticar o conteudo (AdaptivePracticeService)
@@ -97,6 +98,17 @@ _CTA = {
     # fim anuncia a diferenca que este bloco inteiro existe para marcar -
     # conseguir com ajuda nao e dominar sozinho, entao o passo seguinte e
     # explicitamente SOZINHO.
+    # INVESTIGACAO: o degrau mais alto da escada de apoio.
+    #
+    # O verbo nao pode prometer questoes. O aluno que clica em "Praticar"
+    # espera um lote de exercicios e recebe tres microperguntas - e a
+    # frustracao de quem esperava outra coisa custa mais que a ajuda rende.
+    # O rotulo do fim anuncia o degrau seguinte, porque concluir a
+    # investigacao nao e concluir o conteudo.
+    (PASSO_INVESTIGACAO, ESTADO_NAO_INICIADO): "Vamos olhar por partes",
+    (PASSO_INVESTIGACAO, ESTADO_EM_ANDAMENTO): "Continuar de onde paramos",
+    (PASSO_INVESTIGACAO, ESTADO_CONCLUIDO): "Ver a explicação",
+
     (PASSO_GUIADA, ESTADO_NAO_INICIADO): "Tentar com ajuda",
     (PASSO_GUIADA, ESTADO_EM_ANDAMENTO): "Continuar tentando",
     (PASSO_GUIADA, ESTADO_CONCLUIDO): "Agora tentar sozinho",
@@ -203,6 +215,10 @@ def jornada_de(*, origens: dict, estado_atividade: str, rota: str,
             # etapa "Ensino" ao lado dela dobraria a barra e contaria ao aluno
             # um detalhe de implementacao.
             PASSO_ENSINO: ETAPA_PREPARACAO,
+            # Investigar e preparacao, como ensinar e praticar. Sem esta
+            # linha o passo cairia no ramo "desconhecido" e a barra acenderia
+            # ATIVIDADE - o bug medido em 2026-10-05 com VERIFY e ESCALATE.
+            PASSO_INVESTIGACAO: ETAPA_PREPARACAO,
             PASSO_GUIADA: ETAPA_PREPARACAO,
             PASSO_PRATICA: ETAPA_PREPARACAO,
             # VERIFICAR e ESCALAR tambem sao preparacao. Sem estas duas linhas
@@ -253,8 +269,9 @@ def cta_para(kind: str, estado: str) -> str | None:
     botao - errar o verbo e recuperavel, deixar o aluno parado nao e.
     """
     if kind == PASSO_NENHUM or kind not in (
-            PASSO_DIAGNOSTICO, PASSO_ENSINO, PASSO_GUIADA, PASSO_PRATICA,
-            PASSO_VERIFICACAO, PASSO_ESCALONAMENTO, PASSO_ATIVIDADE):
+            PASSO_DIAGNOSTICO, PASSO_INVESTIGACAO, PASSO_ENSINO,
+            PASSO_GUIADA, PASSO_PRATICA, PASSO_VERIFICACAO,
+            PASSO_ESCALONAMENTO, PASSO_ATIVIDADE):
         return None
     return _CTA.get((kind, estado)) or _CTA[(kind, ESTADO_NAO_INICIADO)]
 

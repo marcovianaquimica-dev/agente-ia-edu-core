@@ -1445,6 +1445,73 @@ async def responder_pratica_guiada(
             raise _guiada_404(exc) from exc
 
 
+# ============================================================================
+# INVESTIGACAO - o degrau mais alto da escada de apoio.
+#
+# Duas rotas finas sobre `InvestigacaoService`. Nenhum motor novo: a cadeia
+# curada esta em `investigacao_do_erro`, a conferencia esta no servico, e a
+# tela so desenha.
+#
+# NADA DAQUI ESCREVE DOMINIO. Cada etapa respondida vai para
+# `guided_practice_items` - a mesma tabela da pratica guiada, que o mapa de
+# dominio nao le. Responder uma micropergunta logo depois de o sistema dizer
+# qual etapa e nao e a mesma coisa que resolver o problema sozinho.
+# ============================================================================
+from ...services.servico_de_investigacao import (  # noqa: E402
+    InvestigacaoService,
+    SemInvestigacao,
+)
+
+
+class _RespostaDaEtapaRequest(_BaseModel):
+    ordem: int = _Field(ge=1, le=20)
+    selected_option: str = _Field(default="", max_length=8)
+
+
+def _investigacao_404(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
+
+
+@student_router.get("/investigation",
+                    summary="Abre (ou retoma) a investigacao de uma lacuna")
+async def abrir_investigacao(
+    content_code: str,
+    skill: str | None = None,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await InvestigacaoService(session).abrir(
+                _me(ctx), content_code, skill,
+                requester=_student_requester(ctx))
+        except SemInvestigacao as exc:
+            raise _investigacao_404(exc) from exc
+        except PermissionError as exc:
+            # Mesma resposta de "nao existe": quem nao pode ver tambem nao
+            # pode descobrir que existe.
+            raise _investigacao_404(exc) from exc
+
+
+@student_router.post("/investigation/{inv_key}/answer",
+                     summary="Responde uma etapa da investigacao")
+async def responder_etapa_da_investigacao(
+    inv_key: str,
+    payload: _RespostaDaEtapaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await InvestigacaoService(session).responder(
+                _me(ctx), inv_key, payload.ordem, payload.selected_option,
+                requester=_student_requester(ctx))
+        except SemInvestigacao as exc:
+            raise _investigacao_404(exc) from exc
+        except PermissionError as exc:
+            raise _investigacao_404(exc) from exc
+
+
 @student_router.post("/guided-practice/{item_key}/hint",
                      summary="Libera o PROXIMO nivel de ajuda - um por vez")
 async def pedir_ajuda_pratica_guiada(

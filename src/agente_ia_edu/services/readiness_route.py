@@ -335,12 +335,13 @@ class ReadinessRouteService:
         ha persistencia nova nesta decisao.
         """
         from agente_ia_edu.services.assessor_pedagogico import (
-            ACAO_ENSINAR, ACAO_ESCALAR, ACAO_GUIADA, ACAO_VERIFICAR,
-            decidir_intervencao, habilidade_que_trava,
+            ACAO_ENSINAR, ACAO_ESCALAR, ACAO_GUIADA, ACAO_INVESTIGAR,
+            ACAO_VERIFICAR, decidir_intervencao, habilidade_que_trava,
         )
         from agente_ia_edu.services.feedback_pedagogico import feedback_do_passo
         from agente_ia_edu.services.proximo_passo import (
-            PASSO_ENSINO, PASSO_ESCALONAMENTO, PASSO_GUIADA, PASSO_VERIFICACAO,
+            PASSO_ENSINO, PASSO_ESCALONAMENTO, PASSO_GUIADA,
+            PASSO_INVESTIGACAO, PASSO_VERIFICACAO,
         )
 
         codigo = passo.get("content_code")
@@ -375,6 +376,13 @@ class ReadinessRouteService:
         alvo = habilidade_que_trava(habilidades, grafo=grafo)
         guiado = await self._guiada_pendente(
             codigo, alvo, aluno, requester=requester)
+        # A INVESTIGACAO E O DEGRAU MAIS ALTO DA ESCADA DE APOIO.
+        #
+        # Ela e perguntada aqui, e nao depois da decisao, pelo mesmo motivo
+        # que a guiada passou a ser: esconder uma opcao da maquina faz a
+        # maquina decidir sem ela.
+        investigando = await self._investigacao_pendente(
+            codigo, alvo, aluno, requester=requester)
 
         intervencao = decidir_intervencao(
             alvo=alvo,
@@ -386,6 +394,7 @@ class ReadinessRouteService:
                 codigo, aluno, requester=requester),
             ha_material=bool(material),
             ha_guiada_pendente=guiado is not None,
+            ha_investigacao_pendente=investigando,
             tentativas=await self._tentativas_de(
                 codigo, aluno, requester=requester),
             objetivo_nome=passo.get("for_content_name"),
@@ -410,6 +419,15 @@ class ReadinessRouteService:
             content_name=passo.get("content_name"),
             objective_name=passo.get("for_content_name"),
             approach=intervencao.get("approach"))
+
+        # INVESTIGACAO: uma micropergunta de cada vez, antes de a explicacao
+        # ser gasta. O alvo viaja junto porque e ele que escolhe a cadeia -
+        # a tela nao decide qual investigacao abrir.
+        if acao == ACAO_INVESTIGAR:
+            passo["kind"] = PASSO_INVESTIGACAO
+            passo["skill"] = intervencao.get("skill")
+            passo["readiness_route"] = ROTA_PREPARACAO
+            return passo
 
         if acao == ACAO_ENSINAR and material:
             passo["kind"] = PASSO_ENSINO
@@ -453,6 +471,26 @@ class ReadinessRouteService:
             return passo
 
         return passo
+
+    async def _investigacao_pendente(self, codigo: str, skill: str | None,
+                                     aluno: str, *, requester) -> bool:
+        """A cadeia de microperguntas daquela lacuna ainda esta de pe?
+
+        Lacuna sem cadeia escrita devolve False e o aluno segue para o degrau
+        de baixo: inventar uma investigacao generica seria perguntar coisas
+        cujo resultado o sistema nao saberia interpretar.
+        """
+        from agente_ia_edu.services.servico_de_investigacao import (
+            InvestigacaoService,
+        )
+
+        if not skill:
+            return False
+        try:
+            return await InvestigacaoService(self._session).pendente(
+                aluno, codigo, skill, requester=requester)
+        except Exception:  # noqa: BLE001 - na duvida, nao prender o aluno
+            return False
 
     async def _guiada_pendente(self, codigo: str, skill: str | None, aluno: str,
                                *, requester) -> dict | None:
