@@ -19,7 +19,9 @@ acertando
 acertar
 acertava
 acertou
+acessar
 acessibilidade
+acesso
 acima
 acoes
 acontece
@@ -39,6 +41,7 @@ acreditar
 acreditava
 acreditou
 ademais
+adequada
 adequadas
 adequado
 adequados
@@ -315,6 +318,7 @@ boa
 boas
 bom
 bons
+brasil
 brasileira
 brasileiras
 brasileiro
@@ -340,6 +344,7 @@ busquei
 busquem
 ca
 cada
+capa
 capacidade
 capacidades
 capaz
@@ -364,11 +369,13 @@ causou
 cem
 cenario
 cento
+cerca
 certa
 certamente
 certas
 certo
 certos
+chefe
 chega
 chegado
 chegais
@@ -1007,6 +1014,7 @@ eficaz
 eficazes
 eficiente
 eficientes
+ela
 elas
 ele
 eleicao
@@ -1799,10 +1807,12 @@ lutava
 lutou
 ma
 machismo
+mae
 maior
 maiores
 maioria
 maiorias
+mais
 mal
 maneira
 manifestacao
@@ -1958,6 +1968,7 @@ normas
 nos
 nossa
 nossas
+nosso
 nossos
 nota
 notado
@@ -1997,6 +2008,7 @@ ocorrer
 ocorreu
 ocorria
 ocorrido
+ocupam
 oferece
 oferecem
 oferecendo
@@ -2060,6 +2072,7 @@ pagava
 pago
 pagou
 pai
+pais
 paises
 pandemia
 pandemias
@@ -2168,6 +2181,7 @@ pesquisava
 pesquisou
 pessoa
 pessoal
+pessoas
 pior
 piora
 piorado
