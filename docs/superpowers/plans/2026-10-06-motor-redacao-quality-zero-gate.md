@@ -27,7 +27,7 @@
 
 ## Fase A — Benchmark de calibração + baseline congelado
 
-### Task A1: Fixture do benchmark
+### Task 1: Fixture do benchmark (Fase A)
 
 **Files:**
 - Create: `scripts/generate_essay_calibration_fixture.py`
@@ -37,7 +37,7 @@
 - Test: `tests/test_essay_calibration_fixture.py`
 
 **Interfaces:**
-- Produces: o schema JSON de cada entrada da fixture (consumido pela Task A2/A3):
+- Produces: o schema JSON de cada entrada da fixture (consumido pela Task 2/A3):
   ```json
   {
     "student_ref": "aluno_01",
@@ -217,7 +217,7 @@ git commit -m "test(redacao): fixture versionada do benchmark de calibracao (30 
 
 ---
 
-### Task A2: Módulo de métricas do benchmark (puro, sem DB/IA)
+### Task 2: Módulo de métricas do benchmark (puro, sem DB/IA) (Fase A)
 
 **Files:**
 - Create: `src/agente_ia_edu/services/essay_calibration_metrics.py`
@@ -225,7 +225,7 @@ git commit -m "test(redacao): fixture versionada do benchmark de calibracao (30 
 
 **Interfaces:**
 - Consumes: nada de tasks anteriores (módulo independente).
-- Produces (consumido pela Task A3):
+- Produces (consumido pela Task 3):
   ```python
   @dataclass(frozen=True)
   class BenchmarkResultRow:
@@ -466,7 +466,7 @@ git commit -m "feat(redacao): metricas puras do benchmark de calibracao (MAE, bi
 
 ---
 
-### Task A3: Script de materialização + execução do benchmark
+### Task 3: Script de materialização + execução do benchmark (Fase A)
 
 **Files:**
 - Create: `src/agente_ia_edu/services/essay_calibration_runner.py`
@@ -474,7 +474,7 @@ git commit -m "feat(redacao): metricas puras do benchmark de calibracao (MAE, bi
 - Test: `tests/test_essay_calibration_runner.py`
 
 **Interfaces:**
-- Consumes: `BenchmarkResultRow`/`BenchmarkReport`/`compute_benchmark_report` (Task A2); schema da fixture (Task A1).
+- Consumes: `BenchmarkResultRow`/`BenchmarkReport`/`compute_benchmark_report` (Task 2); schema da fixture (Task 1).
 - Produces:
   ```python
   async def materialize_benchmark_submissions(
@@ -853,13 +853,13 @@ git commit -m "feat(redacao): runner do benchmark de calibracao (materializacao 
 
 ---
 
-### Task A4: Captura do baseline congelado
+### Task 4: Captura do baseline congelado (Fase A)
 
 **Files:**
 - Create: `tests/fixtures/essay_calibration_baselines/CALIBRATION_BASELINE_V1.json` (gerado, committado)
 
 **Interfaces:**
-- Consumes: `scripts/essay_calibration_benchmark.py` (Task A3), `DATABASE_URL` já configurado no `.env` do worktree.
+- Consumes: `scripts/essay_calibration_benchmark.py` (Task 3), `DATABASE_URL` já configurado no `.env` do worktree.
 
 - [ ] **Step 1: Rodar o benchmark contra o motor ATUAL (antes de qualquer mudança das Fases B/C/D)**
 
@@ -895,7 +895,7 @@ fotografia do "antes", usada nos relatórios comparativos das Fases B/C/D.
 
 ## Fase B — Quality Gate
 
-### Task B1: Heurística determinística de confiabilidade de texto
+### Task 5: Heurística determinística de confiabilidade de texto (Fase B)
 
 **Files:**
 - Create: `src/agente_ia_edu/data/pt_common_words.txt`
@@ -904,7 +904,7 @@ fotografia do "antes", usada nos relatórios comparativos das Fases B/C/D.
 - Test: `tests/test_essay_input_reliability.py`
 
 **Interfaces:**
-- Produces (consumido pela Task B4):
+- Produces (consumido pela Task 8):
   ```python
   def estimate_text_reliability_heuristic(text: str) -> float: ...
   # 0.0-1.0, proporcao de tokens reconheciveis como portugues comum.
@@ -1093,7 +1093,7 @@ git commit -m "feat(redacao): heuristica deterministica + combinacao de sinais d
 
 ---
 
-### Task B2: Contrato v6 — campo `input_reliability`
+### Task 6: Contrato v6 — campo `input_reliability` (Fase B)
 
 **Files:**
 - Create: `src/agente_ia_edu/essay_engine_contract/v6.py`
@@ -1101,7 +1101,7 @@ git commit -m "feat(redacao): heuristica deterministica + combinacao de sinais d
 
 **Interfaces:**
 - Consumes: nada de código novo (copia `v5.py` integralmente, só soma).
-- Produces (consumido pela Task B3/B4):
+- Produces (consumido pela Task 7/B4):
   ```python
   class InputReliability(BaseModel):
       status: Literal["RELIABLE", "USABLE_WITH_WARNING", "UNRELIABLE_NEEDS_REVIEW"]
@@ -1182,7 +1182,7 @@ def test_input_reliability_requires_non_blank_rationale():
 
 (Um teste end-to-end de `EssayEngineOutput` completo com `input_reliability`
 obrigatório já existe implicitamente via `essay_engine_validation.py` -
-cobrir isso na Task B4, quando o payload completo de exemplo for montado
+cobrir isso na Task 8, quando o payload completo de exemplo for montado
 para o teste de integração.)
 
 - [ ] **Step 4: Rodar os testes**
@@ -1199,7 +1199,7 @@ git commit -m "feat(redacao): contrato v6 - campo input_reliability, separado de
 
 ---
 
-### Task B3: Prompt v16 — instruções de `input_reliability`
+### Task 7: Prompt v16 — instruções de `input_reliability` (Fase B)
 
 **Files:**
 - Create: `src/agente_ia_edu/essay_prompts/v16.py`
@@ -1334,7 +1334,7 @@ git commit -m "feat(redacao): prompt v16 - instrucoes de input_reliability, dist
 
 ---
 
-### Task B4: Integração no pipeline - Quality Gate decide, short-circuit em `UNRELIABLE_NEEDS_REVIEW`
+### Task 8: Integração no pipeline - Quality Gate decide, short-circuit em `UNRELIABLE_NEEDS_REVIEW` (Fase B)
 
 **Files:**
 - Modify: `src/agente_ia_edu/services/essay_correction.py:44` (import do contrato v6 em vez de v5)
@@ -1345,8 +1345,8 @@ git commit -m "feat(redacao): prompt v16 - instrucoes de input_reliability, dist
 - Test: `tests/test_essay_quality_gate_integration.py`
 
 **Interfaces:**
-- Consumes: `estimate_text_reliability_heuristic`/`combine_input_reliability_signals` (Task B1); `InputReliability`/contrato v6 (Task B2); prompt v16 (Task B3).
-- Produces: `EssayCorrection.quality_gate_status: str | None`, usado pela Fase C (o Zero Gate só avalia quando o Quality Gate não já encerrou o fluxo) e pelo script de benchmark (Task A3, que lê `correction.ai_output`/`final_scores` - sem mudança de interface lá, já que `engine_scores=None` continua representando "sem nota" independente da causa).
+- Consumes: `estimate_text_reliability_heuristic`/`combine_input_reliability_signals` (Task 5); `InputReliability`/contrato v6 (Task 6); prompt v16 (Task 7).
+- Produces: `EssayCorrection.quality_gate_status: str | None`, usado pela Fase C (o Zero Gate só avalia quando o Quality Gate não já encerrou o fluxo) e pelo script de benchmark (Task 3, que lê `correction.ai_output`/`final_scores` - sem mudança de interface lá, já que `engine_scores=None` continua representando "sem nota" independente da causa).
 
 - [ ] **Step 1: Migration - novo campo**
 
@@ -1613,15 +1613,15 @@ git commit -m "feat(redacao): Quality Gate decide antes da fase 2, nunca publica
 
 ---
 
-### Task B5: Regressão Larissa/João Miguel + benchmark pós-Fase B
+### Task 9: Regressão Larissa/João Miguel + benchmark pós-Fase B (Fase B)
 
 **Files:**
-- Modify: `tests/fixtures/essay_calibration_benchmark_v1.json` (nenhuma mudança de dado - os dois casos já estão na fixture da Task A1)
+- Modify: `tests/fixtures/essay_calibration_benchmark_v1.json` (nenhuma mudança de dado - os dois casos já estão na fixture da Task 1)
 - Create: `tests/test_essay_quality_gate_regression.py`
 - Create: `tests/fixtures/essay_calibration_baselines/AFTER_QUALITY_GATE_V1.json` (gerado, committado)
 
 **Interfaces:**
-- Consumes: texto real de Larissa/João Miguel (já na fixture, Task A1); `EssayCorrectionService` real (Task B4).
+- Consumes: texto real de Larissa/João Miguel (já na fixture, Task 1); `EssayCorrectionService` real (Task 8).
 
 - [ ] **Step 1: Escrever o teste de regressão com o texto REAL (chamada real de IA)**
 
@@ -1708,11 +1708,11 @@ git commit -m "test(redacao): regressao Larissa/Joao Miguel + benchmark pos-Qual
 
 ## Fase C — Zero Gate
 
-### Task C1: Diagnóstico ao vivo — por que a fase 2 rejeitou `FUGA_AO_TEMA` em Sabrina/Henrique
+### Task 10: Diagnóstico ao vivo — por que a fase 2 rejeitou `FUGA_AO_TEMA` em Sabrina/Henrique (Fase C)
 
 **Files:**
 - Create: `scripts/diagnose_zero_gate_rejection.py` (script de investigação, não fica no pipeline de produção)
-- Create: `docs/superpowers/plans/2026-10-06-motor-redacao-quality-zero-gate.diagnostico-c1.md` (achado documentado, usado pela Task C2)
+- Create: `docs/superpowers/plans/2026-10-06-motor-redacao-quality-zero-gate.diagnostico-c1.md` (achado documentado, usado pela Task 11)
 
 **Interfaces:**
 - Consumes: texto e os alertas reais já conhecidos de Sabrina/Henrique (confirmados nesta investigação: ambas com `FUGA_AO_TEMA` na fase 1, com `detail` citando o conteúdo real).
@@ -1790,7 +1790,7 @@ Escrever `docs/superpowers/plans/2026-10-06-motor-redacao-quality-zero-gate.diag
 com: o `reasoning` real obtido, qual das 3 hipóteses da spec (prompt
 interpretado mais estrito na prática / evidência perdida entre fases /
 bug de código) o dado sustenta, e se o comportamento é consistente ou
-inconsistente entre execuções. Isto direciona a Task C2 - não prosseguir
+inconsistente entre execuções. Isto direciona a Task 11 - não prosseguir
 para C2 sem este documento.
 
 **Nenhum código de produção é alterado nesta task** - é só investigação. Não
@@ -1804,7 +1804,7 @@ git commit -m "docs(redacao): diagnostico ao vivo - causa da rejeicao de FUGA_AO
 
 ---
 
-### Task C2: Zero Gate reestruturado — descobrir, não só confirmar
+### Task 11: Zero Gate reestruturado — descobrir, não só confirmar (Fase C)
 
 **Files:**
 - Create: `src/agente_ia_edu/services/essay_zero_gate.py`
@@ -1814,7 +1814,7 @@ git commit -m "docs(redacao): diagnostico ao vivo - causa da rejeicao de FUGA_AO
 - Test: `tests/test_essay_zero_gate.py`
 
 **Interfaces:**
-- Consumes: achado da Task C1 (direciona SE a correção é no prompt de
+- Consumes: achado da Task 10 (direciona SE a correção é no prompt de
   `alert_review_v1`/sucessor, no código de agregação, ou em ambos);
   `_ANULA_REDACAO_ALERT_CODES` (já existe, `essay_correction.py:154-158`,
   sem mudança de conteúdo).
@@ -1834,11 +1834,11 @@ git commit -m "docs(redacao): diagnostico ao vivo - causa da rejeicao de FUGA_AO
   ) -> ZeroGateDecision: ...
   ```
 
-**Esta task é moldada pelo achado da Task C1 - a estrutura abaixo (um passo
+**Esta task é moldada pelo achado da Task 10 - a estrutura abaixo (um passo
 de avaliação próprio, que roda sempre, produzindo uma decisão auditável) é
 fixa; o CONTEÚDO exato da chamada de IA usada dentro de `evaluate_zero_gate`
 (reaproveitar `alert_review_v1.py` reescrito, ou uma chamada nova) depende
-do que a Task C1 encontrar:**
+do que a Task 10 encontrar:**
 
 - **Se a causa for H1 (prompt interpretado mais estrito na prática que o
   texto sugere):** criar `alert_review_v2.py` (nunca editar `v1.py` -
@@ -1916,7 +1916,7 @@ class _FakeProvider:
 def _output_with_alerts(alert_codes):
     from agente_ia_edu.essay_engine_contract.v6 import Alert, EssayEngineOutput, InputReliability
     # construir um EssayEngineOutput minimo valido com os alertas dados -
-    # reaproveitar o builder de payload completo ja usado na Task B4 e so
+    # reaproveitar o builder de payload completo ja usado na Task 8 e so
     # trocar "alerts".
     ...  # implementar usando o mesmo payload builder de test_essay_quality_gate_integration.py
 
@@ -1968,7 +1968,7 @@ dúvida não existisse.)
 """Zero Gate: avalia situacoes normativas de zero ANTES de C1-C5, com
 responsabilidade propria - nao depende exclusivamente de a fase 1 ja ter
 levantado um candidato (spec Fase C). O conteudo exato da chamada de IA
-usada aqui foi decidido pelo diagnostico da Task C1 - ver
+usada aqui foi decidido pelo diagnostico da Task 10 - ver
 docs/superpowers/plans/2026-10-06-motor-redacao-quality-zero-gate.diagnostico-c1.md."""
 from __future__ import annotations
 
@@ -1997,14 +1997,14 @@ class ZeroGateDecision:
 async def evaluate_zero_gate(
     *, output: EssayEngineOutput, essay_statement: str, text_provider,
 ) -> ZeroGateDecision:
-    # implementacao exata definida na Task C2, de acordo com o achado da
-    # Task C1 - preencher aqui o corpo real (chamada ao prompt sucessor de
+    # implementacao exata definida na Task 11, de acordo com o achado da
+    # Task 10 - preencher aqui o corpo real (chamada ao prompt sucessor de
     # alert_review, interpretacao do reasoning, montagem de ZeroGateDecision).
     raise NotImplementedError
 ```
 
 (O corpo de `evaluate_zero_gate` não é fixado neste plano porque depende do
-achado empírico da Task C1 - a Global Constraint "não afrouxe o threshold
+achado empírico da Task 10 - a Global Constraint "não afrouxe o threshold
 sem causa identificada" significa que a implementação real só é escrita
 depois desse diagnóstico. A assinatura, o retorno, e os 4 testes acima são
 o contrato que a implementação tem que satisfazer, qualquer que seja a
@@ -2084,7 +2084,7 @@ Adicionar `"zero_gate_decision": None, "zero_gate_version": None,` a
 Remover `_review_anula_redacao_alerts` (substituído por
 `evaluate_zero_gate`) e seu import de `alert_review_v1` SE o diagnóstico C1
 confirmar que a lógica foi inteiramente absorvida por `essay_zero_gate.py` -
-se a Task C1 decidir reaproveitar `alert_review_v1`/`v2` dentro de
+se a Task 10 decidir reaproveitar `alert_review_v1`/`v2` dentro de
 `evaluate_zero_gate`, manter o import lá dentro em vez de em
 `essay_correction.py`.
 
@@ -2112,13 +2112,13 @@ git commit -m "feat(redacao): Zero Gate reestruturado - avalia sempre, decisao a
 
 ---
 
-### Task C3: Regressão Sabrina/Henrique + Larissa/João Miguel (conjunta)
+### Task 12: Regressão Sabrina/Henrique + Larissa/João Miguel (conjunta) (Fase C)
 
 **Files:**
 - Create: `tests/test_essay_zero_gate_regression.py`
 
 **Interfaces:**
-- Consumes: texto real de Sabrina/Henrique/Larissa/João Miguel (fixture, Task A1); pipeline completo pós-Task C2.
+- Consumes: texto real de Sabrina/Henrique/Larissa/João Miguel (fixture, Task 1); pipeline completo pós-Task 11.
 
 - [ ] **Step 1: Escrever os 4 testes de regressão (chamada real)**
 
@@ -2194,7 +2194,7 @@ async def test_larissa_e_joao_miguel_continuam_fora_de_texto_insuficiente(entry,
 pytest tests/test_essay_zero_gate_regression.py -v -m live
 ```
 
-Expected: 4 passed. Se Sabrina/Henrique ainda falharem aqui, a Task C2 não
+Expected: 4 passed. Se Sabrina/Henrique ainda falharem aqui, a Task 11 não
 está completa - voltar e revisar a implementação à luz do diagnóstico C1,
 nunca "afrouxar threshold" como atalho (Global Constraint).
 
@@ -2207,7 +2207,7 @@ git commit -m "test(redacao): regressao permanente Sabrina/Henrique (Zero Gate) 
 
 ---
 
-### Task C4: Benchmark pós-Fase C
+### Task 13: Benchmark pós-Fase C (Fase C)
 
 **Files:**
 - Create: `tests/fixtures/essay_calibration_baselines/AFTER_ZERO_GATE_V1.json` (gerado, committado)
@@ -2238,7 +2238,7 @@ git commit -m "chore(redacao): benchmark pos-Zero-Gate (AFTER_ZERO_GATE_V1)"
 
 ## Fase D — Experimento controlado + recalibração C1-C5
 
-### Task D1: Transcrição limpa do subconjunto
+### Task 14: Transcrição limpa do subconjunto (Fase D)
 
 **Files:**
 - Create: `tests/fixtures/essay_calibration_clean_text_subset_v1.json`
@@ -2283,14 +2283,14 @@ git commit -m "test(redacao): subconjunto com transcricao limpa para experimento
 
 ---
 
-### Task D2: Rodar o experimento controlado (A = atual, B = limpo)
+### Task 15: Rodar o experimento controlado (A = atual, B = limpo) (Fase D)
 
 **Files:**
 - Create: `scripts/essay_calibration_clean_text_experiment.py`
 - Create: `tests/fixtures/essay_calibration_baselines/CLEAN_TEXT_EXPERIMENT_V1.json`
 
 **Interfaces:**
-- Consumes: `materialize_benchmark_submissions`/`run_benchmark_corrections` (Task A3, reaproveitados sem mudança de assinatura - a fixture de entrada é que muda de formato); `compute_benchmark_report` (Task A2).
+- Consumes: `materialize_benchmark_submissions`/`run_benchmark_corrections` (Task 3, reaproveitados sem mudança de assinatura - a fixture de entrada é que muda de formato); `compute_benchmark_report` (Task 2).
 
 - [ ] **Step 1: Escrever o script**
 
@@ -2398,7 +2398,7 @@ git commit -m "test(redacao): experimento controlado texto atual vs. limpo (Fase
 
 ---
 
-### Task D3: Decisão de recalibração (condicional ao resultado de D2)
+### Task 16: Decisão de recalibração (condicional ao resultado de D2) (Fase D)
 
 **Files:**
 - Create (SE E SOMENTE SE o experimento confirmar viés residual com texto
@@ -2414,7 +2414,7 @@ git commit -m "test(redacao): experimento controlado texto atual vs. limpo (Fase
 - Test: `tests/test_essay_competency_scoring_symmetry.py` (só se a mudança ocorrer)
 
 **Interfaces:**
-- Consumes: `condition_a_current_text`/`condition_b_clean_text` (Task D2).
+- Consumes: `condition_a_current_text`/`condition_b_clean_text` (Task 15).
 
 - [ ] **Step 1: Interpretar o resultado de D2**
 
@@ -2435,7 +2435,7 @@ Comparar `bias_total`/`bias_per_competency` das duas condições:
 # tests/test_essay_competency_scoring_symmetry.py
 """_RULES_TOP_BAND e o teto de TANGENCIAMENTO_AO_TEMA nao podem preferir
 sistematicamente uma direcao sob incerteza (spec Fase D - so chega a esta
-mudanca se o experimento controlado da Task D2 confirmar vies residual com
+mudanca se o experimento controlado da Task 15 confirmar vies residual com
 texto limpo)."""
 from agente_ia_edu.essay_prompts.competency_scoring_v3 import build_prompt
 
@@ -2452,7 +2452,7 @@ def test_top_band_rule_does_not_name_a_single_preferred_direction():
 - [ ] **Step 3 (só se o viés persistir): tornar a regra simétrica**
 
 Copiar `competency_scoring_v2.py` para `competency_scoring_v3.py` (`cp`,
-mesmo procedimento da Task B3 com os prompts `vN.py`), bump de `VERSION`
+mesmo procedimento da Task 7 com os prompts `vN.py`), bump de `VERSION`
 dentro do novo arquivo, e reescrever `_RULES_TOP_BAND` nele - `v2.py` nunca
 é editado. Atualizar `essay_correction.py:51` (import) e `:776` (chamada
 `competency_scoring_v2.build_prompt` → `competency_scoring_v3.build_prompt`).
@@ -2482,11 +2482,11 @@ git commit -m "fix(redacao): torna _RULES_TOP_BAND/teto TANGENCIAMENTO_AO_TEMA s
 ```
 
 Se o Step 1 concluir que a causa é contaminação de entrada, este commit não
-acontece - documentar a decisão de não mudar no relatório final (Task D4).
+acontece - documentar a decisão de não mudar no relatório final (Task 17).
 
 ---
 
-### Task D4: Benchmark final + relatório consolidado
+### Task 17: Benchmark final + relatório consolidado (Fase D)
 
 **Files:**
 - Create: `tests/fixtures/essay_calibration_baselines/AFTER_CALIBRATION_V1.json` (gerado, committado)
@@ -2553,7 +2553,7 @@ Escrever `docs/superpowers/plans/2026-10-06-motor-redacao-quality-zero-gate.rela
 com a tabela acima, mais: análise individual de qualquer caso que
 permaneça com grande divergência (`|engine_total - expected_total| > 160`,
 dois níveis oficiais) depois da Fase D, citando o `student_ref`,
-`normative_status`, e uma hipótese do porquê; e a decisão tomada na Task D3
+`normative_status`, e uma hipótese do porquê; e a decisão tomada na Task 16
 (recalibrou ou não, e por quê) com os números de `CLEAN_TEXT_EXPERIMENT_V1`
 ao lado.
 
@@ -2576,11 +2576,11 @@ B1-B5. Fase C (diagnóstico antes de corrigir, decisão auditável, descobrir
 não só confirmar, reordenação do pipeline) → Tasks C1-C4. Fase D
 (experimento controlado antes de recalibrar, critério de sucesso que não é
 MAE=0, nunca constante somada) → Tasks D1-D4. Relatório consolidado final →
-Task D4. Política de cópia fora de escopo → nenhuma task a toca,
+Task 17. Política de cópia fora de escopo → nenhuma task a toca,
 consistente com a spec.
 
 **Placeholders:** a única lacuna deliberada é o corpo de
-`evaluate_zero_gate` (Task C2, Step 5) e o conteúdo exato da Task D3 - ambos
+`evaluate_zero_gate` (Task 11, Step 5) e o conteúdo exato da Task 16 - ambos
 dependem de um resultado empírico que não existe até o diagnóstico/
 experimento rodar; cada um tem um contrato de teste fixo e uma árvore de
 decisão completa para qualquer resultado possível, não um "TBD" aberto.
