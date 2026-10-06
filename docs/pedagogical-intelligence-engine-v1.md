@@ -170,3 +170,30 @@ novo, e destrava tudo o que está acima: o microdiagnóstico passa a medir por
 habilidade com o motor de seleção que já existe, a correção grava evidência
 por `subcontent`, e o alvo do assessor passa a ser calculado sobre medida
 real em vez de herdada.
+
+## 15. Dados de QA criados neste bloco
+
+Para a verificação no navegador foi criado **um** aluno, separado do que fica
+reservado ao teste manual:
+
+| | |
+|---|---|
+| nome | Aluno Teste Motor |
+| identificador | `aluno_teste_motor` |
+| código | `PILOTO-0003` |
+| escola / turma | Escola ABC · Turma 3ª A (Piloto) |
+| marca | `user_school_links.metadata ->> 'qa_purpose' = 'ENGINE_BROWSER_CHECK'` |
+
+Ele acumulou 29 tentativas e 29 resultados ao tentar levar a rota até
+Estequiometria. **Isso é histórico de teste, não de aluno** — e precisa sair
+antes da implantação real.
+
+Como encontrá-lo, sem adivinhar: pela marca acima, pelo `external_id` nas três
+tabelas de identidade (`persons`, `students`, `users`), ou pelo
+`student_code`. A ordem de remoção segue as FKs — o histórico primeiro, pelos
+mesmos filtros de `scripts/reset_piloto_zero.py` trocando o identificador,
+depois `user_school_links` → `student_enrollments` → `students` → `users` →
+`persons`.
+
+`aluno_teste_jornada` (`PILOTO-0002`, `qa_purpose = E2E_MANUAL_JOURNEY`)
+continua sem histórico nenhum e não foi tocado em momento algum deste bloco.
