@@ -70,8 +70,8 @@
 .cs-inline-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .cs-inline-add .text-input { flex: 1; min-width: 140px; }
 .cs-summary { padding: 10px 14px; border-radius: 8px; background: #f5f7fb; font-size: 0.9rem; }
-.cs-summary-bad { color: #b3261e; }
-.cs-msg { font-size: 0.85rem; color: #b3261e; }
+.cs-summary-bad { color: var(--danger); }
+.cs-msg { font-size: 0.85rem; color: var(--danger); }
 .cs-list { overflow-x: auto; }
 .cs-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .cs-table th, .cs-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }

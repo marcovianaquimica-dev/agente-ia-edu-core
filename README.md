@@ -1,4 +1,4 @@
-# AGENTE IA EDU
+# Núcleo Edu 360°
 
 Core independente para aquisição, organização, classificação e busca inteligente de questões educacionais.
 
@@ -30,7 +30,7 @@ Componentes iniciais:
 
 ## Princípio
 
-> O AGENTE IA EDU deve sobreviver à troca de qualquer fornecedor de IA.
+> O Núcleo Edu 360° deve sobreviver à troca de qualquer fornecedor de IA.
 
 Os dados, taxonomias, regras, prompts, classificações e conhecimento do sistema devem permanecer independentes dos provedores de inteligência artificial.
 
