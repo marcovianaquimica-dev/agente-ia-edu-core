@@ -7,6 +7,7 @@ from __future__ import annotations
 import unicodedata
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -111,13 +112,22 @@ async def run_benchmark_corrections(
             service = correction_service_factory(session)
             try:
                 correction = await service.correct(submission_id)
-                # Capturar status ANTES do commit - SQLAlchemy expira
-                # atributos no commit, e um lazy-load fora de um contexto
-                # awaited levanta MissingGreenlet (confirmado nesta
-                # investigacao, rodando o script de correcao manual).
+                # Capturar status/final_scores/ai_output ANTES do commit -
+                # SQLAlchemy expira atributos no commit, e o `async with`
+                # fecha a sessao ao sair deste bloco; um lazy-load depois
+                # disso levanta MissingGreenlet (status, confirmado nesta
+                # investigacao rodando o script de correcao manual) ou
+                # DetachedInstanceError (final_scores/ai_output, confirmado
+                # na primeira execucao real do benchmark completo - a
+                # instancia ja estava fora da sessao quando o script
+                # tentava monta o relatorio). Por isso devolvemos um
+                # snapshot leve em vez do objeto ORM.
                 status = correction.status
+                final_scores = correction.final_scores
+                ai_output = correction.ai_output
                 await session.commit()
-                results.append((student_ref, correction, status))
+                snapshot = SimpleNamespace(final_scores=final_scores, ai_output=ai_output, status=status)
+                results.append((student_ref, snapshot, status))
             except Exception as exc:  # noqa: BLE001 - registra e segue o lote
                 results.append((student_ref, None, f"ERROR: {exc}"))
     return results
