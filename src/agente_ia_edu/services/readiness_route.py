@@ -349,9 +349,22 @@ class ReadinessRouteService:
         # maquina dizia PRATICAR e esta camada trocava por GUIADA se houvesse
         # item. Com a estrategia variando por ciclo, essa troca por fora
         # escondia da propria maquina uma das opcoes que ela precisa pesar.
+        # O ALVO PASSA A SER O PRIMEIRO GARGALO, ONDE HA GRAFO.
+        #
+        # Sem grafo, `habilidade_que_trava` escolhe pelo MENOR ACERTO - e para
+        # quem vai mal na leitura da formula (0/3) e pior no problema completo
+        # (0/5), isso aponta o problema completo. O sistema entao ensina a
+        # cadeia inteira a quem nao le o indice do NH3.
+        #
+        # Com grafo a pergunta muda: nao "qual esta pior", e sim "em qual
+        # delas ele esta PRONTO para aprender agora". Conteudo sem contrato V2
+        # segue exatamente como antes - 36 dos 37 do catalogo, hoje.
+        from agente_ia_edu.services.grafos_pedagogicos import grafo_de
+
+        grafo = grafo_de(codigo)
+        alvo = habilidade_que_trava(habilidades, grafo=grafo)
         guiado = await self._guiada_pendente(
-            codigo, habilidade_que_trava(habilidades), aluno,
-            requester=requester)
+            codigo, alvo, aluno, requester=requester)
 
         intervencao = decidir_intervencao(
             habilidades=habilidades,

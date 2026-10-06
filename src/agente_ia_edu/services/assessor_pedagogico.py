@@ -109,7 +109,7 @@ LIMITE_DE_CICLOS = 3
 _FAIXAS_DE_LACUNA = (BAND_IMPROVEMENT,)
 
 
-def habilidade_que_trava(habilidades: dict) -> str | None:
+def habilidade_que_trava(habilidades: dict, *, grafo=None) -> str | None:
     """A micro-habilidade que esta travando, para quem precisa saber ANTES.
 
     Existe por uma ordem de perguntas: para decidir se a guiada e uma opcao, e
@@ -117,8 +117,29 @@ def habilidade_que_trava(habilidades: dict) -> str | None:
     aqui. Sem este acesso, quem monta a pergunta chutava `skill=None` e
     recebia sempre o primeiro item do conteudo; quando a habilidade que
     travava mudava, a guiada da nova lacuna nunca era oferecida.
+
+    COM GRAFO, A PERGUNTA MUDA
+    ===========================
+    Sem grafo a escolha e pelo MENOR ACERTO. Para quem vai mal na leitura da
+    formula (0/3) e pior ainda no problema completo (0/5), isso aponta o
+    problema completo - e o sistema ensina a cadeia inteira a quem nao le o
+    indice do NH3.
+
+    Com grafo a pergunta deixa de ser "qual esta pior" e passa a ser "em qual
+    delas ele esta PRONTO para aprender agora": `primeiro_gargalo` desce ate a
+    fraca mais basica da cadeia.
+
+    Se o grafo nao reconhecer nenhuma das fracas - subconteudos antigos, de
+    antes do contrato V2 - a escolha volta a ser a de sempre. Calar seria
+    deixar o aluno sem intervencao por causa de um nome de codigo.
     """
-    return _pior_habilidade(habilidades)[0]
+    pior = _pior_habilidade(habilidades)[0]
+    if grafo is None:
+        return pior
+    por_habilidade = (habilidades or {}).get("por_habilidade") or {}
+    fracas = [s for s, v in por_habilidade.items()
+              if v.get("band") in _FAIXAS_DE_LACUNA]
+    return grafo.primeiro_gargalo(fracas) or pior
 
 
 def _pior_habilidade(habilidades: dict) -> tuple[str | None, str | None]:
