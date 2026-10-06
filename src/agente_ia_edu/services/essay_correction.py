@@ -709,11 +709,30 @@ class EssayCorrectionService:
                 rubric_version=rubric_version, model_version=model_version,
                 prompt_version=prompt_artifact.version, engine_version=_ENGINE_VERSION,
             )
+            # O modelo frequentemente tambem emite um alert de
+            # _ANULA_REDACAO_ALERT_CODES (TEXTO_INSUFICIENTE confirmado live,
+            # 4/4 em Larissa/Joao Miguel - Task 9) na MESMA resposta de fase 1
+            # que ja carrega input_reliability=UNRELIABLE_NEEDS_REVIEW. Spec
+            # Fase B e explicita: confiabilidade de entrada "nunca aparece em
+            # alerts, nunca passa por _ANULA_REDACAO_ALERT_CODES" - uma vez
+            # que o Quality Gate decidiu que a LEITURA nao e confiavel,
+            # nenhum alert de julgamento pedagogico com semantica de
+            # zerar-a-redacao pode ficar exposto no ai_output persistido como
+            # se fosse um sinal confiavel. Alerts fora desse conjunto
+            # (OCR_DUVIDOSO, POSSIVEL_DUPLICIDADE, TANGENCIAMENTO_AO_TEMA)
+            # nunca tiveram semantica de zerar e continuam, como sinal
+            # informativo. Note que final_scores ja e None de qualquer forma
+            # - este filtro protege apenas o ai_output exposto, nao a nota.
+            ai_output = output.model_dump(mode="json")
+            ai_output["alerts"] = [
+                alert for alert in ai_output["alerts"]
+                if alert["code"] not in _ANULA_REDACAO_ALERT_CODES
+            ]
             return {
                 "correction_key": key, "rubric_version": rubric_version,
                 "model_version": model_version, "prompt_version": prompt_artifact.version,
                 "engine_version": _ENGINE_VERSION,
-                "ai_output": output.model_dump(mode="json"),
+                "ai_output": ai_output,
                 "final_scores": None, "final_feedback": output.feedback.model_dump(mode="json"),
                 "failure_reason": f"QUALITY_GATE_UNRELIABLE: {output.input_reliability.rationale}",
                 "input_tokens": input_tokens, "output_tokens": output_tokens,
