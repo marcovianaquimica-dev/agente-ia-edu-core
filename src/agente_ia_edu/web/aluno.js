@@ -165,6 +165,9 @@
   // "DIAGNOSTICO CONCLUIDO" com um botao convidando a RESPONDER de novo.
   const ACOES = {
     DIAGNOSTIC: { acao: 'diagnosticar' },
+    // O degrau mais alto da escada de apoio: microperguntas, uma por vez,
+    // antes de a explicacao ser gasta.
+    INVESTIGATE: { acao: 'investigar' },
     LEARN: { acao: 'estudar' },
     GUIDED_PRACTICE: { acao: 'guiada' },
     PRACTICE: { acao: 'praticar' },
@@ -253,7 +256,8 @@
     // VERIFICACAO e ESCALONAMENTO falam pela voz do backend. Escrever aqui um
     // texto proprio para eles seria repetir o achado 3 do teste humano, que
     // foi exatamente pedagogia montada no navegador.
-    if (passo.kind === 'VERIFY' || passo.kind === 'ESCALATE') {
+    if (passo.kind === 'VERIFY' || passo.kind === 'ESCALATE'
+        || passo.kind === 'INVESTIGATE') {
       const fb = passo.feedback || {};
       return esc(fb.detalhe || fb.titulo || '');
     }
@@ -291,6 +295,11 @@
           <p class="detalhe">${esc(fb.detalhe || '')}</p>
           <button class="botao botao-principal" data-acao="conversar">
             ${esc(rotuloDaAcao(passo))}</button>
+          ${passo.material_id
+            ? `<button class="botao botao-secundario" data-acao="estudar"
+                       data-material="${esc(passo.material_id)}">
+                 Rever a explicação</button>`
+            : ''}
           <button class="botao botao-secundario" data-tela="atividades">Ver minhas atividades</button>
         </div>`;
     }
@@ -515,7 +524,43 @@
       ${proximo}`;
   }
 
+  // O EXEMPLO SEQUENCIAL - rotulo, conta, resultado, e a fala do passo.
+  //
+  // Por que nao reusar SOLVED_EXAMPLE: aquele mostra a contagem de atomos
+  // dos DOIS LADOS da seta, que e o que balanceamento precisa. Um calculo
+  // estequiometrico nao tem dois lados - tem uma conta por etapa - e a
+  // tabela de atomos sairia vazia debaixo de cada passo.
+  //
+  // Nada aqui depende de imagem: o raciocinio matematico e texto, com
+  // subscritos de verdade. Ha teste no conteudo exigindo as duas coisas.
+  function sequenciaHTML(bloco, revelados) {
+    const passos = ((bloco.metadata || {}).passos) || [];
+    if (!passos.length) return '';
+    const vistos = passos.slice(0, Math.max(1, revelados + 1));
+    const corpo = vistos.map((p, i) => `
+      <li class="passo-sequencia">
+        <p class="passo-rotulo">${esc(p.rotulo || `Passo ${i + 1}`)}</p>
+        <p class="passo-conta">
+          <span class="conta-expressao">${esc(p.conta || '')}</span>
+          <span class="conta-igual" aria-hidden="true">=</span>
+          <span class="conta-resultado">${esc(p.resultado || '')}</span>
+        </p>
+        <p class="fala">${esc(p.fala || '')}</p>
+      </li>`).join('');
+    const faltam = passos.length - vistos.length;
+    const proximo = faltam > 0
+      ? `<button class="botao botao-secundario botao-proximo-passo"
+                 data-acao="passo-exemplo"
+                 data-passo="${vistos.length}">Ver o próximo passo</button>`
+      : '';
+    return `
+      <h3 class="bloco-titulo">${esc(bloco.title || 'Exemplo')}</h3>
+      <ol class="sequencia">${corpo}</ol>
+      ${proximo}`;
+  }
+
   function blocoHTML(bloco, revelados) {
+    if (bloco.block_type === 'STEP_SEQUENCE') return sequenciaHTML(bloco, revelados);
     if (bloco.block_type === 'SOLVED_EXAMPLE') return exemploHTML(bloco, revelados);
     const corpo = (bloco.body || '').split('\n\n').map(
       (par) => `<p>${esc(par)}</p>`).join('');
@@ -629,7 +674,7 @@
    * A DECISAO e de `PrepUI.comoRevelar`, que tem teste proprio; aqui so se
    * executa o que ela devolveu. */
   function revelarPasso(indice) {
-    const passos = document.querySelectorAll('.passo-exemplo');
+    const passos = document.querySelectorAll('.passo-exemplo, .passo-sequencia');
     const menos = !!(window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const como = PrepUI.comoRevelar({ indice, total: passos.length,
@@ -681,6 +726,8 @@
     }
     const passo = (app.prontidao && app.prontidao.next_step) || {};
     switch (passo.kind) {
+      case 'INVESTIGATE': return abrirInvestigacao(passo.content_code,
+                                                   passo.skill);
       case 'LEARN': return estudar(passo.material_id);
       case 'GUIDED_PRACTICE': return abrirGuiada(passo.content_code);
       case 'PRACTICE': return praticar(passo.content_code);
@@ -863,6 +910,141 @@
       // que a tela diz, em vez de um botao sem destino.
       return praticar(codigo);
     }
+  }
+
+  // ================================================== a investigacao ======
+  // O DEGRAU MAIS ALTO DA ESCADA DE APOIO.
+  //
+  // Uma micropergunta de cada vez, antes de a explicacao ser gasta. Nada
+  // aqui decide pedagogia: qual e a etapa aberta, se a resposta estava
+  // certa, qual micro-habilidade ficou localizada - tudo chega pronto do
+  // servidor, que e quem confere. A tela nem recebe o gabarito de uma etapa
+  // que ainda esta aberta.
+  //
+  // NAO HA BOTAO DE DICA AQUI, de proposito: a investigacao JA e a ajuda
+  // mais alta. Um degrau acima do topo so levaria a entregar a resposta.
+
+  async function abrirInvestigacao(contentCode, skill) {
+    const passo = (app.prontidao && app.prontidao.next_step) || {};
+    const codigo = contentCode || passo.content_code;
+    if (!codigo) return;
+    const inter = passo.intervention || {};
+    const habilidade = skill || inter.skill;
+    irPara('sessao');
+    $('bloco').innerHTML = aviso('Preparando…');
+    try {
+      const dados = await api('/api/v1/student/investigation'
+        + `?content_code=${encodeURIComponent(codigo)}`
+        + (habilidade ? `&skill=${encodeURIComponent(habilidade)}` : ''));
+      app.investigacao = { dados, escolha: null, ultimo: null };
+      pintarInvestigacao();
+    } catch (e) {
+      // Sem cadeia escrita para esta lacuna, o aluno desce um degrau em vez
+      // de ficar parado numa tela vazia.
+      return seguirDepoisDaInvestigacao();
+    }
+  }
+
+  function pintarInvestigacao() {
+    const inv = app.investigacao;
+    if (!inv) return;
+    const v = InvestigacaoUI.estado(inv.dados, { escolha: inv.escolha });
+    $('trilho').innerHTML = '';
+    $('sessao-resumo').textContent = v.progresso;
+    pintarJornada();
+
+    const alvo = (app.prontidao && app.prontidao.title) || null;
+    $('objetivo').hidden = !alvo;
+    if (alvo) $('objetivo-texto').textContent = alvo;
+
+    // AS ETAPAS JA RESOLVIDAS ficam visiveis, em ordem. Nao e decoracao: e o
+    // raciocinio sendo montado na frente do aluno, e e o que transforma tres
+    // perguntas soltas numa cadeia.
+    const feitas = v.concluidas.map((c) => `
+      <li class="etapa-feita">
+        <p class="etapa-pergunta">${esc(c.question || '')}</p>
+        <p class="etapa-resposta">
+          <span class="etapa-marca">✓</span> ${esc(c.correct_option)}
+        </p>
+        <p class="etapa-comentario">${esc(c.comentario || '')}</p>
+      </li>`).join('');
+
+    const etapa = v.etapa || {};
+    const alternativas = (etapa.options || []).map((o) => {
+      const marcada = inv.escolha === o.key;
+      return `
+        <button class="alternativa${marcada ? ' alternativa-escolhida' : ''}"
+                data-opcao-investigacao="${esc(o.key)}" type="button">
+          <span class="alternativa-letra">${esc(o.key)}</span>
+          <span class="alternativa-texto">${esc(o.text)}</span>
+        </button>`;
+    }).join('');
+
+    const fala = `<p class="assessor-fala">${
+      esc(InvestigacaoUI.falaDoAssessor(inv.dados, inv.ultimo))}</p>`;
+
+    // O ENSINO DA ETAPA QUE NAO FICOU DE PE. Nunca a letra - o backend nao a
+    // manda, e esta tela nao teria como inventa-la.
+    const retorno = v.retorno
+      ? `<div class="aviso-conceito etapa-retorno"><p>${esc(v.retorno)}</p></div>`
+      : '';
+
+    const acoes = InvestigacaoUI.acoes(inv.dados).map((a) => {
+      const desabilita = (a.acao === 'responder' && !v.responderHabilitado);
+      return `<button class="botao ${a.principal ? 'botao-principal' : 'botao-secundario'}"
+                      data-acao="inv-${a.acao}"
+                      ${desabilita ? 'disabled' : ''}>${esc(a.rotulo)}</button>`;
+    }).join('');
+
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco cartao-assessor">
+        <p class="bloco-etiqueta assessor-etiqueta">
+          <img class="assessor-marca" src="assets/nucleo-edu-360-simbolo.png"
+               alt="" width="128" height="108" aria-hidden="true">
+          Vamos por partes
+        </p>
+        ${v.hipotese ? `<p class="assessor-hipotese">${esc(v.hipotese)}</p>` : ''}
+        ${fala}
+        ${feitas ? `<ol class="etapas-feitas">${feitas}</ol>` : ''}
+        ${retorno}
+        ${v.etapa ? `<p class="bloco-titulo">${esc(etapa.question || '')}</p>
+        <div class="alternativas">${alternativas}</div>` : ''}
+        ${acoes}
+      </div>`;
+  }
+
+  function escolherInvestigacao(letra) {
+    if (!app.investigacao) return;
+    app.investigacao.escolha = letra;
+    pintarInvestigacao();
+  }
+
+  async function responderInvestigacao() {
+    const inv = app.investigacao;
+    if (!inv || !inv.escolha || !inv.dados.etapa) return;
+    try {
+      const r = await api(
+        `/api/v1/student/investigation/${encodeURIComponent(inv.dados.key)}/answer`,
+        { method: 'POST',
+          body: JSON.stringify({ ordem: inv.dados.etapa.ordem,
+                                 selected_option: inv.escolha }) });
+      inv.dados = r;
+      inv.ultimo = { correct: !!r.correct, completed: !!r.completed };
+      // A alternativa sai desmarcada sempre: na etapa seguinte ela nao
+      // significa nada, e na mesma etapa um clique no mesmo lugar nao e uma
+      // segunda escolha.
+      inv.escolha = null;
+      pintarInvestigacao();
+    } catch (e) {
+      $('bloco').innerHTML += aviso(`Não consegui registrar (erro ${esc(e.status || '')}).`);
+    }
+  }
+
+  // Concluida a investigacao, o degrau seguinte e do backend - relido aqui
+  // com o estado novo, como em toda transicao deste fluxo.
+  async function seguirDepoisDaInvestigacao() {
+    app.investigacao = null;
+    return seguirOProximoPasso();
   }
 
   function pintarGuiada() {
@@ -1548,22 +1730,46 @@
       }));
     } catch (_) { /* sem revisao: o placar ainda aparece */ }
     app.revisao = { assignment_id: a.assignment_id, questoes, pos: 0,
-                    explicacao: null };
+                    explicacao: null, modo: ResultadoUI.MODO_REVISAO };
 
     $('trilho').innerHTML = '';
     $('sessao-resumo').textContent = '';  // idem pintarResultado
     // Esta E uma atividade da escola: aqui o acerto E reportado como
     // desempenho. O que NAO se faz e concluir dominio por ter concluido - quem
     // decide isso continua sendo a politica, no proximo calculo de prontidao.
+    // FIM DAS QUESTOES NAO E FIM DA JORNADA.
+    //
+    // Ate 2026-10-06 esta tela terminava em "Voce acertou 1 de 5" com
+    // "Revisar questoes" como acao principal - o placar como mensagem
+    // pedagogica, e um botao de volta ao que ja passou. Enquanto isso o
+    // backend JA SABIA qual era o proximo passo, e a tela nao o oferecia.
+    //
+    // Agora a decisao e relida aqui, e quem escolhe o destaque e
+    // `ResultadoUI`, que roda em teste. O placar continua existindo - a
+    // escola recebe o numero, e esconde-lo do aluno seria outro problema -
+    // so deixa de ser o TITULO quando ha intervencao a fazer.
+    try {
+      if (app.prontidao && app.prontidao.assignment_id) {
+        app.prontidao = await api(
+          `/api/v1/student/activities/${app.prontidao.assignment_id}/readiness`);
+      }
+    } catch (_) { /* sem prontidao nova, a tela cai no placar - que e verdade */ }
+
+    const v = ResultadoUI.resultadoDaAtividade({
+      resultado: res,
+      passo: (app.prontidao && app.prontidao.next_step) || {},
+      temRevisao: questoes.length > 0,
+    });
+
     $('bloco').innerHTML = `
       <div class="cartao-bloco">
-        <p class="bloco-etiqueta">Atividade concluída</p>
-        <p class="bloco-titulo">Você acertou ${res.correct_count} de ${res.question_count}.</p>
-        <p class="bloco-porque">Sua escola recebe este resultado.</p>
-        ${questoes.length
-          ? '<button class="botao botao-principal" data-acao="revisar">Revisar questões</button>'
-          : ''}
-        <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
+        <p class="bloco-etiqueta">${esc(v.etiqueta)}</p>
+        <p class="bloco-titulo">${esc(v.titulo)}</p>
+        ${v.placar ? `<p class="bloco-placar">${esc(v.placar)}</p>` : ''}
+        ${v.detalhe ? `<p class="bloco-porque">${esc(v.detalhe)}</p>` : ''}
+        ${v.acoes.map((a) => `
+          <button class="botao ${a.principal ? 'botao-principal' : 'botao-secundario'}"
+                  data-acao="${esc(a.acao)}">${esc(a.rotulo)}</button>`).join('')}
       </div>`;
   }
 
@@ -1628,7 +1834,7 @@
    *   /attempt         enunciado, alternativas e o que ele marcou
    *   /attempt/result  o que era certo e se acertou
    */
-  async function abrirRevisao(assignmentId) {
+  async function abrirRevisao(assignmentId, modo) {
     try {
       const [r, estado] = await Promise.all([
         api(`/api/v1/student/activities/${assignmentId}/attempt/result`),
@@ -1641,7 +1847,8 @@
       }));
       if (!questoes.length) return;
       app.revisao = { assignment_id: assignmentId, questoes, pos: 0,
-                      explicacao: null };
+                      explicacao: null,
+                      modo: modo || ResultadoUI.MODO_REVISAO };
       // COMECA NA PRIMEIRA QUE ELE ERROU. Abrir numa que ele acertou faria o
       // aluno navegar atras do proprio erro para encontrar a explicacao.
       const primeiroErro = questoes.findIndex(
@@ -1672,26 +1879,45 @@
     }).join('');
     $('sessao-resumo').textContent = `Revisão · questão ${rev.pos + 1} de ${total}`;
 
+    // DOIS MODOS, E SO UM DELES MOSTRA O GABARITO DE IMEDIATO.
+    //
+    // REVISAO e olhar para tras: a atividade foi entregue, a nota foi dada,
+    // e esconder a resposta certa ali nao protege aprendizagem nenhuma - so
+    // impede o aluno de conferir o proprio raciocinio.
+    //
+    // RECUPERACAO e o aluno que acabou de errar e esta sendo ajudado AGORA.
+    // Revelar a alternativa certa no primeiro segundo encerra a recuperacao
+    // antes de ela comecar: nao sobra o que investigar, e a explicacao que
+    // vem depois chega para quem ja sabe o final.
+    //
+    // O que se esconde e QUAL ERA A CERTA, e so ate a explicacao ser lida.
+    // Nunca o fato de ter errado - sem isso o aluno nao entende por que esta
+    // sendo ajudado. E o gabarito nunca fica escondido para sempre.
+    const ctxRevisao = {
+      modo: rev.modo,
+      correta: res.correct_option_key,
+      marcada: res.selected_option_key,
+      explicacaoLida: !!(rev.explicacao && rev.explicacao.texto),
+    };
+
     // O estado NAO depende so da cor: traz simbolo e palavra, porque quem nao
     // distingue verde de vermelho tambem precisa saber se acertou.
     const alternativas = (q.options || []).map((o) => {
-      const marcada = o.key === res.selected_option_key;
-      const certa = o.key === res.correct_option_key;
-      const classe = certa ? ' alternativa-certa'
-        : marcada ? ' alternativa-errada' : '';
-      const selo = certa ? '<span class="alt-selo">✓ correta</span>'
-        : marcada ? '<span class="alt-selo">✗ sua resposta</span>' : '';
+      const selo = ResultadoUI.seloDaAlternativa(o, ctxRevisao);
+      const classe = !selo ? ''
+        : selo.tipo === 'certa' ? ' alternativa-certa' : ' alternativa-errada';
       return `
         <div class="alternativa alternativa-revisao${classe}">
           <span class="alternativa-letra">${esc(o.key)}</span>
           <span>${esc(o.text)}</span>
-          ${selo}
+          ${selo ? `<span class="alt-selo">${esc(selo.texto)}</span>` : ''}
         </div>`;
     }).join('');
 
     $('bloco').innerHTML = `
       <div class="cartao-bloco">
-        <p class="bloco-etiqueta">${acertou ? '✓ Você acertou' : '✗ Você errou'}</p>
+        <p class="bloco-etiqueta">${
+          esc(ResultadoUI.etiquetaDaQuestao(acertou, rev.modo))}</p>
         <p class="bloco-enunciado">${esc(q.statement || '')}</p>
         <div class="alternativas">${alternativas}</div>
         ${acertou ? '' : blocoDaExplicacao()}
@@ -1888,7 +2114,7 @@
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest(
       '[data-acao], [data-opcao], [data-opcao-oficial], [data-opcao-guiada],'
-      + ' [data-tela], [data-fechar-folha]');
+      + ' [data-opcao-investigacao], [data-tela], [data-fechar-folha]');
     if (!alvo) return;
 
     // Cada tipo de alternativa tem o SEU atributo. A guiada chegou usando
@@ -1903,11 +2129,22 @@
     if (alvo.dataset.opcaoGuiada !== undefined) {
       escolherGuiada(alvo.dataset.opcaoGuiada); return;
     }
+    // Atributo proprio pelo mesmo motivo da guiada: `data-opcao` ja pertence
+    // ao diagnostico, e reusa-lo faria o clique cair em `escolher()`, que
+    // mexe num estado nulo aqui e morre em silencio.
+    if (alvo.dataset.opcaoInvestigacao !== undefined) {
+      escolherInvestigacao(alvo.dataset.opcaoInvestigacao); return;
+    }
 
     switch (alvo.dataset.acao) {
       case 'diagnosticar': abrirDiagnostico(); return;
       case 'estudar': estudar(alvo.dataset.material); return;
       case 'guiada': abrirGuiada(alvo.dataset.conteudo); return;
+      case 'investigar': abrirInvestigacao(alvo.dataset.conteudo,
+                                           alvo.dataset.habilidade); return;
+      case 'inv-responder': responderInvestigacao(); return;
+      case 'inv-seguir': seguirDepoisDaInvestigacao(); return;
+      case 'inv-sair': irPara('inicio'); return;
       case 'guiada-responder': responderGuiada(); return;
       case 'guiada-ajuda': pedirAjudaGuiada(); return;
       case 'guiada-seguir': seguirDaGuiada(); return;
@@ -1916,6 +2153,9 @@
       // O botao que a CONVERSA oferece leva ao passo REAL do backend - e o
       // mesmo despachante do resto, nao um atalho da conversa.
       case 'conversa-seguir': seguirOProximoPasso(); return;
+      // O botao principal da tela de resultado quando ha proxima
+      // intervencao. Mesmo despachante: a tela nao escolhe o destino.
+      case 'seguir': seguirOProximoPasso(); return;
       case 'conversar': abrirConversa(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
       // A VERIFICACAO e uma pratica curta pelo mesmo motor. O tamanho vem do
@@ -1939,7 +2179,11 @@
       // atividade da escola: medido em 2026-10-06, o aluno errava 5 de 5 numa
       // pratica e a tela so oferecia mais questoes.
       case 'entender-erros':
-        abrirRevisao(alvo.dataset.tentativa); return;
+        // MODO RECUPERACAO: ele acabou de errar e esta sendo ajudado AGORA.
+        // A alternativa certa nao aparece ate a explicacao ser lida - com
+        // ela na tela desde o primeiro segundo, nao sobra o que recuperar.
+        abrirRevisao(alvo.dataset.tentativa, ResultadoUI.MODO_RECUPERACAO);
+        return;
       case 'exp-explicar': pedirExplicacao(); return;
       // "EXPLIQUE DE OUTRO JEITO" e o mesmo pedido com a estrategia anterior
       // junto; quem escolhe a proxima e o backend, nao esta tela.
@@ -1951,7 +2195,7 @@
       case 'exp-duvida': abrirConversa(); return;
       case 'revisao-anterior': navegarRevisao(-1); return;
       case 'revisao-proxima': navegarRevisao(1); return;
-      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; app.guiada = null; app.revisao = null; irPara('inicio'); return;
+      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; app.guiada = null; app.investigacao = null; app.revisao = null; irPara('inicio'); return;
       case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
       default: break;
     }

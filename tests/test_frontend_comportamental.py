@@ -35,6 +35,8 @@ RAIZ = pathlib.Path(__file__).resolve().parent
 
 # Os que EXECUTAM o codigo. Os de varredura de fonte nao entram - ver docstring.
 COMPORTAMENTAIS = ("test_aluno_guiada_frontend.js",
+                   "test_aluno_investigacao_frontend.js",
+                   "test_aluno_resultado_frontend.js",
                    "test_aluno_preparacao_frontend.js",
                    "test_aluno_conversa_frontend.js",
                    "test_aluno_explicacao_frontend.js",
@@ -95,6 +97,8 @@ class FrontendComportamentalTests(unittest.TestCase):
         """
         web = RAIZ.parent / "src" / "agente_ia_edu" / "web"
         for pagina, modulo in (("aluno.html", "aluno-guiada.js"),
+                               ("aluno.html", "aluno-investigacao.js"),
+                               ("aluno.html", "aluno-resultado.js"),
                                ("portal.html", "portal.js"),
                                ("redacao.html", "essay-rotulos.js")):
             with self.subTest(pagina=pagina):

@@ -1163,3 +1163,116 @@ p  { margin: 0 0 .75rem; }
   /* Empilhadas: três botões lado a lado a 320px viram três palavras cortadas. */
   .explicacao-acoes { flex-direction: column; }
 }
+
+/* ------------------------------------------- o exemplo SEQUENCIAL -------
+   Um calculo estequiometrico nao tem dois lados da seta para comparar: tem
+   uma conta por etapa. A estrutura visual e a propria explicacao - rotulo,
+   conta, resultado -, e nao um paragrafo com os numeros no meio dele.
+
+   Nada aqui depende de imagem. O raciocinio matematico e texto, inclusive
+   os subscritos, porque imagem nao e lida por leitor de tela, nao e
+   selecionavel e nao reflui em 320px. */
+
+.sequencia {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .75rem;
+}
+
+.passo-sequencia {
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .75rem .9rem;
+  position: relative;
+  scroll-margin-top: 1rem;
+}
+
+/* A seta que liga um passo ao seguinte. E DECORATIVA: a ordem ja esta na
+   numeracao dos rotulos e na semantica do <ol>. Como `content` de
+   pseudo-elemento, ela nao vira um caractere lido em voz alta a cada passo
+   nem um no selecionavel. */
+.passo-sequencia + .passo-sequencia::before {
+  content: "\2193";
+  position: absolute;
+  top: -.72rem;
+  left: 1.2rem;
+  color: var(--tinta-fraca);
+  font-size: .9rem;
+  line-height: 1;
+}
+
+.passo-rotulo {
+  margin: 0 0 .35rem;
+  font-weight: 700;
+  color: var(--tinta-fraca);
+  font-size: .9375rem;
+}
+
+/* A CONTA E O OBJETO DE ESTUDO. Maior que o texto em volta, com o sinal de
+   igual separando visivelmente a expressao do resultado.
+   `anywhere` porque em 320px "14,0 / 28,0 = 0,5 mol de N2" nao cabe numa
+   linha, e cortar seria pior que quebrar. */
+.passo-conta {
+  margin: 0 0 .45rem;
+  font-size: 1.125rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .4rem;
+  overflow-wrap: anywhere;
+}
+.conta-expressao { font-weight: 600; color: var(--tinta); }
+.conta-igual { color: var(--tinta-fraca); }
+.conta-resultado {
+  font-weight: 700;
+  color: var(--tinta);
+  background: var(--fundo-painel, rgba(0, 0, 0, .05));
+  border-radius: .4rem;
+  padding: .1rem .4rem;
+}
+
+.passo-sequencia .fala { margin: 0; color: var(--tinta); }
+
+@media (min-width: 768px) {
+  .passo-conta { font-size: 1.25rem; }
+}
+
+/* ------------------------------------------------- a investigacao -------
+   O degrau mais alto da escada: uma micropergunta de cada vez, com as
+   etapas ja resolvidas visiveis acima. Nao e historico decorativo - e o
+   raciocinio sendo montado na frente do aluno, e e o que transforma tres
+   perguntas soltas numa cadeia. */
+
+/* A hipotese e uma SUPOSICAO, e o peso visual diz isso: ela nao tem o
+   destaque de uma conclusao. */
+.assessor-hipotese {
+  margin: 0 0 .6rem;
+  font-size: .9375rem;
+  color: var(--tinta-fraca);
+  border-left: 3px solid var(--borda);
+  padding-left: .7rem;
+}
+
+.etapas-feitas {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: .6rem;
+}
+
+.etapa-feita {
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .6rem .75rem;
+  font-size: .9375rem;
+}
+.etapa-pergunta { margin: 0 0 .3rem; color: var(--tinta-fraca); }
+.etapa-resposta { margin: 0 0 .3rem; font-weight: 600; color: var(--tinta); }
+/* O estado nao depende so da cor: o simbolo acompanha. */
+.etapa-marca { color: var(--sucesso-tinta); font-weight: 700; }
+.etapa-comentario { margin: 0; color: var(--tinta); }
+
+.etapa-retorno { margin: .25rem 0 1rem; }

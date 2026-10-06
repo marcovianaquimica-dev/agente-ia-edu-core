@@ -112,8 +112,13 @@
 
     if (!r.correct) {
       if ((d.hints_used || 0) >= (d.ajudas_disponiveis || 0)) {
-        return 'Ainda não é essa. Releia o último passo com calma e '
-             + 'confira os átomos de cada elemento, um por um.';
+        // SEM QUIMICA AQUI. Esta frase dizia "confira os atomos de cada
+        // elemento, um por um" - certa para balanceamento, e errada desde
+        // que Estequiometria ganhou itens guiados, onde nao se conta atomo
+        // nenhum. A tela nao e o lugar de conhecimento de conteudo: a ultima
+        // dica ja diz o que olhar, e e para ela que a fala aponta.
+        return 'Ainda não é essa. Releia a última dica com calma e refaça a '
+             + 'etapa que ela aponta.';
       }
       return 'Ainda não é essa — e tudo bem, é para isso que estou aqui. '
            + 'Quer uma ajuda antes de tentar de novo?';

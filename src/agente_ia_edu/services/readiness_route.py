@@ -468,6 +468,17 @@ class ReadinessRouteService:
         if acao == ACAO_ESCALAR:
             passo["kind"] = PASSO_ESCALONAMENTO
             passo["readiness_route"] = ROTA_PREPARACAO
+            # O MATERIAL CONTINUA EXISTINDO, mesmo nao sendo mais o passo.
+            #
+            # ESCALAR nao quer dizer que o Edu desistiu: quer dizer que ESTA
+            # ESTRATEGIA chegou ao limite. Entao a tela precisa poder oferecer
+            # de volta o que existe - rever a explicacao - em vez de so
+            # apontar para fora. Sem este campo, o cartao de escalonamento nao
+            # teria como abrir o material, e "voce pode voltar a explicacao"
+            # seria uma frase sem porta.
+            if material:
+                passo["material_id"] = material["material_id"]
+                passo["material_title"] = material["title"]
             return passo
 
         return passo
