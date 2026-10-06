@@ -708,6 +708,7 @@ from pydantic import BaseModel as _BaseModel, Field as _Field  # noqa: E402
 from ...services.adaptive_practice import (  # noqa: E402
     AdaptivePracticeService,
     MODE_CONTENT,
+    PROPOSITO_PRATICA,
     PracticeAuthError,
     PracticeError,
     PracticeNotFound,
@@ -718,6 +719,14 @@ class _PracticeCreateRequest(_BaseModel):
     content_code: str = _Field(min_length=1, max_length=100)
     question_count: int = _Field(default=10, ge=1, le=20)
     mode: str = MODE_CONTENT
+    # PARA QUE ESTE LOTE EXISTE. A verificacao do assessor usa o mesmo motor
+    # com menos questoes; sem isto ela ficava indistinguivel de uma pratica
+    # depois de corrigida, e uma verificacao FALHADA era lida como "mais uma
+    # pratica fraca" - o achado medido em 2026-10-06. Lista fechada: um valor
+    # novo e decisao consciente, nao campo livre vindo do navegador.
+    # A lista fechada vive no servico (`PROPOSITOS`), que recusa o que nao
+    # conhece com 422 - aqui seria uma segunda copia para divergir depois.
+    purpose: str = PROPOSITO_PRATICA
 
 
 def _map_practice_error(exc: Exception) -> HTTPException:
@@ -744,7 +753,8 @@ async def create_student_practice(
             return await svc.create_practice(
                 _me(ctx), requester=_student_requester(ctx),
                 content_code=payload.content_code, mode=payload.mode,
-                question_count=payload.question_count)
+                question_count=payload.question_count,
+                purpose=payload.purpose)
         except Exception as exc:  # noqa: BLE001
             raise _map_practice_error(exc) from exc
 

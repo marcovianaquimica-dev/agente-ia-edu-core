@@ -153,6 +153,7 @@ def decidir_intervencao(
     tentativas: Sequence[dict] | None = None,
     objetivo_nome: str | None = None,
     conteudo_nome: str | None = None,
+    ultima_foi_verificacao: bool = False,
 ) -> dict:
     """A proxima intervencao, ou `action=None` quando nao ha o que intervir.
 
@@ -206,7 +207,9 @@ def decidir_intervencao(
 
     acao = _acao(
         trajeto=trajeto, escalar=escalar, ja_ensinado=ja_ensinado,
-        ha_material=ha_material, ha_guiada_pendente=ha_guiada_pendente)
+        ha_material=ha_material, ha_guiada_pendente=ha_guiada_pendente,
+        verificacao_falhou=(bool(ultima_foi_verificacao)
+                            and trajeto != TENDENCIA_RECUPERANDO))
     base.update({
         "action": acao,
         "approach": _abordagem(acao, ciclo),
@@ -238,7 +241,8 @@ def _abordagem(acao: str, ciclo: int) -> str | None:
 
 
 def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
-          ha_material: bool, ha_guiada_pendente: bool) -> str:
+          ha_material: bool, ha_guiada_pendente: bool,
+          verificacao_falhou: bool = False) -> str:
     """A estrategia desta vez - e ela precisa MUDAR quando a anterior falhou.
 
     A ordem e a propria politica, e cada linha existe por um motivo:
@@ -278,6 +282,17 @@ def _acao(*, trajeto: str, escalar: bool, ja_ensinado: bool,
         return ACAO_ENSINAR
     if ha_guiada_pendente:
         return ACAO_GUIADA
+    # UMA VERIFICACAO QUE FALHOU NAO PEDE O MESMO LOTE DE NOVO.
+    #
+    # Medido em 2026-10-06, pelo caminho real da decisao: 1/5 -> 5/5 ->
+    # VERIFY 0/3, sem material publicado, devolvia PRACTICE e a tela dizia
+    # "Vamos tentar de novo, sozinho." Uma verificacao forte negativa nao
+    # informa que o aluno precisa treinar mais: informa que a INTERVENCAO
+    # ANTERIOR NAO BASTOU. As duas saidas acima - reensinar por outro caminho,
+    # ou tentar com ajuda - ja foram pesadas e nao estavam disponiveis. Entao
+    # as estrategias deste sistema acabaram, e quem continua e o professor.
+    if verificacao_falhou:
+        return ACAO_ESCALAR
     return ACAO_PRATICAR
 
 

@@ -1285,7 +1285,14 @@
     try {
       pr = await api('/api/v1/student/practice', {
         method: 'POST',
-        body: JSON.stringify({ content_code: codigo, question_count: quantas }),
+        // O PROPOSITO VAI JUNTO. Ate 2026-10-06 a verificacao era uma
+        // pratica com menos questoes e nada mais; depois de corrigida o
+        // backend nao tinha como distinguir as duas, e uma verificacao
+        // FALHADA era lida como "mais uma pratica fraca" - o aluno errava
+        // 0 de 3 e recebia outro lote sozinho. Quem decide continua sendo
+        // o backend; a tela so informa para que o lote foi pedido.
+        body: JSON.stringify({ content_code: codigo, question_count: quantas,
+                               purpose: o.verificacao ? 'VERIFY' : 'PRACTICE' }),
       });
     } catch (e) {
       const corpo = e.corpo || {};

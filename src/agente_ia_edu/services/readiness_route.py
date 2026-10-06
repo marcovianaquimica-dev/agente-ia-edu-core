@@ -365,6 +365,8 @@ class ReadinessRouteService:
                 codigo, aluno, requester=requester),
             objetivo_nome=passo.get("for_content_name"),
             conteudo_nome=passo.get("content_name"),
+            ultima_foi_verificacao=await self._ultima_foi_verificacao(
+                codigo, aluno, requester=requester),
         )
         passo["intervention"] = intervencao
         acao = intervencao.get("action")
@@ -600,6 +602,43 @@ class ReadinessRouteService:
             and (p.get("origin") or ORIGIN_PRACTICE) == ORIGIN_PRACTICE
             and any(x in (p.get("state") or "") for x in ("COMPLETED", "CORRECTED"))
         )
+
+    async def _ultima_foi_verificacao(self, codigo: str, aluno: str, *,
+                                      requester) -> bool:
+        """A ÚLTIMA tentativa concluída daquele conteúdo era uma verificação?
+
+        Importa porque uma verificação que falha não diz "treine mais": diz
+        que a intervenção anterior não bastou. Sem este sinal o assessor lia
+        o 0/3 como mais uma prática fraca e oferecia outro lote - medido em
+        2026-10-06 no caminho real da decisão.
+
+        O propósito vem dos metadados que o assignment já carrega
+        (`purpose`), gravados no momento da criação. Quem não informou
+        continua sendo prática, então o histórico antigo não muda de
+        significado retroativamente.
+        """
+        from agente_ia_edu.services.adaptive_practice import (
+            PROPOSITO_PRATICA,
+            PROPOSITO_VERIFICACAO,
+            AdaptivePracticeService,
+        )
+        from agente_ia_edu.services.curriculum_domain_map import ORIGIN_PRACTICE
+
+        try:
+            praticas = await AdaptivePracticeService(self._session).list_practices(
+                aluno, requester=requester)
+        except Exception:  # noqa: BLE001 - sem praticas: nao houve verificacao
+            return False
+        concluidas = [
+            p for p in (praticas.get("items") or [])
+            if p.get("content_code") == codigo
+            and (p.get("origin") or ORIGIN_PRACTICE) == ORIGIN_PRACTICE
+            and any(x in (p.get("state") or "") for x in ("COMPLETED", "CORRECTED"))
+        ]
+        if not concluidas:
+            return False
+        ultima = max(concluidas, key=lambda p: str(p.get("created_at") or ""))
+        return (ultima.get("purpose") or PROPOSITO_PRATICA) == PROPOSITO_VERIFICACAO
 
     async def _itens_respondidos(self, codigo: str, aluno: str, *,
                                  requester) -> list:

@@ -58,6 +58,21 @@ MODE_MIXED = "PRACTICE_MIXED"
 SUPPORTED_MODES = (MODE_CONTENT,)
 CONTRACT_MODES = (MODE_CONTENT, MODE_REVIEW, MODE_PREREQUISITE, MODE_MIXED)
 
+# PARA QUE ESTE LOTE DE QUESTOES EXISTE.
+#
+# A verificacao do assessor usa este mesmo motor, com menos questoes - e, uma
+# vez corrigida, ficava indistinguivel de uma pratica comum: mesma origem,
+# mesmos metadados. Em 2026-10-06 isso foi medido doendo: o aluno falhava a
+# verificacao 0/3 e o assessor, lendo "mais uma pratica fraca", oferecia outro
+# lote de cinco. O proposito nao e analitico; ele muda a DECISAO seguinte.
+#
+# Fica nos metadados que o assignment ja carrega: sem coluna nova, sem
+# migration. Quem nao informa continua sendo pratica - o padrao preserva o
+# comportamento antigo de quem ja chamava este servico.
+PROPOSITO_PRATICA = "PRACTICE"
+PROPOSITO_VERIFICACAO = "VERIFY"
+PROPOSITOS = (PROPOSITO_PRATICA, PROPOSITO_VERIFICACAO)
+
 ALLOWED_COUNTS = (5, 10, 15, 20)
 MAX_QUESTIONS = 20
 MIN_QUESTIONS = 1
@@ -148,6 +163,7 @@ class AdaptivePracticeService:
                               content_code: str, mode: str = MODE_CONTENT,
                               question_count: int = 10,
                               origin: str = ORIGIN_PRACTICE,
+                              purpose: str = PROPOSITO_PRATICA,
                               metadata_extra: dict | None = None,
                               title: str | None = None,
                               instructions: str | None = None) -> dict:
@@ -166,6 +182,10 @@ class AdaptivePracticeService:
         UNKNOWN_ORIGIN quarantine bucket instead of its own.
         """
         self._authz_self(student_external_id, requester)
+        purpose = (purpose or PROPOSITO_PRATICA).upper()
+        if purpose not in PROPOSITOS:
+            raise PracticeError(
+                f"purpose {purpose!r} desconhecido; conhecidos: {list(PROPOSITOS)}")
         mode = (mode or MODE_CONTENT).upper()
         if mode not in SUPPORTED_MODES:
             raise PracticeError(
@@ -255,6 +275,7 @@ class AdaptivePracticeService:
             target_type="STUDENT", target_id=student_external_id,
             origin=origin,
             extra_metadata={"practice": True, "mode": mode, "content_code": content_code,
+                            "purpose": purpose,
                             **(metadata_extra or {})},
         )
         return {
@@ -263,6 +284,7 @@ class AdaptivePracticeService:
             "student_external_id": student_external_id,
             "mode": mode,
             "origin": origin,
+            "purpose": purpose,
             "title": config.title,
             "instructions": config.instructions,
             "content_code": content_code,
@@ -391,6 +413,7 @@ class AdaptivePracticeService:
             "mode": md.get("mode", MODE_CONTENT),
             "content_code": md.get("content_code"),
             "origin": md.get("origin", ORIGIN_PRACTICE),
+            "purpose": md.get("purpose", PROPOSITO_PRATICA),
             "question_count": a.question_count,
             "state": state,
             "created_at": a.created_at.isoformat() if a.created_at else None,
