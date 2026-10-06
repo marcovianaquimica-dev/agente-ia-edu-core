@@ -439,3 +439,18 @@
 }
 
 .er-secundario:hover { background: var(--nucleo-primaria-clara); }
+
+/* O contexto antes do formulario: a tela comecava por um `<select>`, e o
+   professor tinha de configurar antes de saber do que se tratava. */
+.er-contexto {
+  margin: 0 0 1rem;
+  color: var(--nucleo-tinta-fraca);
+  font-size: .9375rem;
+  max-width: 62ch;
+}
+
+/* Os QUATRO filtros numa linha so. Eram dois blocos empilhados - Proposta
+   sozinha em cima, e Serie/Turma/Aluno embaixo - o que fazia o primeiro
+   parecer navegacao e o segundo, filtro. */
+.er-filtros { flex-wrap: wrap; gap: .75rem; }
+.er-filtros .form-group { min-width: 10rem; flex: 1 1 10rem; }

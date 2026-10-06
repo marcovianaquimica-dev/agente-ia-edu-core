@@ -554,21 +554,17 @@
     }
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    // O CONTEXTO ANTES DO FORMULARIO. A tela comecava por um `<select>`: o
+    // professor tinha de configurar antes de saber do que se tratava.
+    //
+    // A "Proposta" deixou de ter linha propria. Ela e um FILTRO como os
+    // outros tres, e estar sozinha acima deles fazia parecer navegacao - dois
+    // blocos de filtro empilhados, com Turma aparecendo so no segundo.
+    // `renderDashboardBody` desenha os quatro na mesma linha.
     tabsEl.insertAdjacentHTML('afterend', `
-      <div class="tm-form-row" style="margin: 12px 0;">
-        <div class="form-group">
-          <label for="er-dash-prompt">Proposta</label>
-          <select id="er-dash-prompt" class="text-input">
-            ${prompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
-          </select>
-        </div>
-      </div>
+      <p class="er-contexto">Acompanhe a produção textual das suas turmas.</p>
       <div id="er-dash-body"></div>`);
 
-    const promptSelect = container.querySelector('#er-dash-prompt');
-    promptSelect.addEventListener('change', () => {
-      if (promptSelect.value) renderDashboardBody(promptSelect.value);
-    });
     if (prompts.length) {
       renderDashboardBody(prompts[0].id);
     } else {
@@ -601,7 +597,13 @@
     const gradeLevels = Array.from(new Set(assignableClassrooms.map((c) => c.grade_level).filter(Boolean)));
 
     body.innerHTML = `
-      <div class="tm-form-row" style="margin: 12px 0;">
+      <div class="tm-form-row er-filtros" style="margin: 12px 0;">
+        <div class="form-group">
+          <label for="er-dash-prompt">Proposta</label>
+          <select id="er-dash-prompt" class="text-input">
+            ${prompts.map((pr) => `<option value="${tmEsc(pr.id)}"${pr.id === promptId ? ' selected' : ''}>${tmEsc(pr.title)} (${pr.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
+          </select>
+        </div>
         <div class="form-group">
           <label for="er-dash-grade">Série</label>
           <select id="er-dash-grade" class="text-input">
@@ -623,6 +625,12 @@
       </div>
       <div id="er-dash-results"><p class="empty-text">Carregando dashboard...</p></div>`;
 
+    const promptSelect = body.querySelector('#er-dash-prompt');
+    if (promptSelect) {
+      promptSelect.addEventListener('change', () => {
+        if (promptSelect.value) renderDashboardBody(promptSelect.value);
+      });
+    }
     const gradeSelect = body.querySelector('#er-dash-grade');
     const classSelect = body.querySelector('#er-dash-class');
     const studentSelect = body.querySelector('#er-dash-student');
