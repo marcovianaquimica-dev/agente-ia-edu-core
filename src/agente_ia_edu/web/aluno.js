@@ -232,6 +232,19 @@
         : `Antes de seguir, vamos entender <strong>${alvo}</strong>.`;
     }
     if (passo.kind === 'PRACTICE') {
+      // A VOZ E DO BACKEND AQUI TAMBEM.
+      //
+      // Medido em 2026-10-06: o motor ja tinha escolhido MASSA_MOLAR como
+      // alvo, e esta linha dizia "Vamos praticar Estequiometria e calculos
+      // quimicos um pouco" - o conteudo inteiro, montado aqui. O aluno nao
+      // ficava sabendo em que PONTO estava sendo ajudado, que e justamente o
+      // que o motor por micro-habilidade passou a saber.
+      //
+      // VERIFY e ESCALATE ja falavam pelo backend pelo mesmo motivo. O texto
+      // local fica como queda - para a tela nao emudecer se o campo faltar -,
+      // nunca para inventar pedagogia.
+      const fbp = passo.feedback || {};
+      if (fbp.detalhe) return esc(fbp.detalhe);
       return para && para !== alvo
         ? `Vamos firmar <strong>${alvo}</strong> antes de seguir — é a base
            de ${para}. A atividade continua te esperando.`

@@ -377,6 +377,8 @@ class ReadinessRouteService:
             codigo, alvo, aluno, requester=requester)
 
         intervencao = decidir_intervencao(
+            alvo=alvo,
+            alvo_nome=(grafo.rotulo(alvo) if (grafo and alvo) else None),
             habilidades=habilidades,
             banda_do_conteudo=self._banda(evidencia),
             ja_ensinado=ja_ensinado,

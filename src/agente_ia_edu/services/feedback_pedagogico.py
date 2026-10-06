@@ -179,10 +179,21 @@ def feedback_do_passo(*, action: str | None, trend: str, cycle: int,
                            f"em etapas se você travar."}
 
     # PRATICAR
+    #
+    # A FRASE NOMEIA A HABILIDADE, QUANDO HA UMA.
+    #
+    # Medido no navegador em 2026-10-06: o motor ja tinha escolhido
+    # `MASSA_MOLAR` como alvo, e a tela dizia "Vamos praticar Estequiometria e
+    # calculos quimicos um pouco" - o conteudo inteiro. O aluno nao ficava
+    # sabendo em que PONTO estava sendo ajudado, que e justamente o que o
+    # motor por micro-habilidade passou a saber.
+    #
+    # `assunto` ja prefere `skill_name` ao nome do conteudo, e o rotulo vem do
+    # grafo em portugues - nunca o codigo.
     if primeira_vez:
         return {"tom": TOM_NEUTRO,
                 "titulo": "Hora de tentar sozinho.",
-                "detalhe": f"Algumas questões de {onde} para ver o que já "
+                "detalhe": f"Algumas questões de {assunto} para ver o que já "
                            f"ficou firme."}
     return {"tom": TOM_NEUTRO,
             "titulo": "Vamos tentar de novo, sozinho.",

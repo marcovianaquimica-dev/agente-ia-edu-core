@@ -132,6 +132,22 @@ def habilidade_que_trava(habilidades: dict, *, grafo=None) -> str | None:
     Se o grafo nao reconhecer nenhuma das fracas - subconteudos antigos, de
     antes do contrato V2 - a escolha volta a ser a de sempre. Calar seria
     deixar o aluno sem intervencao por causa de um nome de codigo.
+
+    E QUANDO NAO HA LACUNA MEDIDA, MAS HOUVE ERRO
+    ==============================================
+    A sondagem pergunta uma coisa de cada habilidade; a politica exige tres
+    respostas para concluir. Em serie, as duas se anulam: o aluno respondia e
+    nenhuma habilidade saia como lacuna.
+
+    `sinal_diagnostico` resolve isso sem mexer no dominio - um erro basta para
+    SUSPEITAR, um acerto nao basta para CONFIRMAR. A suspeita so e consultada
+    DEPOIS da medida: uma habilidade com tres respostas e 0,2 de acerto e
+    informacao melhor que um erro isolado em outra, e inverter a ordem faria o
+    sistema abandonar o que sabe para perseguir o que apenas desconfia.
+
+    A suspeita escolhe ALVO. Ela nao entra no mapa de dominio, nao vira
+    evidencia e nao contorna o minimo de amostra - ha teste de cada uma dessas
+    tres coisas.
     """
     pior = _pior_habilidade(habilidades)[0]
     if grafo is None:
@@ -139,7 +155,13 @@ def habilidade_que_trava(habilidades: dict, *, grafo=None) -> str | None:
     por_habilidade = (habilidades or {}).get("por_habilidade") or {}
     fracas = [s for s, v in por_habilidade.items()
               if v.get("band") in _FAIXAS_DE_LACUNA]
-    return grafo.primeiro_gargalo(fracas) or pior
+    medido = grafo.primeiro_gargalo(fracas) or pior
+    if medido is not None:
+        return medido
+
+    from agente_ia_edu.services.sinal_diagnostico import alvo_sugerido
+
+    return alvo_sugerido(grafo, habilidades)
 
 
 def _pior_habilidade(habilidades: dict) -> tuple[str | None, str | None]:
@@ -175,6 +197,8 @@ def decidir_intervencao(
     objetivo_nome: str | None = None,
     conteudo_nome: str | None = None,
     ultima_foi_verificacao: bool = False,
+    alvo: str | None = None,
+    alvo_nome: str | None = None,
 ) -> dict:
     """A proxima intervencao, ou `action=None` quando nao ha o que intervir.
 
@@ -186,7 +210,19 @@ def decidir_intervencao(
     """
     ciclo = int(praticas_concluidas or 0) + 1
     escalar = int(praticas_concluidas or 0) >= LIMITE_DE_CICLOS
+    # O ALVO VEM DE FORA QUANDO QUEM CHAMA JA O ESCOLHEU.
+    #
+    # `_pior_habilidade` escolhe pelo menor acerto e so enxerga lacuna MEDIDA.
+    # Quem tem grafo ja decidiu melhor - pelo primeiro gargalo, e com a
+    # suspeita da sondagem quando nao ha medida. Recalcular aqui descartaria
+    # essa decisao e devolveria `skill=None` logo depois de uma sondagem, que
+    # foi o que se mediu em 2026-10-06.
     skill, skill_nome = _pior_habilidade(habilidades)
+    if alvo:
+        skill = alvo
+        por_habilidade = (habilidades or {}).get("por_habilidade") or {}
+        skill_nome = ((por_habilidade.get(alvo) or {}).get("name")
+                      or alvo_nome or alvo)
     trajeto = tendencia(tentativas)
 
     base = {
@@ -218,6 +254,8 @@ def decidir_intervencao(
     if trajeto == TENDENCIA_CONFIRMADA:
         return base
 
+    # Alvo escolhido de fora JA e a afirmacao de que ha onde intervir - ele so
+    # existe quando houve lacuna medida ou suspeita da sondagem.
     ha_lacuna = banda_do_conteudo in _FAIXAS_DE_LACUNA or skill is not None
     if not ha_lacuna:
         # Quem ja demonstrou o que precisava nao e interrompido: intervir em

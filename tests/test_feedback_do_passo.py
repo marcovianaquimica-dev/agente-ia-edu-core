@@ -188,3 +188,43 @@ class SemNomesOTextoAindaFuncion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class APRATICANOMEIAAHABILIDADE(unittest.TestCase):
+    """O aluno precisa saber O QUE está sendo reforçado.
+
+    Medido no navegador em 2026-10-06: o motor já tinha escolhido
+    `MASSA_MOLAR` como alvo, e a tela dizia "Vamos praticar Estequiometria e
+    cálculos químicos um pouco" — o nome do conteúdo inteiro. O aluno não
+    ficava sabendo em que ponto ele estava sendo ajudado.
+
+    E o nome tem de ser o da habilidade, não o código: "Vamos reforçar
+    MASSA_MOLAR" seria o contrato interno na cara de quem estuda.
+    """
+
+    def test_a_pratica_cita_a_micro_habilidade_quando_ha_uma(self):
+        f = feedback_do_passo(action=ACAO_PRATICAR, trend=None, cycle=1,
+                              skill_name="massa molar",
+                              content_name="Estequiometria",
+                              objective_name=None, approach=None)
+        texto = f["titulo"] + " " + f["detalhe"]
+        self.assertIn("massa molar", texto)
+
+    def test_sem_habilidade_continua_falando_do_conteudo(self):
+        f = feedback_do_passo(action=ACAO_PRATICAR, trend=None, cycle=1,
+                              skill_name=None, content_name="Estequiometria",
+                              objective_name=None, approach=None)
+        texto = f["titulo"] + " " + f["detalhe"]
+        self.assertIn("Estequiometria", texto)
+
+    def test_o_texto_nao_acusa_o_aluno(self):
+        """"Você não domina massa molar" afirma mais do que se sabe."""
+        f = feedback_do_passo(action=ACAO_PRATICAR, trend=None, cycle=1,
+                              skill_name="massa molar",
+                              content_name="Estequiometria",
+                              objective_name=None, approach=None)
+        baixo = (f["titulo"] + " " + f["detalhe"]).lower()
+        for acusatorio in ("não domina", "nao domina", "você não sabe",
+                           "fracasso", "errou tudo"):
+            with self.subTest(frase=acusatorio):
+                self.assertNotIn(acusatorio, baixo)
