@@ -135,11 +135,25 @@ class _StubImageProvider:
         )
 
 
+#: Default phase-1 self-assessment for every existing test in this file (none
+#: of them are exercising the Quality Gate itself - Task 8/spec Fase B -
+#: so they all want the gate to be a no-op: RELIABLE, scoring proceeds
+#: exactly as it always has). ``_output_dict()`` in
+#: tests/test_mass_correction_batch_scoring.py reuses this same fixture but
+#: targets essay_engine_contract.v5 directly (that pipeline is deliberately
+#: still pinned to v5/essay_correction_v15 - see mass_correction_batch.py's
+#: own module docstring), which has no input_reliability field at all and
+#: is extra="forbid" - that one call site passes input_reliability=None to
+#: omit the key instead of taking this default.
+_DEFAULT_INPUT_RELIABILITY = {"status": "RELIABLE", "rationale": "Texto legivel sem ressalvas."}
+
+
 def _happy_payload(
     *, anchor_mode: str, text: str = "", page: int = 1, box=(800.0, 600.0),
     quote_override: str | None = None, include_scores: bool = True,
     alerts: list | None = None, respeita_direitos_humanos: bool = True,
     per_competency_points: dict | None = None,
+    input_reliability: dict | None = _DEFAULT_INPUT_RELIABILITY,
 ) -> str:
     import json
 
@@ -162,50 +176,51 @@ def _happy_payload(
         if include_scores
         else None
     )
-    return json.dumps(
-        {
-            "scores": scores,
-            "rationales": [
-                {
-                    "competency_code": "C1", "summary": "Boa norma padrao.",
-                    "strengths": "Boa norma padrao.", "growth_area": "Aprofundar repertorio.",
-                    "signal_keys": [],
-                }
-            ],
-            "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
-            "c2_tema": "Desenvolve o tema especifico proposto.",
-            "c2_repertorio_sociocultural": "Cita a Constituicao de 1988.",
-            "c2_orientacao_melhoria": "Articule o repertorio ao argumento.",
-            "c3_projeto_argumentativo": "Tese retomada na conclusao.",
-            "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
-            "c3_autoria": "Ha ponto de vista proprio.",
-            "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
-            "annotations": [
-                {
-                    "letter": "A", "competency_code": "C1", "kind": "ACERTO",
-                    "evidence_kind": "LOCALIZED", "anchor": anchor,
-                    "short_comment": "Bom uso da norma.",
-                    "long_comment": "Uso consistente da norma padrao ao longo do texto.",
-                    "pedagogical_suggestion": None, "signal_keys": [],
-                }
-            ],
-            "rewrites": [],
-            "feedback": {
-                "strengths": ["Boa argumentacao"],
-                "improvements": ["Aprofundar a proposta de intervencao"],
-                "next_essay_strategy": "Revisar conectivos.",
-            },
-            "intervention": {
-                "agente": "Estado", "acao": "criar programa",
-                "meio_modo": "por meio de campanhas", "finalidade": "reduzir o problema",
-                "detalhamento": "com fiscalizacao",
-                "respeita_direitos_humanos": respeita_direitos_humanos,
-            },
-            "alerts": alerts or [],
-            "intro_message": "Ola! Vamos ver como foi sua redacao.",
-            "closing_message": "Continue praticando, voce esta no caminho certo.",
-        }
-    )
+    payload = {
+        "scores": scores,
+        "rationales": [
+            {
+                "competency_code": "C1", "summary": "Boa norma padrao.",
+                "strengths": "Boa norma padrao.", "growth_area": "Aprofundar repertorio.",
+                "signal_keys": [],
+            }
+        ],
+        "c2_tipologia_textual": "Texto dissertativo-argumentativo completo.",
+        "c2_tema": "Desenvolve o tema especifico proposto.",
+        "c2_repertorio_sociocultural": "Cita a Constituicao de 1988.",
+        "c2_orientacao_melhoria": "Articule o repertorio ao argumento.",
+        "c3_projeto_argumentativo": "Tese retomada na conclusao.",
+        "c3_fatos_informacoes_opinioes": "Usa dados do IBGE.",
+        "c3_autoria": "Ha ponto de vista proprio.",
+        "c3_orientacao_melhoria": "Desenvolva o segundo argumento.",
+        "annotations": [
+            {
+                "letter": "A", "competency_code": "C1", "kind": "ACERTO",
+                "evidence_kind": "LOCALIZED", "anchor": anchor,
+                "short_comment": "Bom uso da norma.",
+                "long_comment": "Uso consistente da norma padrao ao longo do texto.",
+                "pedagogical_suggestion": None, "signal_keys": [],
+            }
+        ],
+        "rewrites": [],
+        "feedback": {
+            "strengths": ["Boa argumentacao"],
+            "improvements": ["Aprofundar a proposta de intervencao"],
+            "next_essay_strategy": "Revisar conectivos.",
+        },
+        "intervention": {
+            "agente": "Estado", "acao": "criar programa",
+            "meio_modo": "por meio de campanhas", "finalidade": "reduzir o problema",
+            "detalhamento": "com fiscalizacao",
+            "respeita_direitos_humanos": respeita_direitos_humanos,
+        },
+        "alerts": alerts or [],
+        "intro_message": "Ola! Vamos ver como foi sua redacao.",
+        "closing_message": "Continue praticando, voce esta no caminho certo.",
+    }
+    if input_reliability is not None:
+        payload["input_reliability"] = input_reliability
+    return json.dumps(payload)
 
 
 class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -837,9 +852,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.ai_output)
             self.assertIn("ValueError", correction.failure_reason)
 
-    def test_production_prompt_version_is_v15(self):
+    def test_production_prompt_version_is_v16(self):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
-        self.assertEqual(_PROMPT_VERSION, "essay_correction_v15")
+        self.assertEqual(_PROMPT_VERSION, "essay_correction_v16")
 
     def test_production_engine_version_is_v3(self):
         from agente_ia_edu.services.essay_correction import _ENGINE_VERSION

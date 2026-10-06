@@ -93,6 +93,13 @@ class EssayCorrection(Base):
     final_feedback: Mapped[dict[str, Any] | None] = mapped_column(JSONBCompatible)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING_REVIEW")
     failure_reason: Mapped[str | None] = mapped_column(Text)
+    # Fase B (Quality Gate, spec 2026-10-06): whether the INPUT (not the
+    # essay's pedagogical merit) was reliable enough to trust a score at all.
+    # NULL for any correction produced before this field existed, or for a
+    # row that failed before the Quality Gate was ever evaluated (a provider
+    # error, a rejected engine output) - see essay_correction.py's _run_ai.
+    quality_gate_status: Mapped[str | None] = mapped_column(String(30))
+    quality_gate_version: Mapped[str | None] = mapped_column(String(50))
     # Real LLM token usage for the AI call that produced this row's
     # ai_output. Nullable, and NULL in more cases than just "no call was
     # ever made": the adapter only returns usage alongside a successful

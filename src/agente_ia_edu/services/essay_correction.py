@@ -41,7 +41,7 @@ from ..db.models import (
     EssaySubmissionPage,
     PromptAssignment,
 )
-from ..essay_engine_contract.v5 import (
+from ..essay_engine_contract.v6 import (
     COMPETENCY_CODES,
     CONTRACT_VERSION,
     EssayEngineOutput,
@@ -62,12 +62,17 @@ from .essay_engine_validation import (
     load_rubric_view,
     validate_engine_output_from_payload,
 )
+from .essay_input_reliability import (
+    combine_input_reliability_signals,
+    estimate_text_reliability_heuristic,
+)
 from .institution_settings import InstitutionSettingsService
 
 logger = logging.getLogger(__name__)
 
 _ENGINE_VERSION = "r3_correction_engine_v3"
-_PROMPT_VERSION = "essay_correction_v15"
+_PROMPT_VERSION = "essay_correction_v16"
+_QUALITY_GATE_VERSION = "quality_gate_v1"
 _RUBRIC_FILE_NAME = "enem_2025"
 
 # Determinism: "mesma redacao = mesma nota" (the C1 protocol's own item 25
@@ -489,6 +494,13 @@ class EssayCorrectionService:
     async def _apply_review_policy(
         self, correction: EssayCorrection, submission: EssaySubmission
     ) -> None:
+        if correction.quality_gate_status == "UNRELIABLE_NEEDS_REVIEW":
+            # _run_ai already returns final_scores=None for this case - this
+            # guard is defensive, for correct()/retry() calling this method
+            # on a result already marked UNRELIABLE_NEEDS_REVIEW by some
+            # other future path (spec Fase B).
+            correction.status = "NEEDS_REVIEW"
+            return
         if correction.ai_output is None:
             correction.status = "NEEDS_REVIEW"
             return
@@ -562,6 +574,7 @@ class EssayCorrectionService:
                 "final_scores": None, "final_feedback": None,
                 "failure_reason": f"Failed to load rubric file {_RUBRIC_FILE_NAME!r}: {exc}",
                 "input_tokens": None, "output_tokens": None,
+                "quality_gate_status": None, "quality_gate_version": None,
             }
         rubric_version = rubric_file.rubric_version
         failure_fields = {
@@ -570,6 +583,7 @@ class EssayCorrectionService:
             "engine_version": _ENGINE_VERSION, "ai_output": None,
             "final_scores": None, "final_feedback": None, "failure_reason": None,
             "input_tokens": None, "output_tokens": None,
+            "quality_gate_status": None, "quality_gate_version": None,
         }
         try:
             rubric_view = await load_rubric_view(self.session, rubric_version)
@@ -653,6 +667,7 @@ class EssayCorrectionService:
             output = validate_engine_output_from_payload(
                 full_payload, rubric=rubric_view, text=text, page_boxes=page_boxes,
                 raw_output=raw_payload, input_hash=input_hash,
+                output_model=EssayEngineOutput,
             )
         except EssayEngineOutputRejected as exc:
             # str(exc) already carries "{reason_code}: {message}" - see
@@ -665,6 +680,44 @@ class EssayCorrectionService:
                 **failure_fields, "model_version": model_version,
                 "failure_reason": f"{exc}",
                 "input_tokens": input_tokens, "output_tokens": output_tokens,
+            }
+
+        ocr_average_confidence = None
+        if submission.anchor_mode == "IMAGE_REGION":
+            pages_result = await self.session.execute(
+                select(EssaySubmissionPage).where(EssaySubmissionPage.essay_submission_id == submission.id)
+            )
+            all_tokens = [
+                t for page in pages_result.scalars().all() for t in (page.ocr_tokens or [])
+            ]
+            if all_tokens:
+                ocr_average_confidence = sum(t["confidence"] for t in all_tokens) / len(all_tokens)
+
+        heuristic_ratio = estimate_text_reliability_heuristic(text) if text is not None else None
+        quality_gate_status = combine_input_reliability_signals(
+            heuristic_ratio=heuristic_ratio,
+            model_status=output.input_reliability.status,
+            ocr_average_confidence=ocr_average_confidence,
+        )
+
+        if quality_gate_status == "UNRELIABLE_NEEDS_REVIEW":
+            # Quality Gate decide ANTES de qualquer fase 2 - nunca gasta uma
+            # chamada de IA refinando uma nota sobre leitura nao confiavel, e
+            # NUNCA publica nota como se fosse valida (spec Fase B).
+            key = compute_correction_key(
+                normalized_text_hash=input_hash, essay_prompt_id=str(essay_prompt.id),
+                rubric_version=rubric_version, model_version=model_version,
+                prompt_version=prompt_artifact.version, engine_version=_ENGINE_VERSION,
+            )
+            return {
+                "correction_key": key, "rubric_version": rubric_version,
+                "model_version": model_version, "prompt_version": prompt_artifact.version,
+                "engine_version": _ENGINE_VERSION,
+                "ai_output": output.model_dump(mode="json"),
+                "final_scores": None, "final_feedback": output.feedback.model_dump(mode="json"),
+                "failure_reason": f"QUALITY_GATE_UNRELIABLE: {output.input_reliability.rationale}",
+                "input_tokens": input_tokens, "output_tokens": output_tokens,
+                "quality_gate_status": quality_gate_status, "quality_gate_version": _QUALITY_GATE_VERSION,
             }
 
         phase2_points: dict[str, int] | None = None
@@ -722,6 +775,7 @@ class EssayCorrectionService:
             "final_feedback": output.feedback.model_dump(mode="json"),
             "failure_reason": None,
             "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "quality_gate_status": quality_gate_status, "quality_gate_version": _QUALITY_GATE_VERSION,
         }
 
     async def _score_competencies_from_evidence(
