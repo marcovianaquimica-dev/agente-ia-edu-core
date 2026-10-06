@@ -217,6 +217,101 @@ class ProcessBatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(pages[1].matched_student_id, students["João da Silva"])
             self.assertIsNone(pages[1].ocr_cpf_raw)
 
+    async def test_two_concurrent_batches_never_call_the_transcriber_at_the_same_time(self):
+        """Confirmado ao vivo (2026-10-05): dois lotes de 21 paginas enviados
+        em sequencia rapida processavam em PARALELO (cada um sua propria
+        background task) e dobravam a rajada de chamadas de visao, estourando
+        o limite de tokens/min da OpenAI pra quase todas as paginas.
+        EssayBatchService._BATCH_PROCESSING_LOCK serializa o trecho de OCR de
+        process_batch entre lotes - este teste roda dois lotes de verdade
+        concorrentes (asyncio.gather, sessoes separadas) com um transcritor
+        que registra quantas chamadas estavam em voo ao mesmo tempo; sem o
+        lock, a asserção abaixo falharia quase sempre (2 chamadas em voo)."""
+        import asyncio as _asyncio
+
+        class _ConcurrencyTrackingTranscriber:
+            def __init__(self, script):
+                self.script = script
+                self.in_flight = 0
+                self.max_in_flight = 0
+
+            async def transcribe_page(self, request):
+                import pymupdf
+
+                self.in_flight += 1
+                self.max_in_flight = max(self.max_in_flight, self.in_flight)
+                try:
+                    # Folga deliberada: sem o lock, da tempo da OUTRA chamada
+                    # (do outro lote) comecar antes desta terminar.
+                    await _asyncio.sleep(0.05)
+                    doc = pymupdf.open(str(request.image_path))
+                    try:
+                        stamped = doc[0].get_text().strip().splitlines()
+                    finally:
+                        doc.close()
+                    key = next((line.strip() for line in stamped if line.strip()), "")
+                    header, body = self.script.get(key, ("", ""))
+                    text = header if "_header" in request.image_path.name else body
+                    return EssayPageTranscriptionResult(
+                        tokens=(EssayOcrToken(text=text, confidence=0.95, start=0, end=len(text)),),
+                        provider="fake", model="fake-1",
+                    )
+                finally:
+                    self.in_flight -= 1
+
+        async with self.session_factory() as seed_session:
+            school, klass, prompt, _students_a = await self._seed(
+                seed_session, [("Ana Lúcia Ferreira", None)]
+            )
+            # Segunda turma na mesma escola/proposta, pro segundo lote nao
+            # colidir com o primeiro em nada alem do lock que estamos testando.
+            klass_b_id = uuid.uuid4()
+            seed_session.add(Class(
+                id=klass_b_id, school_id=school.id, academic_year_id=klass.academic_year_id,
+                grade_level_id=klass.grade_level_id, name="3B", external_id="TURMA-PB-B",
+            ))
+            await seed_session.flush()
+            person_b_id, student_b_id = uuid.uuid4(), uuid.uuid4()
+            seed_session.add(Person(
+                id=person_b_id, school_id=school.id, full_name="Bruno Costa",
+                external_id="PER-B",
+            ))
+            await seed_session.flush()
+            seed_session.add(Student(
+                id=student_b_id, school_id=school.id, person_id=person_b_id, external_id="STU-B",
+            ))
+            await seed_session.flush()
+            seed_session.add(StudentEnrollment(
+                id=uuid.uuid4(), school_id=school.id, student_id=student_b_id,
+                class_id=klass_b_id, status="ACTIVE", external_id="ENR-B",
+            ))
+            seed_session.add(PromptAssignment(
+                id=uuid.uuid4(), school_id=school.id, essay_prompt_id=prompt.id,
+                class_id=klass_b_id, assigned_by_external_identity="prof",
+            ))
+            await seed_session.commit()
+
+        transcriber = _ConcurrencyTrackingTranscriber({
+            "p1": ("NOME COMPLETO DO PARTICIPANTE Ana Lucia Ferreira", "Texto da Ana."),
+            "q1": ("NOME COMPLETO DO PARTICIPANTE Bruno Costa", "Texto do Bruno."),
+        })
+
+        async with self.session_factory() as session_a, self.session_factory() as session_b:
+            klass_b = await session_b.get(Class, klass_b_id)
+            service_a, batch_a = await self._make_batch(
+                session_a, school, klass, prompt, ["p1"], transcriber=transcriber
+            )
+            service_b, batch_b = await self._make_batch(
+                session_b, school, klass_b, prompt, ["q1"], transcriber=transcriber
+            )
+
+            await _asyncio.gather(
+                service_a.process_batch(batch_a["id"]),
+                service_b.process_batch(batch_b["id"]),
+            )
+
+        self.assertEqual(transcriber.max_in_flight, 1)
+
     async def test_process_batch_survives_expire_on_commit_true_like_production(self):
         """process_batch commita apos CADA pagina (spec s5) - em producao
         (db/session.py usa expire_on_commit=True, diferente da suite, que usa

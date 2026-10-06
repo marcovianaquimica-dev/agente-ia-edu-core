@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import EssayPrompt, EssaySubmission, EssaySubmissionPage, PromptAssignment
 from ..providers.contracts import EssayTranscriptionProvider
-from ..providers.errors import ProviderError
+from ..providers.errors import ProviderError, ProviderRateLimitError
 from ..providers.factory import build_essay_transcriber
 from ..providers.models import EssayOcrToken, EssayPageTranscriptionRequest
 from .essay_correction_key import essay_text_hash, normalize_essay_text
@@ -417,6 +417,16 @@ class EssaySubmissionService:
     # spares the student from re-clicking upload themselves.
     _OCR_ATTEMPTS = 3
 
+    # Confirmed live (2026-10-06): OpenAI's TPM rate limit is a ROLLING
+    # window that refills within roughly 30-90s - retrying immediately into
+    # an already-exhausted bucket (the previous behavior) means all 3
+    # _OCR_ATTEMPTS fail together almost every time, confirmed in real
+    # batch logs (3/3 identical "rate limit reached" within milliseconds of
+    # each other). Only ProviderRateLimitError gets this pause - a timeout
+    # or a malformed response isn't fixed by waiting, so those still retry
+    # immediately as before.
+    _RATE_LIMIT_BACKOFF_SECONDS = 15.0
+
     # Confirmed live (2026-09-26): the SAME photo that transcribed at ~99%
     # average confidence in one call came back at 0.427 average confidence
     # (159 of 243 tokens below 60%) in another, unrelated call - a vision
@@ -492,6 +502,8 @@ class EssaySubmissionService:
                     "transcription attempt %d/%d failed for page %s: %s",
                     attempt, self._OCR_ATTEMPTS, page.id, exc,
                 )
+                if isinstance(exc, ProviderRateLimitError) and attempt < self._OCR_ATTEMPTS:
+                    await asyncio.sleep(self._RATE_LIMIT_BACKOFF_SECONDS)
         # Every attempt scored below the floor (or errored): the explicit
         # product decision is to always transcribe regardless of quality, so
         # a low-confidence result still beats no result at all - use
