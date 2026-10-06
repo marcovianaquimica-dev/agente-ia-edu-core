@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agente_ia_edu.services.adaptive_practice import (
     AdaptivePracticeService,
     PracticeError,
+    PracticeSelectionPolicy,
 )
 from agente_ia_edu.services.curriculum_domain_map import ORIGIN_MICRO_DIAGNOSTIC
 from agente_ia_edu.services.pedagogical_analysis import (
@@ -88,7 +89,15 @@ class MicroDiagnosticService:
                  practice: AdaptivePracticeService | None = None,
                  thresholds: PerformanceThresholdPolicy | None = None) -> None:
         self._session = session
-        self._practice = practice or AdaptivePracticeService(session)
+        # A SONDAGEM PEDE A POLITICA DE SONDAGEM.
+        #
+        # Mesmo motor de selecao da pratica - mesmo banco, mesmas exclusoes,
+        # mesma recusa a inventar questao - com uma diferenca: o que esta
+        # marcado como FACIL vem primeiro. Diagnostico mede conhecimento
+        # previo; abrir numa cadeia completa faz o aluno errar por travar no
+        # primeiro elo, e o sistema registra a lacuna errada.
+        self._practice = practice or AdaptivePracticeService(
+            session, PracticeSelectionPolicy(prefer_easier=True))
         self._thresholds = thresholds or PerformanceThresholdPolicy.default()
 
     # -- the stopping rule --------------------------------------------------

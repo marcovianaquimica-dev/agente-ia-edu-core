@@ -110,6 +110,18 @@ class PracticeSelectionPolicy:
     exclude_visual_dependency: bool = True
     exclude_protected: bool = True
     recent_exclude: int = RECENT_EXCLUDE_DEFAULT
+    # SONDAGEM COMECA PELO MAIS SIMPLES - e so sondagem.
+    #
+    # O microdiagnostico usa esta mesma selecao, que ordena por numero
+    # oficial. Para Estequiometria o acervo tem 6 FACEIS, 14 MEDIAS e 1
+    # DIFICIL: pedindo tres em ordem de numero, um aluno nunca medido podia
+    # abrir a sondagem numa cadeia completa e errar por travar no primeiro
+    # elo - e o sistema registrava "nao sabe estequiometria" quando o que ele
+    # nao sabia era converter massa em mol.
+    #
+    # Desligado por padrao: pratica NAO e sondagem, e comecar sempre pelas
+    # faceis tornaria a evidencia mais fraca do que ela precisa ser.
+    prefer_easier: bool = False
 
     @classmethod
     def default(cls) -> "PracticeSelectionPolicy":
@@ -121,14 +133,26 @@ class PracticeSelectionPolicy:
             "EXCLUDE_VISUAL_DEPENDENCY": self.exclude_visual_dependency,
             "EXCLUDE_PROTECTED": self.exclude_protected,
             "RECENT_EXCLUDE": self.recent_exclude,
+            "PREFER_EASIER": self.prefer_easier,
         }
 
     def rank(self, items: list) -> list:
-        """Stable, deterministic order: official_number, then question_version_id."""
-        return sorted(items, key=lambda it: (
-            it.official_number if it.official_number is not None else 1_000_000,
-            str(it.question_version_id),
-        ))
+        """Stable, deterministic order: official_number, then question_version_id.
+
+        Com `prefer_easier`, o que esta MARCADO como facil vem primeiro - e so
+        isso. O resto mantem exatamente a ordem de antes, inclusive as sem
+        dificuldade atribuida (514 das 595 do acervo): dizer que uma questao
+        nao classificada e "facil" ou "media" seria inventar sobre ela.
+        """
+        def chave(it):
+            base = (it.official_number if it.official_number is not None else 1_000_000,
+                    str(it.question_version_id))
+            if not self.prefer_easier:
+                return (0,) + base
+            facil = 0 if getattr(it, "recommended_difficulty", None) == "EASY" else 1
+            return (facil,) + base
+
+        return sorted(items, key=chave)
 
     def choose(self, ranked_vids: list[str], *, count: int,
                recent_ids: set[str]) -> tuple[list[str], int]:
