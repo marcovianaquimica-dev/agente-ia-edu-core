@@ -34,7 +34,7 @@ pratica: era alguem DIZER ao aluno que o proximo passo e praticar.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 
 from agente_ia_edu.services.pedagogical_analysis import (
     BAND_INSUFFICIENT,
@@ -325,9 +325,24 @@ def _praticar_o_que_trava(thresholds, alvo: dict,
             "for_content_name": alvo.get("content_name")}
 
 
+def _tem_contrato_v2(tem_grafo, content_code: str | None) -> bool:
+    """Este conteudo ja tem grafo pedagogico?
+
+    Falha do registro NAO pode deixar o aluno sem passo: na duvida, o
+    comportamento legado - que funciona - e o certo.
+    """
+    if tem_grafo is None or not content_code:
+        return False
+    try:
+        return bool(tem_grafo(content_code))
+    except Exception:  # noqa: BLE001 - registro indisponivel: cai no legado
+        return False
+
+
 def passo_para(conteudos: Sequence[dict], *,
                thresholds: PerformanceThresholdPolicy | None = None,
-               confirmados: Collection[str] | None = None) -> dict:
+               confirmados: Collection[str] | None = None,
+               tem_grafo: Callable[[str], bool] | None = None) -> dict:
     """O unico proximo passo, a partir dos conteudos que a atividade exige.
 
     Cada conteudo traz seu estado e, quando se sabe, seus pre-requisitos com a
@@ -339,6 +354,10 @@ def passo_para(conteudos: Sequence[dict], *,
     ainda carregue o comeco ruim. Sem isto, quem comecava mal nunca mais saia
     da preparacao: medido em 2026-10-05, nove acertos nas ultimas dez
     deixavam o acumulado em 0,556 e o passo continuava sendo estudar.
+
+    `tem_grafo` diz se um conteudo ja tem contrato pedagogico V2. Onde ha
+    grafo, a subida ao pre-requisito nao acontece - ver o comentario no corpo.
+    Quem nao informa mantem o comportamento de sempre.
     """
     thresholds = thresholds or PerformanceThresholdPolicy.default()
     confirmados = set(confirmados or ())
@@ -387,9 +406,28 @@ def passo_para(conteudos: Sequence[dict], *,
 
     alvo = pendentes[0]
 
-    # A BASE PRIMEIRO. Um pre-requisito ainda nao resolvido vale mais que o
-    # conteudo final: perguntar Estequiometria a quem nao sabe balancear uma
-    # equacao e perguntar a coisa errada.
+    # A BASE PRIMEIRO - MAS SO ONDE NAO HA GRAFO.
+    #
+    # Um pre-requisito ainda nao resolvido vale mais que o conteudo final:
+    # perguntar Estequiometria a quem nao sabe balancear uma equacao e
+    # perguntar a coisa errada. Isso era verdade enquanto a unica granularidade
+    # era o CONTEUDO.
+    #
+    # Medido em 2026-10-06: um aluno entrou numa atividade de Estequiometria,
+    # a rota o mandou para Balanceamento, e la ficou - 29 tentativas e
+    # ESCALATE na base, sem nunca ter sido perguntado sobre Estequiometria.
+    #
+    # Onde ha grafo, as habilidades basicas do alvo estao DENTRO dele (ler a
+    # formula, o que e um mol, ler o coeficiente). Sondar o alvo ja sonda as
+    # fundacoes, e subir ao conteudo ancestral vira uma segunda volta na mesma
+    # pergunta. O pre-requisito continua informando - o grafo o carrega, a
+    # sondagem o mede, e a intervencao pode descer ate ele - mas deixa de
+    # trancar a porta antes de qualquer medida existir.
+    #
+    # `catalog_node_prerequisites` nao muda: a semantica global dele continua
+    # valendo para os outros quatro servicos que a leem.
+    if _tem_contrato_v2(tem_grafo, alvo.get("content_code")):
+        alvo = dict(alvo, prerequisites=[])
     for pre in alvo.get("prerequisites") or []:
         if pre.get("mastered") or pre.get("code") in confirmados:
             continue

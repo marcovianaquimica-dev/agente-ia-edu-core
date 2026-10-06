@@ -219,7 +219,16 @@ class ReadinessRouteService:
         # DIAGNOSTIC e o alvo voltava a ser a base - o aluno rediagnosticava o
         # que ja tinha sido medido, para sempre. Agora quem decide e
         # `proximo_passo`, que olha a evidencia, e a rota e consequencia.
-        passo = passo_para(detalhes)
+        # ONDE HA GRAFO, A SONDAGEM COMECA NO ALVO.
+        #
+        # Ver o comentario em `passo_para`: o grafo do alvo ja carrega as
+        # habilidades basicas, entao subir ao conteudo ancestral vira uma
+        # segunda volta na mesma pergunta - e foi assim que um aluno de QA
+        # ficou 29 tentativas preso em Balanceamento sem nunca ser perguntado
+        # sobre Estequiometria.
+        from agente_ia_edu.services.grafos_pedagogicos import tem_contrato_v2
+
+        passo = passo_para(detalhes, tem_grafo=tem_contrato_v2)
 
         # O ASSESSOR PEDAGOGICO. Quando o proximo passo e praticar um conteudo
         # em que o aluno ACABOU de ir mal, oferecer mais questoes e o que o
@@ -249,7 +258,8 @@ class ReadinessRouteService:
             confirmado_agora = {"content_name": passo.get("content_name"),
                                 "for_content_name": passo.get("for_content_name"),
                                 "feedback": passo.get("feedback")}
-            passo = passo_para(detalhes, confirmados=confirmados)
+            passo = passo_para(detalhes, confirmados=confirmados,
+                               tem_grafo=tem_contrato_v2)
             # A CONFIRMACAO PRECISA SER DITA.
             #
             # Medido no navegador: ao confirmar, o aluno via "Voce acertou 3
