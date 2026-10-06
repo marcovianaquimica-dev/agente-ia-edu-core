@@ -171,22 +171,27 @@ habilidade com o motor de seleção que já existe, a correção grava evidênci
 por `subcontent`, e o alvo do assessor passa a ser calculado sobre medida
 real em vez de herdada.
 
-## 15. Dados de QA criados neste bloco
+## 15. Dados de QA criados — todos marcados
 
-Para a verificação no navegador foi criado **um** aluno, separado do que fica
-reservado ao teste manual:
+Todo aluno de QA carrega `qa_purpose` em `user_school_links.metadata`. É por
+ele que a limpeza futura os encontra, sem adivinhar:
 
-| | |
-|---|---|
-| nome | Aluno Teste Motor |
-| identificador | `aluno_teste_motor` |
-| código | `PILOTO-0003` |
-| escola / turma | Escola ABC · Turma 3ª A (Piloto) |
-| marca | `user_school_links.metadata ->> 'qa_purpose' = 'ENGINE_BROWSER_CHECK'` |
+| identificador | código | propósito | resultados |
+|---|---|---|---|
+| `aluno_teste_jornada` | PILOTO-0002 | `E2E_MANUAL_JOURNEY` | **0 — reservado ao teste manual, nunca tocado** |
+| `aluno_teste_motor` | PILOTO-0003 | `ENGINE_BROWSER_CHECK` | 29 |
+| `aluno_qa_slice` | PILOTO-0004 | `V2_SLICE_BROWSER` | 3 |
+| `aluno_qa_slice2` | PILOTO-0005 | `V2_SLICE_BROWSER` | 1 |
 
-Ele acumulou 29 tentativas e 29 resultados ao tentar levar a rota até
-Estequiometria. **Isso é histórico de teste, não de aluno** — e precisa sair
-antes da implantação real.
+Os três últimos acumularam histórico ao exercitar o percurso. **Isso é
+histórico de teste, não de aluno** — e precisa sair antes da implantação real.
+
+Para listá-los todos:
+
+```sql
+SELECT external_user_id, metadata->>'qa_purpose'
+  FROM user_school_links WHERE metadata ? 'qa_purpose';
+```
 
 Como encontrá-lo, sem adivinhar: pela marca acima, pelo `external_id` nas três
 tabelas de identidade (`persons`, `students`, `users`), ou pelo
