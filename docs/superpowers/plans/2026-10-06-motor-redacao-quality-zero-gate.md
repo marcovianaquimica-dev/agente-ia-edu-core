@@ -2401,9 +2401,16 @@ git commit -m "test(redacao): experimento controlado texto atual vs. limpo (Fase
 ### Task D3: Decisão de recalibração (condicional ao resultado de D2)
 
 **Files:**
-- Modify (SE E SOMENTE SE o experimento confirmar viés residual com texto
-  limpo): `src/agente_ia_edu/essay_prompts/competency_scoring_v2.py:105-109` (`_RULES_TOP_BAND`)
-  e `src/agente_ia_edu/services/essay_correction.py:214-222` (teto de `TANGENCIAMENTO_AO_TEMA`)
+- Create (SE E SOMENTE SE o experimento confirmar viés residual com texto
+  limpo): `src/agente_ia_edu/essay_prompts/competency_scoring_v3.py` - NUNCA
+  editar `competency_scoring_v2.py` em paisagem (convenção já estabelecida
+  no projeto para todo artefato de prompt - "never edit, always supersede",
+  mesma regra de `alert_review_v1.py`/`essay_prompts/vN.py`).
+- Modify (mesma condição): `src/agente_ia_edu/services/essay_correction.py:51,776`
+  (trocar o import e a chamada de `competency_scoring_v2` para
+  `competency_scoring_v3`) e `essay_correction.py:214-222` (teto de
+  `TANGENCIAMENTO_AO_TEMA` - este é código Python puro, não um artefato de
+  prompt versionado, então edita no lugar normalmente).
 - Test: `tests/test_essay_competency_scoring_symmetry.py` (só se a mudança ocorrer)
 
 **Interfaces:**
@@ -2430,7 +2437,7 @@ Comparar `bias_total`/`bias_per_competency` das duas condições:
 sistematicamente uma direcao sob incerteza (spec Fase D - so chega a esta
 mudanca se o experimento controlado da Task D2 confirmar vies residual com
 texto limpo)."""
-from agente_ia_edu.essay_prompts.competency_scoring_v2 import build_prompt  # ou v3, se nova versao
+from agente_ia_edu.essay_prompts.competency_scoring_v3 import build_prompt
 
 
 def test_top_band_rule_does_not_name_a_single_preferred_direction():
@@ -2444,9 +2451,12 @@ def test_top_band_rule_does_not_name_a_single_preferred_direction():
 
 - [ ] **Step 3 (só se o viés persistir): tornar a regra simétrica**
 
-Em `competency_scoring_v2.py`, reescrever `_RULES_TOP_BAND` (criar uma nova
-versão versionada do artefato de prompt, nunca editar a atual, mesma
-convenção do projeto) removendo a direção única "na dúvida, prefira 160" por
+Copiar `competency_scoring_v2.py` para `competency_scoring_v3.py` (`cp`,
+mesmo procedimento da Task B3 com os prompts `vN.py`), bump de `VERSION`
+dentro do novo arquivo, e reescrever `_RULES_TOP_BAND` nele - `v2.py` nunca
+é editado. Atualizar `essay_correction.py:51` (import) e `:776` (chamada
+`competency_scoring_v2.build_prompt` → `competency_scoring_v3.build_prompt`).
+Remover a direção única "na dúvida, prefira 160" por
 uma formulação que não prefira nenhum lado sob incerteza genuína - ex.: "na
 dúvida genuína entre duas bandas adjacentes, a banda escolhida é a que a
 maioria da evidência concreta sustenta; se a evidência for igualmente
