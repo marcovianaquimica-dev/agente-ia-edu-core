@@ -1,4 +1,4 @@
-"""Engine output contract, artifact version v5 (structured C2/C3 feedback).
+"""Engine output contract, artifact version v6 (structured C2/C3 feedback with input reliability).
 
 Layer 1 of validation: shape. Everything checkable without the rubric and without
 the essay text lives here - field types, the six-value score scale, the total
@@ -148,7 +148,7 @@ class Identification(BaseModel):
     model_version: str = Field(min_length=1)
     prompt_version: str = Field(min_length=1)
     engine_version: str = Field(min_length=1)
-    contract_version: Literal["essay_engine_output_v5"]
+    contract_version: Literal["essay_engine_output_v6"]
     anchor_mode: AnchorMode
 
 
