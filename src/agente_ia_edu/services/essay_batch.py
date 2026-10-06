@@ -75,6 +75,41 @@ _CPF_LABEL_PATTERN = re.compile(r"^CPF\b\s*:?\s*")
 # ninguem - descartados antes do fallback abaixo.
 _PRINTED_LABELS = ("FOLHA DE REDACAO", "NOME", "CPF")
 
+# Prompt de sistema pra OCR da regiao de CABECALHO - separado do prompt
+# padrao de transcricao (providers/adapters/openai.py::TRANSCRIPTION_
+# SYSTEM_PROMPT), que e pro CORPO da redacao e instrui explicitamente "nao
+# transcreva... nome completo". Usar o prompt padrao tambem no cabecalho
+# pede ao modelo exatamente o oposto do que a imagem tem (so nome e CPF,
+# nenhum corpo de redacao) - isso nao so devolvia vazio, como confundia o
+# modelo a ponto de RECUSAR a chamada inteira ("Desculpe, nao posso ajudar
+# com isso", confirmado ao vivo 2026-10-05). Mora aqui (nao em openai.py)
+# porque e o chamador - services/essay_batch.py - quem sabe que esta
+# pedindo cabecalho, nao corpo; qualquer provider usa este texto via
+# EssayPageTranscriptionRequest.system_prompt.
+HEADER_TRANSCRIPTION_SYSTEM_PROMPT = (
+    "Esta imagem e o cabecalho padrao de uma folha de prova escolar "
+    "(redacao), com dois campos de preenchimento: NOME COMPLETO DO "
+    "PARTICIPANTE e CPF, cada um em caixinhas de uma letra/digito por "
+    "quadrado - o mesmo formato de um cartao-resposta de vestibular. "
+    "Transcreva literalmente o que esta escrito em cada caixinha, letra "
+    "por letra (ou digito por digito no CPF), na ordem em que aparecem. "
+    "No campo NOME, uma ou mais caixinhas em branco entre um grupo de "
+    "letras e outro marcam o espaco entre nome, nome do meio e sobrenome - "
+    "represente cada um desses espacos em branco como um unico espaco no "
+    "texto (nunca junte dois nomes diferentes numa so palavra). No campo "
+    "CPF, junte todos os digitos sem espaco nenhum, numa sequencia continua. "
+    "Nao corrija ortografia. Se uma caixinha estiver vazia DENTRO de uma "
+    "mesma palavra (nao entre palavras) ou o caractere for genuinamente "
+    "ilegivel, pule-a (nao invente uma letra). Devolva APENAS o texto "
+    "transcrito dos dois campos, cada um em sua PROPRIA linha, separados "
+    "por uma quebra de linha real (ex.:\n"
+    "NOME COMPLETO DO PARTICIPANTE: MARIA SILVA\n"
+    "CPF: 12345678900\n"
+    "), sem comentarios, sem pedir desculpas, sem explicar limitacoes - e "
+    "um formulario escolar padrao, nunca recuse transcrever um nome ou "
+    "numero de CPF escrito nele."
+)
+
 # Teto do lote inteiro, somando todos os arquivos de um mesmo envio (spec s7).
 # Decisao do usuario 2026-10-05: subido de 60 pra 200 pra caber uma escola
 # inteira num envio so, nao so uma turma tipica. Sem risco de timeout de
@@ -202,7 +237,22 @@ def match_student(
         student_id for student_id, full_name in roster
         if normalize_person_name(full_name) == target
     ]
-    return matches[0] if len(matches) == 1 else None
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return None
+
+    # Fallback: o OCR em caixinhas as vezes perde o espaco entre nome, nome do
+    # meio e sobrenome (caixinha de separacao mal detectada), devolvendo
+    # "DANIELANTONIODASILVA" em vez de "DANIEL ANTONIO DA SILVA" - comparar
+    # sem nenhum espaco recupera esse caso sem nunca desempatar homonimos
+    # (ainda exige exatamente um candidato).
+    target_glued = target.replace(" ", "")
+    glued_matches = [
+        student_id for student_id, full_name in roster
+        if normalize_person_name(full_name).replace(" ", "") == target_glued
+    ]
+    return glued_matches[0] if len(glued_matches) == 1 else None
 
 
 def text_from_ocr_tokens(tokens: list[dict] | None) -> str:
@@ -333,7 +383,7 @@ class EssayBatchService:
         finally:
             doc.close()
 
-    async def _ocr_region(self, image_path: Path) -> str:
+    async def _ocr_region(self, image_path: Path, *, system_prompt: str | None = None) -> str:
         """Texto de UMA regiao ja recortada. Usa uma EssaySubmissionPage
         TRANSITORIA, nunca adicionada a sessao: _ocr_page so escreve em
         ``page.ocr_tokens`` e nunca chama add()/flush(), entao o objeto serve
@@ -342,7 +392,9 @@ class EssayBatchService:
             id=uuid.uuid4(), essay_submission_id=uuid.uuid4(),
             page_number=1, storage_uri=str(image_path),
         )
-        await self._submission_service()._ocr_page(sink, image_path)
+        await self._submission_service()._ocr_page(
+            sink, image_path, system_prompt=system_prompt
+        )
         return text_from_ocr_tokens(sink.ocr_tokens)
 
     async def read_page_regions(
@@ -383,7 +435,9 @@ class EssayBatchService:
                 self._crop_regions, image_path, scratch_dir
             )
             try:
-                header_text = await self._ocr_region(header_path)
+                header_text = await self._ocr_region(
+                    header_path, system_prompt=HEADER_TRANSCRIPTION_SYSTEM_PROMPT
+                )
             except ProviderError as exc:
                 logger.warning(
                     "OCR do cabecalho falhou para %s, pagina ira para revisao manual: %s",

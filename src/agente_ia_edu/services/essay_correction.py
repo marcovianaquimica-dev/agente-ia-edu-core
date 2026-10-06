@@ -48,7 +48,7 @@ from ..essay_engine_contract.v5 import (
     Feedback,
     Scores,
 )
-from ..essay_prompts import alert_review_v1, competency_scoring_v1, get_essay_prompt
+from ..essay_prompts import alert_review_v1, competency_scoring_v2, get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_image_corrector, build_text_provider
@@ -66,7 +66,7 @@ from .institution_settings import InstitutionSettingsService
 
 logger = logging.getLogger(__name__)
 
-_ENGINE_VERSION = "r3_correction_engine_v2"
+_ENGINE_VERSION = "r3_correction_engine_v3"
 _PROMPT_VERSION = "essay_correction_v15"
 _RUBRIC_FILE_NAME = "enem_2025"
 
@@ -494,18 +494,26 @@ class EssayCorrectionService:
             return
 
         settings = await InstitutionSettingsService(self.session).get_settings(submission.school_id)
+        total = (correction.final_scores or {}).get("total")
+        if total is None:
+            # Neither mode may ever auto-publish without a grade - a null
+            # score is either a malformed AI response or a real edge case,
+            # either way it needs a human, not a silent auto-approval.
+            # _run_ai always asks for a grade now (include_scores=True
+            # regardless of correction_mode - 2026-10-05), so this guard
+            # is no longer AVALIATIVO-only.
+            correction.status = "PENDING_REVIEW"
+            return
         if settings.correction_mode == "FORMATIVO":
+            # Once a grade exists, FORMATIVO still never requires teacher
+            # sign-off against it (no validation_threshold/
+            # validation_enabled check) - that's the entire remaining
+            # difference from AVALIATIVO: the grade is real, it's just
+            # never gated behind validation.
             self._publish(correction)
             return
 
         assignment = await self.session.get(PromptAssignment, submission.prompt_assignment_id)
-        total = (correction.final_scores or {}).get("total")
-        if total is None:
-            # AVALIATIVO must never auto-publish without a grade - a null
-            # score is either a malformed AI response or a real edge case,
-            # either way it needs a human, not a silent auto-approval.
-            correction.status = "PENDING_REVIEW"
-            return
         if submission.student_declared_theme:
             # "Tema livre": the student picked their own theme, so there's no
             # official gabarito a teacher would validate the grade against -
@@ -576,12 +584,14 @@ class EssayCorrectionService:
         essay_prompt = await self.session.get(EssayPrompt, assignment.essay_prompt_id)
         rubric_payload = _rubric_payload(rubric_file)
         prompt_artifact = get_essay_prompt(_PROMPT_VERSION)
-        # Spec §4 step 4: the prompt branches on correction_mode too, not just
-        # anchor_mode - AVALIATIVO asks for a full grade, FORMATIVO asks for
-        # scores=null. Read here (not just later in _apply_review_policy) so
-        # the AI is never asked to produce a grade FORMATIVO will discard.
-        settings = await InstitutionSettingsService(self.session).get_settings(submission.school_id)
-        include_scores = settings.correction_mode == "AVALIATIVO"
+        # Decisao do usuario 2026-10-05, revertendo a leitura original do
+        # spec R3 §4 step 4 (ali, FORMATIVO pedia scores=null): mesmo
+        # FORMATIVO deve ser corrigido COM nota - o que correction_mode
+        # decide nao e mais se a nota existe, e sim se ela e VALIDADA como
+        # pontuacao oficial (ver _apply_review_policy abaixo, que continua
+        # publicando FORMATIVO sem checar validation_threshold/
+        # validation_enabled, so exigindo que a nota exista mesmo assim).
+        include_scores = True
 
         try:
             if submission.anchor_mode == "TEXT_OFFSET":
@@ -717,19 +727,23 @@ class EssayCorrectionService:
     async def _score_competencies_from_evidence(
         self, *, output: EssayEngineOutput, rubric_file: RubricFile,
     ) -> dict[str, int]:
-        """Phase 2 of the correction pipeline (r3_correction_engine_v2): one
+        """Phase 2 of the correction pipeline (r3_correction_engine_v3): one
         small, evidence-only call per competency, run concurrently - see
         essay_prompts/competency_scoring_v1.py's module docstring for the
         calibration finding that motivated this (2026-09-28: the SAME essay
         text, corrected 4 times with an identical phase-1 prompt and a fixed
         seed, swung C1 from 0 to 80 points; isolating "decide the level"
         from "find the evidence" into its own small call answered
-        identically across 5/5 repeated calls on two different essays).
+        identically across 5/5 repeated calls on two different essays), and
+        competency_scoring_v2.py's for a later finding (2026-10-05: the top
+        band was awarded far more often than real ENEM data supports).
 
         Raises ProviderError / json.JSONDecodeError / KeyError / ValueError
         on any failure - the caller (_run_ai) turns those into the same
         NEEDS_REVIEW failure_reason shape every other AI-side failure in
-        this module already uses. Never called for FORMATIVO (see caller).
+        this module already uses. Only called when output.scores is not
+        None (see caller) - that used to mean "never for FORMATIVO", but
+        FORMATIVO now gets a real grade too (2026-10-05, see _run_ai).
         """
         competency_by_code = {c.code: c for c in rubric_file.competencies}
         annotations_by_code: dict[str, list] = {code: [] for code in COMPETENCY_CODES}
@@ -759,7 +773,7 @@ class EssayCorrectionService:
                     "strengths": rationale_obj.strengths,
                     "growth_area": rationale_obj.growth_area,
                 }
-            prompt_text = competency_scoring_v1.build_prompt(
+            prompt_text = competency_scoring_v2.build_prompt(
                 competency_code=code, competency_label=competency.official_title,
                 levels=levels, annotations=annotations,
                 # mechanical_review is exclusively C1's own domain (norma
@@ -785,7 +799,7 @@ class EssayCorrectionService:
     async def _review_anula_redacao_alerts(
         self, *, output: EssayEngineOutput, essay_statement: str,
     ) -> set[str]:
-        """Phase 2b of the correction pipeline (r3_correction_engine_v2): a
+        """Phase 2b of the correction pipeline (r3_correction_engine_v3): a
         small, focused re-check of any whole-essay-zero alert phase 1
         raised - see essay_prompts/alert_review_v1.py's module docstring
         for the calibration finding that motivated this (2026-09-28: a

@@ -443,7 +443,9 @@ class EssaySubmissionService:
     # certainty).
     _RECONCILED_TOKEN_CONFIDENCE = 0.85
 
-    async def _ocr_page(self, page: EssaySubmissionPage, image_path: Path) -> None:
+    async def _ocr_page(
+        self, page: EssaySubmissionPage, image_path: Path, *, system_prompt: str | None = None
+    ) -> None:
         last_error: ProviderError | None = None
         best_tokens: tuple | None = None
         best_average_confidence = -1.0
@@ -458,7 +460,8 @@ class EssaySubmissionService:
             try:
                 result = await self._get_transcriber().transcribe_page(
                     EssayPageTranscriptionRequest(
-                        image_path=image_path, mime_type=_guess_mime(image_path)
+                        image_path=image_path, mime_type=_guess_mime(image_path),
+                        system_prompt=system_prompt,
                     )
                 )
                 if result.input_tokens is not None:
@@ -475,7 +478,7 @@ class EssaySubmissionService:
                 if average_confidence >= self._MIN_AVERAGE_CONFIDENCE:
                     await self._finalize_page_tokens(
                         page, tokens, image_path, total_input_tokens, total_output_tokens,
-                        allow_reconciliation=True,
+                        allow_reconciliation=True, system_prompt=system_prompt,
                     )
                     return
                 logger.warning(
@@ -505,7 +508,7 @@ class EssaySubmissionService:
         if best_tokens is not None:
             await self._finalize_page_tokens(
                 page, best_tokens, image_path, total_input_tokens, total_output_tokens,
-                allow_reconciliation=False,
+                allow_reconciliation=False, system_prompt=system_prompt,
             )
             return
         raise last_error
@@ -513,7 +516,7 @@ class EssaySubmissionService:
     async def _finalize_page_tokens(
         self, page: EssaySubmissionPage, tokens: tuple, image_path: Path,
         total_input_tokens: int | None, total_output_tokens: int | None,
-        *, allow_reconciliation: bool,
+        *, allow_reconciliation: bool, system_prompt: str | None = None,
     ) -> None:
         # Persisted from the FIRST reading immediately, before attempting
         # reconciliation - if reconciliation raises anything unexpected
@@ -530,7 +533,9 @@ class EssaySubmissionService:
             return
 
         reconciled, extra_input_tokens, extra_output_tokens = (
-            await self._reconcile_low_confidence_tokens(tokens, image_path)
+            await self._reconcile_low_confidence_tokens(
+                tokens, image_path, system_prompt=system_prompt
+            )
         )
         if extra_input_tokens is not None:
             page.input_tokens = (page.input_tokens or 0) + extra_input_tokens
@@ -543,7 +548,7 @@ class EssaySubmissionService:
             ]
 
     async def _reconcile_low_confidence_tokens(
-        self, tokens: tuple, image_path: Path
+        self, tokens: tuple, image_path: Path, *, system_prompt: str | None = None
     ) -> tuple[tuple, int | None, int | None]:
         """A second, fully independent transcription of the SAME page,
         requested ONLY when `tokens` has at least one low-confidence entry -
@@ -575,7 +580,8 @@ class EssaySubmissionService:
         try:
             second_result = await self._get_transcriber().transcribe_page(
                 EssayPageTranscriptionRequest(
-                    image_path=image_path, mime_type=_guess_mime(image_path)
+                    image_path=image_path, mime_type=_guess_mime(image_path),
+                    system_prompt=system_prompt,
                 )
             )
         except ProviderError as exc:
@@ -771,8 +777,28 @@ def _extract_pdf_paragraphs(page) -> str:
     groups by the PDF's own paragraph structure instead of by visual line,
     so paragraph boundaries survive as separate blocks while the wraps
     inside one paragraph get joined here.
+
+    Clipped to below HEADER_REGION_FRACTION (essay_answer_sheet.py - the
+    SAME constant essay_batch.py uses to crop the header out of the OCR
+    image, see that module's docstring) - confirmed live 2026-10-05: without
+    this clip, the header's own printed labels ("FOLHA DE REDACAO", "NOME
+    COMPLETO DO PARTICIPANTE", "CPF", the 1-30 line-number column) and the
+    student's own name/CPF spelled out letter-per-box all land at the START
+    of canonical_text, ahead of the real essay. The corrector then
+    (correctly, given what it was shown) flags IDENTIFICACAO_INDEVIDA - the
+    student's full name genuinely appears inside the text sent for grading -
+    and whether phase-2's alert re-review confirms or drops that alert
+    decides a swing between 0 and a clean score for the SAME essay, which
+    was the real cause of a batch's suspiciously bimodal 0/1000 scores, not
+    model unreliability. The body never legitimately starts above this
+    boundary (see essay_answer_sheet.py's own geometry), so clipping it away
+    loses nothing of the real essay.
     """
-    blocks = page.get_text("blocks")
+    from .essay_answer_sheet import HEADER_REGION_FRACTION
+
+    header_bottom = page.rect.height * HEADER_REGION_FRACTION
+    body_clip = (0, header_bottom, page.rect.width, page.rect.height)
+    blocks = page.get_text("blocks", clip=body_clip)
     paragraphs = []
     for block in blocks:
         text = block[4]
@@ -780,8 +806,17 @@ def _extract_pdf_paragraphs(page) -> str:
         # breaks (blocks ARE the paragraph boundaries) - join them with a
         # space, the way the sentence actually reads.
         joined = " ".join(text.split())
-        if joined:
-            paragraphs.append(joined)
+        if not joined:
+            continue
+        # The 01..30 line-number column (essay_answer_sheet.py's own ruled
+        # lines, drawn down the left margin the whole length of the page -
+        # LINE_COUNT/the loop that calls insert_text with f"{index+1:02d}")
+        # sits inside the body clip and PyMuPDF gives each number its own
+        # block. A real paragraph is never JUST 1-2 digits, so this can only
+        # ever drop line-number noise, never real essay content.
+        if joined.isdigit() and len(joined) <= 2:
+            continue
+        paragraphs.append(joined)
     return "\n\n".join(paragraphs)
 
 
