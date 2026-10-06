@@ -3,8 +3,12 @@ import unittest
 import uuid
 
 import openpyxl
+import pymupdf
 
-from agente_ia_edu.services.essay_dashboard_export import build_essay_dashboard_xlsx
+from agente_ia_edu.services.essay_dashboard_export import (
+    build_essay_dashboard_pdf,
+    build_essay_dashboard_xlsx,
+)
 from agente_ia_edu.services.essay_teacher_dashboard import EssayDashboardResponse, StudentSubmissionRow
 
 
@@ -58,6 +62,47 @@ class EssayDashboardExportTests(unittest.TestCase):
         rows = list(wb.active.iter_rows(values_only=True))
         self.assertEqual(rows[0], ("Aluno", "Entregou", "C1", "C2", "C3", "C4", "C5", "Nota total"))
         self.assertIn(("Aluno A", "Sim", 128, 128, 128, 128, 128, 640), rows)
+
+
+def _pdf_text(data: bytes) -> str:
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    try:
+        return "\n".join(page.get_text() for page in doc)
+    finally:
+        doc.close()
+
+
+class EssayDashboardPdfExportTests(unittest.TestCase):
+    def test_unknown_report_type_raises(self):
+        with self.assertRaises(ValueError):
+            build_essay_dashboard_pdf(_dashboard(), report_type="not_a_real_type")
+
+    def test_produces_a_real_pdf(self):
+        data = build_essay_dashboard_pdf(_dashboard(), report_type="grades_total")
+        self.assertTrue(data.startswith(b"%PDF"))
+
+    def test_submission_list_has_both_students_and_the_title(self):
+        data = build_essay_dashboard_pdf(_dashboard(), report_type="submission_list")
+        text = _pdf_text(data)
+        self.assertIn("Lista de entrega", text)
+        self.assertIn("Tema", text)
+        self.assertIn("Aluno A", text)
+        self.assertIn("Aluno B", text)
+        self.assertIn("Sim", text)
+        self.assertIn("Não", text)
+
+    def test_grades_total_shows_the_score_and_a_dash_for_who_did_not_submit(self):
+        data = build_essay_dashboard_pdf(_dashboard(), report_type="grades_total")
+        text = _pdf_text(data)
+        self.assertIn("640", text)
+        self.assertIn("-", text)
+
+    def test_grades_per_competency_shows_all_five_columns(self):
+        data = build_essay_dashboard_pdf(_dashboard(), report_type="grades_per_competency")
+        text = _pdf_text(data)
+        for label in ("C1", "C2", "C3", "C4", "C5"):
+            self.assertIn(label, text)
+        self.assertIn("128", text)
 
 
 if __name__ == "__main__":

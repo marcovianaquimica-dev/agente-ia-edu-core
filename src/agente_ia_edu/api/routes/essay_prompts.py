@@ -25,7 +25,13 @@ from ...db.models import EssayPrompt, PromptAssignment, PromptMaterial, School
 from ...identity import ExternalIdentityContext
 from ...services.authorization import AuthorizationService
 from ...services.essay_answer_sheet import answer_sheet_available, render_answer_sheet_pdf
-from ...services.essay_dashboard_export import build_essay_dashboard_xlsx, xlsx_media_type
+from ...services.essay_dashboard_export import (
+    build_essay_dashboard_pdf,
+    build_essay_dashboard_xlsx,
+    pdf_export_available,
+    pdf_media_type,
+    xlsx_media_type,
+)
 from ...services.essay_proposal import EssayProposalService, as_aware_utc
 from ...services.essay_teacher_dashboard import EssayDashboardResponse, build_essay_prompt_dashboard
 from ...services.material_storage import MaterialStorage
@@ -618,6 +624,45 @@ async def export_essay_prompt_dashboard_xlsx(
         filename = f"{report_type}-{safe_title[:60]}.xlsx"
         return Response(
             content=data, media_type=xlsx_media_type(),
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+
+@essay_prompts_router.get("/{essay_prompt_id}/dashboard/export.pdf")
+async def export_essay_prompt_dashboard_pdf(
+    essay_prompt_id: UUID,
+    report_type: str = Query(..., pattern="^(grades_total|grades_per_competency|submission_list)$"),
+    grade_level_id: Optional[UUID] = Query(None),
+    class_id: Optional[UUID] = Query(None),
+    student_id: Optional[UUID] = Query(None),
+    identity: ExternalIdentityContext = Depends(get_current_identity),
+    session_factory=Depends(get_session_factory),
+) -> Response:
+    """Same three views as export.xlsx above, as a printable PDF table
+    instead - same filters, same build_essay_prompt_dashboard() call, so the
+    two formats never show different numbers for the same filter."""
+    if not pdf_export_available():
+        raise HTTPException(
+            status_code=503, detail="PDF export requires the 'pymupdf' package"
+        )
+    async with session_factory() as session:
+        school_id = await _authorize(identity, session)
+        prompt = await _prompt_for_own_school_or_403(
+            session, essay_prompt_id=essay_prompt_id, school_id=school_id
+        )
+        try:
+            dashboard = await build_essay_prompt_dashboard(
+                session, school_id=school_id, essay_prompt_id=essay_prompt_id,
+                grade_level_id=grade_level_id, class_id=class_id, student_id=student_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        data = build_essay_dashboard_pdf(dashboard, report_type=report_type)
+        safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in prompt.title).strip() or "redacao"
+        filename = f"{report_type}-{safe_title[:60]}.pdf"
+        return Response(
+            content=data, media_type=pdf_media_type(),
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 

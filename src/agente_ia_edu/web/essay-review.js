@@ -1369,10 +1369,16 @@
       ${statsHtml}
       <h4 style="margin:16px 0 8px 0;">Média por competência</h4>
       ${chartHtml}
-      <div class="tm-form-actions" style="margin: 16px 0; display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-secondary" type="button" id="er-dash-export-total">Exportar nota total</button>
-        <button class="btn btn-secondary" type="button" id="er-dash-export-competency">Exportar nota por competência</button>
-        <button class="btn btn-secondary" type="button" id="er-dash-export-submission">Exportar lista de entrega</button>
+      <div class="tm-form-actions" style="margin: 16px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <div class="er-export-group" data-export-id="er-dash-export-total">
+          <button class="btn btn-secondary" type="button" id="er-dash-export-total">Exportar nota total</button>
+        </div>
+        <div class="er-export-group" data-export-id="er-dash-export-competency">
+          <button class="btn btn-secondary" type="button" id="er-dash-export-competency">Exportar nota por competência</button>
+        </div>
+        <div class="er-export-group" data-export-id="er-dash-export-submission">
+          <button class="btn btn-secondary" type="button" id="er-dash-export-submission">Exportar lista de entrega</button>
+        </div>
       </div>
       <h4 style="margin:24px 0 8px 0;">Alunos</h4>
       ${rosterHtml}
@@ -1395,7 +1401,12 @@
     const max = 200;
     const left = 50;
     const right = 500;
-    const top = 20;
+    // top=20 (antigo) deixava so 12px entre o rotulo do eixo "200" (em
+    // top+4=24) e o rotulo de valor de uma barra proxima do teto (clampado
+    // em top+10=30) - os dois se sobrepunham visualmente numa turma com
+    // varias competencias perto de 200 (confirmado ao vivo 2026-10-06).
+    // top=38 da folga real pra essa colisao sem mudar a escala do grafico.
+    const top = 38;
     const bottom = 180;
     const bandWidth = (right - left) / DASH_COMPETENCY_CODES.length;
     const barWidth = bandWidth * 0.5;
@@ -1426,41 +1437,74 @@
       </div>`;
   }
 
-  function wireDashboardExportButtons(resultsEl, promptId, baseParams) {
-    const exports = [
-      { id: 'er-dash-export-total', reportType: 'grades_total', label: 'a nota total' },
-      { id: 'er-dash-export-competency', reportType: 'grades_per_competency', label: 'a nota por competência' },
-      { id: 'er-dash-export-submission', reportType: 'submission_list', label: 'a lista de entrega' },
-    ];
-    exports.forEach(({ id, reportType, label }) => {
-      const btn = resultsEl.querySelector(`#${id}`);
-      if (!btn) return;
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          const params = new URLSearchParams(baseParams);
-          params.set('report_type', reportType);
-          const res = await fetch(
-            `/api/v1/catalog/essay-prompts/${promptId}/dashboard/export.xlsx?${params.toString()}`,
-            { headers: reviewHeaders() },
-          );
-          if (!res.ok) throw new Error('export failed');
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${reportType}.xlsx`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-        } catch (e) {
-          alert(`Não foi possível exportar ${label}.`);
-        } finally {
-          btn.disabled = false;
-        }
+  async function downloadDashboardExport({
+    resultsEl, promptId, baseParams, reportType, format, label, group,
+  }) {
+    try {
+      const params = new URLSearchParams(baseParams);
+      params.set('report_type', reportType);
+      const res = await fetch(
+        `/api/v1/catalog/essay-prompts/${promptId}/dashboard/export.${format}?${params.toString()}`,
+        { headers: reviewHeaders() },
+      );
+      if (!res.ok) throw new Error('export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${reportType}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Não foi possível exportar ${label}.`);
+    } finally {
+      group.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    }
+  }
+
+  function wireDashboardExportGroup({ resultsEl, promptId, baseParams, id, reportType, label, originalText }) {
+    const group = resultsEl.querySelector(`[data-export-id="${id}"]`);
+    if (!group) return;
+    const btn = group.querySelector(`#${id}`);
+    if (!btn) return;
+    // Primeiro clique troca o botao por uma escolha de formato (PDF ou
+    // XLSX) em vez de baixar direto - cada formato so dispara o download
+    // quando o professor escolhe qual quer, nunca os dois juntos. Reconecta
+    // so ESTE grupo depois (nunca os outros dois), pra nunca acumular um
+    // segundo ouvinte de clique nos botoes que nao foram trocados agora.
+    btn.addEventListener('click', () => {
+      group.innerHTML = `
+        <span class="empty-text" style="margin-right:6px;">${tmEsc(originalText)}:</span>
+        <button class="btn btn-secondary" type="button" data-export-format="pdf">PDF</button>
+        <button class="btn btn-secondary" type="button" data-export-format="xlsx">XLSX</button>
+        <button class="btn btn-link" type="button" data-export-cancel>Cancelar</button>`;
+      const rewire = () => {
+        group.innerHTML = `<button class="btn btn-secondary" type="button" id="${id}">${tmEsc(originalText)}</button>`;
+        wireDashboardExportGroup({ resultsEl, promptId, baseParams, id, reportType, label, originalText });
+      };
+      group.querySelector('[data-export-cancel]').addEventListener('click', rewire);
+      group.querySelectorAll('[data-export-format]').forEach((formatBtn) => {
+        formatBtn.addEventListener('click', async () => {
+          group.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+          await downloadDashboardExport({
+            resultsEl, promptId, baseParams, reportType, label, group,
+            format: formatBtn.dataset.exportFormat,
+          });
+          rewire();
+        });
       });
     });
+  }
+
+  function wireDashboardExportButtons(resultsEl, promptId, baseParams) {
+    const exports = [
+      { id: 'er-dash-export-total', reportType: 'grades_total', label: 'a nota total', originalText: 'Exportar nota total' },
+      { id: 'er-dash-export-competency', reportType: 'grades_per_competency', label: 'a nota por competência', originalText: 'Exportar nota por competência' },
+      { id: 'er-dash-export-submission', reportType: 'submission_list', label: 'a lista de entrega', originalText: 'Exportar lista de entrega' },
+    ];
+    exports.forEach((spec) => wireDashboardExportGroup({ resultsEl, promptId, baseParams, ...spec }));
   }
 
   function renderReviewPanel(correctionId, returnStatus) {
