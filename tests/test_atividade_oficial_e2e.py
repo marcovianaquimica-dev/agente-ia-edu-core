@@ -445,17 +445,78 @@ class AtividadeOficialTests(unittest.TestCase):
                 self.assertEqual(item["selected_option_key"], q["selected_option"])
 
     def test_r6_a_resolucao_nao_e_inventada(self):
-        """Quando não há resolução armazenada, o campo DIZ isso — não traz uma
-        explicação gerada só para preencher a tela."""
+        """Resolução é a que alguém escreveu, ou NENHUMA.
+
+        O QUE MUDOU, EM 2026-10-06
+        ===========================
+        Este teste exigia que o campo nunca viesse vazio, e a implementação
+        cumpria isso devolvendo uma frase fixa:
+
+            "Não há resolução oficial passo a passo armazenada para esta
+             questão. A geração de resolução por IA é uma fase futura e não
+             é usada aqui."
+
+        Medido no banco: NENHUMA das 595 questões do acervo tem resolução
+        curada. Então o que o aluno lia, sempre que errava, eram duas frases
+        sobre a dívida técnica do produto.
+
+        A intenção do teste continua de pé e é esta: nunca uma resolução
+        inventada. O que mudou é que a ausência passou a ser `null`, honesta
+        e silenciosa - e quem ensina é `POST .../attempt/result/explanation`,
+        que escolhe entre resolução curada, IA e um fallback pedagógico.
+        """
         self._responder_todas(acertos=3)
         self._finalizar_e_corrigir()
         itens = self.client.get(
             f"/api/v1/student/activities/{self.atividade}/attempt/result"
         ).json()["items"]
+        self.assertTrue(itens, "o resultado veio sem itens")
         for item in itens:
             with self.subTest(pos=item["position"]):
-                self.assertTrue(item["resolution"],
-                                "resolução vazia: a tela não saberia o que dizer")
+                # O cenário não grava `resolution_text` em questão nenhuma.
+                self.assertIsNone(
+                    item["resolution"],
+                    "apareceu resolução onde ninguém escreveu uma")
+
+    def test_r6b_a_resolucao_escrita_por_gente_chega_inteira(self):
+        """A outra metade: sem isto, `resolution: None` sempre passaria.
+
+        Material curado nunca é trocado nem resumido - se alguém escreveu a
+        resolução, é ela que o aluno recebe, palavra por palavra.
+        """
+        texto = "Pela equação, 2 mol de NH3 pedem 3 mol de H2. Multiplique por 3/2."
+
+        async def gravar():
+            from sqlalchemy import select as _sel
+
+            from agente_ia_edu.db.models.official import QuestionVersion
+
+            async with self.factory() as s:
+                qv = (await s.execute(_sel(QuestionVersion))).scalars().first()
+                qv.resolution_text = texto
+                await s.commit()
+                return str(qv.id)
+
+        alvo = self.loop.run_until_complete(gravar())
+        self._responder_todas(acertos=3)
+        self._finalizar_e_corrigir()
+        itens = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt/result"
+        ).json()["items"]
+        achada = [i for i in itens if i["question_version_id"] == alvo]
+        self.assertTrue(achada, "a questão com resolução não entrou na lista")
+        self.assertEqual(texto, achada[0]["resolution"])
+
+    def test_r6c_o_aluno_nunca_le_a_divida_tecnica_do_produto(self):
+        """A frase que motivou a mudança não pode voltar por nenhum caminho."""
+        self._responder_todas(acertos=3)
+        self._finalizar_e_corrigir()
+        bruto = self.client.get(
+            f"/api/v1/student/activities/{self.atividade}/attempt/result").text
+        for frase in ("fase futura", "não é usada aqui",
+                      "Não há resolução oficial"):
+            with self.subTest(frase=frase):
+                self.assertNotIn(frase.lower(), bruto.lower())
 
     def test_r7_a_revisao_de_outro_aluno_e_indistinguivel_de_inexistente(self):
         self._responder_todas(acertos=5)
