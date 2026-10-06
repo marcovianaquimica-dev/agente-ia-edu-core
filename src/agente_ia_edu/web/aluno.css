@@ -1114,3 +1114,52 @@ p  { margin: 0 0 .75rem; }
 }
 
 .conversa .botao { margin-top: .5rem; }
+
+/* ENTENDER O ERRO
+ *
+ * Não é um `<details>` fechado como a antiga "resolução": quem errou precisa
+ * VER que há algo ali, e não descobrir que há. O bloco fica aberto, com a
+ * explicação e as três reações possíveis logo abaixo dela.
+ */
+.explicacao {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  background: var(--primaria-clara);
+  border-left: 3px solid var(--primaria);
+  border-radius: 10px;
+}
+
+.explicacao-etiqueta {
+  margin: 0 0 .5rem;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--primaria-escura);
+}
+
+.explicacao-texto {
+  margin: 0;
+  font-size: .95rem;
+  line-height: 1.6;
+  color: var(--tinta);
+}
+
+.explicacao-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: .9rem;
+}
+
+/* Alvo de toque do sistema: estas são as ações de quem acabou de errar, no
+   telefone, e um botão apertado aqui custa a reação que a tela pediu. */
+.explicacao-acoes .botao {
+  min-height: var(--nucleo-toque, 44px);
+  flex: 1 1 auto;
+}
+
+@media (max-width: 420px) {
+  /* Empilhadas: três botões lado a lado a 320px viram três palavras cortadas. */
+  .explicacao-acoes { flex-direction: column; }
+}

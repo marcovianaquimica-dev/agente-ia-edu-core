@@ -340,10 +340,18 @@ class ActivityCorrectionStoreDBTests(unittest.TestCase):
             items_by_qv[qv1_str]["resolution"], "Resolução real: aplique a fórmula X."
         )
         self.assertNotEqual(items_by_qv[qv1_str]["resolution"], "em breve")
-        # the other question has no resolution_text recorded - honest
-        # fallback, never an invented resolution and never "em breve"
-        self.assertNotEqual(items_by_qv[qv2_str]["resolution"], "em breve")
-        self.assertIn("Não há resolução", items_by_qv[qv2_str]["resolution"])
+        # A OUTRA QUESTÃO NÃO TEM RESOLUÇÃO, E AGORA ISSO É `None`.
+        #
+        # Até 2026-10-06 a ausência virava, NA TELA DO ALUNO, "não há
+        # resolução oficial... a geração por IA é uma fase futura e não é
+        # usada aqui" - e, medido, nenhuma das 595 questões do acervo tem
+        # resolução curada, então todo aluno que errava lia sobre a dívida
+        # técnica do produto. A ausência passou a ser silenciosa e honesta;
+        # quem ensina é `POST .../attempt/result/explanation`.
+        #
+        # O que o teste continua garantindo é o essencial: nunca uma
+        # resolução inventada, nunca um placeholder se passando por uma.
+        self.assertIsNone(items_by_qv[qv2_str]["resolution"])
 
     # -- correct(): state errors ---------------------------------------
 

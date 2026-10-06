@@ -1532,6 +1532,61 @@
       </div>`;
   }
 
+  // =================================================== entender o erro ====
+  // O ERRO PRECISA ENSINAR ALGUMA COISA.
+  //
+  // Ate 2026-10-06 esta tela abria um `<details>` com o campo `resolution`.
+  // Nenhuma das 595 questoes do acervo tem resolucao curada, entao o que o
+  // aluno lia era "a geracao de resolucao por IA e uma fase futura e nao e
+  // usada aqui" - divida tecnica do produto, para quem acabou de errar.
+  //
+  // Agora quem decide a fonte (curada > IA > fallback) e o backend. Esta
+  // tela so pede, mostra e oferece as reacoes. Nenhuma delas e evidencia:
+  // "Entendi, quero tentar" devolve o aluno ao passo que o backend ja
+  // decidiu, e nao conclui nada sobre dominio.
+  function blocoDaExplicacao() {
+    const e = (app.atividade && app.atividade.explicacao) || {};
+    const acoes = window.ExplicacaoUI.acoes(e);
+    const corpo = e.carregando
+      ? aviso('Montando a explicacao...')
+      : (e.erro ? aviso(esc(e.erro))
+                : (e.texto ? `<p class="explicacao-texto">${esc(e.texto)}</p>` : ''));
+    return `
+      <div class="explicacao">
+        ${e.texto ? '<p class="explicacao-etiqueta">Entenda o que aconteceu</p>' : ''}
+        ${corpo}
+        <div class="explicacao-acoes">
+          ${acoes.map((a) => `
+            <button class="botao ${a.principal ? 'botao-principal' : 'botao-secundario'}"
+                    data-acao="exp-${a.acao}" ${e.carregando ? 'disabled' : ''}>
+              ${esc(a.rotulo)}</button>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  async function pedirExplicacao() {
+    const a = app.atividade;
+    const rev = a && a.revisao;
+    if (!rev) return;
+    const q = rev.questoes[rev.pos];
+    const anterior = a.explicacao || {};
+    a.explicacao = { carregando: true, estrategia: anterior.estrategia };
+    pintarRevisao();
+    try {
+      const r = await api(
+        `/api/v1/student/activities/${a.id}/attempt/result/explanation`,
+        { method: 'POST',
+          body: JSON.stringify(window.ExplicacaoUI.pedido(
+            q.question_version_id, anterior)) });
+      const l = window.ExplicacaoUI.leitura(r);
+      a.explicacao = l.pronta ? l
+        : { erro: window.ExplicacaoUI.leituraDaFalha() };
+    } catch (_) {
+      a.explicacao = { erro: window.ExplicacaoUI.leituraDaFalha() };
+    }
+    pintarRevisao();
+  }
+
   // ========================================================= a revisao ====
   // Leitura, so. Abrir isto NAO produz evidencia, nao reconstroi dominio e
   // nao reabre a tentativa - ha teste provando que rever tres vezes nao muda
@@ -1576,12 +1631,7 @@
         <p class="bloco-etiqueta">${acertou ? '✓ Você acertou' : '✗ Você errou'}</p>
         <p class="bloco-enunciado">${esc(q.statement || '')}</p>
         <div class="alternativas">${alternativas}</div>
-        ${res.resolution
-          ? `<details class="resolucao">
-               <summary>Entenda a resposta</summary>
-               <p>${esc(res.resolution)}</p>
-             </details>`
-          : ''}
+        ${acertou ? '' : blocoDaExplicacao()}
         <div class="navegacao-questoes">
           <button class="botao botao-secundario" data-acao="revisao-anterior"
                   ${rev.pos === 0 ? 'disabled' : ''}>Anterior</button>
@@ -1598,6 +1648,9 @@
     const nova = Math.min(Math.max(0, rev.pos + delta), rev.questoes.length - 1);
     if (nova === rev.pos) return;
     rev.pos = nova;
+    // A explicacao era DAQUELA questao. Leva-la para a proxima mostraria ao
+    // aluno o texto de um erro que nao e o que ele esta vendo.
+    app.atividade.explicacao = null;
     pintarRevisao();
   }
 
@@ -1816,7 +1869,16 @@
       case 'questao-anterior': navegarQuestao(-1); return;
       case 'questao-proxima': navegarQuestao(1); return;
       case 'finalizar-atividade': finalizarAtividade(); return;
-      case 'revisar': pintarRevisao(); return;
+      case 'revisar': app.atividade.explicacao = null; pintarRevisao(); return;
+      case 'exp-explicar': pedirExplicacao(); return;
+      // "EXPLIQUE DE OUTRO JEITO" e o mesmo pedido com a estrategia anterior
+      // junto; quem escolhe a proxima e o backend, nao esta tela.
+      case 'exp-outro-jeito': pedirExplicacao(); return;
+      // "ENTENDI, QUERO TENTAR" NAO E EVIDENCIA. Ele fecha a explicacao e
+      // devolve o aluno ao passo que o backend ja decidiu - nao marca nada,
+      // nao libera nada, nao pula verificacao.
+      case 'exp-entendi': app.atividade.explicacao = null; seguirOProximoPasso(); return;
+      case 'exp-duvida': abrirConversa(); return;
       case 'revisao-anterior': navegarRevisao(-1); return;
       case 'revisao-proxima': navegarRevisao(1); return;
       case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; app.guiada = null; irPara('inicio'); return;

@@ -252,13 +252,12 @@ class ActivityResultItemView(BaseModel):
     is_correct: bool
     selected_option_key: str | None = None
     correct_option_key: str | None = None  # released only after correction
-    # real QuestionVersion.resolution_text when recorded; otherwise the same
-    # honest fallback list_generator.py's ResolutionView uses - never an
-    # invented resolution, and never the old fixed "em breve" placeholder.
-    resolution: str = (
-        "Não há resolução oficial passo a passo armazenada para esta questão. "
-        "A geração de resolução por IA é uma fase futura e não é usada aqui."
-    )
+    # QuestionVersion.resolution_text de verdade quando existe; `null` quando
+    # não existe. Até 2026-10-06 a ausência virava duas frases sobre a dívida
+    # técnica do produto NA TELA DO ALUNO - e nenhuma das 595 questões do
+    # acervo tem resolução curada, então todo aluno que errava as lia. Quem
+    # ensina agora é `POST .../attempt/result/explanation`.
+    resolution: str | None = None
 
 
 class ActivityResultActivity(BaseModel):

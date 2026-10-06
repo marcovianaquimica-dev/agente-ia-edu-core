@@ -12,10 +12,19 @@ permite trocar o modelo sem perder o que o sistema aprendeu a pedir.
 
 from __future__ import annotations
 
-from . import v1, v2
+from . import explicacao_v1, v1, v2
 
 _REGISTRO = {v1.VERSION: v1, v2.VERSION: v2}
 VERSAO_ATUAL = v2.VERSION
+
+# A EXPLICACAO DE UM ERRO TEM O SEU PROPRIO REGISTRO.
+#
+# Nao e a mesma conversa com outra redacao: muda o que entra (ali o gabarito
+# fica de fora de proposito; aqui a questao ja foi corrigida e ele precisa
+# entrar), muda o que se pede e muda o campo da resposta. Dois registros
+# separados deixam as duas versoes andarem no seu proprio ritmo.
+_REGISTRO_DA_EXPLICACAO = {explicacao_v1.VERSION: explicacao_v1}
+VERSAO_ATUAL_DA_EXPLICACAO = explicacao_v1.VERSION
 
 
 def prompt_da_conversa(versao: str | None = None):
@@ -28,4 +37,15 @@ def prompt_da_conversa(versao: str | None = None):
     return modulo
 
 
-__all__ = ["prompt_da_conversa", "VERSAO_ATUAL"]
+def prompt_da_explicacao(versao: str | None = None):
+    """O modulo de prompt da explicacao de erro, da versao pedida ou atual."""
+    escolhida = versao or VERSAO_ATUAL_DA_EXPLICACAO
+    modulo = _REGISTRO_DA_EXPLICACAO.get(escolhida)
+    if modulo is None:
+        raise KeyError(f"versao de prompt desconhecida: {escolhida!r}; "
+                       f"conhecidas: {sorted(_REGISTRO_DA_EXPLICACAO)}")
+    return modulo
+
+
+__all__ = ["prompt_da_conversa", "prompt_da_explicacao", "VERSAO_ATUAL",
+           "VERSAO_ATUAL_DA_EXPLICACAO"]

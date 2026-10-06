@@ -460,6 +460,56 @@ async def get_activity_result(
 
 
 # ---------------------------------------------------------------------------
+# ENTENDER O ERRO - a intervenção que faltava entre errar e tentar de novo
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _ModeloDeEntrada  # noqa: E402
+
+from ...services.explicacao_do_erro import (  # noqa: E402
+    ExplicacaoDoErro,
+    proxima_estrategia,
+)
+
+
+class _ExplicacaoRequest(_ModeloDeEntrada):
+    question_version_id: _UUID
+    # A ABORDAGEM ANTERIOR, quando o aluno pede OUTRO JEITO. Não é a tela
+    # escolhendo a estratégia: ela diz qual já mostrou, e `proxima_estrategia`
+    # - do domínio - decide a seguinte. Sem isto, "explique de outro jeito"
+    # devolveria o mesmo texto, que é a definição do problema.
+    previous_strategy: str | None = None
+
+
+@student_router.post("/activities/{assignment_id}/attempt/result/explanation",
+                     summary="Explain ONE wrong answer of the caller's own "
+                             "corrected result (curated > AI > fallback)")
+async def explain_activity_result_error(
+    assignment_id: _UUID,
+    payload: _ExplicacaoRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """Uma explicação não é evidência, e esta rota não tem como torná-la uma.
+
+    Ela lê (contexto da questão já corrigida) e devolve texto. `ExplicacaoDoErro`
+    não recebe sessão: não há caminho daqui para `domain_content_mastery`.
+    """
+    async with session_factory() as session:
+        store = ActivityCorrectionStore(session)
+        try:
+            contexto = await store.contexto_do_erro(
+                assignment_id, payload.question_version_id,
+                requester=_student_requester(ctx))
+        except Exception as exc:  # noqa: BLE001
+            raise _map_correction_error(exc) from exc
+
+    estrategia = proxima_estrategia(payload.previous_strategy)
+    return await ExplicacaoDoErro().explicar(
+        resolucao_curada=contexto.pop("resolucao_curada", None),
+        contexto=contexto, estrategia=estrategia)
+
+
+# ---------------------------------------------------------------------------
 # PHASE 19 - pedagogical analysis (READ-ONLY aggregation over the PHASE 18 result)
 # ---------------------------------------------------------------------------
 
