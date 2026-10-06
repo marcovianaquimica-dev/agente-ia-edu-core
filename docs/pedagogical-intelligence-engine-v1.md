@@ -197,3 +197,84 @@ depois `user_school_links` → `student_enrollments` → `students` → `users` 
 
 `aluno_teste_jornada` (`PILOTO-0002`, `qa_purpose = E2E_MANUAL_JOURNEY`)
 continua sem histórico nenhum e não foi tocado em momento algum deste bloco.
+
+---
+
+# Addendum — vertical slice vivo (2026-10-06)
+
+## O que passou a funcionar
+
+**O pré-requisito deixou de trancar a porta.** Medido antes: um aluno entrava
+numa atividade de Estequiometria, a rota o mandava para Balanceamento, e lá
+ficava — 29 tentativas e ESCALATE na base, sem nunca ser perguntado sobre
+Estequiometria. A causa estava em `passo_para`, que percorre os
+pré-requisitos do alvo antes de olhar para o alvo.
+
+Onde há grafo isso não acontece mais: as habilidades básicas do alvo estão
+dentro dele, então sondar o alvo já sonda as fundações. Conferido pela API —
+o aluno novo recebe `DIAGNOSTIC` sobre `CHEMISTRY-PHYSICAL-STOICHIOMETRY`.
+
+**Os cinco itens curados chegaram ao Question Bank.** A sondagem agora serve,
+de verdade:
+
+```
+LEITURA_DE_FORMULA     "Na fórmula NH₃, quantos átomos de hidrogênio…"
+MASSA_MOLAR            "Considere N = 14 g/mol e H = 1 g/mol. Qual é…"
+PROPORCAO              "…para cada 2 mol de NH₃, quantos mol de H₂?"
+```
+
+## O que ainda NÃO funciona, e o motivo exato
+
+Depois de responder a sondagem — acertando leitura de fórmula e errando massa
+molar — o alvo da intervenção continua `None`.
+
+A causa foi medida, e não é um bug:
+
+```
+amostra mínima da política: 3
+
+LEITURA_DE_FORMULA     1/1   banda = INSUFFICIENT_SAMPLE
+MASSA_MOLAR            0/1   banda = INSUFFICIENT_SAMPLE
+PROPORCAO              0/1   banda = INSUFFICIENT_SAMPLE
+```
+
+A sondagem pergunta **uma coisa de cada habilidade** — é o que a torna
+discriminativa. A `PerformanceThresholdPolicy` exige **três respostas** antes
+de concluir qualquer coisa sobre uma habilidade. As duas regras estão certas
+isoladamente e se anulam quando postas em série.
+
+### Por que não "resolvi" baixando o mínimo
+
+Porque a política está certa no que ela protege: uma resposta não distingue
+quem sabe de quem chutou, e com quatro alternativas o chute acerta uma vez em
+quatro. Baixar o corte para a demonstração funcionar seria inventar precisão —
+exatamente o que o projeto não faz.
+
+### A saída, que é uma decisão pedagógica e não um ajuste
+
+Há uma assimetria defensável, e ela precisa ser decidida, não deduzida:
+
+| | hoje | proposta |
+|---|---|---|
+| 1 item de sondagem **errado** | não conclui nada | **suspeita** suficiente para investigar |
+| 1 item de sondagem **certo** | não conclui nada | continua não confirmando |
+
+Intervir sobre uma suspeita é barato e reversível: o aluno recebe uma
+explicação que talvez já soubesse. Declarar domínio com uma resposta é caro e
+errado. A assimetria segue a direção conservadora que o sistema já adota em
+todo o resto.
+
+Isso é uma política nova, com efeito sobre o mapa de domínio, e merece o seu
+próprio bloco — não o fim de um bloco longo. Enquanto não for decidida, o
+caminho alternativo é a sondagem servir três itens **da mesma habilidade** por
+vez, o que a torna mais longa e menos ampla.
+
+## Dívidas atualizadas
+
+**P0** — a assimetria acima (ou três itens por habilidade). É o único passo
+entre o que existe e o cenário de aceitação completo.
+
+**P1** — material pedagógico por micro-habilidade; histórico de estratégias
+persistido; a escada L3→L0 lida pelo readiness.
+
+**P2** — spacing, geração de variantes, grafo editável sem deploy.
