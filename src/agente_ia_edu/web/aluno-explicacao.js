@@ -82,6 +82,22 @@
     };
   }
 
+  /**
+   * Há erro a entender neste resultado?
+   *
+   * Medido no navegador em 2026-10-06: o aluno errou 5 de 5 numa prática e a
+   * tela ofereceu "Continuar" (mais questões) e "Voltar ao início". A porta
+   * para entender existia só na revisão da ATIVIDADE da escola — e prática é
+   * justamente onde ele mais erra.
+   *
+   * Em branco conta como erro: deixar sem responder não é acertar, é não ter
+   * sabido o que fazer com a questão.
+   */
+  function ofereceEntender(resultado) {
+    var r = resultado || {};
+    return (Number(r.incorrect_count) || 0) + (Number(r.unanswered_count) || 0) > 0;
+  }
+
   /** A mensagem de falha de rede — honesta, e sem jargão. */
   function leituraDaFalha() {
     return 'Não consegui carregar a explicação agora. Você pode tentar de '
@@ -90,6 +106,7 @@
 
   var ExplicacaoUI = {
     acoes: acoes,
+    ofereceEntender: ofereceEntender,
     pedido: pedido,
     leitura: leitura,
     leituraDaFalha: leituraDaFalha,

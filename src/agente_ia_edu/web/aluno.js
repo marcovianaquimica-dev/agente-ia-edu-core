@@ -1182,6 +1182,12 @@
     pintarResultado();
   }
 
+  /** Ha erro a entender nesta pratica? (decide so a ORDEM dos botoes) */
+  function temErroAEntender(d) {
+    return !!(d && d.pratica && window.ExplicacaoUI.ofereceEntender(
+      (d.resultado && d.resultado.result) || {}));
+  }
+
   function pintarResultado() {
     pintarJornada();
     const d = app.diagnostico;
@@ -1209,12 +1215,26 @@
     // O aluno ACABOU de concluir uma etapa: o botao leva ao proximo passo,
     // com o rotulo que o backend calculou para ele.
     const seguir = cfg
-      ? `<button class="botao botao-principal" data-acao="${cfg.acao}"
+      ? `<button class="botao ${temErroAEntender(d) ? 'botao-secundario' : 'botao-principal'}" data-acao="${cfg.acao}"
                  ${passo.kind === 'ACTIVITY' && d.objetivo
                    ? `data-id="${esc(d.objetivo.assignment_id)}"` : ''}
                  ${passo.content_code ? `data-conteudo="${esc(passo.content_code)}"` : ''}
                  >${esc(rotuloDaAcao(passo, { aposConcluir: true,
                         feito: d.pratica ? 'PRACTICE' : 'DIAGNOSTIC' }))}</button>`
+      : '';
+
+    // ENTENDER VEM ANTES DE TENTAR DE NOVO.
+    //
+    // Medido no navegador em 2026-10-06: 5 erros de 5, e a tela oferecia
+    // "Continuar" (mais questoes) e "Voltar ao inicio". Quem errou precisa
+    // poder entender o que aconteceu, e por isso esta porta vem primeiro e
+    // como acao principal. Quem decide o PASSO continua sendo o backend; o
+    // que muda aqui e a ordem em que a tela oferece o que ja existe.
+    const res = (d.resultado && d.resultado.result) || {};
+    const entender = (d.pratica && window.ExplicacaoUI.ofereceEntender(res))
+      ? `<button class="botao botao-principal" data-acao="entender-erros"
+                 data-tentativa="${esc(d.assignment_id || '')}">
+           Entenda o que aconteceu</button>`
       : '';
 
     $('bloco').innerHTML = `
@@ -1229,6 +1249,7 @@
            entregue — ${d.pratica
              ? 'serve para firmar o conteúdo e ajustar seu próximo passo.'
              : 'serve só para eu saber por onde te ajudar.'}</p>
+        ${entender}
         ${seguir}
         <button class="botao botao-secundario" data-acao="inicio">Voltar ao início</button>
       </div>`;
@@ -1513,7 +1534,8 @@
         ...q, resultado: porVid[q.question_version_id] || null,
       }));
     } catch (_) { /* sem revisao: o placar ainda aparece */ }
-    a.revisao = { questoes, pos: 0 };
+    app.revisao = { assignment_id: a.assignment_id, questoes, pos: 0,
+                    explicacao: null };
 
     $('trilho').innerHTML = '';
     $('sessao-resumo').textContent = '';  // idem pintarResultado
@@ -1545,7 +1567,7 @@
   // "Entendi, quero tentar" devolve o aluno ao passo que o backend ja
   // decidiu, e nao conclui nada sobre dominio.
   function blocoDaExplicacao() {
-    const e = (app.atividade && app.atividade.explicacao) || {};
+    const e = (app.revisao && app.revisao.explicacao) || {};
     const acoes = window.ExplicacaoUI.acoes(e);
     const corpo = e.carregando
       ? aviso('Montando a explicacao...')
@@ -1565,26 +1587,55 @@
   }
 
   async function pedirExplicacao() {
-    const a = app.atividade;
-    const rev = a && a.revisao;
-    if (!rev) return;
+    const rev = app.revisao;
+    if (!rev || !rev.questoes.length) return;
     const q = rev.questoes[rev.pos];
-    const anterior = a.explicacao || {};
-    a.explicacao = { carregando: true, estrategia: anterior.estrategia };
+    const anterior = rev.explicacao || {};
+    rev.explicacao = { carregando: true, estrategia: anterior.estrategia };
     pintarRevisao();
     try {
       const r = await api(
-        `/api/v1/student/activities/${a.id}/attempt/result/explanation`,
+        `/api/v1/student/activities/${rev.assignment_id}/attempt/result/explanation`,
         { method: 'POST',
           body: JSON.stringify(window.ExplicacaoUI.pedido(
             q.question_version_id, anterior)) });
       const l = window.ExplicacaoUI.leitura(r);
-      a.explicacao = l.pronta ? l
+      rev.explicacao = l.pronta ? l
         : { erro: window.ExplicacaoUI.leituraDaFalha() };
     } catch (_) {
-      a.explicacao = { erro: window.ExplicacaoUI.leituraDaFalha() };
+      rev.explicacao = { erro: window.ExplicacaoUI.leituraDaFalha() };
     }
     pintarRevisao();
+  }
+
+  /**
+   * Monta a revisao de QUALQUER tentativa corrigida - atividade ou pratica.
+   *
+   * Dois endpoints que ja existem, casados por `question_version_id`:
+   *   /attempt         enunciado, alternativas e o que ele marcou
+   *   /attempt/result  o que era certo e se acertou
+   */
+  async function abrirRevisao(assignmentId) {
+    try {
+      const [r, estado] = await Promise.all([
+        api(`/api/v1/student/activities/${assignmentId}/attempt/result`),
+        api(`/api/v1/student/activities/${assignmentId}/attempt`),
+      ]);
+      const porVid = {};
+      for (const i of (r.items || [])) porVid[i.question_version_id] = i;
+      const questoes = (estado.questions || []).map((q) => ({
+        ...q, resultado: porVid[q.question_version_id] || null,
+      }));
+      if (!questoes.length) return;
+      app.revisao = { assignment_id: assignmentId, questoes, pos: 0,
+                      explicacao: null };
+      // COMECA NA PRIMEIRA QUE ELE ERROU. Abrir numa que ele acertou faria o
+      // aluno navegar atras do proprio erro para encontrar a explicacao.
+      const primeiroErro = questoes.findIndex(
+        (q) => q.resultado && q.resultado.is_correct === false);
+      if (primeiroErro >= 0) app.revisao.pos = primeiroErro;
+      pintarRevisao();
+    } catch (_) { /* sem revisao: a tela anterior continua valendo */ }
   }
 
   // ========================================================= a revisao ====
@@ -1592,8 +1643,7 @@
   // nao reabre a tentativa - ha teste provando que rever tres vezes nao muda
   // nada no mapa do aluno.
   function pintarRevisao() {
-    const a = app.atividade;
-    const rev = a && a.revisao;
+    const rev = app.revisao;
     if (!rev || !rev.questoes.length) return;
     pintarJornada();
     const total = rev.questoes.length;
@@ -1643,14 +1693,14 @@
   }
 
   function navegarRevisao(delta) {
-    const rev = app.atividade && app.atividade.revisao;
+    const rev = app.revisao;
     if (!rev) return;
     const nova = Math.min(Math.max(0, rev.pos + delta), rev.questoes.length - 1);
     if (nova === rev.pos) return;
     rev.pos = nova;
     // A explicacao era DAQUELA questao. Leva-la para a proxima mostraria ao
     // aluno o texto de um erro que nao e o que ele esta vendo.
-    app.atividade.explicacao = null;
+    rev.explicacao = null;
     pintarRevisao();
   }
 
@@ -1869,7 +1919,14 @@
       case 'questao-anterior': navegarQuestao(-1); return;
       case 'questao-proxima': navegarQuestao(1); return;
       case 'finalizar-atividade': finalizarAtividade(); return;
-      case 'revisar': app.atividade.explicacao = null; pintarRevisao(); return;
+      case 'revisar':
+        if (app.revisao) { app.revisao.explicacao = null; pintarRevisao(); }
+        return;
+      // ENTENDER O ERRO DE UMA PRATICA. A revisao nao e mais exclusiva da
+      // atividade da escola: medido em 2026-10-06, o aluno errava 5 de 5 numa
+      // pratica e a tela so oferecia mais questoes.
+      case 'entender-erros':
+        abrirRevisao(alvo.dataset.tentativa); return;
       case 'exp-explicar': pedirExplicacao(); return;
       // "EXPLIQUE DE OUTRO JEITO" e o mesmo pedido com a estrategia anterior
       // junto; quem escolhe a proxima e o backend, nao esta tela.
@@ -1877,11 +1934,11 @@
       // "ENTENDI, QUERO TENTAR" NAO E EVIDENCIA. Ele fecha a explicacao e
       // devolve o aluno ao passo que o backend ja decidiu - nao marca nada,
       // nao libera nada, nao pula verificacao.
-      case 'exp-entendi': app.atividade.explicacao = null; seguirOProximoPasso(); return;
+      case 'exp-entendi': app.revisao = null; seguirOProximoPasso(); return;
       case 'exp-duvida': abrirConversa(); return;
       case 'revisao-anterior': navegarRevisao(-1); return;
       case 'revisao-proxima': navegarRevisao(1); return;
-      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; app.guiada = null; irPara('inicio'); return;
+      case 'inicio': app.diagnostico = null; app.atividade = null; app.estudo = null; app.guiada = null; app.revisao = null; irPara('inicio'); return;
       case 'sair': localStorage.removeItem(CHAVE); irPara('inicio'); return;
       default: break;
     }

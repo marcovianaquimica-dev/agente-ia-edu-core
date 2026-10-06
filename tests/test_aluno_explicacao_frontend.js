@@ -83,3 +83,30 @@ test('a falha de rede nao mostra jargao nem divida tecnica', () => {
     assert.ok(!m.includes(proibido), `mensagem com jargão: ${proibido}`);
   }
 });
+
+// ------------------------------------------------------------------
+// MEDIDO NO NAVEGADOR, 2026-10-06: o aluno errou 5 de 5 numa prática de
+// Estequiometria e a tela ofereceu "Continuar" (mais questões) e "Voltar ao
+// início". Nenhuma porta para entender o que aconteceu — a explicação que
+// este módulo serve só era alcançável pela revisão da ATIVIDADE da escola,
+// e prática é justamente onde ele mais erra.
+// ------------------------------------------------------------------
+
+test('errou alguma: a tela oferece entender', () => {
+  assert.equal(E.ofereceEntender({ incorrect_count: 5, question_count: 5 }), true);
+  assert.equal(E.ofereceEntender({ incorrect_count: 1, question_count: 5 }), true);
+});
+
+test('acertou tudo: nao ha erro a entender', () => {
+  assert.equal(E.ofereceEntender({ incorrect_count: 0, question_count: 5 }), false);
+});
+
+test('sem resultado nenhum a tela nao promete uma porta', () => {
+  assert.equal(E.ofereceEntender(null), false);
+  assert.equal(E.ofereceEntender({}), false);
+});
+
+test('questao em branco tambem e questao a entender', () => {
+  // Deixar em branco não é acertar: o aluno não soube o que fazer com ela.
+  assert.equal(E.ofereceEntender({ incorrect_count: 0, unanswered_count: 2 }), true);
+});
