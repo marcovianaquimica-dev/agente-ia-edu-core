@@ -142,11 +142,38 @@ fuga *total* e uma frase de `detail` que usa linguagem de grau
 inconsistente de uma mesma evidência textual fixa. Qualquer correção da
 Task 11 que dependa de reescrever o prompt para ser "menos estrito" ou "mais
 estrito" em uma única direção não vai resolver uma inconsistência que é de
-amostragem, não de calibração direcional. Abordagens que valem considerar
-(decisão de design, não desta task): múltiplas chamadas com voto de
-maioria/consenso (o mesmo padrão que resolveu a inconsistência de
-`competency_scoring_v1`/`v2`), ou uma reformulação da pergunta que não force
-uma decisão binária sobre uma evidência inerentemente graduada.
+amostragem, não de calibração direcional.
+
+**Importante para a Task 11 — o único precedente deste codebase para essa
+classe de inconsistência já foi tentado aqui e não bastou.** O que de fato
+corrigiu a inconsistência em `competency_scoring_v1`/`v2` (ver seu module
+docstring, linhas 12-24) **não foi voto de maioria nem consenso entre
+múltiplas amostras da mesma decisão** — não há nenhum mecanismo de votação
+ali. O que corrigiu foi **estreitamento arquitetural**: trocar UMA chamada
+holística que decidia as cinco competências de uma vez (mais
+anotação-hunting, mais a devolutiva inteira, tudo no mesmo generation) por
+**N chamadas independentes, uma por competência, cada uma vendo só a
+evidência já extraída daquela competência, rodando concorrentemente**. O
+docstring registra que isso fez o modelo responder identicamente em 5/5
+chamadas repetidas — mas esse 5/5 é consequência de ter estreitado a decisão
+a um único julgamento bem delimitado, não de ter agregado várias amostras
+daquele julgamento.
+
+E `alert_review_v1` — a própria chamada diagnosticada nesta task — **já é
+uma instância desse mesmo padrão de estreitamento**, aplicada deliberadamente
+a este problema: seu module docstring (linhas 17-29) cita explicitamente o
+precedente de `competency_scoring_v1` como a inspiração ("The same
+architecture applies: a small, focused, single-decision call..."). Ou seja,
+o único approach comprovado neste codebase para este tipo de inconsistência
+já foi tentado exatamente aqui, e os 5 runs deste diagnóstico mostram que,
+sozinho, ele não produziu consistência para Sabrina/Henrique.
+
+Voto de maioria/consenso entre múltiplas amostras da mesma decisão binária é
+uma ideia que vale considerar para a Task 11 avaliar — mas é uma ideia **sem
+precedente validado neste codebase**, não uma extensão de algo que já
+funcionou aqui. Outra direção a considerar: uma reformulação da pergunta que
+não force uma decisão binária sobre uma evidência inerentemente graduada
+(a própria causa da inconsistência observada).
 
 ## Reprodutibilidade
 
