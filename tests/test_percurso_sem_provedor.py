@@ -51,6 +51,12 @@ DO_PERCURSO = (
     "services/pratica_guiada.py",
     "services/massa_molar.py",
     "services/feedback_pedagogico.py",
+    # A selecao do instrumento de sondagem entrou em 2026-10-07. Ela e
+    # conhecimento pedagogico do Nucleo - qual item mede qual
+    # micro-habilidade - e nao pode passar a depender de modelo nenhum.
+    "services/instrumento_de_sondagem.py",
+    "services/plano_de_sondagem.py",
+    "services/seletor_de_sondagem.py",
 )
 
 PROIBIDOS = ("providers.factory", "build_text_provider",
