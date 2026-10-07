@@ -48,7 +48,7 @@ from ..essay_engine_contract.v6 import (
     Feedback,
     Scores,
 )
-from ..essay_prompts import alert_review_v1, competency_scoring_v2, get_essay_prompt
+from ..essay_prompts import competency_scoring_v2, get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_image_corrector, build_text_provider
@@ -66,11 +66,12 @@ from .essay_input_reliability import (
     combine_input_reliability_signals,
     estimate_text_reliability_heuristic,
 )
+from .essay_zero_gate import ZeroGateDecision, evaluate_zero_gate
 from .institution_settings import InstitutionSettingsService
 
 logger = logging.getLogger(__name__)
 
-_ENGINE_VERSION = "r3_correction_engine_v3"
+_ENGINE_VERSION = "r3_correction_engine_v4"
 _PROMPT_VERSION = "essay_correction_v16"
 _QUALITY_GATE_VERSION = "quality_gate_v1"
 _RUBRIC_FILE_NAME = "enem_2025"
@@ -166,7 +167,7 @@ _ANULA_REDACAO_ALERT_CODES = frozenset({
 def _apply_deterministic_scoring_rules(
     output: EssayEngineOutput,
     phase2_points: dict[str, int] | None = None,
-    alert_codes: set[str] | None = None,
+    alert_codes: set[str] | ZeroGateDecision | None = None,
 ) -> dict | None:
     """Enforces the ENEM 2025 rubric's own normative scoring_rules
     (rubrics/enem_2025.yaml) on top of the starting per-competency points,
@@ -187,13 +188,25 @@ def _apply_deterministic_scoring_rules(
     same essay swung 0-80 on C1 alone across repeated identical calls) and
     are never what gets published once phase 2 has run.
 
-    ``alert_codes``, when given (see
-    EssayCorrectionService._review_anula_redacao_alerts), REPLACES
-    {alert.code for alert in output.alerts} for this function's own purposes
-    - phase 1's own ANULA_REDACAO alerts are ALSO calibration-noisy (same
-    2026-09-28 finding: a normal, gradeable essay got zeroed by a
-    whole-essay alert in 2 of 4 identical repeated corrections) and are
-    never what final_scores is computed from once the alert review has run.
+    ``alert_codes`` accepts two shapes, kept both for backward compatibility:
+
+    * a plain ``set[str] | None`` - the pre-Fase-C shape, still used by
+      services/mass_correction_batch.py (a separate, deliberately-pinned
+      pipeline this task does not touch - see its own module docstring).
+      ``None`` falls back to ``{alert.code for alert in output.alerts}``,
+      exactly as before any alert review existed.
+    * a :class:`~agente_ia_edu.services.essay_zero_gate.ZeroGateDecision`
+      (Fase C, spec 2026-10-06) - the new shape EssayCorrectionService._run_ai
+      passes. ``decision="ZERAR"`` forces the whole-essay-zero branch below
+      regardless of output.alerts (the Zero Gate's own independent read
+      replaces phase 1's noisy alert detection entirely, the same way the
+      old ``alert_codes`` override did); ``decision="NAO_ZERAR"`` uses
+      output.alerts minus the eight ANULA_REDACAO codes (already ruled out
+      by the Zero Gate) as the alert set, so TANGENCIAMENTO_AO_TEMA/
+      OCR_DUVIDOSO/POSSIVEL_DUPLICIDADE still pass through unaffected.
+      ``decision="ENCAMINHAR_REVISAO"`` is never passed here - the caller
+      short-circuits before this function is ever called for that case (see
+      _run_ai).
 
     Returns None when output.scores is None (FORMATIVO produces no grade to
     adjust - phase 2 never runs in that mode either, see correct()/_run_ai).
@@ -201,7 +214,12 @@ def _apply_deterministic_scoring_rules(
     if output.scores is None:
         return None
 
-    if alert_codes is None:
+    if isinstance(alert_codes, ZeroGateDecision):
+        if alert_codes.decision == "ZERAR":
+            alert_codes = set(_ANULA_REDACAO_ALERT_CODES)
+        else:
+            alert_codes = {alert.code for alert in output.alerts} - _ANULA_REDACAO_ALERT_CODES
+    elif alert_codes is None:
         alert_codes = {alert.code for alert in output.alerts}
     if phase2_points is not None:
         points = dict(phase2_points)
@@ -262,6 +280,43 @@ def _effective_essay_statement(submission: EssaySubmission, essay_prompt: EssayP
         "texto produzido contra este tema declarado pelo proprio "
         "participante - nao contra nenhum outro tema."
     )
+
+
+def _approximate_text_for_zero_gate(output: EssayEngineOutput) -> str:
+    """Best-effort substitute for canonical_text on an IMAGE_REGION
+    submission, which never has one (R2's documented consequence of skipped
+    transcription - see essay_submission.py's confirm_submission). The Zero
+    Gate's whole reason for existing (essay_zero_gate.py's module docstring)
+    is reading the FULL essay text independently, from scratch - but no
+    full-text reconstruction mechanism exists anywhere in this codebase for
+    IMAGE_REGION (confirmed by direct investigation for Task 11:
+    EssaySubmissionPage.ocr_tokens/reviewed_text are populated only when
+    transcription runs, i.e. only for TEXT_OFFSET; validate_engine_output
+    never builds one either).
+
+    This joins every annotation's own ImageRegionAnchor.read_text (what
+    phase 1 itself already read off that specific line) in page/line order,
+    deduplicated - real text the model already produced, not invented here.
+    It is a real degradation relative to TEXT_OFFSET: it only covers
+    annotated lines, never lines with no annotation, so the Zero Gate's
+    independent read of an IMAGE_REGION essay is weaker than for a
+    TEXT_OFFSET one. A dedicated image-based Zero Gate call (sending the
+    page images themselves, the way phase 1 already does) would close this
+    gap properly but is out of this task's scope - flagged in Task 11's
+    report.
+    """
+    lines: list[tuple[int, int, str]] = []
+    seen_text: set[str] = set()
+    for annotation in output.annotations:
+        anchor = annotation.anchor
+        if anchor is None or anchor.type != "IMAGE_REGION":
+            continue
+        if anchor.read_text in seen_text:
+            continue
+        seen_text.add(anchor.read_text)
+        lines.append((anchor.page, anchor.line, anchor.read_text))
+    lines.sort(key=lambda item: (item[0], item[1]))
+    return "\n".join(read_text for _, _, read_text in lines)
 
 
 def _rubric_payload(rubric_file: RubricFile) -> dict:
@@ -501,6 +556,25 @@ class EssayCorrectionService:
             # other future path (spec Fase B).
             correction.status = "NEEDS_REVIEW"
             return
+        if correction.zero_gate_decision is not None and correction.zero_gate_decision.get(
+            "requires_human_review"
+        ):
+            # Fase C: a genuine Zero Gate ENCAMINHAR_REVISAO (3-way
+            # disagreement that never resolved - see essay_zero_gate.py's
+            # docstring) must NEVER fall through to a normal grade decision,
+            # even though ai_output IS populated here (kept for audit - the
+            # reviewing teacher should see what the model actually produced,
+            # unlike a genuine provider failure where there is nothing to
+            # show). Without this guard, the "ai_output is None" check right
+            # below would miss this case (ai_output is not None) and fall
+            # into the "total is None" branch further down, which sets
+            # PENDING_REVIEW - violating
+            # ck_essay_corrections_failure_reason_requires_needs_review,
+            # since _run_ai also sets a non-null failure_reason for this
+            # outcome. Same "needs a human, not a silent auto-decision"
+            # contract as the Quality Gate's own short-circuit above.
+            correction.status = "NEEDS_REVIEW"
+            return
         if correction.ai_output is None:
             correction.status = "NEEDS_REVIEW"
             return
@@ -575,6 +649,7 @@ class EssayCorrectionService:
                 "failure_reason": f"Failed to load rubric file {_RUBRIC_FILE_NAME!r}: {exc}",
                 "input_tokens": None, "output_tokens": None,
                 "quality_gate_status": None, "quality_gate_version": None,
+                "zero_gate_decision": None, "zero_gate_version": None,
             }
         rubric_version = rubric_file.rubric_version
         failure_fields = {
@@ -584,6 +659,7 @@ class EssayCorrectionService:
             "final_scores": None, "final_feedback": None, "failure_reason": None,
             "input_tokens": None, "output_tokens": None,
             "quality_gate_status": None, "quality_gate_version": None,
+            "zero_gate_decision": None, "zero_gate_version": None,
         }
         try:
             rubric_view = await load_rubric_view(self.session, rubric_version)
@@ -737,31 +813,33 @@ class EssayCorrectionService:
                 "failure_reason": f"QUALITY_GATE_UNRELIABLE: {output.input_reliability.rationale}",
                 "input_tokens": input_tokens, "output_tokens": output_tokens,
                 "quality_gate_status": quality_gate_status, "quality_gate_version": _QUALITY_GATE_VERSION,
+                "zero_gate_decision": None, "zero_gate_version": None,
             }
 
         phase2_points: dict[str, int] | None = None
-        confirmed_alert_codes: set[str] | None = None
+        zero_gate_decision: ZeroGateDecision | None = None
         if output.scores is not None:
-            # Phase 2: only when there is a grade to refine at all - FORMATIVO
-            # (output.scores is None) has nothing for a competency score or
-            # an alert-driven zero to replace. Both sub-phases are
-            # independent of each other (neither reads the other's result),
-            # so they run concurrently. See _score_competencies_from_evidence
-            # and _review_anula_redacao_alerts docstrings for why each
-            # exists.
+            # Zero Gate (Fase C, spec 2026-10-06): resolves BEFORE C1-C5
+            # scoring, and ALWAYS runs - unlike the phase-2b alert review it
+            # replaces, it never depends on phase 1 having already raised an
+            # ANULA_REDACAO candidate (see essay_zero_gate.py's docstring for
+            # why: that dependency is exactly what let 7 of 8 real
+            # corrupted-text cases slip through undetected, since phase 1
+            # never raised a candidate for them to review in the first
+            # place). Competency scoring only runs afterwards, and only when
+            # the Zero Gate itself decided NAO_ZERAR - a ZERAR essay has no
+            # competency score left to refine, and an ENCAMINHAR_REVISAO one
+            # short-circuits below before ever reaching competency scoring.
             try:
-                phase2_points, confirmed_alert_codes = await asyncio.gather(
-                    self._score_competencies_from_evidence(
-                        output=output, rubric_file=rubric_file,
-                    ),
-                    self._review_anula_redacao_alerts(
-                        output=output,
-                        essay_statement=_effective_essay_statement(submission, essay_prompt),
-                    ),
+                zero_gate_decision = await evaluate_zero_gate(
+                    canonical_text=text if text is not None else _approximate_text_for_zero_gate(output),
+                    essay_statement=_effective_essay_statement(submission, essay_prompt),
+                    rubric_payload=rubric_payload,
+                    text_provider=self._get_text_provider(),
                 )
             except ProviderError as exc:
                 logger.warning(
-                    "essay correction for submission %s: phase-2 provider "
+                    "essay correction for submission %s: zero gate provider "
                     "error: %s", submission.id, exc,
                 )
                 return {
@@ -770,13 +848,77 @@ class EssayCorrectionService:
                 }
             except (json.JSONDecodeError, KeyError, ValueError) as exc:
                 logger.warning(
-                    "essay correction for submission %s: phase-2 returned "
+                    "essay correction for submission %s: zero gate returned "
                     "an unusable response: %s", submission.id, exc,
                 )
                 return {
                     **failure_fields, "model_version": model_version,
                     "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
                 }
+
+            if zero_gate_decision.decision == "ENCAMINHAR_REVISAO":
+                # Genuine 3-way disagreement that never resolved - the whole
+                # point of this outcome (see essay_zero_gate.py's docstring)
+                # is that it must NEVER fall through to a normal pedagogical
+                # grade as if the doubt did not exist. final_scores stays
+                # None, exactly like the Quality Gate's own
+                # UNRELIABLE_NEEDS_REVIEW short-circuit above.
+                key = compute_correction_key(
+                    normalized_text_hash=input_hash, essay_prompt_id=str(essay_prompt.id),
+                    rubric_version=rubric_version, model_version=model_version,
+                    prompt_version=prompt_artifact.version, engine_version=_ENGINE_VERSION,
+                )
+                return {
+                    "correction_key": key, "rubric_version": rubric_version,
+                    "model_version": model_version, "prompt_version": prompt_artifact.version,
+                    "engine_version": _ENGINE_VERSION,
+                    "ai_output": output.model_dump(mode="json"),
+                    "final_scores": None, "final_feedback": output.feedback.model_dump(mode="json"),
+                    "failure_reason": f"ZERO_GATE_UNCERTAIN: {zero_gate_decision.evidence}",
+                    "input_tokens": input_tokens, "output_tokens": output_tokens,
+                    "quality_gate_status": quality_gate_status, "quality_gate_version": _QUALITY_GATE_VERSION,
+                    "zero_gate_decision": {
+                        "decision": zero_gate_decision.decision,
+                        "rule_code": zero_gate_decision.rule_code,
+                        "evidence": zero_gate_decision.evidence,
+                        "confidence": zero_gate_decision.confidence,
+                        "requires_human_review": zero_gate_decision.requires_human_review,
+                    },
+                    "zero_gate_version": zero_gate_decision.rule_version,
+                }
+
+            if zero_gate_decision.decision == "NAO_ZERAR":
+                # Only spend a competency-scoring call once the Zero Gate
+                # has ruled out every whole-essay-zero code - a ZERAR essay
+                # has nothing left to refine (every competency goes to 0
+                # regardless), so this used to run unconditionally
+                # (concurrently with the old alert review) but now only runs
+                # after the Zero Gate's own verdict is known.
+                try:
+                    phase2_points = await self._score_competencies_from_evidence(
+                        output=output, rubric_file=rubric_file,
+                    )
+                except ProviderError as exc:
+                    logger.warning(
+                        "essay correction for submission %s: phase-2 provider "
+                        "error: %s", submission.id, exc,
+                    )
+                    return {
+                        **failure_fields, "model_version": model_version,
+                        "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
+                    }
+                except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                    logger.warning(
+                        "essay correction for submission %s: phase-2 returned "
+                        "an unusable response: %s", submission.id, exc,
+                    )
+                    return {
+                        **failure_fields, "model_version": model_version,
+                        "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
+                    }
+            # decision == "ZERAR": phase2_points stays None on purpose -
+            # _apply_deterministic_scoring_rules zeroes every competency,
+            # there is no score left to refine.
 
         key = compute_correction_key(
             normalized_text_hash=input_hash, essay_prompt_id=str(essay_prompt.id),
@@ -789,12 +931,23 @@ class EssayCorrectionService:
             "engine_version": _ENGINE_VERSION,
             "ai_output": output.model_dump(mode="json"),
             "final_scores": _apply_deterministic_scoring_rules(
-                output, phase2_points, confirmed_alert_codes,
+                output, phase2_points, zero_gate_decision,
             ),
             "final_feedback": output.feedback.model_dump(mode="json"),
             "failure_reason": None,
             "input_tokens": input_tokens, "output_tokens": output_tokens,
             "quality_gate_status": quality_gate_status, "quality_gate_version": _QUALITY_GATE_VERSION,
+            "zero_gate_decision": (
+                {
+                    "decision": zero_gate_decision.decision,
+                    "rule_code": zero_gate_decision.rule_code,
+                    "evidence": zero_gate_decision.evidence,
+                    "confidence": zero_gate_decision.confidence,
+                    "requires_human_review": zero_gate_decision.requires_human_review,
+                }
+                if zero_gate_decision is not None else None
+            ),
+            "zero_gate_version": zero_gate_decision.rule_version if zero_gate_decision is not None else None,
         }
 
     async def _score_competencies_from_evidence(
@@ -868,62 +1021,6 @@ class EssayCorrectionService:
 
         results = await asyncio.gather(*(_score_one(code) for code in COMPETENCY_CODES))
         return dict(results)
-
-    async def _review_anula_redacao_alerts(
-        self, *, output: EssayEngineOutput, essay_statement: str,
-    ) -> set[str]:
-        """Phase 2b of the correction pipeline (r3_correction_engine_v3): a
-        small, focused re-check of any whole-essay-zero alert phase 1
-        raised - see essay_prompts/alert_review_v1.py's module docstring
-        for the calibration finding that motivated this (2026-09-28: a
-        normal, gradeable essay - official C1=80 - got zeroed by an
-        ANULA_REDACAO alert in 2 of 4 identical repeated corrections, the
-        same inconsistency competency_scoring_v1 already fixed for the
-        per-competency score, but for the single highest-stakes decision in
-        the pipeline).
-
-        Only ever calls the provider when output.alerts contains at least
-        one _ANULA_REDACAO_ALERT_CODES candidate - the common case (no such
-        alert) returns immediately, at no extra cost. Never introduces a
-        code that was not already a candidate; non-ANULA_REDACAO alerts
-        (OCR_DUVIDOSO, POSSIVEL_DUPLICIDADE, TANGENCIAMENTO_AO_TEMA) are
-        passed through untouched, since only ANULA_REDACAO codes zero the
-        whole essay - see _apply_deterministic_scoring_rules.
-
-        Raises ProviderError / json.JSONDecodeError / KeyError / ValueError
-        on any failure - same caller-side handling as
-        _score_competencies_from_evidence. Never called for FORMATIVO.
-        """
-        all_codes = {alert.code for alert in output.alerts}
-        candidates = [
-            {"code": alert.code, "detail": alert.detail}
-            for alert in output.alerts
-            if alert.code in _ANULA_REDACAO_ALERT_CODES
-        ]
-        if not candidates:
-            return all_codes
-
-        prompt_text = alert_review_v1.build_prompt(
-            essay_statement=essay_statement, alerts=candidates,
-        )
-        result = await self._get_text_provider().generate(
-            TextGenerationRequest(prompt=prompt_text, seed=_CORRECTION_SEED)
-        )
-        payload = json.loads(result.text)
-        confirmed = set(payload["confirmed_alert_codes"])
-        if not isinstance(payload["confirmed_alert_codes"], list) or not all(
-            isinstance(code, str) for code in payload["confirmed_alert_codes"]
-        ):
-            raise ValueError(
-                f"alert review returned a non-list-of-strings "
-                f"confirmed_alert_codes: {payload['confirmed_alert_codes']!r}"
-            )
-        # Never let the review invent a code that was not itself a
-        # candidate - it may only narrow, never widen, the set phase 1 raised.
-        candidate_codes = {c["code"] for c in candidates}
-        confirmed &= candidate_codes
-        passthrough_codes = all_codes - candidate_codes
-        return confirmed | passthrough_codes
 
     async def _call_text_provider(
         self, *, submission: EssaySubmission, essay_prompt: EssayPrompt,

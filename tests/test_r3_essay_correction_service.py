@@ -24,6 +24,7 @@ from agente_ia_edu.db.models import (
     Segment,
     Student,
 )
+from agente_ia_edu.essay_prompts import zero_gate_v1
 from agente_ia_edu.providers.errors import ProviderTimeoutError
 from agente_ia_edu.providers.models import TextGenerationResult
 from agente_ia_edu.rubrics.loader import load_rubric_file
@@ -41,16 +42,26 @@ class _StubTextProvider:
     {"points": ..., "reasoning": ...} response, using per_competency_points
     (default: 160 for all five, matching _happy_payload's own default) so
     existing final_scores assertions keep meaning what they said before
-    phase 2 existed; a phase-2b (alert_review_v1) call - recognized by the
-    "ALERTS_TO_REVIEW:" marker - gets a {"confirmed_alert_codes": [...]}
-    response that by default CONFIRMS every code it was asked to review
-    (reject_alert_codes narrows that to a specific subset, for tests of the
-    rejection path)."""
+    phase 2 existed; a Zero Gate (zero_gate_v1, Fase C) call - recognized by
+    the "ZERO_GATE_RULES:" marker - gets a {"assessments": [...]} response
+    for all eight ZERO_GATE_CODES. The Zero Gate ALWAYS runs (unlike the
+    phase-2b alert review it replaced, which only ran when phase 1 raised a
+    candidate) and fires 3 independent calls per correction (self-
+    consistency, see essay_zero_gate.py) - by default every call answers
+    "nothing applies" (zero_gate_applies_codes empty), so every test that
+    does not care about the Zero Gate keeps behaving exactly as it did
+    before this phase existed (NAO_ZERAR, competency scoring proceeds
+    normally). zero_gate_applies_codes makes every one of the 3 calls
+    confirm those specific codes (3/3 - a clean majority, for tests that
+    want a deterministic ZERAR); zero_gate_responses, when given, is a list
+    consumed in order across the 3 (or more) individual calls instead,
+    letting a test control a majority/split outcome call-by-call."""
 
     def __init__(
         self, *, text="", model="gpt-test", raise_error=None, per_competency_points=None,
-        phase2_raise_error=None, phase2_text=None, reject_alert_codes=None,
-        alert_review_raise_error=None, alert_review_text=None,
+        phase2_raise_error=None, phase2_text=None,
+        zero_gate_applies_codes=None, zero_gate_raise_error=None,
+        zero_gate_text=None, zero_gate_responses=None,
         input_tokens=None, output_tokens=None,
     ):
         self._text = text
@@ -58,9 +69,10 @@ class _StubTextProvider:
         self._raise_error = raise_error
         self._phase2_raise_error = phase2_raise_error
         self._phase2_text = phase2_text
-        self._reject_alert_codes = reject_alert_codes or set()
-        self._alert_review_raise_error = alert_review_raise_error
-        self._alert_review_text = alert_review_text
+        self._zero_gate_applies_codes = zero_gate_applies_codes or set()
+        self._zero_gate_raise_error = zero_gate_raise_error
+        self._zero_gate_text = zero_gate_text
+        self._zero_gate_responses = zero_gate_responses
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
         self.last_request = None
@@ -75,7 +87,9 @@ class _StubTextProvider:
         # on a SPECIFIC competency's own prompt content (e.g. its rationale)
         # without a race on which call happened to finish last.
         self.phase2_requests_by_code: dict[str, object] = {}
+        self.zero_gate_requests: list[object] = []
         self.call_count = 0
+        self._zero_gate_call_index = 0
         self._per_competency_points = per_competency_points or {
             c: 160 for c in ("C1", "C2", "C3", "C4", "C5")
         }
@@ -96,16 +110,28 @@ class _StubTextProvider:
                 text=json.dumps({"points": points, "reasoning": "stub"}),
                 provider="stub", model=self.model,
             )
-        if "ALERTS_TO_REVIEW:" in request.prompt:
-            if self._alert_review_raise_error is not None:
-                raise self._alert_review_raise_error
-            if self._alert_review_text is not None:
-                return TextGenerationResult(text=self._alert_review_text, provider="stub", model=self.model)
-            candidate_codes = re.findall(r"- ([A-Z_]+): ", request.prompt)
-            confirmed = [c for c in candidate_codes if c not in self._reject_alert_codes]
+        if "ZERO_GATE_RULES:" in request.prompt:
+            self.zero_gate_requests.append(request)
+            if self._zero_gate_raise_error is not None:
+                raise self._zero_gate_raise_error
+            if self._zero_gate_text is not None:
+                return TextGenerationResult(text=self._zero_gate_text, provider="stub", model=self.model)
+            if self._zero_gate_responses is not None:
+                idx = self._zero_gate_call_index % len(self._zero_gate_responses)
+                self._zero_gate_call_index += 1
+                return TextGenerationResult(
+                    text=json.dumps(self._zero_gate_responses[idx]), provider="stub", model=self.model,
+                )
+            assessments = [
+                {
+                    "code": code, "applies": code in self._zero_gate_applies_codes,
+                    "evidence": "stub evidence" if code in self._zero_gate_applies_codes else "",
+                    "reasoning": "stub",
+                }
+                for code in zero_gate_v1.ZERO_GATE_CODES
+            ]
             return TextGenerationResult(
-                text=json.dumps({"confirmed_alert_codes": confirmed, "reasoning": "stub"}),
-                provider="stub", model=self.model,
+                text=json.dumps({"assessments": assessments}), provider="stub", model=self.model,
             )
         if self._raise_error is not None:
             raise self._raise_error
@@ -434,13 +460,23 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
         keeps the model's own (unrealistically high) scores exactly as
         reported; final_scores - what's actually published - is zeroed by
         the ENEM 2025 rubric's own ANULA_REDACAO rule for total fuga ao
-        tema, deterministically, not because the model did the arithmetic."""
+        tema, deterministically, not because the model did the arithmetic.
+
+        Since the Zero Gate (Fase C) decides ZERAR/NAO_ZERAR independently
+        of phase 1's own alerts (that is the whole point - see
+        essay_zero_gate.py's docstring), the alert in _happy_payload here
+        only exercises what ai_output ends up carrying; zero_gate_applies_codes
+        is what actually drives the zeroing, standing in for a majority
+        ZERAR verdict across the Zero Gate's 3 independent samples."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "20", correction_mode="FORMATIVO")
-            provider = _StubTextProvider(text=_happy_payload(
-                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
-                alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
-            ))
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
+                ),
+                zero_gate_applies_codes={"FUGA_AO_TEMA"},
+            )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
@@ -490,13 +526,18 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
         """One representative end-to-end check for the v4/v12 ANULA_REDACAO
         additions - the pure-function tests in
         test_r3_deterministic_scoring_rules.py already cover all five new
-        codes individually."""
+        codes individually. zero_gate_applies_codes stands in for a
+        majority ZERAR verdict - see test_fuga_ao_tema_alert_zeroes_... for
+        why the alert alone no longer drives the zeroing."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "24", correction_mode="FORMATIVO")
-            provider = _StubTextProvider(text=_happy_payload(
-                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
-                alerts=[{"code": "TEXTO_ILEGIVEL", "detail": "Nao foi possivel ler o texto."}],
-            ))
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "TEXTO_ILEGIVEL", "detail": "Nao foi possivel ler o texto."}],
+                ),
+                zero_gate_applies_codes={"TEXTO_ILEGIVEL"},
+            )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
@@ -856,9 +897,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
         from agente_ia_edu.services.essay_correction import _PROMPT_VERSION
         self.assertEqual(_PROMPT_VERSION, "essay_correction_v16")
 
-    def test_production_engine_version_is_v3(self):
+    def test_production_engine_version_is_v4(self):
         from agente_ia_edu.services.essay_correction import _ENGINE_VERSION
-        self.assertEqual(_ENGINE_VERSION, "r3_correction_engine_v3")
+        self.assertEqual(_ENGINE_VERSION, "r3_correction_engine_v4")
 
     async def test_phase2_scores_override_phase1_raw_scores_in_final_scores(self):
         """The whole point of phase 2 (calibration run 2026-09-28, see
@@ -890,8 +931,10 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                     correction.final_scores["per_competency"][code]["points"], points,
                 )
             self.assertEqual(correction.final_scores["total"], sum(phase2_points.values()))
-            # Phase 1 (1 call) + phase 2 (5 concurrent calls, one per competency).
-            self.assertEqual(provider.call_count, 6)
+            # Phase 1 (1 call) + Zero Gate (3 independent calls, always run,
+            # defaults to NAO_ZERAR) + phase 2 (5 concurrent calls, one per
+            # competency, run since the Zero Gate decided NAO_ZERAR).
+            self.assertEqual(provider.call_count, 9)
 
     async def test_phase2_provider_failure_becomes_needs_review(self):
         async with self.session_factory() as session:
@@ -1025,13 +1068,15 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                 "Repertorio unico de C2.", provider.phase2_requests_by_code["C3"].prompt,
             )
 
-    async def test_alert_review_can_reject_a_false_positive_anula_redacao_alert(self):
-        """The whole point of phase 2b (calibration run 2026-09-28, see
-        essay_prompts/alert_review_v1.py's docstring): a normal, gradeable
-        essay - phase 1 wrongly raised TEXTO_INSUFICIENTE - must NOT be
-        zeroed once the alert review rejects it. ai_output keeps phase 1's
-        own alert exactly as reported; final_scores reflects the review's
-        verdict instead."""
+    async def test_zero_gate_disagreeing_with_phase1_alert_does_not_zero(self):
+        """The whole point of the Zero Gate (Fase C, replacing phase 2b's
+        alert_review_v1 - see essay_zero_gate.py's docstring): a normal,
+        gradeable essay - phase 1 wrongly raised TEXTO_INSUFICIENTE - must
+        NOT be zeroed once the Zero Gate's own 3 independent samples find
+        nothing. ai_output keeps phase 1's own alert exactly as reported;
+        final_scores reflects the Zero Gate's NAO_ZERAR verdict instead -
+        the stub's default (zero_gate_applies_codes empty) already means
+        "nothing applies", so no override is needed here."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "30", correction_mode="FORMATIVO")
             phase2_points = {c: 160 for c in ("C1", "C2", "C3", "C4", "C5")}
@@ -1042,36 +1087,45 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                     per_competency_points=phase2_points,
                 ),
                 per_competency_points=phase2_points,
-                reject_alert_codes={"TEXTO_INSUFICIENTE"},
             )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.status, "APPROVED")
             self.assertEqual(correction.ai_output["alerts"][0]["code"], "TEXTO_INSUFICIENTE")
+            self.assertEqual(correction.zero_gate_decision["decision"], "NAO_ZERAR")
             self.assertEqual(correction.final_scores["total"], sum(phase2_points.values()))
             for code, points in phase2_points.items():
                 self.assertEqual(correction.final_scores["per_competency"][code]["points"], points)
 
-    async def test_alert_review_confirming_the_alert_still_zeroes_final_scores(self):
-        """The mirror case of the rejection test above - the stub's default
-        behavior (confirm everything asked) must still zero the essay, the
-        same outcome the pre-phase-2b alert tests already covered."""
+    async def test_zero_gate_confirming_zeroes_final_scores(self):
+        """The mirror case of the disagreement test above - a Zero Gate
+        majority ZERAR verdict (3/3 here) must zero the essay, the same
+        outcome the pre-Fase-C alert tests already covered."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "31", correction_mode="FORMATIVO")
-            provider = _StubTextProvider(text=_happy_payload(
-                anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
-                alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
-            ))
+            provider = _StubTextProvider(
+                text=_happy_payload(
+                    anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
+                    alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
+                ),
+                zero_gate_applies_codes={"FUGA_AO_TEMA"},
+            )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.status, "APPROVED")
+            self.assertEqual(correction.zero_gate_decision["decision"], "ZERAR")
+            self.assertEqual(correction.zero_gate_decision["rule_code"], "FUGA_AO_TEMA")
             self.assertEqual(correction.final_scores["total"], 0)
 
-    async def test_alert_review_never_called_when_no_anula_redacao_alert_was_raised(self):
-        """The common case: no candidate alert means no extra call at all -
-        not just an ignored one."""
+    async def test_zero_gate_still_runs_even_when_no_anula_redacao_alert_was_raised(self):
+        """The core improvement Fase C delivers over the old phase 2b (see
+        essay_zero_gate.py's docstring): the Zero Gate NEVER depends on
+        phase 1 having already raised a candidate - it always runs its 3
+        independent samples, discovering a zero-situation phase 1 missed
+        entirely was exactly the gap the old alert_review_v1-based call
+        could never close."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "32", correction_mode="FORMATIVO")
             provider = _StubTextProvider(
@@ -1081,14 +1135,17 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.status, "APPROVED")
-            # Phase 1 (1 call) + phase 2a (5 concurrent competency calls) -
-            # no phase-2b call, since output.alerts was empty.
-            self.assertEqual(provider.call_count, 6)
+            self.assertEqual(correction.zero_gate_decision["decision"], "NAO_ZERAR")
+            # Phase 1 (1 call) + Zero Gate (3 independent calls, always run)
+            # + phase 2a (5 concurrent competency calls, since NAO_ZERAR).
+            self.assertEqual(provider.call_count, 9)
+            self.assertEqual(len(provider.zero_gate_requests), 3)
 
-    async def test_alert_review_non_anula_redacao_alerts_pass_through_without_a_call(self):
+    async def test_zero_gate_non_anula_redacao_alerts_pass_through(self):
         """OCR_DUVIDOSO/POSSIVEL_DUPLICIDADE/TANGENCIAMENTO_AO_TEMA never
-        zero the whole essay, so they are never sent to alert_review_v1 -
-        only _ANULA_REDACAO_ALERT_CODES candidates trigger that call."""
+        zero the whole essay and are not part of ZERO_GATE_CODES at all -
+        they pass through _apply_deterministic_scoring_rules untouched
+        once the Zero Gate (which still runs) decides NAO_ZERAR."""
         async with self.session_factory() as session:
             submission = await self._submission(session, "33", correction_mode="FORMATIVO")
             provider = _StubTextProvider(text=_happy_payload(
@@ -1100,9 +1157,9 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(correction.status, "APPROVED")
             self.assertEqual(correction.final_scores["total"], 800)
-            self.assertEqual(provider.call_count, 6)
+            self.assertEqual(provider.call_count, 9)
 
-    async def test_alert_review_provider_failure_becomes_needs_review(self):
+    async def test_zero_gate_provider_failure_becomes_needs_review(self):
         async with self.session_factory() as session:
             submission = await self._submission(session, "34", correction_mode="FORMATIVO")
             provider = _StubTextProvider(
@@ -1110,7 +1167,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                     anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
                     alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
                 ),
-                alert_review_raise_error=ProviderTimeoutError("alert review timed out"),
+                zero_gate_raise_error=ProviderTimeoutError("zero gate timed out"),
             )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
@@ -1120,7 +1177,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(correction.final_scores)
             self.assertIn("CompetencyScoringFailed", correction.failure_reason)
 
-    async def test_alert_review_invalid_response_shape_becomes_needs_review(self):
+    async def test_zero_gate_invalid_response_shape_becomes_needs_review(self):
         async with self.session_factory() as session:
             submission = await self._submission(session, "35", correction_mode="FORMATIVO")
             provider = _StubTextProvider(
@@ -1128,7 +1185,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
                     anchor_mode="TEXT_OFFSET", text=submission.canonical_text,
                     alerts=[{"code": "FUGA_AO_TEMA", "detail": "Nao desenvolveu o tema."}],
                 ),
-                alert_review_text=json.dumps({"confirmed_alert_codes": "FUGA_AO_TEMA", "reasoning": "x"}),
+                zero_gate_text=json.dumps({"assessments": "not-a-list"}),
             )
             service = EssayCorrectionService(session, text_provider=provider)
             correction = await service.correct(submission.id)
@@ -1136,6 +1193,51 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.status, "NEEDS_REVIEW")
             self.assertIn("CompetencyScoringFailed", correction.failure_reason)
             self.assertIn("ValueError", correction.failure_reason)
+
+    async def test_zero_gate_encaminha_revisao_never_reaches_a_normal_grade(self):
+        """The new third outcome (Fase C) - genuine 3-way disagreement that
+        does not resolve into either a majority or a clean "nothing
+        applies" - must short-circuit to NEEDS_REVIEW with no final_scores,
+        exactly like the Quality Gate's own UNRELIABLE_NEEDS_REVIEW path.
+        This is the exact failure mode Task 10 diagnosed for Sabrina/
+        Henrique: a result that should have been flagged as uncertain
+        instead silently falling through to a normal pedagogical grade."""
+        async with self.session_factory() as session:
+            submission = await self._submission(session, "36", correction_mode="FORMATIVO")
+            # 3 different codes, each voted true exactly once across the 3
+            # samples - no majority anywhere, but 2+ distinct codes with a
+            # vote means genuine disagreement (see
+            # essay_zero_gate._aggregate_zero_gate_runs' docstring).
+            codes = list(zero_gate_v1.ZERO_GATE_CODES)
+            responses = [
+                {
+                    "assessments": [
+                        {
+                            "code": c, "applies": c == codes[i], "evidence": "x" if c == codes[i] else "",
+                            "reasoning": "stub",
+                        }
+                        for c in codes
+                    ],
+                }
+                for i in range(3)
+            ]
+            provider = _StubTextProvider(
+                text=_happy_payload(anchor_mode="TEXT_OFFSET", text=submission.canonical_text),
+                zero_gate_responses=responses,
+            )
+            service = EssayCorrectionService(session, text_provider=provider)
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.final_scores)
+            self.assertIsNotNone(correction.ai_output)
+            self.assertEqual(correction.zero_gate_decision["decision"], "ENCAMINHAR_REVISAO")
+            self.assertTrue(correction.zero_gate_decision["requires_human_review"])
+            self.assertIn("ZERO_GATE_UNCERTAIN", correction.failure_reason)
+            # Competency scoring must never have been reached - the whole
+            # point of this outcome is that it short-circuits before a
+            # normal grade is ever computed.
+            self.assertEqual(provider.phase2_requests_by_code, {})
 
 
 class StructuredC2C3RationaleTests(unittest.TestCase):
