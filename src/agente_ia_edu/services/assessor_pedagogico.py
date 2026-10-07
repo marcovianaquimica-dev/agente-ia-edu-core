@@ -378,9 +378,19 @@ def _motivo(assunto: str, conteudo_nome: str | None, objetivo_nome: str | None) 
     Sem `readiness`, `DIRECT`, `band` ou `origin_breakdown`: esses conceitos
     sao do sistema, e ler o proprio diagnostico escrito em codigo interno nao
     ajuda ninguem a aprender.
+
+    A PONTE SO EXISTE QUANDO HA DOIS LADOS.
+    ========================================
+    Medido no navegador em 2026-10-07: "Estequiometria e calculos quimicos e a
+    base de Estequiometria e calculos quimicos - vale firmar isso antes."
+
+    Nao e erro de dado. E o caso NORMAL de uma atividade cujo proprio conteudo
+    precisa de preparacao: `objetivo_nome` e `conteudo_nome` chegam iguais, e a
+    frase se dobra sobre si mesma. O `aluno.js` ja tinha o guarda; o backend,
+    que e a autoridade sobre o texto, nao tinha.
     """
     onde = conteudo_nome or "esta base"
-    if objetivo_nome:
+    if objetivo_nome and objetivo_nome != conteudo_nome:
         return (f"Pelas suas respostas, {assunto} ainda está travando. "
                 f"{onde} é a base de {objetivo_nome} — vale firmar isso antes.")
     return (f"Pelas suas respostas, {assunto} ainda está travando. "

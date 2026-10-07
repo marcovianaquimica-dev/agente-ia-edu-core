@@ -54,6 +54,15 @@
       concluidas: (d.concluidas || []).slice(),
       // O ensino da etapa que nao ficou de pe. Nunca a letra.
       retorno: (d.retorno && d.retorno.comentario) || '',
+      // 1 = a regra, sem o numero. 2 = a regra aplicada. Quem escolhe e o
+      // backend, pela contagem de tentativas daquela etapa.
+      retornoNivel: (d.retorno && d.retorno.nivel) || 0,
+      // SO NO PRIMEIRO NIVEL. O aluno acabou de receber a regra sem o
+      // resultado, e precisa saber que a ajuda nao acabou - senao esconder o
+      // numero parece desamparo em vez de convite a recontar.
+      convite: (d.retorno && d.retorno.nivel === 1)
+        ? 'Tente recontar com essa regra. Se ainda não sair, eu abro a conta.'
+        : '',
       progresso: progresso(d),
       // A micro-habilidade localizada. Serve a tela para NADA pedagogico -
       // ela nao escolhe o proximo passo com isto; e informacao de depuracao

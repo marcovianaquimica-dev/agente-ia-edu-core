@@ -100,12 +100,20 @@ class InvestigacaoService:
 
     # -- leitura -----------------------------------------------------------
 
-    async def _resolvidas(self, aluno: str, inv: Investigacao) -> dict[int, str]:
-        """{ordem: resposta} a partir do que esta gravado.
+    async def _estado_gravado(
+            self, aluno: str,
+            inv: Investigacao) -> tuple[dict[int, str], dict[int, int]]:
+        """({ordem: resposta}, {ordem: tentativas}) a partir do que esta gravado.
 
         Etapa com linha concluida vale como respondida CORRETAMENTE - e ela so
         fica concluida tendo sido acertada, porque e `responder` quem marca.
         Etapa com linha aberta vale como tentada e nao resolvida.
+
+        A CONTAGEM DE TENTATIVAS VIAJA JUNTO porque e ela que escolhe o nivel
+        do retorno: na primeira vez o aluno recebe a regra sem o numero, e da
+        segunda em diante a regra aplicada. Sem este segundo dicionario, a
+        visao cairia sempre no primeiro nivel e quem errou tres vezes leria a
+        mesma pista tres vezes.
         """
         chaves = {_chave(inv.key, e.ordem): e.ordem for e in inv.etapas}
         linhas = (await self._session.execute(
@@ -113,12 +121,15 @@ class InvestigacaoService:
                 GuidedPracticeItem.student_external_id == aluno,
                 GuidedPracticeItem.item_key.in_(list(chaves)),
             ))).scalars().all()
-        saida: dict[int, str] = {}
+        respostas: dict[int, str] = {}
+        tentativas: dict[int, int] = {}
         for linha in linhas:
             ordem = chaves[linha.item_key]
             etapa = next(e for e in inv.etapas if e.ordem == ordem)
-            saida[ordem] = etapa.correta if linha.completed else _TENTOU_E_ERROU
-        return saida
+            respostas[ordem] = (etapa.correta if linha.completed
+                                else _TENTOU_E_ERROU)
+            tentativas[ordem] = int(linha.attempts or 0)
+        return respostas, tentativas
 
     def _resolver(self, content_code: str, skill: str | None) -> Investigacao:
         inv = investigacao_para(content_code, skill)
@@ -135,7 +146,8 @@ class InvestigacaoService:
         """
         self._so_o_proprio(aluno, requester)
         inv = self._resolver(content_code, skill)
-        return para_o_aluno(inv, await self._resolvidas(aluno, inv))
+        respostas, tentativas = await self._estado_gravado(aluno, inv)
+        return para_o_aluno(inv, respostas, tentativas=tentativas)
 
     async def pendente(self, aluno: str, content_code: str, skill: str | None,
                        *, requester: Requester) -> bool:
@@ -149,7 +161,8 @@ class InvestigacaoService:
         inv = investigacao_para(content_code, skill)
         if inv is None:
             return False
-        return proxima_etapa(inv, await self._resolvidas(aluno, inv)) is not None
+        respostas, _ = await self._estado_gravado(aluno, inv)
+        return proxima_etapa(inv, respostas) is not None
 
     # -- escrita -----------------------------------------------------------
 
@@ -178,18 +191,18 @@ class InvestigacaoService:
         if etapa is None:
             raise SemInvestigacao(f"{inv_key}#{ordem}")
 
-        resolvidas = await self._resolvidas(aluno, inv)
+        resolvidas, tentativas = await self._estado_gravado(aluno, inv)
         aberta = proxima_etapa(inv, resolvidas)
         acertou = conferir_resposta(etapa, escolha)
 
         if aberta is not None and aberta.ordem == etapa.ordem:
             await self._registrar(aluno, inv, etapa, acertou=acertou)
-            resolvidas = await self._resolvidas(aluno, inv)
+            resolvidas, tentativas = await self._estado_gravado(aluno, inv)
         else:
             # Fora da vez: nada e gravado, e a visao devolvida e a real.
             acertou = False
 
-        saida = para_o_aluno(inv, resolvidas)
+        saida = para_o_aluno(inv, resolvidas, tentativas=tentativas)
         saida["correct"] = acertou
         return saida
 

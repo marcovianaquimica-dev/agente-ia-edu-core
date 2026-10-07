@@ -52,11 +52,29 @@ from agente_ia_edu.services.grafo_estequiometria import (
 
 @dataclass(frozen=True)
 class EtapaDaInvestigacao:
-    """Uma pergunta que isola UMA etapa - e o que dizer dos dois desfechos.
+    """Uma pergunta que isola UMA etapa - e o que dizer de cada desfecho.
 
-    `se_errar` nao e a resposta com outras palavras: e o ensino daquela etapa.
-    Dizer "a resposta e C" encerra a pergunta sem ensinar nada, e ha teste
-    exigindo substancia aqui.
+    DOIS NIVEIS PARA QUEM ERRA, E O QUE OS SEPARA E A TENTATIVA
+    ============================================================
+    Medido no navegador em 2026-10-06: o aluno errou a etapa 1 de massa molar
+    e leu "o indice conta os atomos daquele elemento: em NH3 sao TRES
+    hidrogenios". A regra esta certa e a frase e gentil - e ela entrega o
+    numero. O aluno clica em C sem ter recontado nada, a etapa fica
+    registrada como resolvida, e o sistema conclui que aquela
+    micro-habilidade esta de pe quando a unica coisa que aconteceu foi ele
+    ler a resposta.
+
+        `pista`      1a vez: a REGRA, sem aplica-la a este item
+        `se_errar`   2a vez em diante: a regra APLICADA
+
+    Nao e esconder para sempre - e esconder por uma tentativa. Quem errou
+    duas vezes ja mostrou que a regra sozinha nao bastou, e insistir em
+    esconder ai vira castigo em vez de pedagogia.
+
+    Nenhum dos dois e a resposta com outras palavras: dizer "a resposta e C"
+    encerra a pergunta sem ensinar nada. Ha teste varrendo a pista atras do
+    algarismo E do numero por extenso - foi a assercao que faltava, e por
+    isso o problema chegou ao navegador.
     """
 
     ordem: int
@@ -66,6 +84,7 @@ class EtapaDaInvestigacao:
     correta: str
     conferencia: str
     se_acertar: str
+    pista: str
     se_errar: str
 
 
@@ -105,6 +124,9 @@ _LEITURA = Investigacao(
             conferencia="indice de H em H2O",
             se_acertar="Isso. O número pequeno depois do símbolo diz quantos "
                        "átomos daquele elemento a fórmula tem.",
+            pista="O número pequeno que vem depois de um símbolo é o índice, e "
+                  "ele conta os átomos daquele elemento. Olhe só para o H "
+                  "desta fórmula e veja que número está colado nele.",
             se_errar="O número pequeno que vem depois do símbolo é o índice, e "
                      "ele conta os átomos daquele elemento. Em H₂O o 2 está "
                      "colado no H, então são dois hidrogênios; o oxigênio não "
@@ -117,6 +139,9 @@ _LEITURA = Investigacao(
             correta="C",
             conferencia="indice de H em NH3",
             se_acertar="Exato: três hidrogênios, e um nitrogênio.",
+            pista="Vale a mesma regra da anterior: o índice fica colado no "
+                  "símbolo e conta os átomos daquele elemento. Confira qual "
+                  "número está colado no hidrogênio nesta fórmula.",
             se_errar="O 3 está colado no H, então ele conta hidrogênios: são "
                      "três. O nitrogênio aparece sem índice nenhum, e símbolo "
                      "sem índice quer dizer um átomo."),
@@ -129,6 +154,9 @@ _LEITURA = Investigacao(
             conferencia="indice de O em Ca(OH)2",
             se_acertar="Isso mesmo. O índice fora do parêntese multiplica "
                        "tudo o que está dentro dele.",
+            pista="Aqui apareceu um parêntese, e o índice que vem depois dele "
+                  "multiplica tudo o que está lá dentro. Conte os oxigênios de "
+                  "dentro e aplique esse multiplicador.",
             se_errar="O índice que vem depois do parêntese multiplica tudo o "
                      "que está lá dentro. Dentro de (OH) há um oxigênio e um "
                      "hidrogênio; com o 2 do lado de fora, a fórmula passa a "
@@ -154,6 +182,9 @@ _MASSA_MOLAR = Investigacao(
             conferencia="indice de H em NH3",
             se_acertar="Isso. Então a massa molar vai precisar contar o "
                        "hidrogênio três vezes.",
+            pista="O índice fica colado no símbolo e conta os átomos daquele "
+                  "elemento; símbolo sem índice nenhum vale um átomo. Releia a "
+                  "fórmula olhando apenas para o hidrogênio.",
             se_errar="O número pequeno colado no símbolo conta os átomos "
                      "daquele elemento: em NH₃ são três hidrogênios. O "
                      "nitrogênio vem sem índice, e isso quer dizer um átomo."),
@@ -168,6 +199,10 @@ _MASSA_MOLAR = Investigacao(
             conferencia="3 * 1",
             se_acertar="Isso. Cada elemento entra tantas vezes quanto o "
                        "índice manda.",
+            pista="A contribuição de um elemento é a massa atômica dele "
+                  "multiplicada pelo índice. Pegue o índice do hidrogênio "
+                  "nesta fórmula e multiplique pela massa atômica que o "
+                  "enunciado deu.",
             se_errar="A contribuição de um elemento é a massa atômica dele "
                      "multiplicada pelo índice. Com três hidrogênios de 1 "
                      "g/mol cada, a conta é uma multiplicação simples, e o "
@@ -183,6 +218,9 @@ _MASSA_MOLAR = Investigacao(
             conferencia="14 + 3",
             se_acertar="É isso: massa molar é a soma das contribuições de "
                        "cada elemento da fórmula.",
+            pista="A massa molar é a soma das contribuições de todos os "
+                  "elementos da fórmula, sem deixar nenhum de fora. Some as "
+                  "duas parcelas que o enunciado acabou de dar.",
             se_errar="A massa molar é a soma das contribuições de todos os "
                      "elementos, nenhum de fora. Some a parte do nitrogênio "
                      "com a parte dos hidrogênios e o total é a massa de um "
@@ -208,6 +246,9 @@ _MASSA_MOL = Investigacao(
             correta="B",
             conferencia="2*1 + 16",
             se_acertar="Isso. Dois hidrogênios valem 2, mais 16 do oxigênio.",
+            pista="Multiplique a massa atômica de cada elemento pelo índice "
+                  "dele e some as parcelas. Repare que o hidrogênio aparece "
+                  "mais de uma vez nesta fórmula, e o oxigênio só uma.",
             se_errar="São dois hidrogênios de 1 g/mol e um oxigênio de 16 "
                      "g/mol. Multiplique cada massa atômica pelo índice e "
                      "some as duas partes para chegar à massa de um mol."),
@@ -221,6 +262,10 @@ _MASSA_MOL = Investigacao(
             conferencia="36 / 18",
             se_acertar="Exato. A massa molar diz quanto pesa um mol, então "
                        "dividir pela massa molar conta quantos mol cabem.",
+            pista="A massa molar diz quanto pesa um mol da substância. Para "
+                  "saber quantos mol cabem numa massa, divida a massa pela "
+                  "massa molar — e confira a unidade: o resultado precisa sair "
+                  "em mol.",
             se_errar="A massa molar diz quanto pesa um mol da substância. "
                      "Para descobrir quantos mol cabem numa massa, divida a "
                      "massa pela massa molar — e repare que o resultado sai "
@@ -233,6 +278,9 @@ _MASSA_MOL = Investigacao(
             correta="B",
             conferencia="0.5 * 18",
             se_acertar="Isso. No sentido contrário a conta é multiplicar.",
+            pista="Indo de mol para massa o caminho se inverte: em vez de "
+                  "dividir, multiplique a quantidade de matéria pela massa "
+                  "molar que você acabou de confirmar.",
             se_errar="Indo de mol para massa o caminho se inverte: em vez de "
                      "dividir, multiplique a quantidade de matéria pela massa "
                      "molar. Metade de um mol pesa metade do que pesa um mol "
@@ -268,6 +316,9 @@ _PROPORCAO = Investigacao(
             conferencia="14 / 28",
             se_acertar="Isso. Meio mol de N₂ — essa é a quantidade com que "
                        "vamos trabalhar.",
+            pista="Para ir de massa para quantidade de matéria, divida a massa "
+                  "que o enunciado deu pela massa molar informada. Confira a "
+                  "unidade do resultado: ela precisa sair em mol.",
             se_errar="Para ir de massa para quantidade de matéria, divida a "
                      "massa pela massa molar. Como 14,0 g é metade dos 28,0 g "
                      "que um mol inteiro pesaria, o resultado também é "
@@ -285,6 +336,9 @@ _PROPORCAO = Investigacao(
             se_acertar="Exato. Os coeficientes da equação são a proporção "
                        "entre as quantidades — e é essa etapa que muda o "
                        "número.",
+            pista="Os números na frente das fórmulas são a proporção entre as "
+                  "quantidades de matéria. Compare o coeficiente do N₂ com o "
+                  "do NH₃ e aplique essa razão à quantidade do passo anterior.",
             se_errar="Os números na frente das fórmulas são a proporção entre "
                      "as quantidades de matéria. Como saem 2 mol de NH₃ para "
                      "cada 1 mol de N₂, a quantidade de amônia é o dobro da "
@@ -304,6 +358,9 @@ _PROPORCAO = Investigacao(
             conferencia="1.0 * 17",
             se_acertar="É isso: 17,0 g de amônia. Repare que a etapa da "
                        "proporção é a que separa esse valor de 8,50 g.",
+            pista="No último passo o caminho é multiplicar a quantidade de "
+                  "matéria pela massa molar da substância. Os dois valores já "
+                  "apareceram: um no passo anterior, o outro no enunciado.",
             se_errar="No último passo o caminho é multiplicar a quantidade de "
                      "matéria pela massa molar. Um mol da substância pesa "
                      "exatamente a massa molar dela, então o resultado vem "
@@ -372,7 +429,8 @@ def conferir_resposta(etapa: EtapaDaInvestigacao, escolha: str) -> bool:
 
 
 def para_o_aluno(inv: Investigacao,
-                 respostas: Mapping[int, str] | None) -> dict:
+                 respostas: Mapping[int, str] | None,
+                 tentativas: Mapping[int, int] | None = None) -> dict:
     """A investigacao como ela pode chegar ao cliente.
 
     O QUE NAO ESTA AQUI NAO VAZA. A letra correta de uma etapa ABERTA nao sai
@@ -397,11 +455,24 @@ def para_o_aluno(inv: Investigacao,
                 "comentario": e.se_acertar,
             })
 
-    # O desfecho da ULTIMA tentativa errada da etapa aberta - o ensino
-    # daquela etapa, sem a letra.
+    # O DESFECHO DA ULTIMA TENTATIVA ERRADA DA ETAPA ABERTA.
+    #
+    # Nunca a letra. E, na PRIMEIRA vez, nem o numero: so a regra, para o
+    # aluno recontar. Ver o cabecalho de `EtapaDaInvestigacao` - a versao
+    # anterior entregava o resultado na primeira frase, e a etapa ficava
+    # registrada como resolvida por leitura.
+    #
+    # Sem contagem de tentativas, o padrao e a pista: na duvida, o caminho
+    # que ensina mais.
     ultima_errada = None
     if atual is not None and dadas.get(atual.ordem):
-        ultima_errada = {"ordem": atual.ordem, "comentario": atual.se_errar}
+        quantas = int((tentativas or {}).get(atual.ordem) or 1)
+        primeira = quantas <= 1
+        ultima_errada = {
+            "ordem": atual.ordem,
+            "nivel": 1 if primeira else 2,
+            "comentario": atual.pista if primeira else atual.se_errar,
+        }
 
     return {
         "key": inv.key,

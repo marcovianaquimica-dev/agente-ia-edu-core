@@ -1276,3 +1276,30 @@ p  { margin: 0 0 .75rem; }
 .etapa-comentario { margin: 0; color: var(--tinta); }
 
 .etapa-retorno { margin: .25rem 0 1rem; }
+
+/* A SECAO DO FOCO - a que a micro-habilidade medida aponta.
+   Destaque discreto: ela ja vem primeiro, e um realce forte faria o resto
+   parecer indisponivel quando continua tudo ali. */
+.secao-foco {
+  background: var(--fundo);
+  border-left: 3px solid var(--acento, #2d6a4f);
+  border-radius: var(--r-m);
+  padding: .75rem .9rem;
+}
+.secao-etiqueta {
+  margin: 0 0 .5rem;
+  font-size: .8125rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
+/* O convite do primeiro retorno da investigacao: a regra chegou sem o
+   numero, e esta linha diz que a ajuda nao acabou. */
+.etapa-convite {
+  margin: .5rem 0 0;
+  font-size: .9375rem;
+  font-weight: 600;
+  color: var(--tinta);
+}

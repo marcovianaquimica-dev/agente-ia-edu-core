@@ -598,9 +598,20 @@
       ? `<p class="assessor-meta"><strong>Depois disso:</strong>
          ${esc(inter.next_check)}</p>` : '';
 
-    const secoes = (e.secoes || []).map((s) => `
-      <section class="secao-estudo">
+    // POR ONDE ESTE ALUNO ENTRA NO MATERIAL.
+    //
+    // A seção da micro-habilidade que travou vem primeiro. Medido no
+    // navegador em 2026-10-07: com alvo MASSA_MOLAR, o material abria na
+    // leitura de fórmulas - que ele tinha acabado de demonstrar - e era
+    // preciso rolar uma seção inteira para chegar ao que travava.
+    //
+    // Nada é escondido: quem quiser rever o resto continua rolando, na ordem
+    // do grafo. Quem decide o alvo é o backend; esta tela só lê a ordem.
+    const ordenadas = PrepUI.ordemDasSecoes(e.secoes, inter.skill);
+    const secoes = ordenadas.map((s) => `
+      <section class="secao-estudo${s.foco ? ' secao-foco' : ''}">
         <h2>${esc(s.title || '')}</h2>
+        ${s.foco ? '<p class="secao-etiqueta">É aqui que vamos olhar</p>' : ''}
         ${(s.blocks || []).map((b) => blocoHTML(b, e.exemplo)).join('')}
       </section>`).join('');
 
@@ -986,7 +997,10 @@
     // O ENSINO DA ETAPA QUE NAO FICOU DE PE. Nunca a letra - o backend nao a
     // manda, e esta tela nao teria como inventa-la.
     const retorno = v.retorno
-      ? `<div class="aviso-conceito etapa-retorno"><p>${esc(v.retorno)}</p></div>`
+      ? `<div class="aviso-conceito etapa-retorno">
+           <p>${esc(v.retorno)}</p>
+           ${v.convite ? `<p class="etapa-convite">${esc(v.convite)}</p>` : ''}
+         </div>`
       : '';
 
     const acoes = InvestigacaoUI.acoes(inv.dados).map((a) => {

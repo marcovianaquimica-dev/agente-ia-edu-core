@@ -223,3 +223,39 @@ test('só as etapas resolvidas mostram o que era', () => {
   assert.equal(UI.estado(UMA_FEITA, {}).concluidas.length, 1);
   assert.equal(UI.estado(UMA_FEITA, {}).concluidas[0].correct_option, 'B');
 });
+
+// ------------------------------------- os dois níveis do retorno (§10)
+
+test('no primeiro retorno a tela avisa que a ajuda não acabou', () => {
+  // Esconder o número sem dizer que há mais parece desamparo. Esta linha é o
+  // que transforma a omissão em convite a recontar.
+  const dados = { ...ERROU_A_PRIMEIRA,
+                  retorno: { ordem: 1, nivel: 1, comentario: 'a regra' } };
+  const e = UI.estado(dados, {});
+  assert.equal(e.retornoNivel, 1);
+  assert.ok(e.convite.length > 10, e.convite);
+});
+
+test('no segundo retorno não há mais convite — a conta já foi aberta', () => {
+  const dados = { ...ERROU_A_PRIMEIRA,
+                  retorno: { ordem: 1, nivel: 2,
+                             comentario: 'a regra aplicada' } };
+  const e = UI.estado(dados, {});
+  assert.equal(e.retornoNivel, 2);
+  assert.equal(e.convite, '');
+});
+
+test('sem retorno nenhum não há convite', () => {
+  const e = UI.estado(ABERTA, {});
+  assert.equal(e.retornoNivel, 0);
+  assert.equal(e.convite, '');
+});
+
+test('o convite não entrega resposta nenhuma', () => {
+  const dados = { ...ERROU_A_PRIMEIRA,
+                  retorno: { ordem: 1, nivel: 1, comentario: 'a regra' } };
+  const baixo = UI.estado(dados, {}).convite.toLowerCase();
+  for (const proibido of ['a resposta', 'alternativa', 'marque']) {
+    assert.ok(!baixo.includes(proibido), `${proibido} em ${baixo}`);
+  }
+});

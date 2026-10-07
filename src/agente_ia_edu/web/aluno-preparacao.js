@@ -30,7 +30,18 @@
   'use strict';
 
   // A ordem é a da máquina de decisão, não uma preferência visual.
+  // A ESCADA DE APOIO, COMO O ALUNO A VE.
+  //
+  // A ordem e a de `escada_de_apoio.NIVEIS`, no backend - investigar,
+  // ensinar, guiar, praticar - mais a verificacao, que fecha o ciclo. Nao e
+  // uma segunda politica: e a mesma escada, rotulada em portugues.
+  //
+  // INVESTIGATE entrou depois. Sem ele, o aluno que acabava de responder tres
+  // microperguntas via uma trilha comecando em "Entender" - o degrau que ele
+  // JA tinha subido nao aparecia, e a tela contava uma jornada mais curta do
+  // que a que ele percorreu. Medido no navegador em 2026-10-07.
   var TRILHA = [
+    { kind: 'INVESTIGATE', rotulo: 'Localizar' },
     { kind: 'LEARN', rotulo: 'Entender' },
     { kind: 'GUIDED_PRACTICE', rotulo: 'Tentar com ajuda' },
     { kind: 'PRACTICE', rotulo: 'Praticar' },
@@ -108,7 +119,42 @@
              block: 'start' };
   }
 
+  /**
+   * POR ONDE ESTE ALUNO ENTRA NO MATERIAL.
+   *
+   * Medido no navegador em 2026-10-07: alvo MASSA_MOLAR, e o material abriu
+   * na seção "Leitura de fórmulas químicas" - que ele tinha acabado de
+   * demonstrar, acertando a micropergunta de primeira. Para chegar ao que
+   * travava era preciso rolar por uma seção inteira.
+   *
+   * A ordem das seções NO CONTEÚDO é a do grafo, e está certa: pré-requisito
+   * antes de quem depende dele. O que estava errado era a tela tratar "ordem
+   * do material" e "por onde ESTE aluno entra" como a mesma coisa.
+   *
+   * O alvo vem do backend (`intervention.skill`); cada seção declara a sua em
+   * `metadata.skill`, posto lá pelo conteúdo curado. Nada aqui decide
+   * pedagogia - só a ordem de leitura - e nenhuma seção é escondida: quem
+   * quiser rever o resto continua rolando.
+   */
+  function ordemDasSecoes(secoes, alvo) {
+    var lista = (secoes || []).slice();
+    var comFoco = lista.map(function (s) {
+      var skills = (s.blocks || []).map(function (b) {
+        return (b && b.metadata && b.metadata.skill) || null;
+      });
+      return Object.assign({}, s, {
+        foco: !!alvo && skills.indexOf(alvo) !== -1,
+      });
+    });
+    var destacadas = comFoco.filter(function (s) { return s.foco; });
+    if (!destacadas.length) return comFoco;
+    // O resto na ordem em que veio - ela é a do grafo, e tirar o alvo da
+    // fila não pode embaralhar os outros.
+    return destacadas.concat(comFoco.filter(function (s) { return !s.foco; }));
+  }
+
   var PrepUI = {
+    ordemDasSecoes: ordemDasSecoes,
     subpassos: subpassos,
     falaDoResultado: falaDoResultado,
     comoRevelar: comoRevelar,

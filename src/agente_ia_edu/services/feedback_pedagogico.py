@@ -120,7 +120,11 @@ def feedback_do_passo(*, action: str | None, trend: str, cycle: int,
         # DOMINIO DEMONSTRADO - e demonstrado DUAS vezes seguidas, que e o que
         # a trajetoria exige. Dizer isso a quem nao demonstrou seria a mentira
         # que este modulo inteiro existe para nao contar.
-        destino = f" Agora podemos avançar para {para}." if para else ""
+        # "Avancar para X" dito a quem JA esta em X nao e um destino: e a
+        # mesma frase dobrada. Acontece sempre que a atividade exige o proprio
+        # conteudo que precisava de preparacao, que e o caso comum.
+        destino = (f" Agora podemos avançar para {para}."
+                   if para and para != content_name else "")
         return {"tom": TOM_BOM,
                 "titulo": "Essa base está consolidada.",
                 "detalhe": f"Você resolveu sozinho duas vezes seguidas — não "
