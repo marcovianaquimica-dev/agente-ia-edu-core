@@ -24,6 +24,7 @@ small). It never invents questions.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -190,7 +191,9 @@ class AdaptivePracticeService:
                               purpose: str = PROPOSITO_PRATICA,
                               metadata_extra: dict | None = None,
                               title: str | None = None,
-                              instructions: str | None = None) -> dict:
+                              instructions: str | None = None,
+                              question_version_ids: Sequence[str] | None = None
+                              ) -> dict:
         """Build a question set for one content and distribute it to the student.
 
         ``origin`` / ``metadata_extra`` / ``title`` / ``instructions`` exist so a
@@ -204,6 +207,24 @@ class AdaptivePracticeService:
         A caller passing a new ``origin`` MUST register it in
         curriculum_domain_map._KNOWN_ORIGINS, or the evidence lands in the
         UNKNOWN_ORIGIN quarantine bucket instead of its own.
+
+        ``question_version_ids`` LETS THE CALLER BRING ITS OWN SELECTION
+        ----------------------------------------------------------------
+        The content-level selection below answers "which questions of this
+        content?". A diagnostic probe needs a different question - "which
+        INSTRUMENT for each micro-skill?" - and the answer is not a subset of
+        this one: it is chosen by `seletor_de_sondagem`, per skill, with the
+        curated item winning over the generic bank.
+
+        When ids are supplied they are used in the given order and the
+        content-level ranking is skipped. Everything AFTER selection is
+        identical: same list building, same assignment, same evidence origin.
+        That is the point - there is still one executor, and only the
+        selection has two strategies.
+
+        The ids are still verified to belong to this content: a caller
+        passing something else gets a PracticeError, not a practice about
+        another subject.
         """
         self._authz_self(student_external_id, requester)
         purpose = (purpose or PROPOSITO_PRATICA).upper()
@@ -252,9 +273,24 @@ class AdaptivePracticeService:
         available = len(kept)
 
         recent_ids = await self._recent_question_ids(student_external_id, self.policy.recent_exclude)
-        ranked = [str(it.question_version_id) for it in self.policy.rank(kept)]
-        selected, reused_recent = self.policy.choose(
-            ranked, count=requested, recent_ids=recent_ids)
+
+        if question_version_ids is not None:
+            # SELECAO TRAZIDA DE FORA. Ver a docstring: quem a fez respondeu
+            # uma pergunta diferente da que esta funcao sabe responder.
+            do_conteudo = {str(it.question_version_id) for it in items}
+            pedidos = [str(v) for v in question_version_ids]
+            intrusos = [v for v in pedidos if v not in do_conteudo]
+            if intrusos:
+                raise PracticeError(
+                    "seleção contém questões que não são deste conteúdo",
+                    payload={"content_code": content_code,
+                             "unexpected_questions": intrusos})
+            selected, reused_recent = pedidos, 0
+            requested = len(selected)
+        else:
+            ranked = [str(it.question_version_id) for it in self.policy.rank(kept)]
+            selected, reused_recent = self.policy.choose(
+                ranked, count=requested, recent_ids=recent_ids)
 
         selection_report = {
             "available_questions": available,
@@ -265,6 +301,10 @@ class AdaptivePracticeService:
             "reused_recent_questions": reused_recent,
             "recent_pool_excluded": len(recent_ids),
             "policy": self.policy.as_dict(),
+            # Como a selecao foi feita. Sem isto, "por que esta questao?" so
+            # se responde relendo o codigo.
+            "selection_mode": ("CALLER_SUPPLIED" if question_version_ids is not None
+                               else "CONTENT_RANKED"),
         }
         # Insufficient bank: never invent questions and never silently shrink the
         # practice. Report the three counts and the standard explanation so the

@@ -31,6 +31,29 @@ Every hard part already existed and is reused untouched:
 This module contributes three things that did not exist: an evidence ORIGIN of
 its own, a STOPPING RULE, and the DECISION.
 
+E DESDE 2026-10-07, UMA QUARTA: A SELECAO POR MICRO-HABILIDADE
+===============================================================
+Ate aqui ele pedia "tres questoes deste conteudo" e o acervo devolvia as tres
+primeiras por numero oficial. Media-se Estequiometria, nao se media NADA em
+particular - e os cinco itens curados, um por micro-habilidade, competiam em
+pe de igualdade com 20 questoes comuns e perdiam por numero. Medido no
+navegador: um dos tres itens servidos veio do banco generico.
+
+Uma sondagem pedagogica nao pode depender de sorte. Agora, para conteudo com
+contrato V2:
+
+    plano_de_sondagem     QUAIS micro-habilidades sondar (o grafo, da base
+                          ao topo, pulando o que nao se pode medir)
+    seletor_de_sondagem   QUAL instrumento para cada uma (curado vence
+                          generico, e a origem viaja no relatorio)
+
+As duas perguntas sao separadas de proposito: o acervo nao decide pedagogia,
+e o grafo nao sabe o que existe no acervo.
+
+CONTEUDO SEM GRAFO NAO MUDA. Os outros 36 do catalogo continuam com a
+selecao por conteudo que sempre tiveram - a mesma regra de convivencia que
+`grafos_pedagogicos` ja estabelece para o resto do motor.
+
 IT IS NOT THE InitialDiagnostic
 ================================
 That one is the single onboarding session that estimates the student's whole
@@ -57,6 +80,7 @@ from agente_ia_edu.services.adaptive_practice import (
     PracticeSelectionPolicy,
 )
 from agente_ia_edu.services.curriculum_domain_map import ORIGIN_MICRO_DIAGNOSTIC
+from agente_ia_edu.services.grafos_pedagogicos import grafo_de
 from agente_ia_edu.services.pedagogical_analysis import (
     BAND_IMPROVEMENT,
     BAND_INSUFFICIENT,
@@ -64,7 +88,9 @@ from agente_ia_edu.services.pedagogical_analysis import (
     BAND_STRONG,
     PerformanceThresholdPolicy,
 )
+from agente_ia_edu.services.plano_de_sondagem import planejar
 from agente_ia_edu.services.question_list_store import Requester
+from agente_ia_edu.services.seletor_de_sondagem import SeletorDeSondagem
 
 # The three outcomes. A micro-diagnostic always ends in exactly one of them,
 # and INSUFFICIENT_EVIDENCE is a real answer, not a failure mode.
@@ -130,6 +156,8 @@ class MicroDiagnosticService:
         question or silently shrinking the sample.
         """
         pedido = self.tamanho
+        instrumentos, relatorio_do_probe = await self._instrumentos(
+            content_code, quantas=pedido, requester=requester)
         try:
             criado = await self._practice.create_practice(
                 student_external_id,
@@ -140,11 +168,13 @@ class MicroDiagnosticService:
                 metadata_extra={"micro_diagnostic": True},
                 title=TITULO,
                 instructions=INSTRUCOES,
+                question_version_ids=instrumentos,
             )
         except PracticeError as exc:
             relatorio = dict(getattr(exc, "payload", None) or {})
             relatorio.setdefault("available_questions", 0)
             relatorio.setdefault("requested_questions", pedido)
+            relatorio["probe"] = relatorio_do_probe
             return {
                 "content_code": content_code,
                 "question_count": pedido,
@@ -158,6 +188,8 @@ class MicroDiagnosticService:
                 "instructions": INSTRUCOES,
             }
 
+        selecao = dict(criado["selection"])
+        selecao["probe"] = relatorio_do_probe
         return {
             "content_code": content_code,
             "question_count": criado["question_count"],
@@ -166,10 +198,63 @@ class MicroDiagnosticService:
             "decision": None,              # só depois das respostas
             "assignment_id": criado["assignment_id"],
             "diagnostic_id": criado["assignment_id"],
-            "selection": criado["selection"],
+            "selection": selecao,
             "title": criado["title"],
             "instructions": criado["instructions"],
         }
+
+    # -- quais instrumentos --------------------------------------------------
+
+    async def _instrumentos(self, content_code: str, *, quantas: int,
+                            requester: Requester
+                            ) -> tuple[list[str] | None, dict]:
+        """(ids escolhidos, relatorio) - ou (None, relatorio) sem contrato V2.
+
+        Devolver None e o que mantem os outros 36 conteudos intactos:
+        `create_practice` entao seleciona por conteudo, exatamente como
+        antes deste bloco.
+
+        FALHA PARA O CAMINHO ANTIGO, NAO PARA O ALUNO. Se a selecao por
+        habilidade nao conseguir montar o tamanho pedido - acervo incompleto,
+        habilidades sem instrumento -, e melhor uma sondagem por conteudo do
+        que nenhuma. O relatorio diz que foi isso que aconteceu, para que a
+        lacuna de acervo apareca em vez de ficar silenciosa.
+        """
+        grafo = grafo_de(content_code)
+        if grafo is None:
+            return None, {"mode": "CONTENT", "instruments": [],
+                          "skills_without_instrument": [],
+                          "reason": "conteúdo sem grafo pedagógico"}
+
+        seletor = SeletorDeSondagem(self._session)
+        escola = getattr(requester, "school_id", None)
+        escola = str(escola) if escola else None
+        mensuraveis = await seletor.habilidades_mensuraveis(
+            content_code, escola_do_aluno=escola)
+        plano = planejar(grafo, quantas=quantas,
+                         mensuravel=lambda c: c in mensuraveis)
+        escolhas = await seletor.instrumentos(
+            conteudo=content_code, habilidades=plano.habilidades,
+            escola_do_aluno=escola)
+
+        relatorio = {
+            "mode": "PER_SKILL",
+            "instruments": [
+                {"skill": e.habilidade,
+                 "question_version_id": e.question_version_id,
+                 "origin": e.origem, "reason": e.motivo}
+                for e in escolhas
+            ],
+            "skills_without_instrument": list(plano.sem_instrumento),
+            "requested_skills": list(plano.habilidades),
+        }
+        if len(escolhas) < quantas:
+            relatorio["mode"] = "CONTENT"
+            relatorio["reason"] = (
+                f"o grafo ofereceu {len(escolhas)} instrumento(s) e a "
+                f"sondagem precisa de {quantas}; seleção por conteúdo")
+            return None, relatorio
+        return [e.question_version_id for e in escolhas], relatorio
 
     # -- decide -------------------------------------------------------------
 
