@@ -45,18 +45,49 @@ TOM_NEUTRO = "NEUTRO"
 
 
 def feedback_do_diagnostico(*, decision: str, band: str, content_name: str,
-                            objective_name: str | None = None) -> dict:
+                            objective_name: str | None = None,
+                            alvo_nome: str | None = None) -> dict:
     """Titulo, detalhe e tom - prontos para a tela, decididos aqui.
 
     ``objective_name`` e a tarefa da escola por tras do diagnostico. Quando ha,
     a frase diz PARA QUE aquilo serviu: o aluno acabou de responder tres
     perguntas de um conteudo que ninguem pediu, e merece saber por que.
+
+    ``alvo_nome`` E A MICRO-HABILIDADE QUE O MOTOR VAI TRABALHAR A SEGUIR.
+    ====================================================================
+    Medido no navegador em 2026-10-07: o aluno acertou leitura de formula,
+    acertou proporcao e ERROU massa molar. A tela disse "Muito bem! Voce
+    demonstrou um bom dominio de Estequiometria", e o botao abaixo levava a
+    investigar massa molar.
+
+    As duas frases estao certas, cada uma sob a sua regra. A politica
+    concluiu PROCEED - 2 de 3, acuracia 0,667 - e isso e uma decisao
+    OPERACIONAL: ele pode comecar a atividade. A assimetria diagnostica
+    concluiu SUSPECTED_GAP em massa molar, e um erro basta para suspeitar.
+
+    O defeito estava em comunicar a decisao GLOBAL como se fosse uma
+    conclusao sobre o conteudo inteiro. Ausencia de bloqueio nao e
+    declaracao de dominio.
+
+    Nada da politica mudou aqui: nem corte, nem minimo de amostra, nem a
+    existencia de PROCEED. Mudou a frase - ela passa a refletir a decisao
+    mais ESPECIFICA disponivel, que e o alvo, quando ele existe.
     """
     conteudo = content_name or "esse conteúdo"
     para_que = (f" Essa base é importante para avançarmos em {objective_name}."
                 if objective_name else "")
 
     if decision == DECISION_PROCEED:
+        if alvo_nome:
+            # Reconhece o que ele mostrou E nomeia o que ficou. Dizer so a
+            # ressalva seria tao impreciso quanto dizer so o elogio: ele
+            # acertou duas de tres.
+            return {
+                "tom": TOM_REVISAR,
+                "titulo": "Boa parte disso você já faz.",
+                "detalhe": (f"Encontrei um ponto que vale a pena olharmos "
+                            f"antes de seguir: {alvo_nome}.{para_que}"),
+            }
         return {
             "tom": TOM_BOM,
             "titulo": "Muito bem!",

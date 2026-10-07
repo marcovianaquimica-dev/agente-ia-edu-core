@@ -1358,9 +1358,19 @@ async def get_micro_diagnostic_decision(
             except Exception:  # noqa: BLE001 - sem objetivo visivel, segue sem ele
                 objetivo_nome = None
 
+        # O ALVO DA INTERVENCAO ENTRA NA FRASE.
+        #
+        # Sem ele, a tela dizia "bom dominio de Estequiometria" enquanto o
+        # botao logo abaixo levava a investigar massa molar. `proximo` ja foi
+        # calculado acima e carrega a intervencao - e usa-lo aqui faz a
+        # mensagem seguir a decisao mais especifica que existe, em vez da
+        # mais geral.
+        alvo_da_intervencao = (
+            ((proximo or {}).get("intervention") or {}).get("skill_name"))
         decisao["feedback"] = feedback_do_diagnostico(
             decision=decisao["decision"], band=decisao["band"],
-            content_name=decisao["content_name"], objective_name=objetivo_nome)
+            content_name=decisao["content_name"], objective_name=objetivo_nome,
+            alvo_nome=alvo_da_intervencao)
 
         # POR HABILIDADE - so quando a amostra sustenta.
         #
