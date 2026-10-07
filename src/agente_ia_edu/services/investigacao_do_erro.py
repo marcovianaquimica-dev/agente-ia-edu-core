@@ -48,6 +48,8 @@ from agente_ia_edu.services.grafo_estequiometria import (
     MASSA_MOLAR,
     PROPORCAO,
 )
+from agente_ia_edu.services.hipotese_pedagogica import Hipotese
+from agente_ia_edu.services.resposta_do_aluno import ESPERA_NUMERO
 
 
 @dataclass(frozen=True)
@@ -89,12 +91,47 @@ class EtapaDaInvestigacao:
 
 
 @dataclass(frozen=True)
+class PerguntaAberta:
+    """A pergunta que ABRE a investigacao, respondida por escrito.
+
+    Ate 2026-10-07 a investigacao comecava ja na primeira micropergunta de
+    multipla escolha - o erro que a motivou tinha acontecido numa questao
+    anterior, noutra tela. Com a abertura, o Edu faz a pergunta ele mesmo e
+    ve a resposta crua: "15" diz coisas que marcar a alternativa B nao diz.
+
+    `resposta` e o valor certo; `espera` e o que a camada de normalizacao
+    precisa saber para ler o texto. Nenhum dos dois vaza para o cliente
+    antes da hora.
+    """
+
+    pergunta: str
+    espera: str
+    resposta: float
+    conferencia: str
+    unidade: str | None = None
+
+
+@dataclass(frozen=True)
+class Gatilho:
+    """Um valor observado e a hipotese que ele SUGERE.
+
+    Nao e um diagnostico: e a razao de fazer a proxima pergunta. Ver
+    `hipotese_pedagogica` - o distrator sugere, a discriminante decide.
+    """
+
+    valor: float
+    hipotese: Hipotese
+
+
+@dataclass(frozen=True)
 class Investigacao:
     key: str
     content_code: str
     habilidade_alvo: str
     hipotese: str
     etapas: tuple[EtapaDaInvestigacao, ...]
+    abertura: PerguntaAberta | None = None
+    gatilhos: tuple[Gatilho, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +208,35 @@ _MASSA_MOLAR = Investigacao(
     hipotese="Esse resultado sugere que a soma das massas pode ter ficado "
              "incompleta em algum ponto — às vezes na leitura da fórmula, às "
              "vezes na multiplicação pelo índice. Vamos conferir por partes.",
+    # A PERGUNTA QUE O EDU FAZ, respondida por escrito.
+    abertura=PerguntaAberta(
+        pergunta="Qual é a massa molar do NH₃?\n"
+                 "Considere N = 14 g/mol e H = 1 g/mol.",
+        espera=ESPERA_NUMERO,
+        resposta=17.0,
+        conferencia="14 + 3*1",
+        unidade="g/mol"),
+    # O ERRO ESPERADO, E O QUE ELE SUGERE.
+    #
+    # 15 e 14 + 1: a massa do N mais a de UM hidrogenio, com o indice 3
+    # fora da conta. E a hipotese mais util que o numero permite - e e so
+    # uma hipotese. Quem chutou tambem escreve 15.
+    #
+    # Ela aponta para LEITURA_DE_FORMULA, um degrau ABAIXO do alvo, e e por
+    # isso que confirma-la faz o percurso descer no grafo. A etapa 1 e a
+    # discriminante: "quantos H aparecem no NH3?" separa quem nao le o
+    # indice de quem le e nao o aplica.
+    gatilhos=(
+        Gatilho(
+            valor=15.0,
+            hipotese=Hipotese(
+                codigo="INDEX_OMISSION",
+                habilidade_suspeita=LEITURA_FORMULA,
+                como_dizer="Esse resultado pode indicar que o índice da "
+                           "fórmula ficou de fora da conta. Vamos conferir "
+                           "uma coisa antes de seguir.",
+                discriminante=1)),
+    ),
     etapas=(
         EtapaDaInvestigacao(
             ordem=1,
@@ -423,6 +489,25 @@ def gargalo(inv: Investigacao,
     return None
 
 
+def hipotese_para(inv: Investigacao, valor: float | None) -> Hipotese | None:
+    """A hipotese que ESTE valor sugere, se houver uma escrita para ele.
+
+    Valor sem gatilho nao produz hipotese - e correto: o sistema so supoe
+    onde alguem escreveu de antemao qual suposicao aquele numero sustenta.
+    Inventar uma em tempo de execucao seria exatamente o que §4 proibe.
+    """
+    if valor is None:
+        return None
+    for g in inv.gatilhos:
+        if abs(float(valor) - g.valor) < 1e-9:
+            return g.hipotese
+    return None
+
+
+def etapa_de(inv: Investigacao, ordem: int) -> EtapaDaInvestigacao | None:
+    return next((e for e in inv.etapas if e.ordem == int(ordem)), None)
+
+
 def conferir_resposta(etapa: EtapaDaInvestigacao, escolha: str) -> bool:
     """Acertou? A conferencia e aqui, nunca no cliente."""
     return (escolha or "").strip().upper() == etapa.correta
@@ -541,6 +626,27 @@ def conferir() -> list[str]:
     exige("INV-EST-MASSA-MOL", 2, _numero(massa_para_mol(36.0, "H2O")))
     exige("INV-EST-MASSA-MOL", 3, _numero(mol_para_massa(0.5, "H2O")))
 
+    # A ABERTURA, e o valor do erro esperado.
+    #
+    # 17 e a massa molar do NH3; 15 e o que sai de somar N com UM hidrogenio.
+    # Os dois sao refeitos por conta: um literal errado aqui faria o Edu
+    # abrir a conversa com quimica errada, ou perseguir uma hipotese que o
+    # numero nao sustenta.
+    if _MASSA_MOLAR.abertura is not None:
+        esperado = massa_molar("NH3")
+        if abs(_MASSA_MOLAR.abertura.resposta - esperado) > 1e-9:
+            problemas.append(
+                f"INV-EST-MASSA-MOLAR abertura: resposta "
+                f"{_MASSA_MOLAR.abertura.resposta} nao bate com {esperado}")
+    por_elemento_nh3 = {c[0]: c[2] for c in contribuicoes("NH3")}
+    sem_indice = por_elemento_nh3["N"] + por_elemento_nh3["H"]
+    for g in _MASSA_MOLAR.gatilhos:
+        if g.hipotese.codigo == "INDEX_OMISSION" and abs(
+                g.valor - sem_indice) > 1e-9:
+            problemas.append(
+                f"INV-EST-MASSA-MOLAR gatilho: {g.valor} nao e o que sai de "
+                f"somar as massas atomicas sem aplicar o indice ({sem_indice})")
+
     # A cadeia do caso 8,50 g.
     mols_n2 = massa_para_mol(14.0, "N2")
     exige("INV-EST-PROPORCAO", 1, _virgula(mols_n2))
@@ -566,7 +672,11 @@ def _virgula(valor: float) -> str:
 __all__ = [
     "INVESTIGACOES",
     "EtapaDaInvestigacao",
+    "Gatilho",
     "Investigacao",
+    "PerguntaAberta",
+    "etapa_de",
+    "hipotese_para",
     "conferir",
     "conferir_resposta",
     "gargalo",
