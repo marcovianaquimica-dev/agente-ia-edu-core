@@ -69,6 +69,14 @@ where = ["src"]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 markers = ["live: faz chamadas reais de IA - nao roda no CI padrao"]
+# Registering the "live" marker above does NOT exclude it from a bare `pytest`
+# run - markers are opt-in filters, not opt-out ones. Without this addopts, a
+# plain `pytest` (no -m flag) silently fires every @pytest.mark.live test too,
+# making real paid OpenAI calls by accident (bit this exact thing during Fase
+# C Task 12: `pytest tests/ -k essay -v` re-ran the whole essay Zero Gate/
+# Quality Gate live regression suite unintentionally). `-m live` still opts
+# back in explicitly when a real-call run is wanted.
+addopts = "-m 'not live'"
 
 [tool.coverage.run]
 # Without this, coverage silently under-reports every route/service that goes
