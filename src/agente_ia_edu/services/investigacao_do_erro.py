@@ -620,6 +620,13 @@ def para_o_aluno(inv: Investigacao,
                 "question": e.pergunta,
                 "selected": dadas[e.ordem],
                 "correct_option": e.correta,
+                # O CONTEUDO da alternativa, e nao so a letra.
+                #
+                # Numa conversa a tela mostra o que o aluno respondeu, e
+                # "C" nao e o que ele respondeu - ele escreveu "3". Uma
+                # etapa resolvida foi resolvida acertando, entao o texto da
+                # correta E o que ele disse, em substancia.
+                "resposta_texto": e.alternativas.get(e.correta),
                 "comentario": e.se_acertar,
             })
 

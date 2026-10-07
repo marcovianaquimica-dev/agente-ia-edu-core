@@ -15,7 +15,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const UI = require('../src/agente_ia_edu/web/aluno-investigacao.js');
+const UI = require("../src/agente_ia_edu/web/aluno-investigacao.js");
+const Inv = UI;
 
 // Payload como o backend o devolve: a etapa aberta NÃO carrega a correta.
 const ABERTA = {
@@ -258,4 +259,169 @@ test('o convite não entrega resposta nenhuma', () => {
   for (const proibido of ['a resposta', 'alternativa', 'marque']) {
     assert.ok(!baixo.includes(proibido), `${proibido} em ${baixo}`);
   }
+});
+
+// ===================== A CONVERSA, E NÃO UMA LISTA DE CARDS =============
+//
+// §19: a tela anterior desenhava "etapas concluídas" numa lista e a pergunta
+// aberta embaixo. Funcionava, e não parecia uma conversa — o aluno via um
+// formulário com histórico, não alguém falando com ele.
+
+const ABERTURA = {
+  key: 'INV-EST-MASSA-MOLAR',
+  skill: 'MASSA_MOLAR',
+  perguntar_abertura: true,
+  abertura: {
+    pergunta: 'Qual é a massa molar do NH₃?\nConsidere N = 14 g/mol e H = 1 g/mol.',
+    espera: 'NUMERIC', unidade: 'g/mol', respondida: false,
+    resposta_do_aluno: null, observacao: null, hipotese: null,
+  },
+  total_etapas: 3, completed: false, etapa: null, concluidas: [], retorno: null,
+};
+
+const DEPOIS_DO_15 = {
+  ...ABERTURA,
+  perguntar_abertura: false,
+  abertura: {
+    ...ABERTURA.abertura, respondida: true, resposta_do_aluno: '15',
+    observacao: 'INCORRECT_RESPONSE',
+    hipotese: 'Esse resultado pode indicar que o índice da fórmula ficou de '
+            + 'fora da conta. Vamos conferir uma coisa antes de seguir.',
+    hipotese_codigo: 'INDEX_OMISSION', hipotese_estado: 'OPEN',
+  },
+  etapa: { ordem: 1, skill: 'LEITURA_DE_FORMULA',
+           question: 'Na fórmula NH₃, quantos átomos de hidrogênio?',
+           options: [{ key: 'A', text: '1' }, { key: 'C', text: '3' }] },
+};
+
+const DEPOIS_DO_3 = {
+  ...DEPOIS_DO_15,
+  concluidas: [{ ordem: 1, question: 'Na fórmula NH₃, quantos átomos de hidrogênio?',
+                 correct_option: 'C', comentario: 'Isso. Então a massa molar vai precisar contar o hidrogênio três vezes.' }],
+  etapa: { ordem: 2, skill: 'MASSA_MOLAR',
+           question: 'Se cada hidrogênio contribui com 1 g/mol...',
+           options: [{ key: 'B', text: '3 g/mol' }] },
+};
+
+test('a abertura é o primeiro turno, e é do Edu', () => {
+  const t = Inv.turnos(ABERTURA);
+  assert.equal(t[0].quem, 'edu');
+  assert.ok(t[0].texto.includes('NH₃'));
+});
+
+test('antes de responder, a conversa tem um turno só', () => {
+  assert.equal(Inv.turnos(ABERTURA).length, 1);
+});
+
+test('o que o aluno escreveu volta COMO ELE ESCREVEU', () => {
+  const t = Inv.turnos(DEPOIS_DO_15);
+  const dele = t.find((x) => x.quem === 'aluno');
+  assert.equal(dele.texto, '15');
+});
+
+test('a tela NÃO mostra "resposta incorreta" no lugar do que ele disse', () => {
+  const t = Inv.turnos(DEPOIS_DO_15);
+  for (const turno of t.filter((x) => x.quem === 'aluno')) {
+    assert.ok(!/incorrect|INCORRECT/i.test(turno.texto), turno.texto);
+  }
+});
+
+test('a hipótese é um turno DO EDU, e não um rótulo na resposta do aluno', () => {
+  // A diferença importa: um turno é algo que o Edu DIZ; um rótulo seria algo
+  // que ele DECIDE sobre o aluno.
+  const t = Inv.turnos(DEPOIS_DO_15);
+  const h = t.find((x) => x.tipo === 'hipotese');
+  assert.equal(h.quem, 'edu');
+  assert.ok(h.texto.includes('pode indicar'));
+});
+
+test('a hipótese vem DEPOIS da resposta dele, não antes', () => {
+  const t = Inv.turnos(DEPOIS_DO_15);
+  assert.ok(t.findIndex((x) => x.quem === 'aluno')
+            < t.findIndex((x) => x.tipo === 'hipotese'));
+});
+
+test('sem hipótese não se inventa turno nenhum', () => {
+  const sem = { ...DEPOIS_DO_15,
+                abertura: { ...DEPOIS_DO_15.abertura, hipotese: null } };
+  assert.equal(Inv.turnos(sem).filter((x) => x.tipo === 'hipotese').length, 0);
+});
+
+test('a pergunta aberta é sempre o ÚLTIMO turno', () => {
+  for (const dados of [DEPOIS_DO_15, DEPOIS_DO_3]) {
+    const t = Inv.turnos(dados);
+    assert.equal(t[t.length - 1].atual, true);
+    assert.equal(t[t.length - 1].quem, 'edu');
+  }
+});
+
+test('a cadeia cresce: cada etapa resolvida acrescenta turnos', () => {
+  assert.ok(Inv.turnos(DEPOIS_DO_3).length > Inv.turnos(DEPOIS_DO_15).length);
+});
+
+test('o ensino da etapa errada aparece como turno do Edu', () => {
+  const comRetorno = { ...DEPOIS_DO_15,
+    retorno: { ordem: 1, nivel: 1, comentario: 'O índice fica colado no símbolo.' } };
+  const t = Inv.turnos(comRetorno);
+  const e = t.find((x) => x.tipo === 'ensino');
+  assert.equal(e.quem, 'edu');
+});
+
+test('turnos de payload vazio não estouram', () => {
+  assert.deepEqual(Inv.turnos(null), []);
+  assert.deepEqual(Inv.turnos({}), []);
+});
+
+// ------------------------------------------- a caixa de resposta (§20)
+
+test('na abertura a entrada é de texto', () => {
+  const e = Inv.entrada(ABERTURA);
+  assert.equal(e.modo, 'texto');
+  assert.equal(e.destino, 'abertura');
+  assert.equal(e.espera, 'NUMERIC');
+});
+
+test('a unidade esperada acompanha a caixa', () => {
+  assert.equal(Inv.entrada(ABERTURA).unidade, 'g/mol');
+});
+
+test('numa etapa a entrada aceita texto E alternativas', () => {
+  const e = Inv.entrada(DEPOIS_DO_15);
+  assert.equal(e.modo, 'misto');
+  assert.equal(e.destino, 'etapa');
+  assert.equal(e.alternativas.length, 2);
+});
+
+test('concluída, não há onde responder', () => {
+  const e = Inv.entrada({ ...DEPOIS_DO_3, completed: true, etapa: null });
+  assert.equal(e.modo, 'nenhum');
+  assert.equal(e.alternativas.length, 0);
+});
+
+// --------------------------------- o Edu quando não conseguiu ler (§13)
+
+test('ambiguidade pede de novo, sem culpar o aluno', () => {
+  const fala = Inv.falaDaObservacao('AMBIGUOUS_RESPONSE').toLowerCase();
+  assert.ok(fala.length > 10);
+  for (const proibido of ['errado', 'errou', 'inválid', 'invalid']) {
+    assert.ok(!fala.includes(proibido), `${proibido} em ${fala}`);
+  }
+});
+
+test('e não finge que entendeu', () => {
+  const fala = Inv.falaDaObservacao('AMBIGUOUS_RESPONSE').toLowerCase();
+  assert.ok(fala.includes('não consegui') || fala.includes('pode escrever'));
+});
+
+test('"não sei" é acolhido, não punido', () => {
+  const fala = Inv.falaDaObservacao('UNKNOWN_RESPONSE').toLowerCase();
+  assert.ok(fala.includes('sem problema') || fala.includes('mais curto'));
+  for (const proibido of ['errado', 'deveria', 'precisa saber']) {
+    assert.ok(!fala.includes(proibido), fala);
+  }
+});
+
+test('resposta certa não produz fala de observação — quem fala é o backend', () => {
+  assert.equal(Inv.falaDaObservacao('CORRECT_RESPONSE'), '');
+  assert.equal(Inv.falaDaObservacao('INCORRECT_RESPONSE'), '');
 });

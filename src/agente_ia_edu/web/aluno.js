@@ -947,7 +947,7 @@
       const dados = await api('/api/v1/student/investigation'
         + `?content_code=${encodeURIComponent(codigo)}`
         + (habilidade ? `&skill=${encodeURIComponent(habilidade)}` : ''));
-      app.investigacao = { dados, escolha: null, ultimo: null };
+      app.investigacao = { dados, escolha: null, ultimo: null, dito: {} };
       pintarInvestigacao();
     } catch (e) {
       // Sem cadeia escrita para esta lacuna, o aluno desce um degrau em vez
@@ -968,90 +968,144 @@
     $('objetivo').hidden = !alvo;
     if (alvo) $('objetivo-texto').textContent = alvo;
 
-    // AS ETAPAS JA RESOLVIDAS ficam visiveis, em ordem. Nao e decoracao: e o
-    // raciocinio sendo montado na frente do aluno, e e o que transforma tres
-    // perguntas soltas numa cadeia.
-    const feitas = v.concluidas.map((c) => `
-      <li class="etapa-feita">
-        <p class="etapa-pergunta">${esc(c.question || '')}</p>
-        <p class="etapa-resposta">
-          <span class="etapa-marca">✓</span> ${esc(c.correct_option)}
-        </p>
-        <p class="etapa-comentario">${esc(c.comentario || '')}</p>
-      </li>`).join('');
+    // A CONVERSA. Turno a turno, montada por `InvestigacaoUI.turnos` - que
+    // roda em teste. Nada e decidido aqui: a pergunta, a frase da hipotese
+    // e o ensino da etapa vem todos do backend.
+    const fios = InvestigacaoUI.turnos(inv.dados, {
+      dito: inv.dito || {},
+      observacao: inv.ultimo ? inv.ultimo.observacao : null,
+    }).map((t) => {
+      if (t.quem === 'aluno') {
+        return `<li class="turno turno-aluno">
+                  <span class="turno-quem sr">Você</span>
+                  <p class="turno-texto">${esc(t.texto)}</p>
+                </li>`;
+      }
+      const classe = t.tipo === 'hipotese' ? ' turno-hipotese'
+        : t.tipo === 'ensino' ? ' turno-ensino' : '';
+      return `<li class="turno turno-edu${classe}${t.atual ? ' turno-atual' : ''}">
+                <span class="turno-quem sr">Edu</span>
+                <p class="turno-texto">${esc(t.texto)}</p>
+              </li>`;
+    }).join('');
 
-    const etapa = v.etapa || {};
-    const alternativas = (etapa.options || []).map((o) => {
-      const marcada = inv.escolha === o.key;
-      return `
-        <button class="alternativa${marcada ? ' alternativa-escolhida' : ''}"
-                data-opcao-investigacao="${esc(o.key)}" type="button">
+    // A CAIXA DE RESPOSTA. A interface escolhe o componente conforme o que
+    // o instrumento pede; numa etapa de alternativas as duas coisas valem,
+    // porque as duas chegam ao mesmo lugar no backend.
+    const e = InvestigacaoUI.entrada(inv.dados);
+    let caixa = '';
+    if (e.modo !== 'nenhum') {
+      const atalhos = (e.alternativas || []).map((o) => `
+        <button class="alternativa alternativa-atalho" type="button"
+                data-opcao-investigacao="${esc(o.key)}">
           <span class="alternativa-letra">${esc(o.key)}</span>
           <span class="alternativa-texto">${esc(o.text)}</span>
-        </button>`;
-    }).join('');
-
-    const fala = `<p class="assessor-fala">${
-      esc(InvestigacaoUI.falaDoAssessor(inv.dados, inv.ultimo))}</p>`;
-
-    // O ENSINO DA ETAPA QUE NAO FICOU DE PE. Nunca a letra - o backend nao a
-    // manda, e esta tela nao teria como inventa-la.
-    const retorno = v.retorno
-      ? `<div class="aviso-conceito etapa-retorno">
-           <p>${esc(v.retorno)}</p>
-           ${v.convite ? `<p class="etapa-convite">${esc(v.convite)}</p>` : ''}
-         </div>`
-      : '';
-
-    const acoes = InvestigacaoUI.acoes(inv.dados).map((a) => {
-      const desabilita = (a.acao === 'responder' && !v.responderHabilitado);
-      return `<button class="botao ${a.principal ? 'botao-principal' : 'botao-secundario'}"
-                      data-acao="inv-${a.acao}"
-                      ${desabilita ? 'disabled' : ''}>${esc(a.rotulo)}</button>`;
-    }).join('');
+        </button>`).join('');
+      caixa = `
+        <form class="dialogo-entrada" data-acao="inv-enviar"
+              data-destino="${esc(e.destino)}">
+          ${atalhos ? `<div class="alternativas">${atalhos}</div>` : ''}
+          <label class="sr" for="inv-campo">${esc(e.rotulo)}</label>
+          <div class="dialogo-linha">
+            <input id="inv-campo" class="dialogo-campo" type="text"
+                   autocomplete="off" inputmode="${
+                     e.espera === 'NUMERIC' ? 'decimal' : 'text'}"
+                   placeholder="${esc(e.rotulo)}${
+                     e.unidade ? ' (' + e.unidade + ')' : ''}"
+                   value="${esc(inv.rascunho || '')}">
+            <button class="botao botao-principal" type="submit">Responder</button>
+          </div>
+          <button class="botao botao-secundario botao-nao-sei" type="button"
+                  data-acao="inv-nao-sei">Não sei</button>
+        </form>`;
+    } else {
+      caixa = `<button class="botao botao-principal" data-acao="inv-seguir">
+                 Ver a explicação</button>`;
+    }
 
     $('bloco').innerHTML = `
-      <div class="cartao-bloco cartao-assessor">
+      <div class="cartao-bloco cartao-assessor cartao-dialogo">
         <p class="bloco-etiqueta assessor-etiqueta">
           <img class="assessor-marca" src="assets/nucleo-edu-360-simbolo.png"
                alt="" width="128" height="108" aria-hidden="true">
-          Vamos por partes
+          Edu
         </p>
-        ${v.hipotese ? `<p class="assessor-hipotese">${esc(v.hipotese)}</p>` : ''}
-        ${fala}
-        ${feitas ? `<ol class="etapas-feitas">${feitas}</ol>` : ''}
-        ${retorno}
-        ${v.etapa ? `<p class="bloco-titulo">${esc(etapa.question || '')}</p>
-        <div class="alternativas">${alternativas}</div>` : ''}
-        ${acoes}
+        <ol class="dialogo">${fios}</ol>
+        ${caixa}
+        <button class="botao botao-secundario" data-acao="inv-sair">
+          Voltar ao início</button>
       </div>`;
+
+    // O FOCO VAI PARA A CAIXA, e a conversa rola para o fim: numa conversa
+    // que cresce, o ultimo turno e o que importa, e obrigar o aluno a
+    // procura-lo a cada resposta e obriga-lo a trabalhar pela interface.
+    const campo = document.getElementById('inv-campo');
+    if (campo && inv.ultimo !== null) campo.focus();
+    const ultimo = document.querySelector('.dialogo .turno:last-child');
+    if (ultimo && inv.ultimo !== null) {
+      ultimo.scrollIntoView({ block: 'nearest',
+                              behavior: PrepUI.comoRevelar({ indice: 0, total: 1,
+                                reduzido: window.matchMedia(
+                                  '(prefers-reduced-motion: reduce)').matches
+                              }).behavior });
+    }
   }
 
-  function escolherInvestigacao(letra) {
-    if (!app.investigacao) return;
-    app.investigacao.escolha = letra;
-    pintarInvestigacao();
-  }
-
-  async function responderInvestigacao() {
+  async function enviarInvestigacao(destino) {
     const inv = app.investigacao;
-    if (!inv || !inv.escolha || !inv.dados.etapa) return;
+    if (!inv) return;
+    const campo = document.getElementById('inv-campo');
+    const texto = (inv.rascunho !== undefined && inv.rascunho !== null
+                   ? inv.rascunho : (campo ? campo.value : '')) || '';
+    if (!String(texto).trim()) return;
+    inv.rascunho = '';
+    // O QUE ELE DIGITOU FICA AQUI. Ver `aluno-investigacao.turnos`: o
+    // backend nao guarda o texto, e sem isto a conversa perderia o proprio
+    // comeco assim que a primeira etapa fosse respondida.
+    inv.dito = inv.dito || {};
+    const ordemAtual = (inv.dados.etapa || {}).ordem;
+    if (destino === 'abertura') inv.dito.abertura = String(texto);
+    else if (ordemAtual) inv.dito[ordemAtual] = String(texto);
     try {
-      const r = await api(
-        `/api/v1/student/investigation/${encodeURIComponent(inv.dados.key)}/answer`,
-        { method: 'POST',
-          body: JSON.stringify({ ordem: inv.dados.etapa.ordem,
-                                 selected_option: inv.escolha }) });
+      let r;
+      if (destino === 'abertura') {
+        r = await api(
+          `/api/v1/student/investigation/${encodeURIComponent(inv.dados.key)}/opening`,
+          { method: 'POST', body: JSON.stringify({ texto: String(texto) }) });
+      } else {
+        r = await api(
+          `/api/v1/student/investigation/${encodeURIComponent(inv.dados.key)}/answer`,
+          { method: 'POST',
+            body: JSON.stringify({ ordem: inv.dados.etapa.ordem,
+                                   selected_option: String(texto) }) });
+      }
       inv.dados = r;
-      inv.ultimo = { correct: !!r.correct, completed: !!r.completed };
-      // A alternativa sai desmarcada sempre: na etapa seguinte ela nao
-      // significa nada, e na mesma etapa um clique no mesmo lugar nao e uma
-      // segunda escolha.
+      // A frase da hipotese tambem some ao recarregar - ela e derivada do
+      // valor escrito. Dentro da sessao, ela fica.
+      if (destino === 'abertura' && r.abertura && r.abertura.hipotese) {
+        inv.dito.hipotese = r.abertura.hipotese;
+      }
+      inv.ultimo = { correct: !!r.correct, completed: !!r.completed,
+                     observacao: r.observacao || null };
       inv.escolha = null;
       pintarInvestigacao();
     } catch (e) {
       $('bloco').innerHTML += aviso(`Não consegui registrar (erro ${esc(e.status || '')}).`);
     }
+  }
+
+  // O ATALHO DA ALTERNATIVA ESCREVE A RESPOSTA, em vez de marca-la.
+  //
+  // Numa conversa as duas coisas tem de convergir: quem digita "3" e quem
+  // clica na alternativa "3" estao dizendo a mesma coisa, e o backend as le
+  // do mesmo jeito. Marcar sem escrever criaria dois estados para a mesma
+  // intencao, e um deles ficaria para tras.
+  function escolherInvestigacao(letra) {
+    const inv = app.investigacao;
+    if (!inv || !inv.dados.etapa) return;
+    const op = (inv.dados.etapa.options || []).find((o) => o.key === letra);
+    inv.rascunho = op ? op.text : letra;
+    enviarInvestigacao('etapa');
   }
 
   // Concluida a investigacao, o degrau seguinte e do backend - relido aqui
@@ -2125,6 +2179,18 @@
   }
 
   // ===================================================== acoes ============
+  // O ENVIO DA CONVERSA e um submit de formulario, nao um clique em botao:
+  // assim o Enter funciona sem codigo extra, que e como se responde numa
+  // conversa.
+  document.addEventListener('submit', (e) => {
+    const form = e.target.closest('[data-acao="inv-enviar"]');
+    if (!form) return;
+    e.preventDefault();
+    const campo = form.querySelector('.dialogo-campo');
+    if (app.investigacao && campo) app.investigacao.rascunho = campo.value;
+    enviarInvestigacao(form.dataset.destino);
+  });
+
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest(
       '[data-acao], [data-opcao], [data-opcao-oficial], [data-opcao-guiada],'
@@ -2156,7 +2222,15 @@
       case 'guiada': abrirGuiada(alvo.dataset.conteudo); return;
       case 'investigar': abrirInvestigacao(alvo.dataset.conteudo,
                                            alvo.dataset.habilidade); return;
-      case 'inv-responder': responderInvestigacao(); return;
+      case 'inv-nao-sei':
+        // "Nao sei" e uma RESPOSTA, e segue pelo mesmo caminho das outras:
+        // o backend e quem decide o que fazer com ela. Um botao que
+        // pulasse a etapa por fora trataria a honestidade do aluno como
+        // desistencia.
+        if (app.investigacao) { app.investigacao.rascunho = 'não sei'; }
+        enviarInvestigacao((InvestigacaoUI.entrada(
+          (app.investigacao || {}).dados) || {}).destino);
+        return;
       case 'inv-seguir': seguirDepoisDaInvestigacao(); return;
       case 'inv-sair': irPara('inicio'); return;
       case 'guiada-responder': responderGuiada(); return;

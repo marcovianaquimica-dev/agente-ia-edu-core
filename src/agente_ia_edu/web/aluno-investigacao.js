@@ -148,7 +148,155 @@
             { acao: 'sair', rotulo: 'Voltar ao início', principal: false }];
   }
 
+  /**
+   * A CONVERSA, montada do payload - turno a turno.
+   *
+   * POR QUE ISTO E UMA FUNCAO PURA
+   * ===============================
+   * A tela anterior desenhava "etapas concluidas" numa lista e a pergunta
+   * aberta embaixo. Funcionava, e nao parecia uma conversa: o aluno via um
+   * formulario com historico, nao alguem falando com ele.
+   *
+   * Aqui o payload vira uma sequencia de turnos - quem fala, o que diz - e
+   * a tela so desenha. Nada e decidido aqui: a pergunta, a frase da
+   * hipotese e o ensino da etapa vem todos do backend.
+   *
+   * O QUE O ALUNO DISSE VOLTA COMO ELE DISSE
+   * =========================================
+   * "15", e nao "resposta incorreta". A leitura que o sistema fez do texto
+   * dele nao substitui o texto dele - e ver a propria resposta na conversa
+   * e o que torna a sequencia legivel depois.
+   */
+  function turnos(dados, opcoes) {
+    var d = dados || {};
+    var o = opcoes || {};
+    // O QUE ELE DIGITOU NESTA SESSAO, por ordem. O backend nao guarda o
+    // texto - `GuidedPracticeItem` nao tem coluna para isso, e manter zero
+    // migration foi uma escolha. Entao a tela lembra do que ELA enviou.
+    //
+    // O limite esta declarado: ao RECARREGAR a pagina o "15" se perde, e a
+    // conversa recomeca do que o backend sabe. Dentro da sessao - que e
+    // quando a continuidade importa - ela esta inteira.
+    var dito = o.dito || {};
+    var fios = [];
+    var a = d.abertura || null;
+
+    if (a && a.pergunta) {
+      fios.push({ quem: 'edu', tipo: 'pergunta', texto: a.pergunta });
+      var daAbertura = a.resposta_do_aluno || dito.abertura;
+      if (a.respondida && daAbertura) {
+        fios.push({ quem: 'aluno', tipo: 'resposta', texto: daAbertura });
+      }
+      // A HIPOTESE tambem some ao recarregar, pelo mesmo motivo - ela e
+      // derivada do valor que ele escreveu.
+      // A HIPOTESE, quando o valor sugeriu uma. Ela e um turno do Edu, e
+      // nao um rotulo colado na resposta do aluno: a diferenca e que um
+      // turno e algo que o Edu DIZ, e um rotulo seria algo que ele DECIDE
+      // sobre ele.
+      var hip = a.hipotese || dito.hipotese;
+      if (hip) {
+        fios.push({ quem: 'edu', tipo: 'hipotese', texto: hip });
+      }
+    }
+
+    (d.concluidas || []).forEach(function (c) {
+      fios.push({ quem: 'edu', tipo: 'pergunta', texto: c.question });
+      // O que ele DISSE, nessa ordem de preferencia: o texto que a tela
+      // enviou, o conteudo da alternativa, e so entao a letra.
+      fios.push({ quem: 'aluno', tipo: 'resposta',
+                  texto: dito[c.ordem] || c.resposta_texto || c.correct_option,
+                  resolvida: true });
+      if (c.comentario) {
+        fios.push({ quem: 'edu', tipo: 'fala', texto: c.comentario });
+      }
+    });
+
+    // A TENTATIVA QUE NAO FICOU DE PE.
+    //
+    // Ela nao entra em `concluidas` - so o que foi resolvido entra -, e sem
+    // este bloco o que o aluno disse ao errar sumia da conversa. Ficava o
+    // ensino sem a fala que o motivou, e a sequencia deixava de fazer
+    // sentido: o Edu parecia explicar do nada.
+    if (d.retorno && d.retorno.comentario) {
+      var errou = dito[d.retorno.ordem];
+      if (errou) {
+        fios.push({ quem: 'aluno', tipo: 'resposta', texto: errou });
+      }
+      fios.push({ quem: 'edu', tipo: 'ensino', texto: d.retorno.comentario });
+    }
+
+    // A FALA DE QUANDO O EDU NAO CONSEGUIU LER - ou de acolhimento, quando
+    // ele disse que nao sabe. Ela vem ANTES da pergunta, nao depois:
+    // medido no navegador, "Sem problema, vamos por um caminho mais curto"
+    // aparecia abaixo da pergunta que ela introduz, e a conversa lia ao
+    // contrario.
+    var fala = falaDaObservacao(o.observacao);
+    if (fala) {
+      fios.push({ quem: 'edu', tipo: 'acolhimento', texto: fala });
+    }
+
+    // E a pergunta aberta AGORA, por ultimo - e sempre a ultima coisa na
+    // tela, porque e a unica que espera algo dele.
+    if (d.etapa && d.etapa.question) {
+      fios.push({ quem: 'edu', tipo: 'pergunta', texto: d.etapa.question,
+                  atual: true });
+    }
+    return fios;
+  }
+
+  /**
+   * O que a caixa de resposta deve ser agora.
+   *
+   * A interface escolhe o componente conforme o que o instrumento pede -
+   * §20. Nao e tudo textarea: uma etapa de alternativas continua oferecendo
+   * as alternativas, E aceitando texto, porque as duas coisas chegam ao
+   * mesmo lugar no backend.
+   */
+  function entrada(dados) {
+    var d = dados || {};
+    var a = d.abertura || null;
+    if (d.perguntar_abertura && a) {
+      return { modo: 'texto', destino: 'abertura',
+               espera: a.espera || 'SHORT_TEXT',
+               unidade: a.unidade || null,
+               rotulo: 'Sua resposta',
+               alternativas: [] };
+    }
+    if (d.completed || !d.etapa) {
+      return { modo: 'nenhum', destino: null, alternativas: [] };
+    }
+    return { modo: 'misto', destino: 'etapa',
+             espera: 'SHORT_TEXT', unidade: null,
+             rotulo: 'Sua resposta',
+             alternativas: (d.etapa.options || []).slice() };
+  }
+
+  /**
+   * O que o Edu diz quando NAO conseguiu ler o que o aluno escreveu.
+   *
+   * Isto nao e erro do aluno, e a frase nao pode soar como se fosse. E
+   * tambem nao pode fingir que entendeu: pedir de novo, mais simples, e a
+   * unica saida honesta.
+   */
+  function falaDaObservacao(observacao) {
+    if (observacao === 'AMBIGUOUS_RESPONSE') {
+      return 'Não consegui ler sua resposta com certeza. Pode escrever só o '
+           + 'número?';
+    }
+    if (observacao === 'EMPTY_RESPONSE') {
+      return 'Faltou a resposta — escreva o que você achar, mesmo sem '
+           + 'certeza.';
+    }
+    if (observacao === 'UNKNOWN_RESPONSE') {
+      return 'Sem problema. Vamos por um caminho mais curto.';
+    }
+    return '';
+  }
+
   var InvestigacaoUI = {
+    turnos: turnos,
+    entrada: entrada,
+    falaDaObservacao: falaDaObservacao,
     estado: estado,
     progresso: progresso,
     falaDoAssessor: falaDoAssessor,
