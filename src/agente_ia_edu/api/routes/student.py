@@ -1475,7 +1475,11 @@ from ...services.servico_de_investigacao import (  # noqa: E402
 
 class _RespostaDaEtapaRequest(_BaseModel):
     ordem: int = _Field(ge=1, le=20)
-    selected_option: str = _Field(default="", max_length=8)
+    # A LETRA OU O QUE ELE ESCREVEU. Numa conversa o aluno digita "3", nao
+    # "C"; exigir a letra o obrigaria a traduzir a propria resposta para o
+    # formato interno da tela. O limite subiu de 8 para caber uma frase
+    # curta - "acho que sao 3" -, e a leitura continua deterministica.
+    selected_option: str = _Field(default="", max_length=200)
 
 
 def _investigacao_404(exc: Exception) -> HTTPException:
@@ -1500,6 +1504,37 @@ async def abrir_investigacao(
         except PermissionError as exc:
             # Mesma resposta de "nao existe": quem nao pode ver tambem nao
             # pode descobrir que existe.
+            raise _investigacao_404(exc) from exc
+
+
+class _RespostaAbertaRequest(_BaseModel):
+    # Texto livre, curto. O limite existe para nao transformar a caixa de
+    # resposta num campo de redacao: a pergunta pede um numero ou uma frase.
+    texto: str = _Field(default="", max_length=400)
+
+
+@student_router.post("/investigation/{inv_key}/opening",
+                     summary="Responde, por escrito, a pergunta de abertura")
+async def responder_abertura_da_investigacao(
+    inv_key: str,
+    payload: _RespostaAbertaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """A resposta ESCRITA que abre a conversa.
+
+    O que volta carrega a observacao e, quando o valor sugerir uma, a frase
+    HEDGEADA da hipotese - nunca uma afirmacao sobre o raciocinio do aluno.
+    A conferencia e aqui, como sempre: o cliente nao sabe o gabarito.
+    """
+    async with session_factory() as session:
+        try:
+            return await InvestigacaoService(session).responder_abertura(
+                _me(ctx), inv_key, payload.texto,
+                requester=_student_requester(ctx))
+        except SemInvestigacao as exc:
+            raise _investigacao_404(exc) from exc
+        except PermissionError as exc:
             raise _investigacao_404(exc) from exc
 
 

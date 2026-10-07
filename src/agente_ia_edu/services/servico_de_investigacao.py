@@ -48,12 +48,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agente_ia_edu.db.models.guided_practice import GuidedPracticeItem
+from agente_ia_edu.services.hipotese_pedagogica import (
+    ABERTA,
+    atualizar as atualizar_hipotese,
+)
 from agente_ia_edu.services.investigacao_do_erro import (
+    ORDEM_DA_ABERTURA,
     Investigacao,
-    conferir_resposta,
+    avaliar_resposta,
+    hipotese_para,
     investigacao_para,
     para_o_aluno,
     proxima_etapa,
+)
+from agente_ia_edu.services.resposta_do_aluno import (
+    OBS_CORRETA,
+    normalizar,
+    observar,
 )
 from agente_ia_edu.services.question_list_store import Requester
 
@@ -137,6 +148,30 @@ class InvestigacaoService:
             raise SemInvestigacao(f"{content_code}/{skill}")
         return inv
 
+    async def _abertura(self, aluno: str, inv: Investigacao) -> dict:
+        """O que ja se sabe sobre a pergunta de abertura.
+
+        Ela mora na mesma tabela das etapas, na ordem ZERO - ver
+        `ORDEM_DA_ABERTURA`. O que NAO cabe na tabela e o texto que o aluno
+        escreveu; `GuidedPracticeItem` nao tem coluna para resposta, e este
+        bloco manteve zero migration.
+
+        A consequencia esta declarada: ao RECARREGAR a pagina, o Edu lembra
+        QUE ele respondeu e se acertou, mas nao reexibe o "15" nem a frase
+        da hipotese. Dentro do turno - que e quando isso importa - os dois
+        viajam na resposta do POST.
+        """
+        if inv.abertura is None:
+            return {}
+        linha = await self._linha(aluno, _chave(inv.key, ORDEM_DA_ABERTURA))
+        if linha is None:
+            return {}
+        return {
+            "respondida": True,
+            "observacao": (OBS_CORRETA if linha.completed else None),
+            "tentativas": int(linha.attempts or 0),
+        }
+
     async def abrir(self, aluno: str, content_code: str, skill: str | None, *,
                     requester: Requester) -> dict:
         """Comeca (ou retoma) a investigacao daquela lacuna.
@@ -147,7 +182,8 @@ class InvestigacaoService:
         self._so_o_proprio(aluno, requester)
         inv = self._resolver(content_code, skill)
         respostas, tentativas = await self._estado_gravado(aluno, inv)
-        return para_o_aluno(inv, respostas, tentativas=tentativas)
+        return para_o_aluno(inv, respostas, tentativas=tentativas,
+                            abertura=await self._abertura(aluno, inv))
 
     async def pendente(self, aluno: str, content_code: str, skill: str | None,
                        *, requester: Requester) -> bool:
@@ -161,6 +197,10 @@ class InvestigacaoService:
         inv = investigacao_para(content_code, skill)
         if inv is None:
             return False
+        if inv.abertura is not None and not (
+                await self._abertura(aluno, inv)).get("respondida"):
+            # A abertura ainda nao foi feita: ha o que percorrer.
+            return True
         respostas, _ = await self._estado_gravado(aluno, inv)
         return proxima_etapa(inv, respostas) is not None
 
@@ -172,6 +212,54 @@ class InvestigacaoService:
                 GuidedPracticeItem.student_external_id == aluno,
                 GuidedPracticeItem.item_key == chave,
             ))).scalar_one_or_none()
+
+    async def responder_abertura(self, aluno: str, inv_key: str, texto: str,
+                                 *, requester: Requester) -> dict:
+        """A resposta ESCRITA a pergunta que abre a investigacao.
+
+        Tres coisas acontecem, nesta ordem, e nenhuma delas pula a anterior:
+
+            texto -> RESPOSTA NORMALIZADA -> OBSERVACAO -> HIPOTESE
+
+        A hipotese so nasce quando o VALOR tem gatilho escrito no conteudo
+        curado. Numero errado sem gatilho nao produz suposicao nenhuma - o
+        sistema so supoe onde alguem decidiu de antemao qual suposicao
+        aquele numero sustenta.
+
+        E a hipotese nasce ABERTA. Ela nao e conclusao: e a razao de fazer a
+        proxima pergunta.
+        """
+        self._so_o_proprio(aluno, requester)
+        inv = next((i for i in _todas() if i.key == inv_key), None)
+        if inv is None or inv.abertura is None:
+            raise SemInvestigacao(inv_key)
+
+        normalizada = normalizar(texto, espera=inv.abertura.espera)
+        observacao = observar(normalizada,
+                              esperado_numero=inv.abertura.resposta)
+        acertou = observacao == OBS_CORRETA
+
+        ja = await self._abertura(aluno, inv)
+        if not ja.get("respondida"):
+            await self._registrar_ordem(
+                aluno, inv, ordem=ORDEM_DA_ABERTURA,
+                habilidade=inv.habilidade_alvo, acertou=acertou)
+
+        hipotese = hipotese_para(inv, normalizada.numero)
+        respostas, tentativas = await self._estado_gravado(aluno, inv)
+        saida = para_o_aluno(
+            inv, respostas, tentativas=tentativas,
+            abertura={
+                "respondida": True,
+                "bruto": normalizada.bruto,
+                "observacao": observacao,
+                "hipotese_como_dizer": hipotese.como_dizer if hipotese else None,
+                "hipotese_codigo": hipotese.codigo if hipotese else None,
+                "hipotese_estado": ABERTA if hipotese else None,
+            })
+        saida["correct"] = acertou
+        saida["observacao"] = observacao
+        return saida
 
     async def responder(self, aluno: str, inv_key: str, ordem: int,
                         escolha: str, *, requester: Requester) -> dict:
@@ -193,18 +281,67 @@ class InvestigacaoService:
 
         resolvidas, tentativas = await self._estado_gravado(aluno, inv)
         aberta = proxima_etapa(inv, resolvidas)
-        acertou = conferir_resposta(etapa, escolha)
+        # A OBSERVACAO VEM JUNTO do acerto. "errou" e "nao entendi o que
+        # voce escreveu" pedem respostas diferentes do Edu, e perder essa
+        # distincao faria o aluno ambiguo ser tratado como quem errou.
+        acertou, observacao = avaliar_resposta(etapa, escolha)
 
         if aberta is not None and aberta.ordem == etapa.ordem:
-            await self._registrar(aluno, inv, etapa, acertou=acertou)
-            resolvidas, tentativas = await self._estado_gravado(aluno, inv)
+            # TRES COISAS NAO GASTAM TENTATIVA: ambiguidade, ausencia e
+            # "nao sei".
+            #
+            # As duas primeiras porque o aluno nao errou - o sistema nao
+            # leu. A terceira porque dizer "nao sei" tambem nao e errar: e
+            # a informacao mais honesta que ele pode dar, e cobra-la como
+            # tentativa faria o retorno escalar de pista para regra
+            # aplicada sem que ele tivesse tentado uma vez sequer.
+            #
+            # O CUSTO ESTA DECLARADO: o pedido de ajuda nao fica gravado.
+            # `GuidedPracticeItem` nao tem coluna para distinguir "tentou e
+            # errou" de "pediu ajuda", e grava-lo como tentativa seria
+            # registrar um erro que nao houve. Se um dia for preciso contar
+            # quantas vezes ele pediu ajuda, ai havera necessidade
+            # arquitetural de coluna - e nao antes.
+            from agente_ia_edu.services.resposta_do_aluno import (
+                OBS_AMBIGUA,
+                OBS_NAO_SEI,
+                OBS_SEM_RESPOSTA,
+            )
+            if observacao not in (OBS_AMBIGUA, OBS_SEM_RESPOSTA, OBS_NAO_SEI):
+                await self._registrar(aluno, inv, etapa, acertou=acertou)
+                resolvidas, tentativas = await self._estado_gravado(aluno, inv)
         else:
             # Fora da vez: nada e gravado, e a visao devolvida e a real.
             acertou = False
 
-        saida = para_o_aluno(inv, resolvidas, tentativas=tentativas)
+        saida = para_o_aluno(inv, resolvidas, tentativas=tentativas,
+                             abertura=await self._abertura(aluno, inv))
         saida["correct"] = acertou
+        saida["observacao"] = observacao
+        # A HIPOTESE DEPOIS DA DISCRIMINANTE.
+        #
+        # Acertar enfraquece, errar apoia - e so a etapa que a hipotese
+        # declarou como discriminante move o estado. Derivado, nao gravado.
+        hipotese = _hipotese_aberta(inv)
+        if hipotese is not None and hipotese.discriminante == etapa.ordem:
+            saida["hipotese_estado"] = atualizar_hipotese(
+                ABERTA, discriminante_correta=acertou if observacao not in (
+                    "AMBIGUOUS_RESPONSE", "EMPTY_RESPONSE") else None)
+            saida["hipotese_codigo"] = hipotese.codigo
+            saida["hipotese_suspeita"] = hipotese.habilidade_suspeita
         return saida
+
+    async def _registrar_ordem(self, aluno: str, inv: Investigacao, *,
+                               ordem: int, habilidade: str,
+                               acertou: bool) -> None:
+        """Grava uma linha por (aluno, ordem). Serve a abertura e as etapas."""
+        class _Falsa:
+            pass
+
+        falsa = _Falsa()
+        falsa.ordem = ordem
+        falsa.habilidade = habilidade
+        await self._registrar(aluno, inv, falsa, acertou=acertou)
 
     async def _registrar(self, aluno: str, inv: Investigacao, etapa,
                          *, acertou: bool) -> None:
@@ -264,6 +401,16 @@ class InvestigacaoService:
 def _todas():
     from agente_ia_edu.services.investigacao_do_erro import INVESTIGACOES
     return INVESTIGACOES
+
+
+def _hipotese_aberta(inv: Investigacao):
+    """A hipotese que esta investigacao sabe levantar.
+
+    Hoje ha no maximo uma por investigacao, e ela e a do gatilho. Quando
+    houver mais, quem escolhe entre elas e o VALOR observado na abertura -
+    e por isso a escolha mora em `hipotese_para`, nao aqui.
+    """
+    return inv.gatilhos[0].hipotese if inv.gatilhos else None
 
 
 __all__ = ["InvestigacaoService", "SemInvestigacao"]

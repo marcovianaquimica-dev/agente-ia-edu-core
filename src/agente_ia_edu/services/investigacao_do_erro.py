@@ -509,13 +509,96 @@ def etapa_de(inv: Investigacao, ordem: int) -> EtapaDaInvestigacao | None:
 
 
 def conferir_resposta(etapa: EtapaDaInvestigacao, escolha: str) -> bool:
-    """Acertou? A conferencia e aqui, nunca no cliente."""
-    return (escolha or "").strip().upper() == etapa.correta
+    """Acertou? A conferencia e aqui, nunca no cliente.
+
+    Aceita a LETRA ou o CONTEUDO da alternativa. Numa conversa o aluno
+    digita "3", nao "C" - e exigir a letra o obrigaria a traduzir a propria
+    resposta para o formato interno da tela.
+
+    Ambiguidade continua sendo nao: "3 ou 4" nao acerta a etapa cuja
+    resposta e 3. Ver `resposta_do_aluno` - o que nao se le com seguranca
+    nao vira acerto.
+    """
+    return avaliar_resposta(etapa, escolha)[0]
+
+
+def avaliar_resposta(etapa: EtapaDaInvestigacao,
+                     escolha: str) -> tuple[bool, str]:
+    """(acertou, observacao) para uma etapa de alternativas.
+
+    Devolve a OBSERVACAO junto porque "errou" e "nao entendi o que voce
+    escreveu" exigem respostas diferentes do Edu, e perder essa distincao
+    faria o aluno ambiguo ser tratado como aluno que errou.
+    """
+    from agente_ia_edu.services.resposta_do_aluno import (
+        ESPERA_ESCOLHA,
+        ESPERA_NUMERO,
+        OBS_AMBIGUA,
+        OBS_CORRETA,
+        OBS_INCORRETA,
+        TIPO_AMBIGUO,
+        TIPO_ESCOLHA,
+        normalizar,
+        observar,
+    )
+
+    from agente_ia_edu.services.resposta_do_aluno import (
+        OBS_NAO_SEI,
+        OBS_SEM_RESPOSTA,
+        TIPO_NAO_SEI,
+        TIPO_VAZIO,
+    )
+
+    bruto = escolha or ""
+
+    # "NAO SEI" E VAZIO TEM OBSERVACAO PROPRIA, antes de qualquer tentativa
+    # de leitura. Sem isto os dois caiam em AMBIGUO, e o Edu respondia
+    # "nao entendi o que voce escreveu" a quem disse, com todas as letras,
+    # que nao sabia - que e informacao pedagogica, nao ruido.
+    inicial = normalizar(bruto, espera=ESPERA_ESCOLHA)
+    if inicial.tipo == TIPO_VAZIO:
+        return False, OBS_SEM_RESPOSTA
+    if inicial.tipo == TIPO_NAO_SEI:
+        return False, OBS_NAO_SEI
+
+    # Primeiro como LETRA: e o que o clique na alternativa envia, e e a
+    # leitura mais barata.
+    como_letra = inicial
+    if como_letra.tipo == TIPO_ESCOLHA and como_letra.texto in etapa.alternativas:
+        obs = observar(como_letra, esperado_texto=etapa.correta)
+        return obs == OBS_CORRETA, obs
+
+    # Depois como CONTEUDO da alternativa. O texto certo e o da correta; os
+    # demais sao comparados para distinguir "errou" de "nao entendi".
+    certo = etapa.alternativas[etapa.correta]
+    como_numero = normalizar(bruto, espera=ESPERA_NUMERO)
+    if como_numero.tipo == TIPO_AMBIGUO:
+        return False, OBS_AMBIGUA
+
+    esperado = normalizar(certo, espera=ESPERA_NUMERO)
+    if como_numero.numero is not None and esperado.numero is not None:
+        obs = observar(como_numero, esperado_numero=esperado.numero)
+        return obs == OBS_CORRETA, obs
+
+    # Nem letra nem numero: comparacao textual direta, sem adivinhar.
+    dito = bruto.strip().casefold()
+    if dito and dito == certo.strip().casefold():
+        return True, OBS_CORRETA
+    if any(dito == t.strip().casefold() for t in etapa.alternativas.values()):
+        return False, OBS_INCORRETA
+    return False, OBS_AMBIGUA
+
+
+# A abertura ocupa a ordem ZERO. Ela nao e uma etapa da cadeia - e a
+# pergunta que a motiva -, e dar-lhe um numero fora do intervalo das etapas
+# e o que permite guarda-la pelo mesmo caminho sem confundir as duas.
+ORDEM_DA_ABERTURA = 0
 
 
 def para_o_aluno(inv: Investigacao,
                  respostas: Mapping[int, str] | None,
-                 tentativas: Mapping[int, int] | None = None) -> dict:
+                 tentativas: Mapping[int, int] | None = None,
+                 abertura: Mapping | None = None) -> dict:
     """A investigacao como ela pode chegar ao cliente.
 
     O QUE NAO ESTA AQUI NAO VAZA. A letra correta de uma etapa ABERTA nao sai
@@ -559,15 +642,38 @@ def para_o_aluno(inv: Investigacao,
             "comentario": atual.pista if primeira else atual.se_errar,
         }
 
+    # A ABERTURA VEM PRIMEIRO, e enquanto ela nao for respondida nenhuma
+    # etapa aparece: a cadeia existe para investigar um erro, e sem o erro
+    # ela seria uma bateria de perguntas sem motivo.
+    aberta = dict(abertura or {})
+    abertura_respondida = bool(aberta.get("respondida"))
+    perguntar_abertura = inv.abertura is not None and not abertura_respondida
+
     return {
         "key": inv.key,
         "content_code": inv.content_code,
         "skill": inv.habilidade_alvo,
         "hipotese": inv.hipotese,
+        "abertura": None if inv.abertura is None else {
+            "pergunta": inv.abertura.pergunta,
+            "espera": inv.abertura.espera,
+            "unidade": inv.abertura.unidade,
+            "respondida": abertura_respondida,
+            # O que ELE escreveu volta para a tela. A nossa leitura do que
+            # ele escreveu nao substitui o que ele disse.
+            "resposta_do_aluno": aberta.get("bruto"),
+            "observacao": aberta.get("observacao"),
+            # A frase hedgeada da hipotese, quando o valor sugeriu uma.
+            # NUNCA uma afirmacao sobre o raciocinio dele.
+            "hipotese": aberta.get("hipotese_como_dizer"),
+            "hipotese_codigo": aberta.get("hipotese_codigo"),
+            "hipotese_estado": aberta.get("hipotese_estado"),
+        },
+        "perguntar_abertura": perguntar_abertura,
         "total_etapas": len(inv.etapas),
-        "completed": atual is None,
+        "completed": atual is None and not perguntar_abertura,
         "bottleneck_skill": gargalo(inv, dadas),
-        "etapa": None if atual is None else {
+        "etapa": None if (atual is None or perguntar_abertura) else {
             "ordem": atual.ordem,
             "skill": atual.habilidade,
             "question": atual.pergunta,
@@ -671,12 +777,14 @@ def _virgula(valor: float) -> str:
 
 __all__ = [
     "INVESTIGACOES",
+    "ORDEM_DA_ABERTURA",
     "EtapaDaInvestigacao",
     "Gatilho",
     "Investigacao",
     "PerguntaAberta",
     "etapa_de",
     "hipotese_para",
+    "avaliar_resposta",
     "conferir",
     "conferir_resposta",
     "gargalo",
