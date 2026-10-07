@@ -212,6 +212,25 @@ Ganho de dado: cada linha grava a micro-habilidade que **aquela etapa** isola.
 Antes o sistema sabia "errou uma questão de estequiometria"; agora sabe "a
 conversão massa-mol está de pé, a proporção não".
 
+### O que o sistema descobriu, e que uma questão não diria
+
+`guided_practice_items` de `aluno_qa_est_limpo`, depois da investigação:
+
+| etapa | micro-habilidade | tentativas | de primeira |
+|---|---|---|---|
+| #1 | `LEITURA_DE_FORMULA` | 1 | **sim** |
+| #2 | `MASSA_MOLAR` | 3 | não |
+| #3 | `MASSA_MOLAR` | 1 | **sim** |
+| guiada | `MASSA_MOLAR` | 1 | não (usou dica) |
+
+Ler a fórmula estava de pé — primeira tentativa. O que quebrou foi
+**multiplicar pelo índice**: três tentativas, e foi ali que o ensino entrou.
+Ensinada aquela etapa, a soma final saiu de primeira.
+
+A questão original ("qual é a massa molar do NH₃?") teria produzido um único
+bit: errou. A cadeia produziu uma localização — e foi o aluno quem a produziu,
+respondendo.
+
 ---
 
 ## 8. Os dois modos da mesma tela
