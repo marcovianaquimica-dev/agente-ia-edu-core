@@ -41,6 +41,8 @@ import pathlib
 import unittest
 from dataclasses import replace
 
+from _fonte import codigo as _codigo
+
 from agente_ia_edu.services.instrumento_de_sondagem import (
     FINALIDADE_SONDAGEM,
     ORIGEM_CURADA,
@@ -52,34 +54,6 @@ from agente_ia_edu.services.instrumento_de_sondagem import (
 
 CONTEUDO = "CHEMISTRY-PHYSICAL-STOICHIOMETRY"
 HAB = "MASSA_MOLAR"
-
-
-def _codigo(caminho) -> str:
-    """O arquivo SEM docstrings e SEM comentários.
-
-    As varreduras deste arquivo perguntam "o código conhece X?". Lendo o
-    texto cru elas perguntam "alguém escreveu X em algum lugar?" — e a
-    resposta é sim, nas docstrings que explicam por que X não é usado.
-    """
-    import io
-    import tokenize
-
-    fonte = caminho.read_text(encoding="utf-8")
-    pedacos = []
-    anterior = tokenize.INDENT
-    for tok in tokenize.generate_tokens(io.StringIO(fonte).readline):
-        if tok.type == tokenize.COMMENT:
-            continue
-        # String solta na posição de statement é docstring.
-        if tok.type == tokenize.STRING and anterior in (
-                tokenize.INDENT, tokenize.DEDENT, tokenize.NEWLINE,
-                tokenize.NL, tokenize.ENCODING):
-            anterior = tok.type
-            continue
-        pedacos.append(tok.string)
-        if tok.type not in (tokenize.NL,):
-            anterior = tok.type
-    return " ".join(pedacos)
 
 
 def _curado(**mudancas) -> Candidato:
