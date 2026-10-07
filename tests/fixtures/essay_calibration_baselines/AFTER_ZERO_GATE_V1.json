@@ -1,0 +1,508 @@
+{
+  "tag": "AFTER_ZERO_GATE_V1",
+  "generated_at": "2026-10-07T23:50:23.180946+00:00",
+  "report": {
+    "mae_total": 694.5454545454545,
+    "mae_per_competency": {
+      "C1": 138.1818181818182,
+      "C2": 149.0909090909091,
+      "C3": 130.9090909090909,
+      "C4": 138.1818181818182,
+      "C5": 138.1818181818182
+    },
+    "bias_total": -694.5454545454545,
+    "bias_per_competency": {
+      "C1": -138.1818181818182,
+      "C2": -149.0909090909091,
+      "C3": -130.9090909090909,
+      "C4": -138.1818181818182,
+      "C5": -138.1818181818182
+    },
+    "levels_distance_distribution": {
+      "24": 1,
+      "19": 2,
+      "16": 1,
+      "9": 1,
+      "23": 2,
+      "21": 1,
+      "15": 1,
+      "12": 1,
+      "10": 1
+    },
+    "zero_gate_recall": null,
+    "zero_gate_precision": 0.0,
+    "needs_review_count": 19,
+    "ocr_duvidoso_rate": 0.8666666666666667,
+    "excluded_divergent_or_unverified": [
+      "aluno_21",
+      "aluno_22",
+      "aluno_23",
+      "aluno_24",
+      "aluno_25",
+      "aluno_26",
+      "aluno_27",
+      "aluno_28",
+      "aluno_29",
+      "aluno_30"
+    ]
+  },
+  "rows": [
+    {
+      "student_ref": "aluno_01",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 160,
+        "C2": 200,
+        "C3": 200,
+        "C4": 200,
+        "C5": 200,
+        "total": 960
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_02",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 160,
+        "C2": 160,
+        "C3": 80,
+        "C4": 160,
+        "C5": 200,
+        "total": 760
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_03",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 160,
+        "C3": 120,
+        "C4": 160,
+        "C5": 200,
+        "total": 760
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_04",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 40,
+        "C2": 80,
+        "C3": 80,
+        "C4": 40,
+        "C5": 40,
+        "total": 280
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_05",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 80,
+        "C2": 120,
+        "C3": 120,
+        "C4": 120,
+        "C5": 40,
+        "total": 480
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_06",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 80,
+        "C2": 120,
+        "C3": 80,
+        "C4": 120,
+        "C5": 160,
+        "total": 560
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_07",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 40,
+        "C3": 120,
+        "C4": 120,
+        "C5": 80,
+        "total": 480
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_08",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 160,
+        "C3": 120,
+        "C4": 120,
+        "C5": 120,
+        "total": 640
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_09",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 80,
+        "C3": 80,
+        "C4": 80,
+        "C5": 0,
+        "total": 360
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_10",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 80,
+        "C3": 80,
+        "C4": 80,
+        "C5": 0,
+        "total": 360
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_11",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 200,
+        "C2": 200,
+        "C3": 160,
+        "C4": 160,
+        "C5": 200,
+        "total": 920
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_12",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 200,
+        "C2": 160,
+        "C3": 160,
+        "C4": 200,
+        "C5": 200,
+        "total": 920
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_13",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 160,
+        "C2": 160,
+        "C3": 160,
+        "C4": 160,
+        "C5": 200,
+        "total": 840
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_14",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 200,
+        "C3": 120,
+        "C4": 120,
+        "C5": 120,
+        "total": 680
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_15",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 120,
+        "C3": 120,
+        "C4": 120,
+        "C5": 120,
+        "total": 600
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": false
+    },
+    {
+      "student_ref": "aluno_16",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 120,
+        "C3": 120,
+        "C4": 120,
+        "C5": 0,
+        "total": 480
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_17",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 120,
+        "C2": 120,
+        "C3": 120,
+        "C4": 80,
+        "C5": 0,
+        "total": 440
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_18",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 80,
+        "C2": 120,
+        "C3": 80,
+        "C4": 40,
+        "C5": 80,
+        "total": 400
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_19",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 40,
+        "C2": 120,
+        "C3": 120,
+        "C4": 40,
+        "C5": 80,
+        "total": 400
+      },
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_20",
+      "normative_status": "CONFIRMED",
+      "expected_scores": {
+        "C1": 160,
+        "C2": 120,
+        "C3": 80,
+        "C4": 200,
+        "C5": 200,
+        "total": 760
+      },
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_21",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": false
+    },
+    {
+      "student_ref": "aluno_22",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_23",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_24",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_25",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": false
+    },
+    {
+      "student_ref": "aluno_26",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_27",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_28",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": false
+    },
+    {
+      "student_ref": "aluno_29",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    },
+    {
+      "student_ref": "aluno_30",
+      "normative_status": "UNVERIFIED",
+      "expected_scores": null,
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": true
+    }
+  ]
+}
