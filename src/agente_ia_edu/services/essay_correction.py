@@ -48,7 +48,7 @@ from ..essay_engine_contract.v6 import (
     Feedback,
     Scores,
 )
-from ..essay_prompts import competency_scoring_v2, get_essay_prompt
+from ..essay_prompts import competency_scoring_v3, get_essay_prompt
 from ..providers.contracts import EssayImageCorrectionProvider, TextGenerationProvider
 from ..providers.errors import ProviderError
 from ..providers.factory import build_essay_image_corrector, build_text_provider
@@ -999,7 +999,7 @@ class EssayCorrectionService:
                     "strengths": rationale_obj.strengths,
                     "growth_area": rationale_obj.growth_area,
                 }
-            prompt_text = competency_scoring_v2.build_prompt(
+            prompt_text = competency_scoring_v3.build_prompt(
                 competency_code=code, competency_label=competency.official_title,
                 levels=levels, annotations=annotations,
                 # mechanical_review is exclusively C1's own domain (norma
