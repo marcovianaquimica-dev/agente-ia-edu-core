@@ -37,7 +37,19 @@ from agente_ia_edu.services.pedagogical_analysis import (
 
 FAIXA_PRECISA_ATENCAO = "Precisa de atenção"
 FAIXA_EM_DESENVOLVIMENTO = "Em desenvolvimento"
-FAIXA_CONSOLIDADO = "Consolidado"
+
+# DESEMPENHO ELEVADO - e so isso.
+#
+# Esta faixa se chamava "Consolidado" ate 2026-10-08, e a palavra estava
+# errada: ela traduz BAND_STRONG, que e acerto forte numa unica ocasiao. O
+# §12 reserva "consolidacao" para consistencia em OCASIOES DIFERENTES, e
+# `services/consolidacao` passou a calcular isso de verdade.
+#
+# Chamar as duas coisas pelo mesmo nome fazia o aluno ler "consolidado"
+# depois de uma tarde boa - e ler de novo a mesma palavra depois de repetir
+# duas semanas depois, sem nada distinguir as duas situacoes.
+FAIXA_INDO_BEM = "Indo bem"
+
 FAIXA_CONHECENDO = "Ainda estamos conhecendo seu aprendizado"
 
 # A ordem em que as faixas aparecem na tela. O que ainda nao sabemos vem por
@@ -46,7 +58,7 @@ FAIXA_CONHECENDO = "Ainda estamos conhecendo seu aprendizado"
 _ORDEM = {
     FAIXA_PRECISA_ATENCAO: 1,
     FAIXA_EM_DESENVOLVIMENTO: 2,
-    FAIXA_CONSOLIDADO: 3,
+    FAIXA_INDO_BEM: 3,
     FAIXA_CONHECENDO: 4,
 }
 
@@ -54,7 +66,7 @@ _ORDEM = {
 # banda nova e ninguem traduzir, ha teste que falha - o aluno nunca pode ver
 # o nome cru de um estado interno.
 FAIXA_POR_BANDA = {
-    BAND_STRONG: FAIXA_CONSOLIDADO,
+    BAND_STRONG: FAIXA_INDO_BEM,
     BAND_INTERMEDIATE: FAIXA_EM_DESENVOLVIMENTO,
     BAND_IMPROVEMENT: FAIXA_PRECISA_ATENCAO,
     BAND_INSUFFICIENT: FAIXA_CONHECENDO,
@@ -109,6 +121,6 @@ __all__ = [
     "FAIXA_POR_BANDA",
     "FAIXA_PRECISA_ATENCAO",
     "FAIXA_EM_DESENVOLVIMENTO",
-    "FAIXA_CONSOLIDADO",
+    "FAIXA_INDO_BEM",
     "FAIXA_CONHECENDO",
 ]

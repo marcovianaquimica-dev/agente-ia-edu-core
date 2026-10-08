@@ -1,0 +1,35 @@
+{
+ "origem": "terceira adjudicacao cega, amostra aleatoria simples de 60 sobre as 698, 2026-10-03",
+ "o_que_e": "os 2 itens que o MVP_IMPORT_GATE aprovava e o humano reprovou por fragmentacao de palavra",
+ "nota": "nenhum destes pode voltar a ser aprovado em silencio enquanto apresentar fragmentacao",
+ "casos": [
+  {
+   "id_adjudicacao": "R010",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "fragmentacao",
+   "ano": 2023,
+   "dia": 2,
+   "numero": 113,
+   "esperado_aprovado_pelo_gate": false,
+   "esperado_problemas": [
+    "FRAGMENTACAO_DE_PALAVRA_SUSPEITA"
+   ],
+   "ocorrencias_suspeitas_minimo": 8,
+   "letras_distintas_minimo": 8
+  },
+  {
+   "id_adjudicacao": "R019",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "fragmentacao",
+   "ano": 2023,
+   "dia": 1,
+   "numero": 25,
+   "esperado_aprovado_pelo_gate": false,
+   "esperado_problemas": [
+    "FRAGMENTACAO_DE_PALAVRA_SUSPEITA"
+   ],
+   "ocorrencias_suspeitas_minimo": 5,
+   "letras_distintas_minimo": 5
+  }
+ ]
+}

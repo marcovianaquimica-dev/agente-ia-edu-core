@@ -2220,7 +2220,11 @@
   // PerformanceThresholdPolicy. Esta tela NAO calcula faixa nenhuma - so
   // escolhe o icone e decide se ha acao real para oferecer.
   const FAIXAS = {
-    'Consolidado': { icone: '✓', classe: 'faixa-bom' },
+    // 'Consolidado' saiu desta tabela em 2026-10-08: a faixa de DESEMPENHO
+    // passou a se chamar "Indo bem", e a palavra ficou reservada a
+    // consolidacao de verdade - repetir em ocasioes diferentes. Ver
+    // `services/student_progress` e `services/consolidacao`.
+    'Indo bem': { icone: '✓', classe: 'faixa-bom' },
     'Em desenvolvimento': { icone: '◐', classe: 'faixa-meio' },
     'Precisa de atenção': { icone: '!', classe: 'faixa-atencao' },
   };

@@ -260,18 +260,43 @@ _MOTIVOS = {
 }
 
 
+# O NOME CURTO DE CADA ESTADO, para rotulo de tela.
+#
+# As quatro distincoes do §12 - desempenho elevado, dominio demonstrado,
+# consolidacao e retencao - precisam de QUATRO nomes. "Indo bem" e da faixa
+# de desempenho, em `student_progress`; os tres daqui sao os estados reais.
+# Ha teste exigindo que os quatro sejam distintos: se dois compartilhassem o
+# nome, o aluno leria uma coisa e o sistema teria querido dizer outra.
+_NOMES_CURTOS = {
+    ESTADO_SEM_EVIDENCIA: "Sem registro ainda",
+    ESTADO_EM_APRENDIZADO: "Em construção",
+    ESTADO_DEMONSTRADO: "Você fez sozinho",
+    ESTADO_CONSOLIDADO: "Consolidado",
+    ESTADO_RETIDO: "Você lembrou depois",
+}
+
+ESTADOS_CONHECIDOS = tuple(_NOMES_CURTOS)
+
+
+def nome_curto(estado: str) -> str:
+    """O rotulo de uma palavra ou duas, para a tela."""
+    return _NOMES_CURTOS.get(estado, "")
+
+
 def rotulo_do_estado(estado: str) -> str:
     """O que o aluno le. Nunca o codigo, nunca percentual."""
     return _MOTIVOS.get(estado, "")
 
 
 __all__ = [
+    "ESTADOS_CONHECIDOS",
     "ESTADO_CONSOLIDADO",
     "ESTADO_DEMONSTRADO",
     "ESTADO_EM_APRENDIZADO",
     "ESTADO_RETIDO",
     "ESTADO_SEM_EVIDENCIA",
     "intervalo_sugerido",
+    "nome_curto",
     "rotulo_do_estado",
     "situacao",
 ]

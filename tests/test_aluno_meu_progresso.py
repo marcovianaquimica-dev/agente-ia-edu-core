@@ -31,7 +31,13 @@ import unittest
 
 from agente_ia_edu.services.pedagogical_analysis import PerformanceThresholdPolicy
 
-CONSOLIDADO = "Consolidado"
+# "Indo bem", e nao "Consolidado".
+#
+# A faixa traduz BAND_STRONG - acerto forte numa UNICA ocasiao -, e chama-la
+# de consolidacao era a confusao que o §12 pede para separar. A palavra
+# passou a ser de `services/consolidacao`, que mede repeticao em ocasioes
+# diferentes. Decisao do dono em 2026-10-08.
+INDO_BEM = "Indo bem"
 EM_DESENVOLVIMENTO = "Em desenvolvimento"
 PRECISA_ATENCAO = "Precisa de atenção"
 CONHECENDO = "Ainda estamos conhecendo seu aprendizado"
@@ -79,8 +85,8 @@ class FaixasDoAlunoTests(unittest.TestCase):
 
     # -- as tres faixas -----------------------------------------------------
 
-    def test_desempenho_forte_vira_consolidado(self):
-        self.assertEqual(_traduzir(answered=5, accuracy=0.90)["faixa"], CONSOLIDADO)
+    def test_desempenho_forte_vira_indo_bem(self):
+        self.assertEqual(_traduzir(answered=5, accuracy=0.90)["faixa"], INDO_BEM)
 
     def test_desempenho_intermediario_vira_em_desenvolvimento(self):
         self.assertEqual(_traduzir(answered=5, accuracy=0.70)["faixa"],
@@ -92,9 +98,9 @@ class FaixasDoAlunoTests(unittest.TestCase):
 
     def test_as_fronteiras_sao_as_da_politica_e_nao_outras(self):
         politica = PerformanceThresholdPolicy.default()
-        # exatamente no corte forte -> consolidado
+        # exatamente no corte forte -> indo bem
         self.assertEqual(_traduzir(answered=5, accuracy=politica.strong_accuracy)["faixa"],
-                         CONSOLIDADO)
+                         INDO_BEM)
         # um fio abaixo -> em desenvolvimento
         self.assertEqual(_traduzir(answered=5, accuracy=politica.strong_accuracy - 0.001)["faixa"],
                          EM_DESENVOLVIMENTO)
@@ -157,7 +163,7 @@ class FaixasDoAlunoTests(unittest.TestCase):
         frouxa = PerformanceThresholdPolicy(strong_accuracy=0.50,
                                             improvement_accuracy=0.30)
         f = faixa_do_aluno(answered=5, accuracy=0.60, thresholds=frouxa)
-        self.assertEqual(f["faixa"], CONSOLIDADO,
+        self.assertEqual(f["faixa"], INDO_BEM,
                          "a traducao ignorou a politica que recebeu")
 
     # -- o que o aluno NAO pode ver -----------------------------------------
@@ -181,7 +187,7 @@ class FaixasDoAlunoTests(unittest.TestCase):
         }
         self.assertEqual(ordens[PRECISA_ATENCAO], 1)
         self.assertEqual(ordens[EM_DESENVOLVIMENTO], 2)
-        self.assertEqual(ordens[CONSOLIDADO], 3)
+        self.assertEqual(ordens[INDO_BEM], 3)
         self.assertEqual(ordens[CONHECENDO], 4,
                          "o que ainda nao sabemos vem por ultimo, nao no meio "
                          "das faixas de desempenho")
@@ -209,7 +215,7 @@ class PanoramaDoAlunoTests(unittest.TestCase):
         por_faixa = {f["faixa"]: f["itens"] for f in p["faixas"]}
         self.assertEqual(por_faixa[PRECISA_ATENCAO], ["Estequiometria"])
         self.assertEqual(por_faixa[EM_DESENVOLVIMENTO], ["Soluções"])
-        self.assertEqual(por_faixa[CONSOLIDADO], ["Ligações"])
+        self.assertEqual(por_faixa[INDO_BEM], ["Ligações"])
         self.assertEqual(por_faixa[CONHECENDO], ["Cinética"])
 
     def test_faixa_vazia_nao_aparece_na_tela(self):
@@ -217,7 +223,7 @@ class PanoramaDoAlunoTests(unittest.TestCase):
             {"content_code": "C", "content_name": "Ligações",
              "questions_answered": 5, "accuracy": 0.95},
         ])
-        self.assertEqual([f["faixa"] for f in p["faixas"]], [CONSOLIDADO])
+        self.assertEqual([f["faixa"] for f in p["faixas"]], [INDO_BEM])
 
     def test_o_panorama_nao_vaza_codigo_interno_nem_numero(self):
         p = self._panorama([

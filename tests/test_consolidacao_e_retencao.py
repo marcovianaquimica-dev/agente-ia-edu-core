@@ -419,3 +419,101 @@ class OLEITORMONTAALINHADOTEMPO(unittest.TestCase):
                 await s.commit()
         self.loop.run_until_complete(guiada())
         self.assertEqual({}, self._situacoes())
+
+
+class OROTULOCONSOLIDADOEREESERVADO(unittest.TestCase):
+    """A decisão do dono, 2026-10-08: "Consolidado" é da consolidação.
+
+    A tela chamava de "Consolidado" quem tivesse BAND_STRONG — acerto forte
+    numa ÚNICA ocasião. Era exatamente a confusão que o §12 pede para
+    separar: desempenho elevado numa tarde não é consistência em ocasiões
+    diferentes.
+
+    Agora as quatro coisas têm quatro nomes, e nenhum deles se repete.
+    """
+
+    def test_desempenho_forte_NAO_se_chama_mais_Consolidado(self):
+        from agente_ia_edu.services.student_progress import faixa_do_aluno
+
+        faixa = faixa_do_aluno(answered=5, accuracy=1.0)["faixa"]
+        self.assertNotEqual("Consolidado", faixa,
+                            "acerto forte numa ocasião voltou a se chamar "
+                            "consolidação")
+
+    def test_e_tem_um_nome_proprio_de_desempenho(self):
+        from agente_ia_edu.services.student_progress import (
+            FAIXA_INDO_BEM,
+            faixa_do_aluno,
+        )
+
+        self.assertEqual(FAIXA_INDO_BEM,
+                         faixa_do_aluno(answered=5, accuracy=1.0)["faixa"])
+
+    def test_as_faixas_continuam_sendo_quatro_e_distintas(self):
+        from agente_ia_edu.services import student_progress as sp
+
+        faixas = {sp.FAIXA_PRECISA_ATENCAO, sp.FAIXA_EM_DESENVOLVIMENTO,
+                  sp.FAIXA_INDO_BEM, sp.FAIXA_CONHECENDO}
+        self.assertEqual(4, len(faixas))
+
+    def test_a_ordem_na_tela_nao_mudou(self):
+        """Indo bem continua sendo o topo das faixas de desempenho."""
+        from agente_ia_edu.services import student_progress as sp
+
+        self.assertGreater(sp._ORDEM[sp.FAIXA_INDO_BEM],
+                           sp._ORDEM[sp.FAIXA_EM_DESENVOLVIMENTO])
+        self.assertLess(sp._ORDEM[sp.FAIXA_INDO_BEM],
+                        sp._ORDEM[sp.FAIXA_CONHECENDO])
+
+    def test_nenhuma_faixa_de_desempenho_usa_a_palavra(self):
+        from agente_ia_edu.services import student_progress as sp
+
+        for faixa in sp.FAIXA_POR_BANDA.values():
+            with self.subTest(faixa):
+                self.assertNotIn("consolidad", faixa.lower())
+
+
+class ASQUATRODISTINCOESTEMQUATRONOMES(unittest.TestCase):
+    """O §12: desempenho elevado, domínio demonstrado, consolidação, retenção.
+
+    Quatro conceitos diferentes. Se dois compartilharem o nome, o aluno lê
+    uma coisa e o sistema quis dizer outra.
+    """
+
+    def test_os_quatro_nomes_sao_distintos(self):
+        from agente_ia_edu.services.consolidacao import (
+            ESTADO_CONSOLIDADO,
+            ESTADO_DEMONSTRADO,
+            ESTADO_RETIDO,
+            nome_curto,
+        )
+        from agente_ia_edu.services.student_progress import FAIXA_INDO_BEM
+
+        nomes = {FAIXA_INDO_BEM,
+                 nome_curto(ESTADO_DEMONSTRADO),
+                 nome_curto(ESTADO_CONSOLIDADO),
+                 nome_curto(ESTADO_RETIDO)}
+        self.assertEqual(4, len(nomes), f"nomes repetidos: {nomes}")
+
+    def test_e_a_consolidacao_fica_com_a_palavra(self):
+        from agente_ia_edu.services.consolidacao import (
+            ESTADO_CONSOLIDADO,
+            nome_curto,
+        )
+
+        self.assertIn("consolidad", nome_curto(ESTADO_CONSOLIDADO).lower())
+
+    def test_quem_so_demonstrou_NAO_recebe_a_palavra(self):
+        from agente_ia_edu.services.consolidacao import (
+            ESTADO_DEMONSTRADO,
+            nome_curto,
+        )
+
+        self.assertNotIn("consolidad", nome_curto(ESTADO_DEMONSTRADO).lower())
+
+    def test_todo_estado_tem_nome_curto(self):
+        from agente_ia_edu.services.consolidacao import ESTADOS_CONHECIDOS, nome_curto
+
+        for e in ESTADOS_CONHECIDOS:
+            with self.subTest(e):
+                self.assertTrue(nome_curto(e))
