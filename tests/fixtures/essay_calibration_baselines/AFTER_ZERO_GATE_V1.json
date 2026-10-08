@@ -1,38 +1,35 @@
 {
-  "tag": "AFTER_ZERO_GATE_V1",
-  "generated_at": "2026-10-07T23:50:23.180946+00:00",
+  "tag": "AFTER_ZERO_GATE_V1_FINAL",
+  "generated_at": "2026-10-08T00:58:03.933110+00:00",
   "report": {
-    "mae_total": 694.5454545454545,
+    "mae_total": 280.0,
     "mae_per_competency": {
-      "C1": 138.1818181818182,
-      "C2": 149.0909090909091,
-      "C3": 130.9090909090909,
-      "C4": 138.1818181818182,
-      "C5": 138.1818181818182
+      "C1": 93.33333333333333,
+      "C2": 62.22222222222222,
+      "C3": 75.55555555555556,
+      "C4": 71.11111111111111,
+      "C5": 66.66666666666667
     },
-    "bias_total": -694.5454545454545,
+    "bias_total": -253.33333333333334,
     "bias_per_competency": {
-      "C1": -138.1818181818182,
-      "C2": -149.0909090909091,
-      "C3": -130.9090909090909,
-      "C4": -138.1818181818182,
-      "C5": -138.1818181818182
+      "C1": -66.66666666666667,
+      "C2": -53.333333333333336,
+      "C3": -22.22222222222222,
+      "C4": -53.333333333333336,
+      "C5": -57.77777777777778
     },
     "levels_distance_distribution": {
-      "24": 1,
-      "19": 2,
-      "16": 1,
-      "9": 1,
-      "23": 2,
+      "1": 4,
+      "8": 1,
+      "23": 1,
       "21": 1,
-      "15": 1,
-      "12": 1,
-      "10": 1
+      "5": 1,
+      "2": 1
     },
-    "zero_gate_recall": null,
-    "zero_gate_precision": 0.0,
-    "needs_review_count": 19,
-    "ocr_duvidoso_rate": 0.8666666666666667,
+    "zero_gate_recall": 1.0,
+    "zero_gate_precision": 0.3333333333333333,
+    "needs_review_count": 20,
+    "ocr_duvidoso_rate": 0.8333333333333334,
     "excluded_divergent_or_unverified": [
       "aluno_21",
       "aluno_22",
@@ -58,16 +55,9 @@
         "C5": 200,
         "total": 960
       },
-      "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
-      },
-      "engine_status": "APPROVED",
-      "ocr_duvidoso": true
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": false
     },
     {
       "student_ref": "aluno_02",
@@ -81,12 +71,12 @@
         "total": 760
       },
       "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
+        "C1": 120,
+        "C2": 160,
+        "C3": 160,
+        "C4": 120,
+        "C5": 160,
+        "total": 720
       },
       "engine_status": "APPROVED",
       "ocr_duvidoso": true
@@ -102,16 +92,9 @@
         "C5": 200,
         "total": 760
       },
-      "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
-      },
-      "engine_status": "APPROVED",
-      "ocr_duvidoso": true
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": false
     },
     {
       "student_ref": "aluno_04",
@@ -124,8 +107,15 @@
         "C5": 40,
         "total": 280
       },
-      "engine_scores": null,
-      "engine_status": "NEEDS_REVIEW",
+      "engine_scores": {
+        "C1": 120,
+        "C2": 40,
+        "C3": 40,
+        "C4": 120,
+        "C5": 0,
+        "total": 320
+      },
+      "engine_status": "APPROVED",
       "ocr_duvidoso": true
     },
     {
@@ -154,8 +144,15 @@
         "C5": 160,
         "total": 560
       },
-      "engine_scores": null,
-      "engine_status": "NEEDS_REVIEW",
+      "engine_scores": {
+        "C1": 120,
+        "C2": 120,
+        "C3": 120,
+        "C4": 80,
+        "C5": 160,
+        "total": 600
+      },
+      "engine_status": "APPROVED",
       "ocr_duvidoso": true
     },
     {
@@ -171,7 +168,7 @@
       },
       "engine_scores": null,
       "engine_status": "NEEDS_REVIEW",
-      "ocr_duvidoso": true
+      "ocr_duvidoso": false
     },
     {
       "student_ref": "aluno_08",
@@ -185,12 +182,12 @@
         "total": 640
       },
       "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
+        "C1": 80,
+        "C2": 160,
+        "C3": 160,
+        "C4": 120,
+        "C5": 160,
+        "total": 680
       },
       "engine_status": "APPROVED",
       "ocr_duvidoso": true
@@ -221,15 +218,8 @@
         "C5": 0,
         "total": 360
       },
-      "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
-      },
-      "engine_status": "APPROVED",
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
       "ocr_duvidoso": true
     },
     {
@@ -244,12 +234,12 @@
         "total": 920
       },
       "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
+        "C1": 40,
+        "C2": 120,
+        "C3": 160,
+        "C4": 120,
+        "C5": 160,
+        "total": 600
       },
       "engine_status": "APPROVED",
       "ocr_duvidoso": true
@@ -324,15 +314,8 @@
         "C5": 120,
         "total": 600
       },
-      "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
-      },
-      "engine_status": "APPROVED",
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
       "ocr_duvidoso": false
     },
     {
@@ -347,12 +330,12 @@
         "total": 480
       },
       "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
+        "C1": 80,
+        "C2": 40,
+        "C3": 40,
+        "C4": 120,
         "C5": 0,
-        "total": 0
+        "total": 280
       },
       "engine_status": "APPROVED",
       "ocr_duvidoso": true
@@ -398,16 +381,9 @@
         "C5": 80,
         "total": 400
       },
-      "engine_scores": {
-        "C1": 0,
-        "C2": 0,
-        "C3": 0,
-        "C4": 0,
-        "C5": 0,
-        "total": 0
-      },
-      "engine_status": "APPROVED",
-      "ocr_duvidoso": true
+      "engine_scores": null,
+      "engine_status": "NEEDS_REVIEW",
+      "ocr_duvidoso": false
     },
     {
       "student_ref": "aluno_20",
@@ -420,8 +396,15 @@
         "C5": 200,
         "total": 760
       },
-      "engine_scores": null,
-      "engine_status": "NEEDS_REVIEW",
+      "engine_scores": {
+        "C1": 80,
+        "C2": 160,
+        "C3": 160,
+        "C4": 120,
+        "C5": 160,
+        "total": 680
+      },
+      "engine_status": "APPROVED",
       "ocr_duvidoso": true
     },
     {
@@ -430,7 +413,7 @@
       "expected_scores": null,
       "engine_scores": null,
       "engine_status": "NEEDS_REVIEW",
-      "ocr_duvidoso": false
+      "ocr_duvidoso": true
     },
     {
       "student_ref": "aluno_22",
@@ -462,7 +445,7 @@
       "expected_scores": null,
       "engine_scores": null,
       "engine_status": "NEEDS_REVIEW",
-      "ocr_duvidoso": false
+      "ocr_duvidoso": true
     },
     {
       "student_ref": "aluno_26",
@@ -486,14 +469,21 @@
       "expected_scores": null,
       "engine_scores": null,
       "engine_status": "NEEDS_REVIEW",
-      "ocr_duvidoso": false
+      "ocr_duvidoso": true
     },
     {
       "student_ref": "aluno_29",
       "normative_status": "UNVERIFIED",
       "expected_scores": null,
-      "engine_scores": null,
-      "engine_status": "NEEDS_REVIEW",
+      "engine_scores": {
+        "C1": 0,
+        "C2": 0,
+        "C3": 0,
+        "C4": 0,
+        "C5": 0,
+        "total": 0
+      },
+      "engine_status": "APPROVED",
       "ocr_duvidoso": true
     },
     {
