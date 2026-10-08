@@ -73,6 +73,29 @@ class ZeroGateDecision:
     rule_version: str = _ZERO_GATE_VERSION
 
 
+def _applies(value: object) -> bool:
+    """Coerce an ``assessments[i]["applies"]`` value to a real bool.
+
+    Live bug (found by Task 13's benchmark, 2026-10-07): the real model does
+    NOT reliably return ``applies`` as a native JSON boolean - against a
+    real essay (aluno_01/Mariana, clearly on-topic), it returned the
+    STRING ``"false"`` for every one of the 8 codes. Python's bare
+    truthiness (``if item.get("applies"):``) treats any non-empty string -
+    including the string ``"false"`` - as truthy, so every code was being
+    counted as a 3/3 "applies" vote on every essay that reached this
+    function, and the ZERAR tie-break (earliest in :data:`ZERO_GATE_CODES`)
+    always landed on FUGA_AO_TEMA. 11 of 30 real essays in that benchmark -
+    all previously clean, on-topic, correctly-scored - were zeroed by this.
+    Handles the three shapes seen or plausible from an LLM's JSON output:
+    a real bool, a string ("true"/"false", any case/whitespace), or
+    anything else via plain ``bool()`` as a last-resort fallback."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return bool(value)
+
+
 def _meets_majority(count: int, n_runs: int) -> bool:
     """``count`` out of ``n_runs`` runs is a majority when it is at least
     2/3 - computed as ``count * 3 >= n_runs * 2`` to stay in integers. For
@@ -87,7 +110,11 @@ def _aggregate_zero_gate_runs(
     """Pure aggregation core - no provider, no asyncio. ``runs`` is a
     sequence of already-parsed assessment lists (one per sample call), each
     entry shaped like ``{"code": str, "applies": bool, "evidence": str,
-    "reasoning": str}``. Any code outside :data:`ZERO_GATE_CODES`, or a
+    "reasoning": str}`` - except ``applies`` is read through :func:`_applies`
+    rather than trusted to actually BE a bool (live bug, see that
+    function's docstring: the real model sometimes returns the JSON string
+    ``"false"`` instead of the boolean ``false``, which bare truthiness
+    would misread as true). Any code outside :data:`ZERO_GATE_CODES`, or a
     second entry for a code already seen within the same run, is ignored
     defensively (the prompt asks for exactly the eight known codes once
     each, but this function never trusts that blindly).
@@ -140,7 +167,7 @@ def _aggregate_zero_gate_runs(
             if code not in counts or code in seen_this_run:
                 continue
             seen_this_run.add(code)
-            if item.get("applies"):
+            if _applies(item.get("applies")):
                 counts[code] += 1
                 evidence = item.get("evidence")
                 if code not in evidence_by_code and evidence:

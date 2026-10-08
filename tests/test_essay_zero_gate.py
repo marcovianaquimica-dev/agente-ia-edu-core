@@ -136,6 +136,51 @@ class AggregateZeroGateRunsTests(unittest.TestCase):
         self.assertEqual(decision.rule_code, "TEXTO_ILEGIVEL")
         self.assertAlmostEqual(decision.confidence, 1.0)
 
+    def test_applies_as_quoted_json_string_false_does_not_zero(self):
+        """Live bug (Task 13's benchmark, 2026-10-07): the real model
+        returned ``applies`` as the STRING ``"false"`` (not the JSON
+        boolean ``false``) for every one of the 8 codes, on a clean,
+        on-topic essay (aluno_01/Mariana). Bare truthiness
+        (``if item.get("applies"):``) treats any non-empty string -
+        including the string ``"false"`` - as truthy, so every code was
+        wrongly counted as a 3/3 "applies" vote, and the ZERAR tie-break
+        (earliest in ZERO_GATE_CODES) always landed on FUGA_AO_TEMA - 11 of
+        30 real essays were incorrectly zeroed by exactly this. This exact
+        reproduction (the string "false", not the bool False) is what must
+        resolve to NAO_ZERAR, not ZERAR."""
+        runs = [
+            [{"code": code, "applies": "false", "evidence": "", "reasoning": "stub"} for code in ZERO_GATE_CODES]
+            for _ in range(3)
+        ]
+        decision = _aggregate_zero_gate_runs(runs)
+        self.assertEqual(decision.decision, "NAO_ZERAR")
+        self.assertIsNone(decision.rule_code)
+        self.assertEqual(decision.confidence, 1.0)
+        self.assertFalse(decision.requires_human_review)
+
+    def test_applies_as_quoted_json_string_true_still_reaches_majority(self):
+        """The mirror case of the bug reproduction above - a quoted JSON
+        string "true" (not the bool True) must still correctly count as a
+        positive vote, so a genuine majority expressed as strings still
+        triggers ZERAR. Also exercises mixed casing/whitespace
+        ("True"/" true ") to confirm the coercion is robust, not just a
+        literal "true" match."""
+        runs = [
+            [
+                {"code": code, "applies": ("True" if code == "FUGA_AO_TEMA" else "false"), "evidence": "x", "reasoning": "stub"}
+                for code in ZERO_GATE_CODES
+            ],
+            [
+                {"code": code, "applies": (" true " if code == "FUGA_AO_TEMA" else "false"), "evidence": "x", "reasoning": "stub"}
+                for code in ZERO_GATE_CODES
+            ],
+            [{"code": code, "applies": "false", "evidence": "", "reasoning": "stub"} for code in ZERO_GATE_CODES],
+        ]
+        decision = _aggregate_zero_gate_runs(runs)
+        self.assertEqual(decision.decision, "ZERAR")
+        self.assertEqual(decision.rule_code, "FUGA_AO_TEMA")
+        self.assertAlmostEqual(decision.confidence, 2 / 3)
+
     def test_unknown_code_in_a_response_is_ignored_defensively(self):
         """A response that includes a code outside ZERO_GATE_CODES (should
         never happen if the provider respects RESPONSE_SCHEMA, but this
