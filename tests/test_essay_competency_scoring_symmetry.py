@@ -34,6 +34,18 @@ class CompetencyScoringTopBandSymmetryTests(unittest.TestCase):
         prompt = self._prompt()
         self.assertNotIn("prefira 160", prompt.lower())
 
+    def test_top_band_has_the_new_symmetric_tie_break_mechanism(self):
+        # Asserting the absence of the old one-sided phrase is not enough -
+        # a future edit could reintroduce the same one-sided default under
+        # different wording (e.g. "em caso de duvida, incline-se para 160")
+        # and this test file would not notice. Assert the actual NEW
+        # mechanism's own phrasing is present: decide by the weight of the
+        # evidence, and name a true tie explicitly in reasoning instead of
+        # mechanically picking the lower band.
+        prompt = self._prompt().lower()
+        self.assertIn("maioria da evidencia", prompt)
+        self.assertIn("registre essa incerteza", prompt)
+
     def test_top_band_still_blocks_200_when_evidence_shows_a_real_gap(self):
         # The case-(b) negative-evidence-gap instruction (the real
         # mechanism that stops 200 from being handed out when there IS a

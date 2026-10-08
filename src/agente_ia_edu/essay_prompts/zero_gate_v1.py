@@ -140,7 +140,7 @@ def build_prompt(
     """Assemble the Zero Gate prompt.
 
     ``rubric``: the same rubric payload phase 1 (essay_prompts/v16.py) and
-    phase 2a (competency_scoring_v2.py) already use (built once per
+    phase 2a (competency_scoring_v3.py) already use (built once per
     correction by essay_correction.py's own ``_rubric_payload`` and reused
     here, never rebuilt) - gives the model the same competency context
     (what C1-C5 actually measure) that helps it tell a genuine zero
