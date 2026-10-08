@@ -106,6 +106,18 @@ INV-EST-MASSA-MOLAR#3  MASSA_MOLAR         tent=1 ajuda=0 sozinho=True  ok=True 
 `app.investigacao.dito` está **nulo** — o que prova que ela veio do backend
 e não da memória da tela.
 
+### As sete interrupções do §1, uma a uma
+
+| interrupção | medido |
+|---|---|
+| atualização da página | F5 entre cada par de falas — o fio volta inteiro |
+| fechamento e reabertura | a identidade fica em `localStorage`, o estado no banco |
+| navegar para outra área | ida à Home e volta, a conversa continua |
+| retorno posterior | o degrau da escada acompanha (`Localizar (feito)`) |
+| durante uma micropergunta | F5 no meio da cadeia, a etapa aberta é a mesma |
+| **durante a prática guiada** | F5 com 3 dicas pedidas e 1 erro: *"Vamos continuar de onde você parou"*, as três dicas de volta |
+| **antes da tentativa autônoma** | F5 depois do fading: `Tentar com ajuda (feito) / Praticar (agora)`, e o L0 serve Na₂O |
+
 ### O que NÃO volta, e por quê
 
 A frase de acolhimento — *"Sem problema. Vamos por um caminho mais curto."*
@@ -308,8 +320,11 @@ Atividade (etapa atual)**. O ciclo fechou.
    Estequiometria. Os outros 36 conteúdos do catálogo continuam caindo na
    seleção por conteúdo — o comportamento anterior, sem regressão.
 
-2. **A frase de acolhimento não sobrevive ao recarregar.** Ver §2. É uma
-   reação de turno, não estado.
+2. **O que é reação de turno não sobrevive ao recarregar.** Duas coisas:
+   a frase de acolhimento (§2), e o `não sei` dito numa MICROPERGUNTA — a
+   fala fica gravada, mas o fio não a exibe, porque ela só teria onde
+   aparecer junto do retorno do erro, e não houve erro. Na ABERTURA o
+   `não sei` aparece normalmente, porque ali ele tem turno próprio.
 
 3. **Três itens de verificação.** `PracticeSelectionPolicy.choose` repõe o
    recente quando a piscina fresca não dá o número pedido; a seleção de
