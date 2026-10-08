@@ -603,6 +603,9 @@ async def get_student_progress(
     here: the bands come from PerformanceThresholdPolicy, the single source of
     truth the whole engine already uses. See services/student_progress.py.
     """
+    from ...services.consolidacao_do_aluno import (  # noqa: PLC0415
+        situacao_por_habilidade,
+    )
     from ...services.student_progress import panorama_do_aluno  # noqa: PLC0415
 
     async with session_factory() as session:
@@ -611,7 +614,20 @@ async def get_student_progress(
             mapa = await svc.get_map(_me(ctx), requester=_student_requester(ctx))
         except Exception as exc:  # noqa: BLE001
             raise _map_domain_error(exc) from exc
-    return panorama_do_aluno(mapa)
+        # CONSOLIDACAO E RETENCAO, por micro-habilidade - §12.
+        #
+        # As faixas acima respondem "qual e o acerto dele?". Estas duas
+        # respondem o que a media nao ve: ele repetiu em OUTRA ocasiao, e
+        # lembrou DEPOIS de um intervalo? Sao projecao do mesmo historico
+        # imutavel, nao uma segunda fonte de verdade.
+        try:
+            habilidades = await situacao_por_habilidade(session, aluno=_me(ctx))
+        except Exception:  # noqa: BLE001 - detalhe opcional nunca derruba a tela
+            habilidades = {}
+
+    panorama = panorama_do_aluno(mapa)
+    panorama["habilidades"] = habilidades
+    return panorama
 
 
 @student_router.post("/domain/rebuild",
