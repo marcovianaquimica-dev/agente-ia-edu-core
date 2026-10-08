@@ -13,11 +13,12 @@
  * E o "Dashboard", que é a resposta à primeira pergunta do professor ("como
  * estão meus alunos?"), era a quarta aba e não a entrada.
  *
- * O QUE NÃO EXISTIA
- * =================
- * "Enviar em lote" não existe neste módulo — procurei em todo o `web/`. O
- * único "lote" do repositório é classificação em lote no Banco de Questões.
- * Não há o que mover, e inventar a ação seria criar botão decorativo.
+ * ATUALIZAÇÃO (reconciliação com o motor de correção de redação)
+ * ================================================================
+ * "Enviar em lote" (chave `batch`) foi adicionada de volta: ela não
+ * existia quando este módulo e este teste foram escritos, mas existe e
+ * está em uso em `essay-review.js` no branch do motor de correção.
+ * Mantida como área de trabalho, ao lado de Propostas.
  */
 
 const test = require('node:test');
@@ -27,9 +28,9 @@ const path = require('node:path');
 const Nav = require(path.join(__dirname, '..', 'src', 'agente_ia_edu',
                               'web', 'redacao-navegacao.js'));
 
-test('as quatro areas principais, nesta ordem', () => {
+test('as cinco areas principais, nesta ordem', () => {
   assert.deepEqual(Nav.areas().map((a) => a.rotulo),
-                   ['Visão geral', 'Propostas', 'Correções', 'Evolução']);
+                   ['Visão geral', 'Propostas', 'Enviar em lote', 'Correções', 'Evolução']);
 });
 
 test('a visao geral e a entrada', () => {
@@ -42,7 +43,7 @@ test('nenhum destino foi perdido', () => {
   // no menu secundário. Simplificar navegação não é apagar função.
   const destinos = Nav.areas().map((a) => a.aba)
     .concat(Nav.secundarios().map((s) => s.aba));
-  for (const antiga of ['prompts', 'queue', 'evolution', 'dashboard', 'trash']) {
+  for (const antiga of ['prompts', 'batch', 'queue', 'evolution', 'dashboard', 'trash']) {
     assert.ok(destinos.includes(antiga), `destino perdido: ${antiga}`);
   }
 });
@@ -84,7 +85,7 @@ test('estando na lixeira, nenhuma area principal finge estar ativa', () => {
 
 test('aba desconhecida nao quebra e nao acende nada', () => {
   assert.equal(Nav.areas('inexistente').filter((a) => a.ativa).length, 0);
-  assert.equal(Nav.areas().length, 4);
+  assert.equal(Nav.areas().length, 5);
 });
 
 // -- os filtros globais do professor ---------------------------------------
