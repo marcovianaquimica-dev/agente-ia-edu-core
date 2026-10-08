@@ -1415,24 +1415,39 @@
       `Pergunta ${d.pos + 1} de ${total} · isto não vale nota`;
 
     const q = d.questoes[d.pos];
-    const escolhida = d.escolhas[q.question_version_id];
+    // OS CONTROLES SAO DECIDIDOS, nao assumidos - §11.
+    //
+    // `IntervencaoUI.controles` garante alternativas OU campo, nunca os dois
+    // concorrendo. Hoje toda questao do acervo tem alternativas e o ramo de
+    // texto nao e exercitado aqui; ele existe para que um item de resposta
+    // curta nao chegue a esta tela e ganhe, por omissao, uma lista vazia de
+    // alternativas e nenhum lugar para responder.
+    const c = IntervencaoUI.controles(q, { escolha: d.escolhas[q.question_version_id] });
     // O player chama a letra de `key` (nao `option_key`, que e o nome da
     // coluna no banco). Com o nome errado as alternativas saem com
     // data-opcao="" e o botao nunca habilita - sem nenhum erro no console.
-    const alternativas = (q.options || []).map((o) => `
-      <button class="alternativa${escolhida === o.key ? ' alternativa-escolhida' : ''}"
+    const alternativas = c.alternativas.map((o) => `
+      <button class="alternativa${o.marcada ? ' alternativa-escolhida' : ''}"
               type="button" data-opcao="${esc(o.key)}">
         <span class="alternativa-letra">${esc(o.key)}</span>
         <span>${esc(o.text)}</span>
       </button>`).join('');
 
+    const entrada = c.campoTexto
+      ? `<label class="sr" for="pratica-campo">Sua resposta</label>
+         <input id="pratica-campo" class="dialogo-campo" type="text"
+                autocomplete="off" inputmode="${
+                  c.espera === 'NUMERIC' ? 'decimal' : 'text'}"
+                placeholder="Sua resposta">`
+      : `<div class="alternativas">${alternativas}</div>`;
+
     $('bloco').innerHTML = `
       <div class="cartao-bloco">
         <p class="bloco-etiqueta">${esc(d.titulo || 'Vamos ver onde você está')}</p>
         <p class="bloco-enunciado">${esc(q.statement || '')}</p>
-        <div class="alternativas">${alternativas}</div>
+        ${entrada}
         <button class="botao botao-principal" data-acao="avancar"
-                ${escolhida ? '' : 'disabled'}>
+                ${c.podeConfirmar ? '' : 'disabled'}>
           ${d.pos + 1 === total ? 'Concluir' : 'Próxima'}
         </button>
       </div>`;
