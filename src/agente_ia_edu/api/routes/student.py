@@ -763,6 +763,9 @@ from ...services.adaptive_practice import (  # noqa: E402
     PracticeError,
     PracticeNotFound,
 )
+from ...services.verificacao_da_habilidade import (  # noqa: E402
+    selecao_para_pratica,
+)
 
 
 class _PracticeCreateRequest(_BaseModel):
@@ -799,12 +802,37 @@ async def create_student_practice(
 ) -> dict:
     async with session_factory() as session:
         svc = AdaptivePracticeService(session)
+        aluno = _me(ctx)
+        requester = _student_requester(ctx)
         try:
-            return await svc.create_practice(
-                _me(ctx), requester=_student_requester(ctx),
+            # A SELECAO POR MICRO-HABILIDADE, quando existe item curado para
+            # verificar a lacuna sem apoio.
+            #
+            # Ate 2026-10-07 este lote vinha sempre da selecao por CONTEUDO,
+            # e para Estequiometria isso significava questoes de proporcao e
+            # de relacao massa-mol: a micro-habilidade que acabou de ser
+            # ensinada nunca era verificada sozinha. A habilidade e decidida
+            # no SERVIDOR - ver `selecao_para_pratica`.
+            #
+            # Sem item curado a selecao devolve vazio e tudo segue como
+            # antes. Nenhum conteudo perde o que ja tinha.
+            escolha = await selecao_para_pratica(
+                session, aluno=aluno, conteudo=payload.content_code,
+                quantas=payload.question_count, requester=requester)
+            saida = await svc.create_practice(
+                aluno, requester=requester,
                 content_code=payload.content_code, mode=payload.mode,
                 question_count=payload.question_count,
-                purpose=payload.purpose)
+                purpose=payload.purpose,
+                question_version_ids=(escolha.get("question_version_ids")
+                                      or None))
+            if escolha:
+                # A ORIGEM DA SELECAO VIAJA COMO DADO. Sem isto, descobrir
+                # por que o aluno recebeu Na2O e nao uma questao qualquer do
+                # conteudo exigiria reexecutar a selecao.
+                saida["skill_verified"] = escolha["skill"]
+                saida["selection_reason"] = escolha["motivo"]
+            return saida
         except Exception as exc:  # noqa: BLE001
             raise _map_practice_error(exc) from exc
 

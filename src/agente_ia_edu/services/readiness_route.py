@@ -336,7 +336,7 @@ class ReadinessRouteService:
         """
         from agente_ia_edu.services.assessor_pedagogico import (
             ACAO_ENSINAR, ACAO_ESCALAR, ACAO_GUIADA, ACAO_INVESTIGAR,
-            ACAO_VERIFICAR, decidir_intervencao, habilidade_que_trava,
+            ACAO_VERIFICAR, decidir_intervencao,
         )
         from agente_ia_edu.services.feedback_pedagogico import feedback_do_passo
         from agente_ia_edu.services.proximo_passo import (
@@ -370,10 +370,8 @@ class ReadinessRouteService:
         # Com grafo a pergunta muda: nao "qual esta pior", e sim "em qual
         # delas ele esta PRONTO para aprender agora". Conteudo sem contrato V2
         # segue exatamente como antes - 36 dos 37 do catalogo, hoje.
-        from agente_ia_edu.services.grafos_pedagogicos import grafo_de
-
-        grafo = grafo_de(codigo)
-        alvo = habilidade_que_trava(habilidades, grafo=grafo)
+        grafo, alvo = await self.habilidade_que_trava_de(
+            codigo, aluno, requester=requester, habilidades=habilidades)
         guiado = await self._guiada_pendente(
             codigo, alvo, aluno, requester=requester)
         # A INVESTIGACAO E O DEGRAU MAIS ALTO DA ESCADA DE APOIO.
@@ -482,6 +480,35 @@ class ReadinessRouteService:
             return passo
 
         return passo
+
+    async def habilidade_que_trava_de(self, codigo: str, aluno: str, *,
+                                      requester,
+                                      habilidades: dict | None = None):
+        """(grafo, micro-habilidade que trava) daquele conteudo, para o aluno.
+
+        PUBLICA porque ha um segundo chamador: a criacao da pratica precisa
+        saber QUAL habilidade verificar para escolher o item L0. Antes deste
+        bloco a pratica selecionava por conteudo e a habilidade nao viajava -
+        entao a micro-habilidade ensinada nunca era verificada sozinha.
+
+        A alternativa seria o cliente mandar a habilidade no POST. Nao: a UI
+        nao decide pedagogicamente, e uma habilidade vinda do navegador
+        poderia ser qualquer uma. Quem decide e esta funcao, do lado do
+        servidor, com o grafo e as respostas reais.
+
+        `habilidades` e aceito para nao reler o que o chamador acabou de
+        ler - mesma decisao, uma consulta a menos.
+        """
+        from agente_ia_edu.services.assessor_pedagogico import (
+            habilidade_que_trava,
+        )
+        from agente_ia_edu.services.grafos_pedagogicos import grafo_de
+
+        if habilidades is None:
+            habilidades = await self._habilidades_de(codigo, aluno,
+                                                     requester=requester)
+        grafo = grafo_de(codigo)
+        return grafo, habilidade_que_trava(habilidades, grafo=grafo)
 
     async def _investigacao_pendente(self, codigo: str, skill: str | None,
                                      aluno: str, *, requester) -> bool:

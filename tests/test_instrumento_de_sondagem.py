@@ -43,6 +43,7 @@ from dataclasses import replace
 
 from _fonte import codigo as _codigo
 
+from agente_ia_edu.services.verificacao import FINALIDADE_VERIFICACAO
 from agente_ia_edu.services.instrumento_de_sondagem import (
     FINALIDADE_SONDAGEM,
     ORIGEM_CURADA,
@@ -396,3 +397,99 @@ class OCONTRATONAOTOCAEMDOMINIO(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AFINALIDADEEUMPARAMETRO(unittest.TestCase):
+    """O contrato serve a SONDAGEM e a VERIFICAÇÃO, sem duplicar-se.
+
+    Até 2026-10-08 `inelegibilidade` comparava com `FINALIDADE_SONDAGEM`
+    fixo. Verificar a micro-habilidade depois do ensino precisa do mesmo
+    contrato inteiro — viva, validada por humano com nome, publicada,
+    acessível, com gabarito, sem imagem, não protegida — e de uma finalidade
+    DIFERENTE.
+
+    Escrever um segundo módulo com os mesmos oito critérios criaria duas
+    definições de "instrumento utilizável", e elas divergiriam no primeiro
+    ajuste. Então a finalidade passa a ser parâmetro, e o padrão continua
+    sendo a sondagem.
+
+    POR QUE A FINALIDADE PRECISA SEPARAR OS DOIS
+    =============================================
+    O item de sondagem pergunta NH₃, e é a primeira coisa que o aluno vê. O
+    de verificação não pode perguntar NH₃, porque ele acabou de ver a
+    resolução do NH₃ passo a passo. Se as duas finalidades fossem
+    intercambiáveis, o diagnóstico poderia medir com um item escrito para
+    ser respondido DEPOIS do ensino — e a verificação, com o item que ele já
+    errou.
+    """
+
+    def test_o_padrao_continua_sendo_sondagem(self):
+        self.assertIsNone(inelegibilidade(_curado(), habilidade=HAB,
+                                          conteudo=CONTEUDO))
+
+    def test_um_item_de_verificacao_NAO_serve_de_sondagem(self):
+        motivo = inelegibilidade(_curado(finalidade=FINALIDADE_VERIFICACAO),
+                                 habilidade=HAB, conteudo=CONTEUDO)
+        self.assertIsNotNone(motivo)
+        self.assertIn("finalidade", motivo)
+
+    def test_e_um_item_de_sondagem_NAO_serve_de_verificacao(self):
+        motivo = inelegibilidade(_curado(), habilidade=HAB, conteudo=CONTEUDO,
+                                 finalidade=FINALIDADE_VERIFICACAO)
+        self.assertIsNotNone(motivo)
+        self.assertIn("finalidade", motivo)
+
+    def test_o_item_de_verificacao_e_elegivel_quando_pedido(self):
+        self.assertIsNone(
+            inelegibilidade(_curado(finalidade=FINALIDADE_VERIFICACAO),
+                            habilidade=HAB, conteudo=CONTEUDO,
+                            finalidade=FINALIDADE_VERIFICACAO))
+
+    def test_os_outros_oito_critERIOS_continuam_valendo(self):
+        """Mudar a finalidade não afrouxa nada mais.
+
+        Um por um, porque é exatamente aqui que um atalho passaria: bastaria
+        `inelegibilidade` devolver None cedo para a verificação e o item sem
+        gabarito entraria.
+        """
+        estragos = (
+            {"lifecycle": "SUPERSEDED"},
+            {"provenance": "AI_SUGGESTED"},
+            {"validado_por": ""},
+            {"status_da_questao": "DRAFT"},
+            {"visibilidade": "PRIVATE"},
+            {"gabarito_definido": False},
+            {"dependencia_visual": True},
+            {"protegida": True},
+        )
+        for estrago in estragos:
+            with self.subTest(**estrago):
+                cand = _curado(finalidade=FINALIDADE_VERIFICACAO, **estrago)
+                self.assertIsNotNone(
+                    inelegibilidade(cand, habilidade=HAB, conteudo=CONTEUDO,
+                                    finalidade=FINALIDADE_VERIFICACAO))
+
+    def test_escolher_devolve_o_de_verificacao_quando_pede_verificacao(self):
+        itens = [_curado(), _curado(
+            question_version_id="33333333-3333-3333-3333-333333333333",
+            finalidade=FINALIDADE_VERIFICACAO, numero_oficial=9)]
+        e = escolher(itens, habilidade=HAB, conteudo=CONTEUDO,
+                     finalidade=FINALIDADE_VERIFICACAO)
+        self.assertEqual("33333333-3333-3333-3333-333333333333",
+                         e.question_version_id)
+        self.assertEqual(ORIGEM_CURADA, e.origem)
+
+    def test_e_o_de_sondagem_quando_pede_sondagem(self):
+        itens = [_curado(), _curado(
+            question_version_id="33333333-3333-3333-3333-333333333333",
+            finalidade=FINALIDADE_VERIFICACAO, numero_oficial=0)]
+        e = escolher(itens, habilidade=HAB, conteudo=CONTEUDO)
+        self.assertEqual("11111111-1111-1111-1111-111111111111",
+                         e.question_version_id)
+
+    def test_o_motivo_diz_QUAL_finalidade_foi_exigida(self):
+        """§16: a decisão tem de ser auditável sem ler log humano."""
+        e = escolher([_curado(finalidade=FINALIDADE_VERIFICACAO)],
+                     habilidade=HAB, conteudo=CONTEUDO,
+                     finalidade=FINALIDADE_VERIFICACAO)
+        self.assertIn("verifica", e.motivo.lower())

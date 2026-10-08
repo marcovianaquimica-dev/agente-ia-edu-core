@@ -134,7 +134,8 @@ def compativel(candidato: Candidato, *, habilidade: str,
 
 
 def inelegibilidade(candidato: Candidato, *, habilidade: str, conteudo: str,
-                    escola_do_aluno: str | None = None) -> str | None:
+                    escola_do_aluno: str | None = None,
+                    finalidade: str = FINALIDADE_SONDAGEM) -> str | None:
     """Por que este item NAO e um instrumento curado - ou None se ele e.
 
     Devolve o motivo, e nao um booleano, porque e o motivo que torna a
@@ -144,13 +145,28 @@ def inelegibilidade(candidato: Candidato, *, habilidade: str, conteudo: str,
 
     A ordem das checagens vai do mais especifico ao mais geral, para que a
     primeira frase devolvida seja a mais informativa.
+
+    `finalidade` E PARAMETRO, E O PADRAO E A SONDAGEM
+    ==================================================
+    Verificar a micro-habilidade depois do ensino exige este contrato
+    inteiro - viva, validada por humano com nome, publicada, acessivel, com
+    gabarito, sem imagem, nao protegida - e uma finalidade DIFERENTE.
+    Escrever um segundo modulo com os mesmos oito critERIOS criaria duas
+    definicoes de "instrumento utilizavel", e elas divergiriam no primeiro
+    ajuste.
+
+    E a finalidade precisa SEPARAR os dois: o item de sondagem pergunta
+    NH3, e e a primeira coisa que o aluno ve; o de verificacao nao pode
+    perguntar NH3, porque ele acabou de ver a resolucao do NH3 passo a
+    passo. Intercambiaveis, o diagnostico mediria com um item escrito para
+    depois do ensino, e a verificacao com o item que ele ja errou.
     """
     if not compativel(candidato, habilidade=habilidade, conteudo=conteudo):
         return (f"mede {candidato.habilidade!r} em {candidato.conteudo!r}, "
                 f"e a sondagem pediu {habilidade!r} em {conteudo!r}")
 
-    if (candidato.finalidade or "") != FINALIDADE_SONDAGEM:
-        return ("sem finalidade de sondagem declarada "
+    if (candidato.finalidade or "") != finalidade:
+        return (f"sem finalidade {finalidade!r} declarada "
                 f"(purpose={candidato.finalidade!r})")
 
     if (candidato.lifecycle or "") != _CLASSIFICACAO_VIVA:
@@ -208,12 +224,14 @@ def _escopo_inacessivel(candidato: Candidato,
 
 def curados(candidatos: Iterable[Candidato], *, habilidade: str,
             conteudo: str,
-            escola_do_aluno: str | None = None) -> list[Candidato]:
+            escola_do_aluno: str | None = None,
+            finalidade: str = FINALIDADE_SONDAGEM) -> list[Candidato]:
     """So os que cumprem o contrato inteiro, na ordem de desempate."""
     elegiveis = [c for c in candidatos
                  if inelegibilidade(c, habilidade=habilidade,
                                     conteudo=conteudo,
-                                    escola_do_aluno=escola_do_aluno) is None]
+                                    escola_do_aluno=escola_do_aluno,
+                                    finalidade=finalidade) is None]
     return sorted(elegiveis, key=_ordem)
 
 
@@ -235,7 +253,8 @@ def _ordem(c: Candidato) -> tuple:
 
 def escolher(candidatos: Sequence[Candidato], *, habilidade: str,
              conteudo: str,
-             escola_do_aluno: str | None = None) -> Escolha | None:
+             escola_do_aluno: str | None = None,
+             finalidade: str = FINALIDADE_SONDAGEM) -> Escolha | None:
     """O instrumento para esta habilidade, ou None quando nao ha nenhum.
 
     CURADO vence SEMPRE que houver um elegivel. So entao o generico entra, e
@@ -248,15 +267,22 @@ def escolher(candidatos: Sequence[Candidato], *, habilidade: str,
     lista = list(candidatos or ())
 
     elegiveis = curados(lista, habilidade=habilidade, conteudo=conteudo,
-                        escola_do_aluno=escola_do_aluno)
+                        escola_do_aluno=escola_do_aluno,
+                        finalidade=finalidade)
     if elegiveis:
         escolhido = elegiveis[0]
+        # A FINALIDADE EXIGIDA ENTRA NO MOTIVO. Sem ela, dois itens
+        # diferentes servidos ao mesmo aluno na mesma habilidade teriam a
+        # mesma justificativa, e descobrir por que cada um foi escolhido
+        # exigiria reexecutar a selecao.
+        qual = ("de sondagem" if finalidade == FINALIDADE_SONDAGEM
+                else f"de verificação ({finalidade})")
         return Escolha(
             question_version_id=escolhido.question_version_id,
             habilidade=habilidade,
             origem=ORIGEM_CURADA,
             motivo=("item curado do Núcleo para esta micro-habilidade: "
-                    "finalidade de sondagem declarada, validado por "
+                    f"finalidade {qual} declarada, validado por "
                     f"{escolhido.validado_por}, publicado"))
 
     compativeis = sorted(

@@ -56,11 +56,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agente_ia_edu.db.models import PedagogicalClassification
 from agente_ia_edu.services.instrumento_de_sondagem import (
+    ORIGEM_CURADA,
     Candidato,
     Escolha,
     compativel,
+    curados,
     escolher,
 )
+from agente_ia_edu.services.verificacao import FINALIDADE_VERIFICACAO
 from agente_ia_edu.services.question_bank import (
     QuestionBankFilters,
     QuestionBankService,
@@ -235,6 +238,68 @@ class SeletorDeSondagem:
             usados.add(escolha.question_version_id)
             escolhas.append(escolha)
         return escolhas
+
+    async def verificacao(self, *, conteudo: str, habilidade: str,
+                          quantas: int,
+                          ja_vistos: Iterable[str] | None = None,
+                          escola_do_aluno: str | None = None
+                          ) -> list[Escolha]:
+        """Os itens L0 que VERIFICAM aquela micro-habilidade, sem apoio.
+
+        Mesmo carregamento, mesmo contrato, finalidade diferente. Nao ha
+        segundo seletor: `instrumentos` pede `PROBE` e este pede
+        `VERIFICATION`, e os oito outros critERIOS - viva, validada por
+        humano com nome, publicada, acessivel, com gabarito, sem imagem,
+        nao protegida, da habilidade e do conteudo certos - sao os mesmos,
+        aplicados pelo mesmo codigo.
+
+        SEM FALLBACK GENERICO, e e a diferenca que importa
+        ==================================================
+        `instrumentos` aceita uma questao comum do acervo quando nao ha
+        curado: a sondagem precisa medir algo, e uma questao da mesma
+        habilidade mede. Aqui nao.
+
+        Medido no banco em 2026-10-08: em Estequiometria havia UMA
+        classificacao de MASSA_MOLAR, e era o item da propria sondagem -
+        aquele que o aluno acabou de errar, que foi investigado e cuja
+        resolucao ele viu passo a passo. Um fallback generico serviria
+        exatamente esse item, e o aluno acertaria por ter visto a conta.
+        Isso nao e verificacao: e memoria recente entrando na evidencia
+        como se fosse aprendizagem.
+
+        Entao devolver LISTA VAZIA e uma resposta: nao ha com que verificar
+        esta habilidade sem repetir o que foi ensinado. Quem chamou cai na
+        selecao por conteudo que ja existia - o comportamento de antes
+        deste bloco, e o de 36 dos 37 conteudos do catalogo hoje.
+
+        `ja_vistos` SAI DA LISTA EM VEZ DE SER DESPRIORIZADO
+        =====================================================
+        `PracticeSelectionPolicy.choose` despriorize o recente e o REPOE
+        quando a piscina fresca nao da o numero pedido - correto para
+        pratica, errado aqui: repor um item de verificacao ja respondido
+        devolve a resposta que ele ja sabe. Com todos vistos, a lista vem
+        vazia, e isso e honesto: nao ha verificacao NOVA a fazer.
+        """
+        if quantas <= 0:
+            return []
+        vistos = {str(v) for v in (ja_vistos or ())}
+        disponiveis = await self.candidatos(conteudo,
+                                            escola_do_aluno=escola_do_aluno)
+        elegiveis = curados(
+            [c for c in disponiveis if c.question_version_id not in vistos],
+            habilidade=habilidade, conteudo=conteudo,
+            escola_do_aluno=escola_do_aluno,
+            finalidade=FINALIDADE_VERIFICACAO)
+        return [
+            Escolha(question_version_id=c.question_version_id,
+                    habilidade=habilidade,
+                    origem=ORIGEM_CURADA,
+                    motivo=("item curado do Núcleo para verificar esta "
+                            "micro-habilidade sem apoio: finalidade de "
+                            f"verificação declarada, validado por "
+                            f"{c.validado_por}, publicado"))
+            for c in elegiveis[:int(quantas)]
+        ]
 
     async def habilidades_mensuraveis(self, conteudo: str, *,
                                       escola_do_aluno: str | None = None
