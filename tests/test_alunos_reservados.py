@@ -33,9 +33,14 @@ RAIZ = pathlib.Path(__file__).resolve().parent.parent
 # `aluno_teste_jornada` continua na lista mesmo tendo sido tocado: ele segue
 # reservado, e tirá-lo daqui porque já foi sujo uma vez seria transformar um
 # acidente em permissão.
+# `aluno_validacao_final` tambem continua aqui depois de usado: o historico
+# dele e dado real de validacao manual, e protege-lo passou a importar MAIS,
+# nao menos. Quando o dono quis recomecar do zero em 2026-10-08, a resposta
+# foi uma identidade NOVA - nunca limpar a dele.
 RESERVADOS = (
     "aluno_teste_jornada",
     "aluno_validacao_final",
+    "aluno_validacao_2",
 )
 
 # Onde um uso indevido apareceria.
@@ -46,6 +51,7 @@ PASTAS = ("tests", "scripts")
 EXCECOES = {
     "tests/test_alunos_reservados.py",
     "scripts/criar_aluno_validacao_final.py",
+    "scripts/criar_aluno_validacao_2.py",
 }
 
 
