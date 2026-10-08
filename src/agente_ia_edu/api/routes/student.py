@@ -606,7 +606,10 @@ async def get_student_progress(
     from ...services.consolidacao_do_aluno import (  # noqa: PLC0415
         situacao_por_habilidade,
     )
-    from ...services.student_progress import panorama_do_aluno  # noqa: PLC0415
+    from ...services.student_progress import (  # noqa: PLC0415
+        habilidades_para_o_aluno,
+        panorama_do_aluno,
+    )
 
     async with session_factory() as session:
         svc = CurriculumDomainMapService(session)
@@ -626,7 +629,10 @@ async def get_student_progress(
             habilidades = {}
 
     panorama = panorama_do_aluno(mapa)
-    panorama["habilidades"] = habilidades
+    # TRADUZIDO, e nao cru: a chave do dicionario de `situacao` e o codigo
+    # curricular, e os valores trazem acerto e amostra. Nada disso e
+    # vocabulario de aluno - ver `habilidades_para_o_aluno`.
+    panorama["habilidades"] = habilidades_para_o_aluno(habilidades)
     return panorama
 
 
@@ -1616,3 +1622,87 @@ async def pedir_ajuda_pratica_guiada(
             raise _guiada_404(exc) from exc
         except PermissionError as exc:
             raise _guiada_404(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# RELATORIO DE APOIO A APRENDIZAGEM (§17) - do aluno, e so dele
+# ---------------------------------------------------------------------------
+#
+# DUAS ROTAS, DOIS GET. Nada mais.
+#
+# O §17 proibe enviar ao professor, encaminhar a Coordenacao, compartilhar
+# automaticamente, notificar terceiros e integrar a um mecanismo de
+# distribuicao. Entao nao ha POST aqui: nao ha o que postar, porque gerar o
+# documento nao e um evento - e uma leitura de historico que ja existe.
+#
+# E NAO HA PARAMETRO DE ALUNO. Autorizacao que depende de uma checagem e
+# autorizacao que alguem pode esquecer de fazer; sem o parametro, pedir o
+# relatorio de outra pessoa e inexprimivel. O aluno vem de `_me(ctx)`, como
+# em todo o resto desta rota.
+#
+# O aluno pode levar o PDF a quem quiser - no celular, impresso, por conta
+# propria. O que a plataforma nao faz e mandar.
+
+
+@student_router.get("/learning-support-report",
+                    summary="Relatorio de apoio a aprendizagem do proprio aluno (§17)")
+async def get_learning_support_report(
+    content_code: Optional[str] = Query(None, description="Restringe a um conteudo"),
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """O documento, para a tela.
+
+    Conciso, baseado em evidencias, e sem inventar: secao sem registro diz
+    que ainda nao ha registro, em vez de ser preenchida com suposicao.
+    """
+    from ...services.relatorio_de_apoio_do_aluno import (  # noqa: PLC0415
+        montar_do_banco,
+    )
+
+    async with session_factory() as session:
+        return await montar_do_banco(session, aluno=_me(ctx),
+                                     conteudo=content_code,
+                                     escola=getattr(ctx, "school_id", None))
+
+
+@student_router.get("/learning-support-report.pdf",
+                    summary="O mesmo relatorio, em PDF, para o aluno baixar")
+async def download_learning_support_report(
+    content_code: Optional[str] = Query(None, description="Restringe a um conteudo"),
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+):
+    """O PDF - devolvido a quem pediu, e a mais ninguem.
+
+    `attachment`: o navegador baixa em vez de abrir, porque o documento
+    existe para o aluno TER, e nao para ficar numa aba.
+    """
+    from fastapi import Response  # noqa: PLC0415
+
+    from ...services.relatorio_de_apoio_do_aluno import (  # noqa: PLC0415
+        montar_do_banco,
+    )
+    from ...services.report_render import pdf_available, render_simple_pdf  # noqa: PLC0415
+
+    if not pdf_available():
+        # Dependencia ausente e falha de ambiente, e dizer isso e melhor que
+        # devolver um arquivo vazio que o aluno abriria sem entender.
+        raise HTTPException(status_code=503,
+                            detail="Geracao de PDF indisponivel neste ambiente")
+
+    async with session_factory() as session:
+        doc = await montar_do_banco(session, aluno=_me(ctx),
+                                    conteudo=content_code,
+                                    escola=getattr(ctx, "school_id", None))
+
+    pdf = render_simple_pdf(
+        title=doc["titulo"], subtitle=doc.get("subtitulo", ""),
+        note=doc.get("ressalva", ""),
+        sections=[{"title": s["titulo"], "items": s["itens"]}
+                  for s in doc["secoes"]])
+
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition":
+                 'attachment; filename="apoio-a-aprendizagem.pdf"'})

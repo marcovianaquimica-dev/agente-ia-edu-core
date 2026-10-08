@@ -148,6 +148,27 @@
       <summary>ver panorama completo</summary>
       <div id="panorama-corpo"></div>
     </details>
+
+    <!--
+      RELATÓRIO DE APOIO À APRENDIZAGEM (§17) - do aluno, e só dele.
+
+      DOIS BOTÕES: ver e baixar. Não há - e não pode haver - botão de enviar
+      ao professor, encaminhar à Coordenação ou compartilhar. O aluno pode
+      mostrar o PDF a quem quiser, por conta própria; o que a plataforma não
+      faz é mandar.
+
+      Os botões são montados pelo JS a partir de `RelatorioUI.ACOES`, que é
+      um vocabulário fechado com teste em cima. Acrescentar um "enviar" aqui
+      no HTML também não passaria: há varredura nesta tela.
+    -->
+    <section class="relatorio-apoio" aria-labelledby="h-relatorio-apoio">
+      <h2 id="h-relatorio-apoio">Relatório de apoio</h2>
+      <p class="nota">Um resumo do que você já faz sozinho, do que conseguiu
+        com apoio e do que ainda está custando. Ele é seu: você decide se
+        mostra para alguém.</p>
+      <div class="relatorio-acoes" id="relatorio-acoes"></div>
+      <div id="relatorio-corpo"></div>
+    </section>
   </section>
 
 </main>
@@ -213,6 +234,7 @@
 <script src="aluno-preparacao.js"></script>
 <script src="aluno-conversa.js"></script>
 <script src="aluno-explicacao.js"></script>
+<script src="aluno-relatorio.js"></script>
 <script src="aluno.js"></script>
   <footer class="nucleo-rodape">© 2026 Núcleo Edu 360 · Alfa 1.0</footer>
 </body>

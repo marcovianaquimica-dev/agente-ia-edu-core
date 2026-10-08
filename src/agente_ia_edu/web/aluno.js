@@ -89,6 +89,11 @@
     // A tela diz isso ao aluno em vez de fingir que guarda.
     conversa: { historico: [], enviando: false, erro: null,
                 cta: null, fecho: null },
+    // O RELATORIO DE APOIO (§17) so existe depois de pedido: ele e uma
+    // leitura do historico, e montar sem o aluno pedir seria gerar um
+    // documento sobre ele sem que ele tenha aberto a tela.
+    relatorio: null,
+    relatorioErro: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -2277,6 +2282,93 @@
     }
   }
 
+  // ============================================ relatorio de apoio =======
+  // §17. O documento chega PRONTO de GET /student/learning-support-report -
+  // titulos, itens, ordem e ressalva. Esta tela nao resume, nao reordena e
+  // nao classifica: ela desenha.
+  //
+  // NAO HA ENVIO. Os botoes saem de `RelatorioUI.ACOES`, que tem dois itens,
+  // e nao de uma lista escrita aqui - acrescentar "enviar" exigiria mexer no
+  // vocabulario, onde ha teste. O aluno leva o PDF a quem quiser por conta
+  // propria; a plataforma nao manda.
+
+  const ROTULO_DA_ACAO = {
+    'relatorio-ver': 'Ver relatório',
+    'relatorio-baixar': 'Baixar em PDF',
+  };
+
+  function pintarAcoesRelatorio() {
+    const caixa = $('relatorio-acoes');
+    if (!caixa) return;
+    const disponiveis = RelatorioUI.acoesDisponiveis(app.relatorio);
+    caixa.innerHTML = disponiveis.map((acao) => `
+      <button class="botao botao-secundario" data-acao="${esc(acao)}" type="button"
+      >${esc(ROTULO_DA_ACAO[acao] || acao)}</button>`).join('');
+  }
+
+  function pintarRelatorio() {
+    const corpo = $('relatorio-corpo');
+    if (!corpo) return;
+    const doc = app.relatorio;
+    if (app.relatorioErro) {
+      corpo.innerHTML = aviso('Não consegui montar seu relatório agora.');
+      pintarAcoesRelatorio();
+      return;
+    }
+    if (!doc) { corpo.innerHTML = ''; pintarAcoesRelatorio(); return; }
+
+    const secoes = RelatorioUI.secoesParaDesenhar(doc);
+    corpo.innerHTML = `
+      <article class="relatorio-doc">
+        <h3>${esc(doc.titulo || '')}</h3>
+        <p class="relatorio-sub">${esc(doc.subtitulo || '')}</p>
+        ${secoes.map((s) => `
+          <div class="relatorio-secao">
+            <h4>${esc(s.titulo)}</h4>
+            <ul>${s.itens.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
+          </div>`).join('')}
+        <p class="relatorio-ressalva">${esc(doc.ressalva || '')}</p>
+      </article>`;
+    pintarAcoesRelatorio();
+  }
+
+  async function verRelatorio() {
+    const corpo = $('relatorio-corpo');
+    if (corpo) corpo.innerHTML = aviso('Montando seu relatório…');
+    app.relatorioErro = null;
+    try {
+      app.relatorio = await api('/api/v1/student/learning-support-report');
+    } catch (e) {
+      // NAO INVENTA RELATORIO. Um documento montado no navegador seria um
+      // papel com fatos que ninguem registrou.
+      app.relatorio = null;
+      app.relatorioErro = true;
+    }
+    pintarRelatorio();
+  }
+
+  async function baixarRelatorio() {
+    const quem = identidade();
+    try {
+      const r = await fetch('/api/v1/student/learning-support-report.pdf', {
+        headers: quem ? { Authorization: `Bearer ${quem}` } : {},
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = RelatorioUI.nomeDoArquivo();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      const corpo = $('relatorio-corpo');
+      if (corpo) corpo.innerHTML = aviso('Não consegui gerar o PDF agora.');
+    }
+  }
+
   // ===================================================== navegacao ========
   function irPara(tela) {
     app.tela = tela;
@@ -2293,7 +2385,7 @@
     });
     if (tela === 'inicio') pintarHome();
     if (tela === 'atividades') pintarAtividades();
-    if (tela === 'progresso') pintarProgresso();
+    if (tela === 'progresso') { pintarProgresso(); pintarRelatorio(); }
     window.scrollTo(0, 0);
   }
 
@@ -2458,6 +2550,13 @@
       case 'seguir': seguirOProximoPasso(); return;
       case 'conversar': abrirConversa(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
+      // RELATORIO DE APOIO (§17). Dois casos, e dois e tudo: ver e baixar.
+      // Nao ha caso de envio, encaminhamento ou compartilhamento - ver o
+      // cabecalho de aluno-relatorio.js e a varredura em
+      // tests/test_relatorio_de_apoio_http.py, que le ESTE arquivo: ela
+      // recusa o nome proibido ate em comentario, de proposito.
+      case 'relatorio-ver': verRelatorio(); return;
+      case 'relatorio-baixar': baixarRelatorio(); return;
       // A VERIFICACAO e uma pratica curta pelo mesmo motor. O tamanho vem do
       // backend (`next_step.question_count`); a tela nao escolhe quantas
       // questoes confirmam uma recuperacao.

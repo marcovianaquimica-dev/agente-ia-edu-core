@@ -192,10 +192,13 @@ def pdf_available() -> bool:
         return False
 
 
-def render_pdf(payload: dict[str, Any]) -> bytes:
-    import pymupdf as fitz
+def _writer(doc, fitz):
+    """Pagination and line wrapping, in ONE place.
 
-    doc = fitz.open()
+    Every PDF this codebase produces goes through here. A second copy of this
+    machinery would drift: one format would start breaking lines differently
+    from the other, and nobody would notice until a page came out wrong.
+    """
     state: dict[str, Any] = {"page": None, "y": 0.0}
 
     def new_page():
@@ -232,6 +235,52 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
             state["y"] += _LINE
 
     new_page()
+    return write
+
+
+def _numerar(doc):
+    for i, pg in enumerate(doc, start=1):
+        pg.insert_text((_A4[0] - _MARGIN - 70, _A4[1] - 30),
+                        f"Página {i} de {len(doc)}", fontsize=7, color=(0.4, 0.4, 0.4))
+
+
+def render_simple_pdf(*, title: str, subtitle: str = "", note: str = "",
+                      sections: list[dict[str, Any]] | None = None) -> bytes:
+    """A PDF of titled sections of plain lines - nothing else.
+
+    Deliberately format-agnostic and caller-agnostic: it takes a title, an
+    optional subtitle, an optional note and a list of ``{title, items}``. It
+    does not know who reads it, does not know where it goes, and has no
+    notion of a recipient - it returns bytes to whoever asked.
+    """
+    import pymupdf as fitz
+
+    doc = fitz.open()
+    write = _writer(doc, fitz)
+
+    write(title or "Relatório", size=16, bold=True, gap=4)
+    if subtitle:
+        write(subtitle, size=9, color=(0.35, 0.35, 0.35), gap=2)
+    if note:
+        write(note, size=8, color=(0.35, 0.35, 0.35), gap=8)
+
+    for section in sections or []:
+        write(str(section.get("title") or ""), size=12, bold=True, gap=16)
+        for item in section.get("items") or []:
+            write(f"- {item}", size=10, indent=10, gap=2)
+
+    _numerar(doc)
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+def render_pdf(payload: dict[str, Any]) -> bytes:
+    import pymupdf as fitz
+
+    doc = fitz.open()
+    write = _writer(doc, fitz)
+
     write(payload.get("title") or "Relatório", size=16, bold=True, gap=4)
     generated_at = payload.get("generated_at") or ""
     write(f"Gerado em {generated_at}", size=8, color=(0.4, 0.4, 0.4), gap=2)
@@ -251,10 +300,7 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
                 line = "; ".join(f"{c}: {v}" for c, v in zip(cols, row))
                 write(f"{i}. {line}", size=9, indent=10, gap=3)
 
-    for i, pg in enumerate(doc, start=1):
-        pg.insert_text((_A4[0] - _MARGIN - 70, _A4[1] - 30),
-                        f"Página {i} de {len(doc)}", fontsize=7, color=(0.4, 0.4, 0.4))
-
+    _numerar(doc)
     out = doc.tobytes()
     doc.close()
     return out

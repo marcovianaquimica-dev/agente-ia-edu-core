@@ -427,7 +427,11 @@ class CicloPedroTests(unittest.TestCase):
         faixas = {f["faixa"]: f["itens"] for f in r.json()["faixas"]}
 
         self.assertIn("Balanceamento de equacoes", faixas["Precisa de atenção"])
-        self.assertIn("Estequiometria", faixas["Consolidado"])
+        # "Consolidado" virou "Indo bem" em 2026-10-08: a faixa traduz
+        # BAND_STRONG, que e acerto forte numa UNICA ocasiao, e a palavra
+        # ficou reservada a consolidacao de verdade - repetir em ocasioes
+        # diferentes, que agora `services/consolidacao` calcula.
+        self.assertIn("Estequiometria", faixas["Indo bem"])
 
     def test_meu_progresso_nao_entrega_numero_nem_jargao_ao_aluno(self):
         self._praticar(ESTEQ, 5, acertos=5)

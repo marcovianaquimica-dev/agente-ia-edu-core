@@ -1450,3 +1450,40 @@ p  { margin: 0 0 .75rem; }
   .dialogo-linha { flex-wrap: wrap; }
   .dialogo-linha .botao { width: 100%; }
 }
+
+
+/* ======================================= RELATORIO DE APOIO (§17) =======
+   O documento que o aluno pode levar a alguem. Ele precisa parecer um
+   documento, e nao um cartao do painel: fundo de papel, titulo, secoes com
+   lista, e a ressalva em destaque discreto no fim.
+
+   DOIS BOTOES, e dois e tudo: ver e baixar. Nao ha estilo de "enviar" aqui
+   porque nao ha botao de enviar - ver aluno-relatorio.js. */
+.relatorio-apoio { margin-top: 2rem; }
+.relatorio-acoes {
+  display: flex; flex-wrap: wrap; gap: var(--e-p); margin: .75rem 0 0;
+}
+.relatorio-acoes .botao { width: auto; }
+
+.relatorio-doc {
+  margin-top: 1rem; padding: 1rem;
+  background: var(--papel, #fff);
+  border: 1px solid var(--linha, rgba(0, 0, 0, .12));
+  border-radius: var(--raio, 12px);
+}
+.relatorio-doc h3 { margin: 0; font-size: 1rem; }
+.relatorio-sub {
+  margin: .25rem 0 0; font-size: .8125rem; color: var(--tinta-fraca);
+}
+.relatorio-secao { margin-top: 1rem; }
+.relatorio-secao h4 { margin: 0 0 .35rem; font-size: .875rem; }
+.relatorio-secao ul { margin: 0; padding-left: 1.1rem; }
+.relatorio-secao li { margin: .2rem 0; font-size: .875rem; }
+
+/* A RESSALVA NAO E RODAPE DECORATIVO: ela e o que impede o papel de ser
+   lido como laudo da escola. Fica legivel, com contraste de texto normal. */
+.relatorio-ressalva {
+  margin: 1.25rem 0 0; padding-top: .75rem;
+  border-top: 1px solid var(--linha, rgba(0, 0, 0, .12));
+  font-size: .8125rem;
+}
