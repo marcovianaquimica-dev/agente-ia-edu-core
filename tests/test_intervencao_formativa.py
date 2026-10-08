@@ -97,8 +97,14 @@ class _Base(unittest.TestCase):
         self.loop = asyncio.new_event_loop()
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:",
                                           poolclass=StaticPool)
+        # `expire_on_commit=True` COMO A APLICACAO.
+        #
+        # Com False, `save_answer` podia ler `row.metadata_` depois do commit
+        # e o teste passava; no navegador o mesmo acesso levantava
+        # MissingGreenlet, a decisao era engolida pelo `except` e a resposta
+        # errada voltava com `may_advance: true`. Medido em 2026-10-08.
         self.factory = async_sessionmaker(self.engine, class_=AsyncSession,
-                                          expire_on_commit=False)
+                                          expire_on_commit=True)
         self.req = _requester()
 
         async def prep():
@@ -332,13 +338,15 @@ class QUESTAOSEMHABILIDADENAOPRENDEOALUNO(_Base):
                          question_type="MULTIPLE_CHOICE")
             s.add(q)
             await s.flush()
-            v = QuestionVersion(question_id=q.id,
-                                version_kind="official_original",
-                                canonical_text="x", statement="x",
-                                content_hash=str(_uuid.uuid4()))
-            s.add(v)
+            vid = _uuid.uuid4()
+            s.add(QuestionVersion(id=vid, question_id=q.id,
+                                  version_kind="official_original",
+                                  canonical_text="x", statement="x",
+                                  content_hash=str(_uuid.uuid4())))
+            # O id é escolhido ANTES do commit: lê-lo depois tentaria
+            # recarregar o objeto expirado fora do contexto async.
             await s.commit()
-            return str(v.id)
+            return str(vid)
 
         vid = self._rodar(orfa)
 

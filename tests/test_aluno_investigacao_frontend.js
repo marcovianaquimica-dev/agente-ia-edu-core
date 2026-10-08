@@ -482,3 +482,45 @@ test('sem fala gravada o fio nao inventa uma', () => {
   const t = Inv.turnos(semFala);
   assert.equal(t.filter((x) => x.quem === 'aluno').length, 0);
 });
+
+// ==========================================================================
+// §11 - DOIS CANAIS, MAS NAO DOIS CONTROLES CONCORRENTES
+//
+// A validacao manual de 2026-10-08 mostrou a tela com A/B/C/D e um campo
+// "Sua resposta" lado a lado, sem explicacao: o aluno nao sabe qual vale.
+//
+// Os dois sao legitimos - quem digita "3" e quem toca na alternativa "3"
+// dizem a mesma coisa, e o backend as le igual. Entao a correcao nao e
+// tirar um: e dizer QUAL e o principal e o que o outro e.
+// ==========================================================================
+
+test('numa etapa o canal PRINCIPAL é escrever', () => {
+  const e = Inv.entrada(DEPOIS_DO_15);
+  assert.equal(e.canalPrincipal, 'texto');
+});
+
+test('e as alternativas vêm rotuladas como ATALHO', () => {
+  const e = Inv.entrada(DEPOIS_DO_15);
+  assert.ok(e.rotuloDosAtalhos.length > 5, e.rotuloDosAtalhos);
+  assert.ok(/toque|escolh|opç/i.test(e.rotuloDosAtalhos), e.rotuloDosAtalhos);
+});
+
+test('o rótulo dos atalhos não promete que é obrigatório escolher', () => {
+  const r = Inv.entrada(DEPOIS_DO_15).rotuloDosAtalhos.toLowerCase();
+  for (const proibido of ['selecione uma', 'marque uma', 'obrigat']) {
+    assert.ok(!r.includes(proibido), `${proibido} em "${r}"`);
+  }
+});
+
+test('na abertura não há atalho nenhum, e o rótulo some', () => {
+  const e = Inv.entrada(ABERTURA);
+  assert.equal(e.alternativas.length, 0);
+  assert.equal(e.rotuloDosAtalhos, '');
+  assert.equal(e.canalPrincipal, 'texto');
+});
+
+test('concluída não há canal nenhum', () => {
+  const e = Inv.entrada({ ...DEPOIS_DO_3, completed: true, etapa: null });
+  assert.equal(e.canalPrincipal, null);
+  assert.equal(e.rotuloDosAtalhos, '');
+});

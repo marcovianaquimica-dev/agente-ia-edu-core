@@ -45,6 +45,19 @@
 
   /* alvo de toque minimo */
   --toque: 44px;
+
+  /* ESPACAMENTO - §12 do bloco de 2026-10-08.
+     Nao havia token nenhum: cada regra escolhia um valor, e na tela da
+     conversa o resultado foi "Responder" encostando no campo e "Nao sei"
+     encostando em "Voltar ao inicio", que entao parecia uma terceira
+     alternativa da pergunta.
+
+       --e-p  entre controles do MESMO grupo
+       --e-m  respiro interno de um grupo
+       --e-g  entre grupos DIFERENTES */
+  --e-p: 12px;
+  --e-m: 16px;
+  --e-g: 24px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -1368,9 +1381,43 @@ p  { margin: 0 0 .75rem; }
 
 /* ---------------------------------------------- a caixa de resposta ---- */
 
-.dialogo-entrada { display: grid; gap: .6rem; }
+/* O campo, o botao, os atalhos e o "Nao sei" sao GRUPOS diferentes. */
+.dialogo-entrada { display: grid; gap: var(--e-g); }
 
-.dialogo-linha { display: flex; gap: .5rem; align-items: stretch; }
+/* O campo e o botao que o envia sao do mesmo grupo. */
+.dialogo-linha { display: flex; gap: var(--e-p); align-items: stretch; }
+
+/* OS ATALHOS, com rotulo. Eles nao sao a resposta principal - sao um
+   atalho para quem prefere tocar -, e e o rotulo que diz isso. */
+.dialogo-atalhos { display: grid; gap: var(--e-p); }
+
+.dialogo-atalhos-rotulo {
+  margin: 0;
+  font-size: .875rem;
+  color: var(--tinta-fraca);
+}
+
+/* "VOLTAR AO INICIO" E NAVEGACAO, nao resposta. Fora do cartao, com o
+   respiro de um grupo diferente e sem peso de botao. */
+.acoes-de-saida {
+  margin-top: var(--e-g);
+  display: flex;
+  justify-content: center;
+}
+
+.botao-texto {
+  width: auto;
+  background: transparent;
+  color: var(--tinta-fraca);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.botao-texto:hover { color: var(--tinta); }
+
+/* Acoes empilhadas de um cartao de intervencao. */
+.acoes-empilhadas { display: grid; gap: var(--e-p); margin-top: var(--e-m); }
+.acoes-empilhadas .botao + .botao { margin-top: 0; }
 
 .dialogo-campo {
   flex: 1 1 auto;
@@ -1387,9 +1434,14 @@ p  { margin: 0 0 .75rem; }
 
 /* Os atalhos de alternativa continuam existindo - §20, a interface escolhe
    o componente. Eles ESCREVEM a resposta em vez de marca-la. */
-.alternativa-atalho { cursor: pointer; }
+.alternativa-atalho { cursor: pointer; min-height: var(--toque); }
+.alternativas { display: grid; gap: var(--e-p); }
 
-.botao-nao-sei { justify-self: start; }
+/* Ele e uma resposta, e nao uma acao secundaria da pagina - fica no grupo
+   da resposta, mas com respiro proprio para nao parecer parte da linha do
+   campo. O `gap` da grade ja o separa; `width:auto` impede que ele ocupe a
+   largura toda e compita com "Responder". */
+.botao-nao-sei { justify-self: start; width: auto; }
 
 @media (max-width: 400px) {
   /* Em 320px o botao ao lado do campo deixa o campo pequeno demais para

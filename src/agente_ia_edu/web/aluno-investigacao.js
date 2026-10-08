@@ -264,15 +264,33 @@
                espera: a.espera || 'SHORT_TEXT',
                unidade: a.unidade || null,
                rotulo: 'Sua resposta',
+               canalPrincipal: 'texto',
+               rotuloDosAtalhos: '',
                alternativas: [] };
     }
     if (d.completed || !d.etapa) {
-      return { modo: 'nenhum', destino: null, alternativas: [] };
+      return { modo: 'nenhum', destino: null, alternativas: [],
+               canalPrincipal: null, rotuloDosAtalhos: '' };
     }
+    // DOIS CANAIS, UM PRINCIPAL.
+    //
+    // A validacao manual de 2026-10-08 mostrou A/B/C/D e um campo "Sua
+    // resposta" lado a lado, sem explicacao: o aluno nao sabe qual vale.
+    // Os dois sao legitimos - quem digita "3" e quem toca na alternativa
+    // "3" dizem a mesma coisa, e o backend as le igual -, entao a correcao
+    // nao e tirar um. E dizer qual e o principal e o que o outro e.
+    //
+    // ESCREVER E O PRINCIPAL porque isto e uma conversa: numa conversa a
+    // pessoa responde, nao seleciona. Os atalhos existem para quem prefere
+    // tocar, e o rotulo nao sugere que escolher seja obrigatorio.
+    var atalhos = (d.etapa.options || []).slice();
     return { modo: 'misto', destino: 'etapa',
              espera: 'SHORT_TEXT', unidade: null,
              rotulo: 'Sua resposta',
-             alternativas: (d.etapa.options || []).slice() };
+             canalPrincipal: 'texto',
+             rotuloDosAtalhos: atalhos.length
+               ? 'Ou toque numa opção:' : '',
+             alternativas: atalhos };
   }
 
   /**

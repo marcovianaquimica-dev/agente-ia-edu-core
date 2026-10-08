@@ -205,6 +205,12 @@ class ActivityPlayerState(BaseModel):
     current_position: int | None = None
     questions: list[ActivityPlayerQuestion] = Field(default_factory=list)
     answer_key_visible: bool = False
+    # A INTERVENCAO QUE FICOU PENDENTE, para a retomada depois de um F5.
+    #
+    # Sem este campo o servico calculava a decisao e o `response_model` a
+    # descartava em silencio - medido no navegador em 2026-10-08, com o
+    # servico devolvendo a decisao certa e o HTTP devolvendo null.
+    pending_intervention: dict | None = None
 
 
 class ActivityAnswerSaveResponse(BaseModel):

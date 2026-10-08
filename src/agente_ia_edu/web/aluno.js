@@ -81,6 +81,10 @@
     atividade: null,      // a tarefa da escola em andamento
     estudo: null,         // a explicacao aberta {material_id, secoes, exemplo}
     guiada: null,         // a pratica guiada aberta {dados, escolha, ultimo}
+    // DE ONDE A INTERVENCAO FOI ABERTA. 'pratica' quando o aluno errou numa
+    // questao e o backend interrompeu: ao terminar, ele volta PARA AQUELA
+    // QUESTAO, e nao para o proximo passo da jornada.
+    voltarPara: null,
     // A CONVERSA NAO E PERSISTIDA: vive aqui, e recarregar a perde.
     // A tela diz isso ao aluno em vez de fingir que guarda.
     conversa: { historico: [], enviando: false, erro: null },
@@ -717,6 +721,11 @@
   async function concluirEstudo() {
     await marcarLeitura({ ateOFim: true });
     app.estudo = null;
+    // Aberto PELA PRATICA, o aluno volta para a questao em que parou.
+    if (app.voltarPara === 'pratica') {
+      app.voltarPara = null;
+      return voltarDaIntervencao();
+    }
     // QUEM DIZ O QUE VEM DEPOIS E O BACKEND.
     //
     // Esta funcao chamava `abrirGuiada` direto, assumindo que depois de
@@ -989,9 +998,13 @@
               </li>`;
     }).join('');
 
-    // A CAIXA DE RESPOSTA. A interface escolhe o componente conforme o que
-    // o instrumento pede; numa etapa de alternativas as duas coisas valem,
-    // porque as duas chegam ao mesmo lugar no backend.
+    // A CAIXA DE RESPOSTA - UM canal principal, e o outro rotulado.
+    //
+    // Ate 2026-10-08 as alternativas e o campo apareciam lado a lado sem
+    // explicacao, e o aluno nao sabia qual valia. Os dois continuam
+    // valendo - quem digita "3" e quem toca em "3" dizem a mesma coisa -,
+    // mas agora ESCREVER vem primeiro, porque isto e uma conversa, e os
+    // atalhos vem depois, com rotulo. Ver `InvestigacaoUI.entrada`.
     const e = InvestigacaoUI.entrada(inv.dados);
     let caixa = '';
     if (e.modo !== 'nenhum') {
@@ -1004,7 +1017,6 @@
       caixa = `
         <form class="dialogo-entrada" data-acao="inv-enviar"
               data-destino="${esc(e.destino)}">
-          ${atalhos ? `<div class="alternativas">${atalhos}</div>` : ''}
           <label class="sr" for="inv-campo">${esc(e.rotulo)}</label>
           <div class="dialogo-linha">
             <input id="inv-campo" class="dialogo-campo" type="text"
@@ -1015,6 +1027,10 @@
                    value="${esc(inv.rascunho || '')}">
             <button class="botao botao-principal" type="submit">Responder</button>
           </div>
+          ${atalhos ? `<div class="dialogo-atalhos">
+            <p class="dialogo-atalhos-rotulo">${esc(e.rotuloDosAtalhos)}</p>
+            <div class="alternativas">${atalhos}</div>
+          </div>` : ''}
           <button class="botao botao-secundario botao-nao-sei" type="button"
                   data-acao="inv-nao-sei">Não sei</button>
         </form>`;
@@ -1023,6 +1039,11 @@
                  Ver a explicação</button>`;
     }
 
+    // "VOLTAR AO INICIO" SAI DO GRUPO DA RESPOSTA.
+    //
+    // Ele e navegacao, nao uma opcao de resposta - e grudado logo abaixo de
+    // "Nao sei" parecia a terceira alternativa da pergunta. Fica fora do
+    // cartao, com respiro proprio.
     $('bloco').innerHTML = `
       <div class="cartao-bloco cartao-assessor cartao-dialogo">
         <p class="bloco-etiqueta assessor-etiqueta">
@@ -1032,9 +1053,11 @@
         </p>
         <ol class="dialogo">${fios}</ol>
         ${caixa}
-        <button class="botao botao-secundario" data-acao="inv-sair">
+      </div>
+      <nav class="acoes-de-saida" aria-label="Navegação">
+        <button class="botao botao-texto" data-acao="inv-sair">
           Voltar ao início</button>
-      </div>`;
+      </nav>`;
 
     // O FOCO VAI PARA A CAIXA, e a conversa rola para o fim: numa conversa
     // que cresce, o ultimo turno e o que importa, e obrigar o aluno a
@@ -1118,6 +1141,14 @@
   // com o estado novo, como em toda transicao deste fluxo.
   async function seguirDepoisDaInvestigacao() {
     app.investigacao = null;
+    // QUEM ABRIU DECIDE PARA ONDE VOLTAR. Aberta pela PRATICA, o aluno volta
+    // para a questao em que ele estava - nao para o proximo passo da
+    // jornada, que o mandaria praticar de novo o que ele acabou de deixar
+    // no meio.
+    if (app.voltarPara === 'pratica') {
+      app.voltarPara = null;
+      return voltarDaIntervencao();
+    }
     return seguirOProximoPasso();
   }
 
@@ -1260,14 +1291,31 @@
       if (q.selected_option) escolhas[q.question_version_id] = q.selected_option;
     });
     const falta = questoes.findIndex((q) => !q.selected_option);
+    // A INTERVENCAO PENDENTE SOBREVIVE AO RECARREGAR.
+    //
+    // O backend a REDERIVA da resposta ja gravada (ver
+    // `activity_player_store._state`). Sem isto, um F5 no meio da pratica
+    // devolvia a proxima questao e o aluno escapava da intervencao sem
+    // nunca te-la visto - §13.
+    const pendente = estado.pending_intervention || null;
+    // E a posicao e a da intervencao, nao a da proxima pendente: e nela que
+    // ele estava quando errou.
+    const posicaoDaIntervencao = pendente
+      ? questoes.findIndex(
+          (q) => q.question_version_id === pendente.question_version_id)
+      : -1;
     app.diagnostico = Object.assign({
       assignment_id: assignmentId,
       objetivo: app.prontidao,
       questoes,
       // tudo respondido: para na ultima, de onde se conclui
-      pos: falta === -1 ? Math.max(0, questoes.length - 1) : falta,
+      pos: posicaoDaIntervencao >= 0 ? posicaoDaIntervencao
+        : (falta === -1 ? Math.max(0, questoes.length - 1) : falta),
       escolhas,
+      intervencao: pendente,
+      podeAvancar: !pendente,
     }, extras || {});
+    if (pendente) return pintarIntervencao(), true;
     pintarSessao();
     return true;
   }
@@ -1394,19 +1442,49 @@
     const d = app.diagnostico;
     const q = d.questoes[d.pos];
     d.escolhas[q.question_version_id] = opcao;
+    d.intervencao = null;                 // a decisao anterior nao vale mais
     pintarSessao();                       // resposta aparece marcada na hora
     try {
-      await api(`/api/v1/student/activities/${d.assignment_id}`
+      const r = await api(`/api/v1/student/activities/${d.assignment_id}`
                 + `/attempt/answers/${q.question_version_id}`,
                 { method: 'PUT', body: JSON.stringify({ selected_option: opcao }) });
+      // A DECISAO PEDAGOGICA VEM DAQUI, e nao e a tela que a toma.
+      //
+      // Ate 2026-10-08 esta resposta era descartada: o `await` existia so
+      // para esperar a gravacao, e o botao "Proxima" avancava igual depois
+      // de uma resposta errada. Agora o backend diz se pode avancar, e a
+      // tela obedece - ver `IntervencaoUI.proximoPasso`.
+      const vinda = (r && r.intervention) || null;
+      // UMA INTERVENCAO POR QUESTAO, nesta sessao.
+      //
+      // O backend continua dizendo que ha algo a trabalhar naquele item - e
+      // esta certo. Mas oferecer a MESMA explicacao de novo a quem acabou
+      // de le-la e o que o proprio motor evita no ciclo: quem leu e
+      // continuou travando raramente destrava relendo o mesmo paragrafo.
+      // Entao o convite nao se repete; o que a tela nao repete e o CONVITE,
+      // nao a decisao.
+      //
+      // O custo esta declarado: ao recarregar a pagina a lista se perde, e
+      // a intervencao daquela questao pode ser oferecida mais uma vez.
+      d.jaIntervieram = d.jaIntervieram || {};
+      const repetida = vinda && d.jaIntervieram[q.question_version_id];
+      d.intervencao = repetida ? null : vinda;
+      d.podeAvancar = repetida ? true : !(r && r.may_advance === false);
+      pintarSessao();
     } catch (_) {
       // autosave falhou: a escolha continua na tela, e o backend valida de
       // novo na conclusao - que e quem de fato recusa resposta faltando.
+      d.podeAvancar = true;
     }
   }
 
   async function avancar() {
     const d = app.diagnostico;
+    // O PASSO E DECIDIDO, nao assumido. `d.pos += 1` incondicional era o
+    // defeito: o aluno errava e recebia a proxima questao.
+    const passo = IntervencaoUI.proximoPasso(
+      { pos: d.pos, total: d.questoes.length, intervencao: d.intervencao });
+    if (passo === 'intervencao') return pintarIntervencao();
     d.pos += 1;
     if (d.pos < d.questoes.length) return pintarSessao();
 
@@ -1449,6 +1527,62 @@
       return;
     }
     pintarResultado();
+  }
+
+
+  /**
+   * A INTERVENCAO, quando o backend decide que ha algo a entender.
+   *
+   * Nao e um aviso com um "ok": o botao EXECUTA a estrategia - abre a
+   * investigacao daquela micro-habilidade ou a explicacao daquele conteudo -
+   * e, ao terminar, o aluno volta PARA ESTA QUESTAO, nao para a proxima.
+   *
+   * A frase nao afirma o raciocinio dele. Ver `IntervencaoUI`.
+   */
+  function pintarIntervencao() {
+    const d = app.diagnostico;
+    if (!d || !d.intervencao) return pintarSessao();
+    const acao = IntervencaoUI.acaoDaIntervencao(d.intervencao);
+    pintarJornada();
+    $('trilho').innerHTML = '';
+    $('sessao-resumo').textContent = '';
+
+    const dados = acao.content_code
+      ? ` data-conteudo="${esc(acao.content_code)}"` : '';
+    const hab = acao.skill ? ` data-habilidade="${esc(acao.skill)}"` : '';
+    const mat = acao.material_id ? ` data-material="${esc(acao.material_id)}"` : '';
+
+    $('bloco').innerHTML = `
+      <div class="cartao-bloco cartao-assessor">
+        <p class="bloco-etiqueta assessor-etiqueta">
+          <img class="assessor-marca" src="assets/nucleo-edu-360-simbolo.png"
+               alt="" width="128" height="108" aria-hidden="true">
+          Edu
+        </p>
+        <p class="bloco-texto">${esc(IntervencaoUI.falaDaIntervencao(d.intervencao))}</p>
+        <div class="acoes-empilhadas">
+          <button class="botao botao-principal" data-acao="${esc(acao.acao)}"
+                  ${dados}${hab}${mat}>${esc(acao.rotulo)}</button>
+        </div>
+        <p class="nota">Sua resposta ficou registrada. Voltamos a esta questão
+           depois.</p>
+      </div>`;
+  }
+
+  /** Ao terminar a intervencao, o aluno volta PARA A MESMA QUESTAO. */
+  function voltarDaIntervencao() {
+    const d = app.diagnostico;
+    if (!d) return irPara('inicio');
+    // Executada, ela nao volta a ser oferecida para a MESMA questao.
+    const q = d.questoes[d.pos];
+    if (d.intervencao && q) {
+      d.jaIntervieram = d.jaIntervieram || {};
+      d.jaIntervieram[q.question_version_id] = true;
+    }
+    d.intervencao = null;
+    d.podeAvancar = true;
+    irPara('sessao');
+    return pintarSessao();
   }
 
   /** Ha erro a entender nesta pratica? (decide so a ORDEM dos botoes) */
@@ -2262,6 +2396,16 @@
         enviarInvestigacao((InvestigacaoUI.entrada(
           (app.investigacao || {}).dados) || {}).destino, 'não sei');
         return;
+      case 'intervencao-investigar':
+        // A investigacao ABRE A PARTIR DA PRATICA, e sabe voltar para ela.
+        app.voltarPara = 'pratica';
+        abrirInvestigacao(alvo.dataset.conteudo, alvo.dataset.habilidade);
+        return;
+      case 'intervencao-estudar':
+        app.voltarPara = 'pratica';
+        estudar(alvo.dataset.material);
+        return;
+      case 'intervencao-seguir': voltarDaIntervencao(); return;
       case 'inv-seguir': seguirDepoisDaInvestigacao(); return;
       case 'inv-sair': irPara('inicio'); return;
       case 'guiada-responder': responderGuiada(); return;
