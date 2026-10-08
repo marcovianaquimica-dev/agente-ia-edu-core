@@ -661,6 +661,54 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(correction.ai_output)
             self.assertEqual(correction.ai_output["identification"]["anchor_mode"], "IMAGE_REGION")
 
+    async def test_image_region_all_global_annotations_short_circuits_zero_gate_to_needs_review(self):
+        """IMAGE_REGION has no full transcription, so the Zero Gate's
+        canonical_text is approximated from annotations' own
+        ImageRegionAnchor.read_text (_approximate_text_for_zero_gate). But
+        Annotation.anchor is nullable (evidence_kind=GLOBAL carries none),
+        and nothing requires a minimum count of LOCALIZED annotations - an
+        engine output made up entirely of GLOBAL annotations produces an
+        EMPTY approximation. Before this fix, that empty string was sent
+        straight to evaluate_zero_gate, which could return a genuine ZERAR
+        (e.g. TEXTO_INSUFICIENTE/TEXTO_ILEGIVEL are both plausible verdicts
+        on an empty string) - a REAL fabricated zero persisted as
+        final_scores, not a NEEDS_REVIEW. This proves the short-circuit:
+        zero_gate_requests stays empty (proving this happens BEFORE any
+        provider call for the Zero Gate, not merely that the result
+        happened to come out right), status is NEEDS_REVIEW, and
+        final_scores is None (never a real ZERAR/zeroed score)."""
+        async with self.session_factory() as session:
+            submission = await self._submission(
+                session, "37", anchor_mode="IMAGE_REGION", correction_mode="FORMATIVO",
+                with_pages=True,
+            )
+            payload = json.loads(_happy_payload(anchor_mode="IMAGE_REGION"))
+            payload["annotations"] = [
+                {
+                    "letter": "A", "competency_code": "C1", "kind": "ACERTO",
+                    "evidence_kind": "GLOBAL", "anchor": None,
+                    "short_comment": "Boa impressao geral.",
+                    "long_comment": "Avaliacao holistica, sem trecho especifico citado.",
+                    "pedagogical_suggestion": None, "signal_keys": [],
+                }
+            ]
+            image_provider = _StubImageProvider(text=json.dumps(payload))
+            text_provider = _StubTextProvider()
+            service = EssayCorrectionService(
+                session, image_provider=image_provider, text_provider=text_provider,
+            )
+            correction = await service.correct(submission.id)
+
+            self.assertEqual(correction.status, "NEEDS_REVIEW")
+            self.assertIsNone(correction.final_scores)
+            self.assertIsNotNone(correction.ai_output)
+            self.assertEqual(text_provider.call_count, 0)
+            self.assertEqual(len(text_provider.zero_gate_requests), 0)
+            self.assertIsNotNone(correction.zero_gate_decision)
+            self.assertEqual(correction.zero_gate_decision["decision"], "ENCAMINHAR_REVISAO")
+            self.assertTrue(correction.zero_gate_decision["requires_human_review"])
+            self.assertIn("ZERO_GATE_UNCERTAIN", correction.failure_reason)
+
     async def test_correct_rejects_a_submission_that_is_not_submitted(self):
         async with self.session_factory() as session:
             submission = await self._submission(session, "8", correction_mode="FORMATIVO")
@@ -1175,7 +1223,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(correction.status, "NEEDS_REVIEW")
             self.assertIsNone(correction.ai_output)
             self.assertIsNone(correction.final_scores)
-            self.assertIn("CompetencyScoringFailed", correction.failure_reason)
+            self.assertIn("ZeroGateFailed", correction.failure_reason)
 
     async def test_zero_gate_invalid_response_shape_becomes_needs_review(self):
         async with self.session_factory() as session:
@@ -1191,7 +1239,7 @@ class EssayCorrectionServiceTests(unittest.IsolatedAsyncioTestCase):
             correction = await service.correct(submission.id)
 
             self.assertEqual(correction.status, "NEEDS_REVIEW")
-            self.assertIn("CompetencyScoringFailed", correction.failure_reason)
+            self.assertIn("ZeroGateFailed", correction.failure_reason)
             self.assertIn("ValueError", correction.failure_reason)
 
     async def test_zero_gate_encaminha_revisao_never_reaches_a_normal_grade(self):

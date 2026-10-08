@@ -195,6 +195,37 @@ class AggregateZeroGateRunsTests(unittest.TestCase):
         self.assertEqual(decision.decision, "ZERAR")
         self.assertEqual(decision.rule_code, "FUGA_AO_TEMA")
 
+    def test_non_dict_item_in_a_response_is_ignored_defensively(self):
+        """Same bug CLASS as _applies()'s own string-vs-boolean coercion
+        (see that function's docstring), one level up: the call site only
+        checks ``isinstance(assessments, list)``, never that each ELEMENT
+        of that list is itself a mapping. If the model ever returns a list
+        of non-dict items (e.g. a list of bare strings), ``item.get(...)``
+        used to raise an uncaught AttributeError - not caught by the
+        (json.JSONDecodeError, KeyError, ValueError) tuple at the call site
+        in essay_correction.py, so it escaped as an unhandled 500 instead
+        of becoming NEEDS_REVIEW like every other malformed-model-output
+        case. A non-dict item must be skipped, exactly like an
+        out-of-schema code, and must not crash."""
+        runs = [
+            _run(["FUGA_AO_TEMA"]) + ["not-a-dict-assessment"],
+            _run(["FUGA_AO_TEMA"]),
+            _run([]),
+        ]
+        decision = _aggregate_zero_gate_runs(runs)
+        self.assertEqual(decision.decision, "ZERAR")
+        self.assertEqual(decision.rule_code, "FUGA_AO_TEMA")
+
+    def test_run_made_entirely_of_non_dict_items_contributes_no_votes(self):
+        """The whole assessments list for one run is non-dict items (e.g.
+        the model returned a list of strings instead of objects) - that
+        run must contribute zero valid assessments, same as a run whose
+        assessments list is simply empty, never a crash."""
+        runs = [["oops", "not", "a", "dict"], _run([]), _run([])]
+        decision = _aggregate_zero_gate_runs(runs)
+        self.assertEqual(decision.decision, "NAO_ZERAR")
+        self.assertIsNone(decision.rule_code)
+
     def test_duplicate_code_within_one_run_is_counted_once(self):
         """Defensive: if a single run's assessments list repeats the same
         code twice, it must contribute at most one vote, not two."""

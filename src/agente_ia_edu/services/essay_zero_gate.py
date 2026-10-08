@@ -163,6 +163,15 @@ def _aggregate_zero_gate_runs(
     for assessments in runs:
         seen_this_run: set[str] = set()
         for item in assessments:
+            if not isinstance(item, Mapping):
+                # Live-bug-class precedent: _applies() already defends
+                # against the model returning the wrong JSON type for one
+                # field inside an otherwise well-shaped item. This defends
+                # the same way one level up - a list element that is not
+                # even a mapping (e.g. a bare string) - so it is skipped
+                # exactly like an out-of-schema code is skipped below,
+                # instead of crashing with AttributeError on item.get(...).
+                continue
             code = item.get("code")
             if code not in counts or code in seen_this_run:
                 continue

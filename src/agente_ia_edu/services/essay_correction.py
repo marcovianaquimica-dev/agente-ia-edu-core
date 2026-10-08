@@ -282,6 +282,18 @@ def _effective_essay_statement(submission: EssaySubmission, essay_prompt: EssayP
     )
 
 
+#: Floor below which canonical_text_for_zero_gate (the real transcription,
+#: or _approximate_text_for_zero_gate's substitute for IMAGE_REGION) is
+#: treated as "no real text to evaluate independently" rather than sent to
+#: the Zero Gate. 20 characters is well under any real sentence of
+#: Portuguese essay prose - deliberately generous so this only ever catches
+#: a genuinely empty or near-empty approximation (e.g. an engine output made
+#: up entirely of GLOBAL-evidence annotations, which carry no anchor/
+#: read_text at all - see _run_ai's own comment at the call site), never a
+#: short-but-real one.
+_ZERO_GATE_MIN_TEXT_LENGTH = 20
+
+
 def _approximate_text_for_zero_gate(output: EssayEngineOutput) -> str:
     """Best-effort substitute for canonical_text on an IMAGE_REGION
     submission, which never has one (R2's documented consequence of skipped
@@ -830,31 +842,69 @@ class EssayCorrectionService:
             # the Zero Gate itself decided NAO_ZERAR - a ZERAR essay has no
             # competency score left to refine, and an ENCAMINHAR_REVISAO one
             # short-circuits below before ever reaching competency scoring.
-            try:
-                zero_gate_decision = await evaluate_zero_gate(
-                    canonical_text=text if text is not None else _approximate_text_for_zero_gate(output),
-                    essay_statement=_effective_essay_statement(submission, essay_prompt),
-                    rubric_payload=rubric_payload,
-                    text_provider=self._get_text_provider(),
+            canonical_text_for_zero_gate = (
+                text if text is not None else _approximate_text_for_zero_gate(output)
+            )
+            if len(canonical_text_for_zero_gate.strip()) < _ZERO_GATE_MIN_TEXT_LENGTH:
+                # IMAGE_REGION has no full transcription, so
+                # _approximate_text_for_zero_gate substitutes the text of
+                # every annotation's own ImageRegionAnchor.read_text - but
+                # Annotation.anchor is nullable (evidence_kind=GLOBAL has
+                # none) and nothing requires a minimum count of LOCALIZED
+                # annotations. An engine output made up entirely of GLOBAL
+                # annotations produces an EMPTY approximation here. Sending
+                # that straight to evaluate_zero_gate would ask the model to
+                # judge "" against the eight zero codes - TEXTO_INSUFICIENTE/
+                # TEXTO_ILEGIVEL are both plausible verdicts on an empty
+                # string, and a ZERAR there would persist a REAL, all-zero
+                # final_scores, not a NEEDS_REVIEW - exactly the fabricated-
+                # zero failure class this whole plan exists to eliminate,
+                # now reachable on IMAGE_REGION, the default submission mode
+                # (InstitutionSettings.transcription_enabled=False). Instead,
+                # treat this the same as a genuine Zero Gate
+                # ENCAMINHAR_REVISAO below: no model call, no risk of a
+                # confident zero on no real evidence, same as the Quality
+                # Gate's own principle that a reliability gap alone must
+                # never produce a confident zero. 20 chars is a small,
+                # deliberately generous floor - well under one real sentence
+                # of Portuguese essay text, so it only ever triggers on
+                # genuinely empty/near-empty approximations, never on a
+                # short-but-real one.
+                zero_gate_decision = ZeroGateDecision(
+                    decision="ENCAMINHAR_REVISAO", rule_code=None,
+                    evidence=(
+                        "texto aproximado para IMAGE_REGION esta vazio ou "
+                        "quase vazio - Zero Gate nao pode avaliar "
+                        "independentemente sem anotacoes com texto"
+                    ),
+                    confidence=None, requires_human_review=True,
                 )
-            except ProviderError as exc:
-                logger.warning(
-                    "essay correction for submission %s: zero gate provider "
-                    "error: %s", submission.id, exc,
-                )
-                return {
-                    **failure_fields, "model_version": model_version,
-                    "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
-                }
-            except (json.JSONDecodeError, KeyError, ValueError) as exc:
-                logger.warning(
-                    "essay correction for submission %s: zero gate returned "
-                    "an unusable response: %s", submission.id, exc,
-                )
-                return {
-                    **failure_fields, "model_version": model_version,
-                    "failure_reason": f"CompetencyScoringFailed: {type(exc).__name__}: {exc}",
-                }
+            else:
+                try:
+                    zero_gate_decision = await evaluate_zero_gate(
+                        canonical_text=canonical_text_for_zero_gate,
+                        essay_statement=_effective_essay_statement(submission, essay_prompt),
+                        rubric_payload=rubric_payload,
+                        text_provider=self._get_text_provider(),
+                    )
+                except ProviderError as exc:
+                    logger.warning(
+                        "essay correction for submission %s: zero gate provider "
+                        "error: %s", submission.id, exc,
+                    )
+                    return {
+                        **failure_fields, "model_version": model_version,
+                        "failure_reason": f"ZeroGateFailed: {type(exc).__name__}: {exc}",
+                    }
+                except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                    logger.warning(
+                        "essay correction for submission %s: zero gate returned "
+                        "an unusable response: %s", submission.id, exc,
+                    )
+                    return {
+                        **failure_fields, "model_version": model_version,
+                        "failure_reason": f"ZeroGateFailed: {type(exc).__name__}: {exc}",
+                    }
 
             if zero_gate_decision.decision == "ENCAMINHAR_REVISAO":
                 # Genuine 3-way disagreement that never resolved - the whole
