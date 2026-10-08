@@ -12,15 +12,22 @@ permite trocar o modelo sem perder o que o sistema aprendeu a pedir.
 
 from __future__ import annotations
 
-from . import explicacao_v1, explicacao_v2, v1, v2, v3
+from . import explicacao_v1, explicacao_v2, v1, v2, v3, v4
 
 # A v3 corrige o que a v2 EXIGIA: "2 a 5 frases" para toda pergunta, e
 # "termine oferecendo" ao fim de toda resposta. O §4 da especificacao recusa
 # as duas - o teto universal e a oferta obrigatoria -, e a decisao de quanto
 # falar passou para `services/concisao`, com teste. A v2 fica no registro:
 # ela e o que conversou com quem usou aquelas telas.
-_REGISTRO = {v1.VERSION: v1, v2.VERSION: v2, v3.VERSION: v3}
-VERSAO_ATUAL = v3.VERSION
+# A v4 corrige o que a v3 PODIA recusar: a regra "se a pergunta nao tiver
+# nada a ver com o estudo, traga de volta ao ponto" pegava, na leitura
+# literal, a curiosidade de OUTRA DISCIPLINA - que tem tudo a ver com estudo.
+# O §9 manda responder a curiosidade espontanea e permitir exploracao
+# introdutoria de conteudo avancado, sem exigir pre-requisito. A v4 separa
+# "assunto de estudo fora do trilho" de "nada a ver com estudo", e recebe o
+# percurso como argumento, de `services/percurso`.
+_REGISTRO = {v1.VERSION: v1, v2.VERSION: v2, v3.VERSION: v3, v4.VERSION: v4}
+VERSAO_ATUAL = v4.VERSION
 
 # A EXPLICACAO DE UM ERRO TEM O SEU PROPRIO REGISTRO.
 #

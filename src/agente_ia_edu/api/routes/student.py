@@ -606,7 +606,10 @@ async def get_student_progress(
     from ...services.consolidacao_do_aluno import (  # noqa: PLC0415
         situacao_por_habilidade,
     )
-    from ...services.student_progress import panorama_do_aluno  # noqa: PLC0415
+    from ...services.student_progress import (  # noqa: PLC0415
+        habilidades_para_o_aluno,
+        panorama_do_aluno,
+    )
 
     async with session_factory() as session:
         svc = CurriculumDomainMapService(session)
@@ -626,7 +629,10 @@ async def get_student_progress(
             habilidades = {}
 
     panorama = panorama_do_aluno(mapa)
-    panorama["habilidades"] = habilidades
+    # TRADUZIDO, e nao cru: a chave do dicionario de `situacao` e o codigo
+    # curricular, e os valores trazem acerto e amostra. Nada disso e
+    # vocabulario de aluno - ver `habilidades_para_o_aluno`.
+    panorama["habilidades"] = habilidades_para_o_aluno(habilidades)
     return panorama
 
 
@@ -1233,6 +1239,16 @@ class _ConversaRequest(_BaseModel):
     # versao: recarregar a pagina a perde, e esta dito na tela. Guardar texto
     # de aluno exige decisao de retencao que este bloco nao tomou.
     history: list[_TurnoDaConversa] = _Field(default_factory=list, max_length=20)
+    # O ASSUNTO QUE ELE QUIS EXPLORAR - §9.
+    #
+    # Opcional. Vindo preenchido, esta interacao e EXPLORACAO: curiosidade
+    # fora do trilho, que o §9 manda responder em vez de devolver ao ponto.
+    # Vindo vazio, a conversa continua sendo a de dentro da intervencao, e
+    # nada muda para quem ja chamava esta rota.
+    #
+    # E texto de aluno: entra no prompt rotulado como conteudo, nunca como
+    # instrucao - ver `assessor_prompts/v4._bloco_de_exploracao`.
+    topic: str | None = _Field(default=None, max_length=200)
 
 
 @student_router.post("/assessor/conversation",
@@ -1261,20 +1277,55 @@ async def conversar_com_o_assessor(
             raise HTTPException(
                 status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
+    from agente_ia_edu.services.percurso import (  # noqa: PLC0415
+        DESTINO_ATIVIDADE,
+        PERCURSO_EXPLORACAO,
+        classificar,
+        retomada as _retomada,
+    )
+
     contexto = _contexto_da_conversa(prontidao)
+    passo = prontidao.get("next_step") or {}
+
+    # EM QUE PERCURSO ISTO ACONTECE - §9, decidido no servidor.
+    #
+    # `em_intervencao` e o fato de haver intervencao aberta no passo atual, e
+    # nao uma suposicao sobre o texto: o que distingue apoio de exploracao e o
+    # aluno ter nomeado outro assunto, nao o Assessor adivinhar o tema.
+    percurso = classificar(assunto=payload.topic,
+                           em_intervencao=bool(passo.get("intervention")))
+    explorando = payload.topic if percurso == PERCURSO_EXPLORACAO else None
+
+    # A VOLTA, COM NOME E PARA O LUGAR CERTO.
+    #
+    # O §9 pede retorno ao ponto anterior sem perda de contexto, e "voltar ao
+    # percurso" nao diz para onde. O destino e A ATIVIDADE DESTA CONVERSA, e
+    # nao `next_step.kind`: no QA de 2026-10-08 o passo era ESCALATE, e o
+    # botao prometia a atividade e despachava uma escalacao.
+    volta = _retomada(conteudo=passo.get("content_name"),
+                      titulo_da_atividade=prontidao.get("title"),
+                      destino=DESTINO_ATIVIDADE,
+                      atividade=str(alvo))
+
     try:
         resposta = await ConversaDoAssessor().responder(
             pergunta=payload.message,
             contexto=contexto,
-            historico=[t.model_dump() for t in payload.history])
+            historico=[t.model_dump() for t in payload.history],
+            explorando=explorando,
+            voltar_para=(volta or {}).get("nome"))
     except PerguntaInvalida as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # O passo continua sendo do sistema: a conversa nao o move, e a tela usa
     # este campo para o botao "voltar ao percurso".
     resposta["next_step"] = {
-        "kind": (prontidao.get("next_step") or {}).get("kind"),
-        "cta": (prontidao.get("next_step") or {}).get("cta"),
+        "kind": passo.get("kind"),
+        "cta": passo.get("cta"),
     }
+    resposta["percurso"] = percurso
+    # EXPLORAR NAO APAGA O PERCURSO: a volta vai na resposta, e a atividade
+    # nao foi tocada - nada aqui escreve.
+    resposta["retomada"] = volta
     return resposta
 
 
@@ -1616,3 +1667,87 @@ async def pedir_ajuda_pratica_guiada(
             raise _guiada_404(exc) from exc
         except PermissionError as exc:
             raise _guiada_404(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# RELATORIO DE APOIO A APRENDIZAGEM (§17) - do aluno, e so dele
+# ---------------------------------------------------------------------------
+#
+# DUAS ROTAS, DOIS GET. Nada mais.
+#
+# O §17 proibe enviar ao professor, encaminhar a Coordenacao, compartilhar
+# automaticamente, notificar terceiros e integrar a um mecanismo de
+# distribuicao. Entao nao ha POST aqui: nao ha o que postar, porque gerar o
+# documento nao e um evento - e uma leitura de historico que ja existe.
+#
+# E NAO HA PARAMETRO DE ALUNO. Autorizacao que depende de uma checagem e
+# autorizacao que alguem pode esquecer de fazer; sem o parametro, pedir o
+# relatorio de outra pessoa e inexprimivel. O aluno vem de `_me(ctx)`, como
+# em todo o resto desta rota.
+#
+# O aluno pode levar o PDF a quem quiser - no celular, impresso, por conta
+# propria. O que a plataforma nao faz e mandar.
+
+
+@student_router.get("/learning-support-report",
+                    summary="Relatorio de apoio a aprendizagem do proprio aluno (§17)")
+async def get_learning_support_report(
+    content_code: Optional[str] = Query(None, description="Restringe a um conteudo"),
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """O documento, para a tela.
+
+    Conciso, baseado em evidencias, e sem inventar: secao sem registro diz
+    que ainda nao ha registro, em vez de ser preenchida com suposicao.
+    """
+    from ...services.relatorio_de_apoio_do_aluno import (  # noqa: PLC0415
+        montar_do_banco,
+    )
+
+    async with session_factory() as session:
+        return await montar_do_banco(session, aluno=_me(ctx),
+                                     conteudo=content_code,
+                                     escola=getattr(ctx, "school_id", None))
+
+
+@student_router.get("/learning-support-report.pdf",
+                    summary="O mesmo relatorio, em PDF, para o aluno baixar")
+async def download_learning_support_report(
+    content_code: Optional[str] = Query(None, description="Restringe a um conteudo"),
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+):
+    """O PDF - devolvido a quem pediu, e a mais ninguem.
+
+    `attachment`: o navegador baixa em vez de abrir, porque o documento
+    existe para o aluno TER, e nao para ficar numa aba.
+    """
+    from fastapi import Response  # noqa: PLC0415
+
+    from ...services.relatorio_de_apoio_do_aluno import (  # noqa: PLC0415
+        montar_do_banco,
+    )
+    from ...services.report_render import pdf_available, render_simple_pdf  # noqa: PLC0415
+
+    if not pdf_available():
+        # Dependencia ausente e falha de ambiente, e dizer isso e melhor que
+        # devolver um arquivo vazio que o aluno abriria sem entender.
+        raise HTTPException(status_code=503,
+                            detail="Geracao de PDF indisponivel neste ambiente")
+
+    async with session_factory() as session:
+        doc = await montar_do_banco(session, aluno=_me(ctx),
+                                    conteudo=content_code,
+                                    escola=getattr(ctx, "school_id", None))
+
+    pdf = render_simple_pdf(
+        title=doc["titulo"], subtitle=doc.get("subtitulo", ""),
+        note=doc.get("ressalva", ""),
+        sections=[{"title": s["titulo"], "items": s["itens"]}
+                  for s in doc["secoes"]])
+
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition":
+                 'attachment; filename="apoio-a-aprendizagem.pdf"'})

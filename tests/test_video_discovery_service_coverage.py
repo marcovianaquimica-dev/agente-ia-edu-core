@@ -71,13 +71,48 @@ class VideoDiscoveryServiceCoverageTests(unittest.IsolatedAsyncioTestCase):
         await session.flush()
         return content.id
 
-    # -- line 136: a configured YouTubeDiscoveryProvider (api_key set) is
-    #    still a structural stub - no HTTP client wired up yet - and must
-    #    return an empty result rather than raise or fabricate data.
-    async def test_youtube_provider_with_api_key_returns_empty_stub(self):
-        provider = YouTubeDiscoveryProvider(api_key="a-real-looking-key")
+    # -- O STUB DEIXOU DE SER STUB em 2026-10-08 (§8).
+    #
+    # Este teste dizia que um provedor COM chave devolvia `[]`, porque nao
+    # havia cliente HTTP. Agora ha - e, rodando como estava, ele passou a
+    # CHAMAR A REDE DE VERDADE: um GET a googleapis.com com a chave falsa,
+    # respondido com 400. Suite que alcanca a internet e suite instavel, e
+    # mandar uma chave de teste para um terceiro nao e aceitavel nem quando
+    # ela e inventada.
+    #
+    # O cliente entra por argumento, e e assim que este caminho se testa.
+    async def test_youtube_provider_com_chave_usa_o_cliente_injetado(self):
+        class _Http:
+            def __init__(self):
+                self.urls = []
+
+            async def get(self, url, params=None):
+                self.urls.append(url)
+                if "search" in url:
+                    return {"items": [
+                        {"id": {"kind": "youtube#video", "videoId": "vid1"},
+                         "snippet": {"title": "Estequiometria em 7 min",
+                                     "channelTitle": "Canal"}}]}
+                return {"items": [
+                    {"id": "vid1",
+                     "status": {"embeddable": True, "privacyStatus": "public"},
+                     "contentDetails": {"duration": "PT7M", "caption": "true"}}]}
+
+        http = _Http()
+        provider = YouTubeDiscoveryProvider(api_key="uma-chave", http=http)
         result = await provider.search("Estequiometria", limit=5)
-        self.assertEqual(result, [])
+        self.assertEqual(1, len(result))
+        self.assertEqual("vid1", result[0]["external_id"])
+        self.assertEqual(420, result[0]["duration_seconds"])
+        self.assertEqual(2, len(http.urls), "faltou a chamada de detalhe")
+
+    async def test_e_sem_chave_ele_LEVANTA_em_vez_de_devolver_vazio(self):
+        """"Nao procurei" e "nao achei nada" nao podem ser a mesma resposta."""
+        from agente_ia_edu.services.youtube_busca import BuscaIndisponivel
+
+        provider = YouTubeDiscoveryProvider(api_key=None)
+        with self.assertRaises(BuscaIndisponivel):
+            await provider.search("Estequiometria", limit=5)
 
     # -- line 207: a raw candidate with no external_id is silently dropped
     #    from the dedup map, never persisted (never a NULL-external_id row).

@@ -56,7 +56,7 @@
     var texto = String(r.reply || '').trim();
     if (!texto) {
       return { texto: 'Não consegui responder agora.', fallback: true,
-               cta: null, fecho: null };
+               cta: null, fecho: null, retomada: null, percurso: null };
     }
     var passo = r.next_step || {};
     return {
@@ -79,6 +79,29 @@
       // isso a checagem e pelo rotulo, que so o backend novo envia.
       fecho: (r.pode_encerrar === true && r.rotulo_de_fecho)
         ? { rotulo: String(r.rotulo_de_fecho) } : null,
+      // A VOLTA AO PONTO ANTERIOR, COM NOME - §9.
+      //
+      // "Voltar ao percurso" não diz para onde. O §9 pede retorno ao ponto
+      // anterior sem perda de contexto, e saber o que se está retomando é
+      // parte do contexto. O rótulo vem montado do backend
+      // (`services/percurso.retomada`): a tela não escreve o nome do
+      // destino, porque quem sabe onde ele estava é o servidor.
+      //
+      // Sem destino, nada - um botão que não leva a lugar nenhum é pior que
+      // nenhum botão.
+      //
+      // E ela carrega A ATIVIDADE, não o próximo passo: o botão reabre
+      // aquela atividade. Sem `assignment_id` não há para onde voltar, e
+      // então não há botão - era esse o defeito achado no QA de 2026-10-08,
+      // quando o destino era `next_step.kind` e o rótulo prometia a
+      // atividade enquanto a ação despachava uma escalação.
+      retomada: (r.retomada && r.retomada.rotulo && r.retomada.assignment_id)
+        ? { rotulo: String(r.retomada.rotulo),
+            destino: String(r.retomada.destino || ''),
+            atividade: String(r.retomada.assignment_id) } : null,
+      // Em que percurso o backend disse que esta resposta aconteceu. A tela
+      // não classifica nada - ela só sabe se deve oferecer a volta.
+      percurso: r.percurso ? String(r.percurso) : null,
     };
   }
 

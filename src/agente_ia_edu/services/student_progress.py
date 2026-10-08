@@ -87,6 +87,42 @@ def faixa_do_aluno(*, answered: int, accuracy: float | None,
     return {"faixa": faixa, "ordem": _ORDEM[faixa]}
 
 
+def habilidades_para_o_aluno(habilidades: dict | None) -> list[dict]:
+    """O estado de consolidacao de cada micro-habilidade, em palavras de aluno.
+
+    Entra o que `consolidacao_do_aluno.situacao_por_habilidade` devolve - o
+    dicionario do MOTOR, com o codigo curricular na chave, `acerto` e
+    `respondidas`. Sai o que o aluno pode ler.
+
+    O QUE NAO ATRAVESSA, e por que
+    ===============================
+    O CODIGO da habilidade: e vocabulario do motor, nao do aluno - a mesma
+    regra que `panorama_do_aluno` ja seguia para o codigo do conteudo.
+    O ACERTO e a AMOSTRA: o §12 proibe o percentual, e um numero ao lado do
+    nome dele convida a ser lido como nota.
+    O NOME INTERNO DO ESTADO (`SHOWN`, `CONSOLIDATED`): constante de codigo.
+
+    Em 2026-10-08 este payload saiu cru por um descuido meu, e o teste de
+    ponta a ponta do ciclo do aluno pegou. A traducao fica aqui, no modulo
+    que existe exatamente para isso.
+    """
+    from .consolidacao import nome_curto  # noqa: PLC0415
+    from .relatorio_de_apoio import rotulo_legivel  # noqa: PLC0415
+
+    saida = []
+    for codigo, s in sorted((habilidades or {}).items()):
+        estado = (s or {}).get("estado")
+        saida.append({
+            "nome": rotulo_legivel(codigo),
+            "estado": nome_curto(estado) if estado else "",
+            # O MOTIVO ja e uma frase escrita para ele, em `consolidacao`.
+            "motivo": (s or {}).get("motivo") or "",
+            # A unica coisa aqui sobre a qual ele pode agir.
+            "revisar": bool((s or {}).get("revisao_recomendada")),
+        })
+    return saida
+
+
 def panorama_do_aluno(mapa: dict,
                       thresholds: PerformanceThresholdPolicy | None = None) -> dict:
     """Agrupa os conteudos do mapa de dominio nas faixas.
@@ -118,6 +154,7 @@ def panorama_do_aluno(mapa: dict,
 __all__ = [
     "faixa_do_aluno",
     "panorama_do_aluno",
+    "habilidades_para_o_aluno",
     "FAIXA_POR_BANDA",
     "FAIXA_PRECISA_ATENCAO",
     "FAIXA_EM_DESENVOLVIMENTO",

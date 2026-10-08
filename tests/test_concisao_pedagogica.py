@@ -148,10 +148,30 @@ class ARESPOSTAPODETERMINAR(unittest.TestCase):
 class OPROMPTV3USAAPOLITICA(unittest.TestCase):
     """Sem isto a política seria um módulo bonito que ninguém chama."""
 
-    def test_existe_uma_v3_e_ela_e_a_atual(self):
-        from agente_ia_edu.assessor_prompts import VERSAO_ATUAL
+    def test_existe_uma_v3_e_ela_continua_chamavel(self):
+        """Ela deixou de ser a ATUAL em 2026-10-08, com a v4 do §9.
 
-        self.assertEqual("assessor-conversa-v3", VERSAO_ATUAL)
+        O que este arquivo guarda não é qual versão está em uso: é que a
+        política de concisão chegou ao prompt e que a v3 não foi reescrita.
+        Quem exige a versão atual é `test_percurso_de_exploracao`.
+        """
+        from agente_ia_edu.assessor_prompts import prompt_da_conversa
+
+        self.assertEqual("assessor-conversa-v3",
+                         prompt_da_conversa("assessor-conversa-v3").VERSION)
+
+    def test_e_a_versao_ATUAL_tambem_usa_a_politica(self):
+        """O que de fato importa: a política não ficou numa versão velha."""
+        from agente_ia_edu.assessor_prompts import (
+            VERSAO_ATUAL,
+            prompt_da_conversa,
+        )
+
+        atual = prompt_da_conversa(VERSAO_ATUAL)
+        montado = atual.montar(contexto="c", historico="", pergunta="p",
+                               extensao=EXTENSAO_BREVE, pode_encerrar=True)
+        self.assertIn(orientacao_de_extensao(EXTENSAO_BREVE), montado)
+        self.assertNotIn("2 a 5 frases", montado)
 
     def test_a_v2_continua_no_registro(self):
         """Ela é o que conversou com quem usou aquelas telas."""

@@ -41,8 +41,17 @@ from agente_ia_edu.db.models.assessments import (
 )
 from agente_ia_edu.db.models.catalog import CatalogNode
 from agente_ia_edu.services.activity_assignment_store import ActivityAssignmentStore
-from agente_ia_edu.services.curriculum_domain_map import ORIGIN_PRACTICE
+from agente_ia_edu.services.curriculum_domain_map import (
+    ORIGIN_OFFICIAL_ACTIVITY,
+    ORIGIN_PRACTICE,
+)
 from agente_ia_edu.services.list_generator import ListConfiguration
+from agente_ia_edu.services.niveis_de_autonomia import (
+    ACAO_CRIAR_PRATICA_PROPRIA,
+    ACAO_CRIAR_TAREFA_DA_ESCOLA,
+    exige_autoridade,
+    transparencia,
+)
 from agente_ia_edu.services.question_bank import QuestionBankFilters, QuestionBankService
 from agente_ia_edu.services.question_list_store import (
     LIST_MATERIAL_TYPE,
@@ -73,6 +82,18 @@ CONTRACT_MODES = (MODE_CONTENT, MODE_REVIEW, MODE_PREREQUISITE, MODE_MIXED)
 PROPOSITO_PRATICA = "PRACTICE"
 PROPOSITO_VERIFICACAO = "VERIFY"
 PROPOSITOS = (PROPOSITO_PRATICA, PROPOSITO_VERIFICACAO)
+
+def _acao_da_origem(origin: str) -> str:
+    """Que ACAO do §14 e criar um lote com esta origem.
+
+    Nao e cosmetico: a origem e o que separa, no mapa de dominio, a evidencia
+    da escola da evidencia de uma pratica propria. Criar com a origem
+    institucional seria o Edu criando tarefa em nome da escola - nivel 4.
+    """
+    if origin == ORIGIN_OFFICIAL_ACTIVITY:
+        return ACAO_CRIAR_TAREFA_DA_ESCOLA
+    return ACAO_CRIAR_PRATICA_PROPRIA
+
 
 ALLOWED_COUNTS = (5, 10, 15, 20)
 MAX_QUESTIONS = 20
@@ -227,6 +248,24 @@ class AdaptivePracticeService:
         another subject.
         """
         self._authz_self(student_external_id, requester)
+
+        # §14, NIVEL 4: criar em nome da escola exige autoridade.
+        #
+        # A origem e o que separa, no mapa de dominio, a evidencia da prova da
+        # evidencia de uma pratica propria - e o mapa PESA as duas de formas
+        # diferentes. Um caminho que deixasse o aluno criar com a origem
+        # institucional faria um acerto na pratica dele contar como acerto na
+        # tarefa da escola, sem ninguem ter decidido isso.
+        #
+        # Hoje a rota do aluno nem aceita o campo. Esta guarda e para o
+        # proximo caminho de escrita, que nao sabera disso.
+        if (exige_autoridade(_acao_da_origem(origin))
+                and (requester.role or "").upper() == "STUDENT"
+                and not requester.is_platform_admin):
+            raise PracticeAuthError(
+                "Criar uma atividade em nome da escola exige autoridade "
+                "institucional.")
+
         purpose = (purpose or PROPOSITO_PRATICA).upper()
         if purpose not in PROPOSITOS:
             raise PracticeError(
@@ -358,6 +397,13 @@ class AdaptivePracticeService:
             "availability": view.availability,
             "selection": selection_report,
             "ai_used": False,
+            # EM QUE NIVEL DE AUTONOMIA ISTO ACONTECEU - §14.
+            #
+            # Criar uma pratica propria e nivel 2: ajuste dentro do que ja
+            # existe, permitido e COM TRANSPARENCIA. O bloco e contrato, e
+            # nao comentario: quem consome a resposta sabe que isto NAO e
+            # tarefa da escola, e tem a frase para dizer isso ao aluno.
+            "autonomia": transparencia(_acao_da_origem(origin)),
         }
 
     # ---- read ------------------------------------------------------

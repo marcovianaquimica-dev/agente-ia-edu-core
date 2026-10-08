@@ -88,7 +88,16 @@
     // A CONVERSA NAO E PERSISTIDA: vive aqui, e recarregar a perde.
     // A tela diz isso ao aluno em vez de fingir que guarda.
     conversa: { historico: [], enviando: false, erro: null,
-                cta: null, fecho: null },
+                cta: null, fecho: null,
+                // A volta ao ponto anterior, o percurso que o backend
+                // classificou, e a marca de "outro assunto" que o ALUNO
+                // declara - §9.
+                retomada: null, percurso: null, outroAssunto: false },
+    // O RELATORIO DE APOIO (§17) so existe depois de pedido: ele e uma
+    // leitura do historico, e montar sem o aluno pedir seria gerar um
+    // documento sobre ele sem que ele tenha aberto a tela.
+    relatorio: null,
+    relatorioErro: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -815,10 +824,24 @@
 
     const aviso_erro = c.erro
       ? `<p class="conversa-erro" role="alert">${esc(c.erro)}</p>` : '';
-    const seguir = c.cta
-      ? `<button class="botao botao-principal" data-acao="conversa-seguir">
-           ${esc(c.cta.rotulo)}</button>`
-      : '';
+    // VOLTAR E SEGUIR SAO DUAS COISAS - §9.
+    //
+    // Quando ele saiu do trilho, o que ele quer e VOLTAR: o botao reabre a
+    // atividade de onde ele saiu, pelo `assignment_id` que o backend
+    // devolveu, e usa a acao que o app ja tem para abrir tarefa. O rotulo
+    // vem montado do servidor - quem sabe onde ele estava e o servidor.
+    //
+    // Fora da exploracao, o botao continua sendo o PROXIMO PASSO, como
+    // sempre foi. Dois botoes ao mesmo tempo seriam tres controles numa
+    // conversa que precisa ser concisa.
+    const volta = (c.percurso === 'EXPLORACAO' && c.retomada) ? c.retomada : null;
+    const seguir = volta
+      ? `<button class="botao botao-principal" data-acao="abrir-tarefa"
+                 data-id="${esc(volta.atividade)}">${esc(volta.rotulo)}</button>`
+      : (c.cta
+        ? `<button class="botao botao-principal" data-acao="conversa-seguir">
+             ${esc(c.cta.rotulo)}</button>`
+        : '');
     // A SAIDA SEM ATIVIDADE - §6. Ela fica AO LADO do passo, nao no lugar
     // dele: quem quiser praticar continua a um clique, e quem so tinha uma
     // duvida pode fechar. Quem autoriza e o backend.
@@ -830,8 +853,14 @@
     return `
       <section class="conversa" aria-label="Pergunte ao Assessor">
         <h3 class="conversa-titulo">Pergunte ao Assessor</h3>
-        <p class="conversa-nota">Sobre o que você está estudando agora. Esta
-           conversa não fica salva.</p>
+        <!--
+          A NOTA DIZIA "sobre o que você está estudando agora", e isso deixou
+          de ser verdade quando o §9 entrou: a curiosidade de outro assunto
+          agora é respondida, e não devolvida ao ponto. Uma nota que
+          contradiz o que a tela faz ensina o aluno a não ler notas.
+        -->
+        <p class="conversa-nota">Sobre o que você está estudando — ou outro
+           assunto, se marcar abaixo. Esta conversa não fica salva.</p>
         ${turnos ? `<ol class="conversa-turnos">${turnos}</ol>` : ''}
         ${c.enviando ? '<p class="conversa-esperando">Pensando…</p>' : ''}
         ${aviso_erro}
@@ -843,6 +872,22 @@
                     ${c.enviando ? 'disabled' : ''}></textarea>
           <button class="botao botao-secundario" type="submit"
                   ${c.enviando ? 'disabled' : ''}>Enviar</button>
+          <!--
+            QUEM DECIDE QUE E OUTRO ASSUNTO E O ALUNO - §9.
+
+            Nao e juizo pedagogico da tela: e uma intencao que ele declara,
+            do mesmo jeito que escolhe o que digitar. Com isto marcado, o
+            backend trata a pergunta como EXPLORACAO - responde a
+            curiosidade em vez de devolver ao ponto - e devolve a volta
+            nomeada. Quem decide o que fazer com a declaracao continua sendo
+            o servidor (services/percurso).
+          -->
+          <label class="conversa-outro">
+            <input type="checkbox" id="conversa-outro-assunto"
+                   ${c.outroAssunto ? 'checked' : ''}
+                   ${c.enviando ? 'disabled' : ''}>
+            É sobre outro assunto
+          </label>
         </form>
         ${seguir}
         ${fechar}
@@ -873,12 +918,16 @@
     const campo = $('campo-conversa');
     const texto = campo ? campo.value : '';
     if (!ConversaUI.podeEnviar(texto, c)) return;
+    const marca = $('conversa-outro-assunto');
+    c.outroAssunto = !!(marca && marca.checked);
 
     c.historico = ConversaUI.comTurno(c.historico, 'aluno', texto);
     c.enviando = true;
     c.erro = null;
     c.cta = null;
     c.fecho = null;
+    c.retomada = null;
+    c.percurso = null;
     repintarConversa();
 
     const assignment = (app.prontidao && app.prontidao.assignment_id) || null;
@@ -886,12 +935,17 @@
       const d = await api('/api/v1/student/assessor/conversation', {
         method: 'POST',
         body: JSON.stringify({ assignment_id: assignment, message: texto.trim(),
-                               history: c.historico.slice(0, -1) }),
+                               history: c.historico.slice(0, -1),
+                               // §9: so vai quando ELE marcou. Sem marca,
+                               // nada muda para quem ja usava a conversa.
+                               topic: c.outroAssunto ? texto.trim() : null }),
       });
       const lida = ConversaUI.leituraDaResposta(d);
       c.historico = ConversaUI.comTurno(c.historico, 'assessor', lida.texto);
       c.cta = lida.cta;
       c.fecho = lida.fecho;
+      c.retomada = lida.retomada;
+      c.percurso = lida.percurso;
       c.fallback = lida.fallback;
     } catch (erro) {
       c.erro = ConversaUI.leituraDaFalha(erro);
@@ -2277,6 +2331,93 @@
     }
   }
 
+  // ============================================ relatorio de apoio =======
+  // §17. O documento chega PRONTO de GET /student/learning-support-report -
+  // titulos, itens, ordem e ressalva. Esta tela nao resume, nao reordena e
+  // nao classifica: ela desenha.
+  //
+  // NAO HA ENVIO. Os botoes saem de `RelatorioUI.ACOES`, que tem dois itens,
+  // e nao de uma lista escrita aqui - acrescentar "enviar" exigiria mexer no
+  // vocabulario, onde ha teste. O aluno leva o PDF a quem quiser por conta
+  // propria; a plataforma nao manda.
+
+  const ROTULO_DA_ACAO = {
+    'relatorio-ver': 'Ver relatório',
+    'relatorio-baixar': 'Baixar em PDF',
+  };
+
+  function pintarAcoesRelatorio() {
+    const caixa = $('relatorio-acoes');
+    if (!caixa) return;
+    const disponiveis = RelatorioUI.acoesDisponiveis(app.relatorio);
+    caixa.innerHTML = disponiveis.map((acao) => `
+      <button class="botao botao-secundario" data-acao="${esc(acao)}" type="button"
+      >${esc(ROTULO_DA_ACAO[acao] || acao)}</button>`).join('');
+  }
+
+  function pintarRelatorio() {
+    const corpo = $('relatorio-corpo');
+    if (!corpo) return;
+    const doc = app.relatorio;
+    if (app.relatorioErro) {
+      corpo.innerHTML = aviso('Não consegui montar seu relatório agora.');
+      pintarAcoesRelatorio();
+      return;
+    }
+    if (!doc) { corpo.innerHTML = ''; pintarAcoesRelatorio(); return; }
+
+    const secoes = RelatorioUI.secoesParaDesenhar(doc);
+    corpo.innerHTML = `
+      <article class="relatorio-doc">
+        <h3>${esc(doc.titulo || '')}</h3>
+        <p class="relatorio-sub">${esc(doc.subtitulo || '')}</p>
+        ${secoes.map((s) => `
+          <div class="relatorio-secao">
+            <h4>${esc(s.titulo)}</h4>
+            <ul>${s.itens.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
+          </div>`).join('')}
+        <p class="relatorio-ressalva">${esc(doc.ressalva || '')}</p>
+      </article>`;
+    pintarAcoesRelatorio();
+  }
+
+  async function verRelatorio() {
+    const corpo = $('relatorio-corpo');
+    if (corpo) corpo.innerHTML = aviso('Montando seu relatório…');
+    app.relatorioErro = null;
+    try {
+      app.relatorio = await api('/api/v1/student/learning-support-report');
+    } catch (e) {
+      // NAO INVENTA RELATORIO. Um documento montado no navegador seria um
+      // papel com fatos que ninguem registrou.
+      app.relatorio = null;
+      app.relatorioErro = true;
+    }
+    pintarRelatorio();
+  }
+
+  async function baixarRelatorio() {
+    const quem = identidade();
+    try {
+      const r = await fetch('/api/v1/student/learning-support-report.pdf', {
+        headers: quem ? { Authorization: `Bearer ${quem}` } : {},
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = RelatorioUI.nomeDoArquivo();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      const corpo = $('relatorio-corpo');
+      if (corpo) corpo.innerHTML = aviso('Não consegui gerar o PDF agora.');
+    }
+  }
+
   // ===================================================== navegacao ========
   function irPara(tela) {
     app.tela = tela;
@@ -2293,7 +2434,7 @@
     });
     if (tela === 'inicio') pintarHome();
     if (tela === 'atividades') pintarAtividades();
-    if (tela === 'progresso') pintarProgresso();
+    if (tela === 'progresso') { pintarProgresso(); pintarRelatorio(); }
     window.scrollTo(0, 0);
   }
 
@@ -2450,7 +2591,9 @@
       // que ele estava. NAO move passo, NAO marca nada, NAO verifica: uma
       // duvida respondida nao precisa virar atividade.
       case 'conversa-fechar':
-        app.conversa = { historico: [], enviando: false, erro: null };
+        app.conversa = { historico: [], enviando: false, erro: null,
+                         cta: null, fecho: null, retomada: null,
+                         percurso: null, outroAssunto: false };
         repintarConversa();
         return;
       // O botao principal da tela de resultado quando ha proxima
@@ -2458,6 +2601,13 @@
       case 'seguir': seguirOProximoPasso(); return;
       case 'conversar': abrirConversa(); return;
       case 'praticar': praticar(alvo.dataset.conteudo); return;
+      // RELATORIO DE APOIO (§17). Dois casos, e dois e tudo: ver e baixar.
+      // Nao ha caso de envio, encaminhamento ou compartilhamento - ver o
+      // cabecalho de aluno-relatorio.js e a varredura em
+      // tests/test_relatorio_de_apoio_http.py, que le ESTE arquivo: ela
+      // recusa o nome proibido ate em comentario, de proposito.
+      case 'relatorio-ver': verRelatorio(); return;
+      case 'relatorio-baixar': baixarRelatorio(); return;
       // A VERIFICACAO e uma pratica curta pelo mesmo motor. O tamanho vem do
       // backend (`next_step.question_count`); a tela nao escolhe quantas
       // questoes confirmam uma recuperacao.
