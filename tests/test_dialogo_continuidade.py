@@ -40,6 +40,7 @@ from agente_ia_edu.services.investigacao_do_erro import (
 from agente_ia_edu.services.resposta_do_aluno import (
     OBS_CORRETA,
     OBS_INCORRETA,
+    OBS_NAO_SEI,
 )
 from agente_ia_edu.services.servico_de_investigacao import InvestigacaoService
 
@@ -231,6 +232,20 @@ class OPEDIDODEAJUDAFICAGRAVADO(_Base):
         self.responder(1, "3")
         self.assertTrue(self.linha_da(1).solved_unaided)
 
+    def test_a_etapa_resolvida_NAO_exibe_nao_sei_como_a_resposta(self):
+        """O texto do pedido é sobrescrito pela tentativa que resolveu.
+
+        Sem isto, uma etapa acertada depois de um "não sei" apareceria no
+        fio como `Você: não sei` seguido de "Isso." — o Edu concordando com
+        quem disse que não sabia.
+        """
+        self.responder_abertura("15")
+        self.responder(1, "não sei")
+        self.responder(1, "três")
+        concluida = next(c for c in self.abrir()["concluidas"]
+                         if c["ordem"] == 1)
+        self.assertEqual("três", concluida["resposta_texto"])
+
 
 class AABERTURANAOFECHASEMRESPOSTA(_Base):
     """Fail-closed na pergunta que abre a conversa.
@@ -280,10 +295,34 @@ class AABERTURANAOFECHASEMRESPOSTA(_Base):
         self.assertEqual(1, linha.help_requests)
         self.assertEqual(0, linha.attempts)
 
-    def test_nao_sei_na_abertura_nao_grava_fala_nenhuma(self):
-        """Ele não respondeu — e o fio não pode inventar que respondeu."""
+    def test_o_nao_sei_dele_SOBREVIVE_ao_recarregar(self):
+        """A regra: o Edu grava o que LEU.
+
+        "Não sei" é lido — tem observação própria, muda o rumo da conversa e
+        aparece no fio como fala dele. Então sobrevive. Ambiguidade e
+        ausência não são lidas, e por isso não sobrevivem: ver
+        `AAMBIGUIDADENAOENTRANOFIO`.
+
+        Escrevi o contrário primeiro, e o navegador me corrigiu: o fio
+        mostrava "Você: não sei" dentro do turno e o perdia no F5, porque a
+        frase vinha da memória da tela e não do backend.
+        """
         self.responder_abertura("não sei")
-        self.assertIsNone(self.abrir()["abertura"]["resposta_do_aluno"])
+        self.assertEqual("não sei",
+                         self.abrir()["abertura"]["resposta_do_aluno"])
+
+    def test_e_continua_sendo_observado_como_nao_sei(self):
+        self.responder_abertura("não sei")
+        self.assertEqual(OBS_NAO_SEI, self.abrir()["abertura"]["observacao"])
+
+    def test_sem_virar_hipotese(self):
+        """Ele não mostrou raciocínio — não há o que supor."""
+        self.responder_abertura("não sei")
+        self.assertIsNone(self.abrir()["abertura"]["hipotese_codigo"])
+
+    def test_e_sem_virar_tentativa(self):
+        self.responder_abertura("não sei")
+        self.assertEqual(0, self.linha_da(ORDEM_DA_ABERTURA).attempts)
 
 
 class AAMBIGUIDADENAOENTRANOFIO(_Base):

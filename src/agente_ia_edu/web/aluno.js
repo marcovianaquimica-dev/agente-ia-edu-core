@@ -1051,17 +1051,24 @@
     }
   }
 
-  async function enviarInvestigacao(destino) {
+  async function enviarInvestigacao(destino, dito) {
     const inv = app.investigacao;
     if (!inv) return;
+    // O TEXTO VEM POR ARGUMENTO quando quem chama o tem.
+    //
+    // Antes ele saia de `inv.rascunho`, com `campo.value` de reserva - e
+    // `inv.rascunho` e zerado logo abaixo. Entao a partir do segundo envio
+    // o rascunho valia "" (que nao e undefined), a reserva nunca era
+    // consultada e toda resposta digitada era descartada em silencio. Nao
+    // chegou a aparecer na tela porque os dois chamadores escrevem o
+    // rascunho antes - mas o proximo nao escreveria.
     const campo = document.getElementById('inv-campo');
-    const texto = (inv.rascunho !== undefined && inv.rascunho !== null
-                   ? inv.rascunho : (campo ? campo.value : '')) || '';
+    const texto = (dito !== undefined && dito !== null ? dito
+                   : (inv.rascunho || (campo ? campo.value : ''))) || '';
     if (!String(texto).trim()) return;
     inv.rascunho = '';
-    // O QUE ELE DIGITOU FICA AQUI. Ver `aluno-investigacao.turnos`: o
-    // backend nao guarda o texto, e sem isto a conversa perderia o proprio
-    // comeco assim que a primeira etapa fosse respondida.
+    // O QUE ELE DIGITOU FICA AQUI TAMBEM, como reserva para a linha gravada
+    // antes de `response_text` existir. A fonte da conversa e o backend.
     inv.dito = inv.dito || {};
     const ordemAtual = (inv.dados.etapa || {}).ordem;
     if (destino === 'abertura') inv.dito.abertura = String(texto);
@@ -1104,8 +1111,7 @@
     const inv = app.investigacao;
     if (!inv || !inv.dados.etapa) return;
     const op = (inv.dados.etapa.options || []).find((o) => o.key === letra);
-    inv.rascunho = op ? op.text : letra;
-    enviarInvestigacao('etapa');
+    enviarInvestigacao('etapa', op ? op.text : letra);
   }
 
   // Concluida a investigacao, o degrau seguinte e do backend - relido aqui
@@ -2186,10 +2192,36 @@
     const form = e.target.closest('[data-acao="inv-enviar"]');
     if (!form) return;
     e.preventDefault();
-    const campo = form.querySelector('.dialogo-campo');
-    if (app.investigacao && campo) app.investigacao.rascunho = campo.value;
-    enviarInvestigacao(form.dataset.destino);
+    _enviarFormDaConversa(form);
   });
+
+  // E O ENTER TAMBEM, EXPLICITAMENTE.
+  //
+  // Um `<input>` dentro de um `<form>` com botao de submit envia no Enter
+  // por comportamento do navegador - e era nisso que eu estava confiando.
+  // Em 2026-10-08, dirigindo a tela, o Enter no campo da conversa nao
+  // enviou, e nao ha como distinguir por script se a falha era do produto
+  // ou do teclado sintetico: so um Enter de verdade dispara o envio
+  // implicito, e um evento criado por codigo nunca dispara.
+  //
+  // Entao o Enter deixa de depender disso. `ligarConversa` ja fazia o mesmo
+  // para o campo de duvida livre - aqui a razao e a mesma e mais forte: a
+  // investigacao e uma conversa, e responder uma conversa exigindo o mouse
+  // e atrito a toa.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const campo = e.target.closest && e.target.closest('.dialogo-campo');
+    if (!campo) return;
+    const form = campo.closest('[data-acao="inv-enviar"]');
+    if (!form) return;
+    e.preventDefault();
+    _enviarFormDaConversa(form);
+  });
+
+  function _enviarFormDaConversa(form) {
+    const campo = form.querySelector('.dialogo-campo');
+    enviarInvestigacao(form.dataset.destino, campo ? campo.value : '');
+  }
 
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest(
@@ -2227,9 +2259,8 @@
         // o backend e quem decide o que fazer com ela. Um botao que
         // pulasse a etapa por fora trataria a honestidade do aluno como
         // desistencia.
-        if (app.investigacao) { app.investigacao.rascunho = 'não sei'; }
         enviarInvestigacao((InvestigacaoUI.entrada(
-          (app.investigacao || {}).dados) || {}).destino);
+          (app.investigacao || {}).dados) || {}).destino, 'não sei');
         return;
       case 'inv-seguir': seguirDepoisDaInvestigacao(); return;
       case 'inv-sair': irPara('inicio'); return;

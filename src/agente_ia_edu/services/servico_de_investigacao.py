@@ -214,18 +214,19 @@ class InvestigacaoService:
         if linha is None:
             return {}
         pedidos = int(linha.help_requests or 0)
-        if not int(linha.attempts or 0):
-            # LINHA SEM TENTATIVA E PEDIDO DE AJUDA, nao resposta.
+        bruto = linha.response_text
+        if not int(linha.attempts or 0) and not bruto:
+            # LINHA SEM TENTATIVA E SEM FALA: pedido de ajuda de uma linha
+            # antiga, de antes da coluna existir.
             #
-            # E ela FECHA a abertura, sem fingir que houve resposta: nao
-            # saber a massa molar e motivo para investigar, nao para parar
-            # na porta. O aluno segue para a primeira micropergunta, e o
-            # que fica registrado e o pedido - nunca um erro que nao houve.
+            # Ela FECHA a abertura sem fingir que houve resposta: nao saber
+            # a massa molar e motivo para investigar, nao para parar na
+            # porta. O aluno segue para a primeira micropergunta, e o que
+            # fica registrado e o pedido - nunca um erro que nao houve.
             return {"respondida": True,
                     "observacao": OBS_NAO_SEI if pedidos else None,
                     "tentativas": 0,
                     "pedidos_de_ajuda": pedidos}
-        bruto = linha.response_text
         if not bruto:
             return {
                 "respondida": True,
@@ -370,7 +371,17 @@ class InvestigacaoService:
                 aluno, inv, ordem=ORDEM_DA_ABERTURA,
                 habilidade=inv.habilidade_alvo,
                 acertou=acertou and not pediu,
-                texto=None if pediu else normalizada.bruto,
+                # O TEXTO VAI JUNTO ATE QUANDO ELE DIZ QUE NAO SABE.
+                #
+                # A regra e: o Edu grava o que LEU. "Nao sei" e lido - tem
+                # observacao propria, muda o rumo da conversa e aparece no
+                # fio como fala dele. Ambiguidade e ausencia nao sao lidas,
+                # e por isso nao sao gravadas.
+                #
+                # Medido no navegador em 2026-10-08: o fio mostrava
+                # "Voce: nao sei" dentro do turno e o perdia no F5, porque
+                # a frase vinha da memoria da tela.
+                texto=normalizada.bruto,
                 ajuda=pediu)
 
         hipotese = (hipotese_para(inv, normalizada.numero)
@@ -443,8 +454,12 @@ class InvestigacaoService:
                 resolvidas, tentativas, falas = await self._estado_gravado(
                     aluno, inv)
             elif observacao == OBS_NAO_SEI:
+                # A mesma regra da abertura: o Edu grava o que LEU, e "nao
+                # sei" e lido. O texto e sobrescrito pela tentativa real
+                # seguinte, entao uma etapa resolvida nunca exibe "nao sei"
+                # como a resposta que a resolveu - ha teste.
                 await self._registrar(aluno, inv, etapa, acertou=False,
-                                      ajuda=True)
+                                      ajuda=True, texto=escolha)
                 resolvidas, tentativas, falas = await self._estado_gravado(
                     aluno, inv)
         else:
