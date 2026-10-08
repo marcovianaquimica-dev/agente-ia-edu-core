@@ -56,7 +56,7 @@
     var texto = String(r.reply || '').trim();
     if (!texto) {
       return { texto: 'Não consegui responder agora.', fallback: true,
-               cta: null };
+               cta: null, fecho: null };
     }
     var passo = r.next_step || {};
     return {
@@ -66,6 +66,19 @@
       // melhor que um que não leva a lugar nenhum.
       cta: (passo.kind && passo.cta) ? { kind: passo.kind, rotulo: passo.cta }
                                      : null,
+      // A SAIDA SEM ATIVIDADE - §6.
+      //
+      // Ate 2026-10-08 a unica porta de saida da conversa era o botao do
+      // proximo passo da escada: uma duvida respondida virava atividade,
+      // sempre. O §6 diz que nao e obrigatorio verificar cada intervencao
+      // com uma questao nova.
+      //
+      // Quem autoriza e o BACKEND (`services/concisao.pode_encerrar`), e
+      // ela nao substitui o passo: os dois aparecem lado a lado, e o aluno
+      // escolhe. Resposta antiga, sem os campos, nao ganha saida - e por
+      // isso a checagem e pelo rotulo, que so o backend novo envia.
+      fecho: (r.pode_encerrar === true && r.rotulo_de_fecho)
+        ? { rotulo: String(r.rotulo_de_fecho) } : null,
     };
   }
 

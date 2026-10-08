@@ -87,7 +87,8 @@
     voltarPara: null,
     // A CONVERSA NAO E PERSISTIDA: vive aqui, e recarregar a perde.
     // A tela diz isso ao aluno em vez de fingir que guarda.
-    conversa: { historico: [], enviando: false, erro: null },
+    conversa: { historico: [], enviando: false, erro: null,
+                cta: null, fecho: null },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -818,6 +819,13 @@
       ? `<button class="botao botao-principal" data-acao="conversa-seguir">
            ${esc(c.cta.rotulo)}</button>`
       : '';
+    // A SAIDA SEM ATIVIDADE - §6. Ela fica AO LADO do passo, nao no lugar
+    // dele: quem quiser praticar continua a um clique, e quem so tinha uma
+    // duvida pode fechar. Quem autoriza e o backend.
+    const fechar = c.fecho
+      ? `<button class="botao botao-texto" data-acao="conversa-fechar">
+           ${esc(c.fecho.rotulo)}</button>`
+      : '';
 
     return `
       <section class="conversa" aria-label="Pergunte ao Assessor">
@@ -837,6 +845,7 @@
                   ${c.enviando ? 'disabled' : ''}>Enviar</button>
         </form>
         ${seguir}
+        ${fechar}
       </section>`;
   }
 
@@ -869,6 +878,7 @@
     c.enviando = true;
     c.erro = null;
     c.cta = null;
+    c.fecho = null;
     repintarConversa();
 
     const assignment = (app.prontidao && app.prontidao.assignment_id) || null;
@@ -881,6 +891,7 @@
       const lida = ConversaUI.leituraDaResposta(d);
       c.historico = ConversaUI.comTurno(c.historico, 'assessor', lida.texto);
       c.cta = lida.cta;
+      c.fecho = lida.fecho;
       c.fallback = lida.fallback;
     } catch (erro) {
       c.erro = ConversaUI.leituraDaFalha(erro);
@@ -2431,6 +2442,13 @@
       // O botao que a CONVERSA oferece leva ao passo REAL do backend - e o
       // mesmo despachante do resto, nao um atalho da conversa.
       case 'conversa-seguir': seguirOProximoPasso(); return;
+      // "POR AGORA E SO" - §6. Fecha a conversa e devolve o aluno a tela em
+      // que ele estava. NAO move passo, NAO marca nada, NAO verifica: uma
+      // duvida respondida nao precisa virar atividade.
+      case 'conversa-fechar':
+        app.conversa = { historico: [], enviando: false, erro: null };
+        repintarConversa();
+        return;
       // O botao principal da tela de resultado quando ha proxima
       // intervencao. Mesmo despachante: a tela nao escolhe o destino.
       case 'seguir': seguirOProximoPasso(); return;

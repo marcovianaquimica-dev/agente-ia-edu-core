@@ -132,10 +132,31 @@ class ConversaDoAssessor:
                 raise _RespostaVazia()
             return {"reply": resposta, "provider": resultado.provider,
                     "model": resultado.model, "fallback": False,
-                    "prompt_version": VERSAO_ATUAL}
+                    "prompt_version": VERSAO_ATUAL,
+                    **_fecho(encerrar)}
         except Exception:  # noqa: BLE001 - qualquer falha vira fallback honesto
+            # O FECHO NAO DEPENDE DO PROVEDOR. Se a IA caiu, a duvida dele
+            # continua sendo o que era, e empurrar atividade por causa de um
+            # timeout seria punir o aluno por uma falha nossa.
             return {"reply": TEXTO_DE_FALLBACK, "provider": None, "model": None,
-                    "fallback": True, "prompt_version": VERSAO_ATUAL}
+                    "fallback": True, "prompt_version": VERSAO_ATUAL,
+                    **_fecho(encerrar)}
+
+
+def _fecho(pode: bool) -> dict:
+    """A conversa pode acabar aqui - e o que a tela oferece se puder.
+
+    O §6: "nao sera obrigatorio apresentar uma nova questao para verificar
+    cada intervencao". Ate 2026-10-08 a unica saida da conversa era o botao
+    do proximo passo da escada: uma duvida respondida virava atividade,
+    sempre.
+
+    `pode_encerrar` NAO fecha nada e nao mexe no passo - o passo continua
+    sendo do sistema e continua viajando em `next_step`. Ela diz que a tela
+    pode oferecer uma saida SEM atividade ao lado dele.
+    """
+    return {"pode_encerrar": bool(pode),
+            "rotulo_de_fecho": "Por agora é só" if pode else None}
 
 
 def _turnos_do_aluno(historico: Sequence[dict]) -> int:

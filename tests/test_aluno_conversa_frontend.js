@@ -101,3 +101,65 @@ test('pergunta longa demais recebe orientacao, nao codigo', () => {
   const texto = C.leituraDaFalha({ status: 422 });
   assert.match(texto.toLowerCase(), /menos palavras|grande demais/);
 });
+
+// ==========================================================================
+// §6 - A CONVERSA PODE ACABAR SEM VIRAR ATIVIDADE
+//
+// Ate 2026-10-08 a unica saida da conversa era o botao do proximo passo da
+// escada: uma duvida respondida virava atividade, sempre. O §6 diz que nao
+// e obrigatorio verificar cada intervencao com uma questao nova.
+//
+// Quem decide continua sendo o backend - `pode_encerrar` vem na resposta,
+// de `services/concisao`. A tela so desenha a saida quando ela existe.
+// ==========================================================================
+
+test('quando o backend autoriza, ha uma saida SEM atividade', () => {
+  const l = C.leituraDaResposta({
+    reply: 'Porque o gelo é menos denso que a água.',
+    pode_encerrar: true, rotulo_de_fecho: 'Por agora é só',
+    next_step: { kind: 'PRACTICE', cta: 'Praticar agora' },
+  });
+  assert.ok(l.fecho, 'não ofereceu saída');
+  assert.equal(l.fecho.rotulo, 'Por agora é só');
+});
+
+test('e o passo do sistema continua disponivel ao lado', () => {
+  const l = C.leituraDaResposta({
+    reply: 'x', pode_encerrar: true, rotulo_de_fecho: 'Por agora é só',
+    next_step: { kind: 'PRACTICE', cta: 'Praticar agora' },
+  });
+  assert.ok(l.cta, 'a saída engoliu o próximo passo');
+  assert.equal(l.cta.rotulo, 'Praticar agora');
+});
+
+test('quando o aluno quer seguir, NAO ha saida', () => {
+  const l = C.leituraDaResposta({
+    reply: 'x', pode_encerrar: false, rotulo_de_fecho: null,
+    next_step: { kind: 'PRACTICE', cta: 'Praticar agora' },
+  });
+  assert.equal(l.fecho, null);
+  assert.ok(l.cta);
+});
+
+test('resposta antiga, sem os campos novos, nao ganha saida', () => {
+  const l = C.leituraDaResposta({
+    reply: 'x', next_step: { kind: 'PRACTICE', cta: 'Praticar agora' },
+  });
+  assert.equal(l.fecho, null);
+});
+
+test('a saida NAO promete que ele aprendeu', () => {
+  const l = C.leituraDaResposta({
+    reply: 'x', pode_encerrar: true, rotulo_de_fecho: 'Por agora é só',
+  });
+  const r = l.fecho.rotulo.toLowerCase();
+  for (const proibido of ['entendi', 'domin', 'aprend', 'pronto']) {
+    assert.ok(!r.includes(proibido), `${proibido} em "${r}"`);
+  }
+});
+
+test('sem passo e sem autorizacao, nenhum botao e inventado', () => {
+  const l = C.leituraDaResposta({ reply: 'x' });
+  assert.equal(l.cta, null);
+  assert.equal(l.fecho, null);
+});
