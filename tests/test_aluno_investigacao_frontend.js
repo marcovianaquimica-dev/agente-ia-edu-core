@@ -425,3 +425,60 @@ test('resposta certa não produz fala de observação — quem fala é o backend
   assert.equal(Inv.falaDaObservacao('CORRECT_RESPONSE'), '');
   assert.equal(Inv.falaDaObservacao('INCORRECT_RESPONSE'), '');
 });
+
+// ========================================================================
+// A CONVERSA RECARREGADA - o fio sem nenhuma memoria do cliente.
+//
+// Estes testes passam `turnos(dados)` SEM `opcoes`: e exatamente o que a
+// tela tem depois de um F5, quando o transcript do cliente nao existe mais.
+// Se o fio depender do que a tela lembrava, eles falham.
+// ========================================================================
+
+const RECARREGADO_COM_ERRO = {
+  ...DEPOIS_DO_15,
+  etapa: { ordem: 1, skill: 'LEITURA_DE_FORMULA',
+           question: 'Na fórmula NH₃, quantos átomos de hidrogênio?',
+           options: [{ key: 'A', text: '1' }, { key: 'C', text: '3' }],
+           resposta_do_aluno: '1' },
+  retorno: { ordem: 1, nivel: 1, comentario: 'O índice fica colado no símbolo.' },
+};
+
+test('depois de recarregar, o 15 continua no fio', () => {
+  const t = Inv.turnos(DEPOIS_DO_15);
+  const dele = t.filter((x) => x.quem === 'aluno').map((x) => x.texto);
+  assert.deepEqual(dele, ['15']);
+});
+
+test('e a hipótese continua sendo um turno do Edu', () => {
+  const h = Inv.turnos(DEPOIS_DO_15).find((x) => x.tipo === 'hipotese');
+  assert.equal(h.quem, 'edu');
+  assert.ok(h.texto.includes('pode indicar'));
+});
+
+test('depois de recarregar, a tentativa ERRADA continua no fio', () => {
+  const t = Inv.turnos(RECARREGADO_COM_ERRO);
+  const dele = t.filter((x) => x.quem === 'aluno').map((x) => x.texto);
+  assert.deepEqual(dele, ['15', '1']);
+});
+
+test('e o ensino vem DEPOIS da fala que o motivou', () => {
+  const t = Inv.turnos(RECARREGADO_COM_ERRO);
+  const erro = t.findIndex((x) => x.quem === 'aluno' && x.texto === '1');
+  const ensino = t.findIndex((x) => x.tipo === 'ensino');
+  assert.ok(erro >= 0 && ensino > erro, `erro=${erro} ensino=${ensino}`);
+});
+
+test('a fala gravada vence a grafia do gabarito', () => {
+  const comFala = { ...DEPOIS_DO_3,
+    concluidas: [{ ...DEPOIS_DO_3.concluidas[0], resposta_texto: 'três' }] };
+  const t = Inv.turnos(comFala);
+  assert.ok(t.some((x) => x.quem === 'aluno' && x.texto === 'três'));
+  assert.ok(!t.some((x) => x.texto === 'C'));
+});
+
+test('sem fala gravada o fio nao inventa uma', () => {
+  const semFala = { ...DEPOIS_DO_15,
+    abertura: { ...DEPOIS_DO_15.abertura, resposta_do_aluno: null } };
+  const t = Inv.turnos(semFala);
+  assert.equal(t.filter((x) => x.quem === 'aluno').length, 0);
+});

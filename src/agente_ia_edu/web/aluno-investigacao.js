@@ -170,13 +170,14 @@
   function turnos(dados, opcoes) {
     var d = dados || {};
     var o = opcoes || {};
-    // O QUE ELE DIGITOU NESTA SESSAO, por ordem. O backend nao guarda o
-    // texto - `GuidedPracticeItem` nao tem coluna para isso, e manter zero
-    // migration foi uma escolha. Entao a tela lembra do que ELA enviou.
+    // O FIO VEM DO BACKEND. Desde a migration 068, `response_text` guarda
+    // o que o aluno escreveu, e a visao devolve essa fala em cada ordem -
+    // na abertura, nas concluidas e na etapa reaberta.
     //
-    // O limite esta declarado: ao RECARREGAR a pagina o "15" se perde, e a
-    // conversa recomeca do que o backend sabe. Dentro da sessao - que e
-    // quando a continuidade importa - ela esta inteira.
+    // `o.dito` continua aceito, mas so como ULTIMO recurso: ele cobre a
+    // linha gravada antes da coluna existir. A ordem de preferencia e
+    // sempre backend primeiro, porque duas memorias da mesma conversa
+    // divergem - e a do cliente e a que nao sobrevive a um F5.
     var dito = o.dito || {};
     var fios = [];
     var a = d.abertura || null;
@@ -187,8 +188,6 @@
       if (a.respondida && daAbertura) {
         fios.push({ quem: 'aluno', tipo: 'resposta', texto: daAbertura });
       }
-      // A HIPOTESE tambem some ao recarregar, pelo mesmo motivo - ela e
-      // derivada do valor que ele escreveu.
       // A HIPOTESE, quando o valor sugeriu uma. Ela e um turno do Edu, e
       // nao um rotulo colado na resposta do aluno: a diferenca e que um
       // turno e algo que o Edu DIZ, e um rotulo seria algo que ele DECIDE
@@ -218,7 +217,12 @@
     // ensino sem a fala que o motivou, e a sequencia deixava de fazer
     // sentido: o Edu parecia explicar do nada.
     if (d.retorno && d.retorno.comentario) {
-      var errou = dito[d.retorno.ordem];
+      // A fala vem da ETAPA REABERTA, que o backend devolve com
+      // `resposta_do_aluno`. Ate 2026-10-08 so havia `dito`, e entao a
+      // tentativa errada sobrevivia ao turno mas nao ao recarregar: ficava
+      // o ensino sem o erro, e o Edu parecia corrigir algo nao dito.
+      var errou = (d.etapa && d.etapa.resposta_do_aluno)
+                  || dito[d.retorno.ordem];
       if (errou) {
         fios.push({ quem: 'aluno', tipo: 'resposta', texto: errou });
       }

@@ -62,10 +62,21 @@ from agente_ia_edu.services.investigacao_do_erro import (
     proxima_etapa,
 )
 from agente_ia_edu.services.resposta_do_aluno import (
+    OBS_AMBIGUA,
     OBS_CORRETA,
+    OBS_NAO_SEI,
+    OBS_SEM_RESPOSTA,
     normalizar,
     observar,
 )
+
+# AS TRES OBSERVACOES QUE NAO SAO RESPOSTA.
+#
+# Ambiguidade e ausencia porque o Edu nao leu; "nao sei" porque o aluno
+# disse honestamente que nao sabe. Nenhuma das tres gasta tentativa, e
+# nenhuma das tres fecha uma pergunta. Numa constante, e nao repetidas em
+# cada caminho de escrita, para que mudar a politica seja um lugar so.
+_NAO_E_RESPOSTA = (OBS_AMBIGUA, OBS_SEM_RESPOSTA, OBS_NAO_SEI)
 from agente_ia_edu.services.question_list_store import Requester
 
 # Marcador de "tentou e nao acertou" para montar a visao do aluno.
@@ -94,6 +105,20 @@ def _chave(inv_key: str, ordem: int) -> str:
     return f"{inv_key}#{int(ordem)}"
 
 
+# O teto da coluna `response_text`, e o mesmo que a API ja impoe na entrada.
+# Cortar aqui tambem - e nao so na borda - porque o servico e chamado por
+# testes e scripts que nao passam pelo Pydantic, e uma resposta de 500
+# caracteres derrubaria a gravacao no Postgres em vez de ser truncada.
+_TETO_DA_FALA = 400
+
+
+def _cortado(texto: str | None) -> str | None:
+    if texto is None:
+        return None
+    limpo = texto.strip()
+    return limpo[:_TETO_DA_FALA] or None
+
+
 class InvestigacaoService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -112,19 +137,24 @@ class InvestigacaoService:
     # -- leitura -----------------------------------------------------------
 
     async def _estado_gravado(
-            self, aluno: str,
-            inv: Investigacao) -> tuple[dict[int, str], dict[int, int]]:
-        """({ordem: resposta}, {ordem: tentativas}) a partir do que esta gravado.
+            self, aluno: str, inv: Investigacao
+    ) -> tuple[dict[int, str], dict[int, int], dict[int, str]]:
+        """({ordem: resposta}, {ordem: tentativas}, {ordem: fala}) do gravado.
 
         Etapa com linha concluida vale como respondida CORRETAMENTE - e ela so
         fica concluida tendo sido acertada, porque e `responder` quem marca.
-        Etapa com linha aberta vale como tentada e nao resolvida.
+        Etapa com linha aberta E COM TENTATIVA vale como tentada e nao
+        resolvida; linha com zero tentativas e um pedido de ajuda, e nao
+        pode valer como erro.
 
         A CONTAGEM DE TENTATIVAS VIAJA JUNTO porque e ela que escolhe o nivel
         do retorno: na primeira vez o aluno recebe a regra sem o numero, e da
         segunda em diante a regra aplicada. Sem este segundo dicionario, a
         visao cairia sempre no primeiro nivel e quem errou tres vezes leria a
         mesma pista tres vezes.
+
+        A FALA viaja no terceiro, e e o unico dos tres que nao e derivado:
+        os outros dois saem do estado da linha, este e o texto cru.
         """
         chaves = {_chave(inv.key, e.ordem): e.ordem for e in inv.etapas}
         linhas = (await self._session.execute(
@@ -134,13 +164,22 @@ class InvestigacaoService:
             ))).scalars().all()
         respostas: dict[int, str] = {}
         tentativas: dict[int, int] = {}
+        falas: dict[int, str] = {}
         for linha in linhas:
             ordem = chaves[linha.item_key]
             etapa = next(e for e in inv.etapas if e.ordem == ordem)
-            respostas[ordem] = (etapa.correta if linha.completed
-                                else _TENTOU_E_ERROU)
-            tentativas[ordem] = int(linha.attempts or 0)
-        return respostas, tentativas
+            quantas = int(linha.attempts or 0)
+            if linha.completed:
+                respostas[ordem] = etapa.correta
+            elif quantas > 0:
+                respostas[ordem] = _TENTOU_E_ERROU
+            # quantas == 0 e nao concluida: so pediu ajuda. A etapa segue
+            # ABERTA e sem tentativa - nao entra em `respostas`, senao a
+            # visao a trataria como erro e serviria o retorno do erro.
+            tentativas[ordem] = quantas
+            if linha.response_text:
+                falas[ordem] = linha.response_text
+        return respostas, tentativas, falas
 
     def _resolver(self, content_code: str, skill: str | None) -> Investigacao:
         inv = investigacao_para(content_code, skill)
@@ -149,28 +188,94 @@ class InvestigacaoService:
         return inv
 
     async def _abertura(self, aluno: str, inv: Investigacao) -> dict:
-        """O que ja se sabe sobre a pergunta de abertura.
+        """O que ja se sabe sobre a pergunta de abertura - RECONSTRUIDO.
 
         Ela mora na mesma tabela das etapas, na ordem ZERO - ver
-        `ORDEM_DA_ABERTURA`. O que NAO cabe na tabela e o texto que o aluno
-        escreveu; `GuidedPracticeItem` nao tem coluna para resposta, e este
-        bloco manteve zero migration.
+        `ORDEM_DA_ABERTURA`. Da linha sai UM fato: o texto que o aluno
+        escreveu (`response_text`, desde a migration 068).
 
-        A consequencia esta declarada: ao RECARREGAR a pagina, o Edu lembra
-        QUE ele respondeu e se acertou, mas nao reexibe o "15" nem a frase
-        da hipotese. Dentro do turno - que e quando isso importa - os dois
-        viajam na resposta do POST.
+        TODO O RESTO E REFEITO AQUI, pelas mesmas funcoes do turno:
+
+            texto -> normalizar -> observar -> hipotese_para
+
+        E por isso que recarregar a pagina devolve a MESMA conversa, e nao
+        uma aproximacao dela. E e por isso que nada disso e gravado: a
+        observacao e a hipotese sao consequencia do texto e do conteudo
+        curado, e guardar consequencia ao lado da causa cria duas verdades.
+
+        Linha antiga, de antes da coluna existir, volta so com
+        `respondida` e o acerto - e a tela mostra a conversa sem a fala, que
+        e o comportamento anterior. Nao ha migracao de dado: nao existe de
+        onde reconstruir um texto que nunca foi gravado.
         """
         if inv.abertura is None:
             return {}
         linha = await self._linha(aluno, _chave(inv.key, ORDEM_DA_ABERTURA))
         if linha is None:
             return {}
+        pedidos = int(linha.help_requests or 0)
+        if not int(linha.attempts or 0):
+            # LINHA SEM TENTATIVA E PEDIDO DE AJUDA, nao resposta.
+            #
+            # E ela FECHA a abertura, sem fingir que houve resposta: nao
+            # saber a massa molar e motivo para investigar, nao para parar
+            # na porta. O aluno segue para a primeira micropergunta, e o
+            # que fica registrado e o pedido - nunca um erro que nao houve.
+            return {"respondida": True,
+                    "observacao": OBS_NAO_SEI if pedidos else None,
+                    "tentativas": 0,
+                    "pedidos_de_ajuda": pedidos}
+        bruto = linha.response_text
+        if not bruto:
+            return {
+                "respondida": True,
+                "observacao": (OBS_CORRETA if linha.completed else None),
+                "tentativas": int(linha.attempts or 0),
+            }
+        normalizada = normalizar(bruto, espera=inv.abertura.espera)
+        observacao = observar(normalizada,
+                              esperado_numero=inv.abertura.resposta)
+        hipotese = hipotese_para(inv, normalizada.numero)
         return {
             "respondida": True,
-            "observacao": (OBS_CORRETA if linha.completed else None),
+            "bruto": bruto,
+            "observacao": observacao,
             "tentativas": int(linha.attempts or 0),
+            "hipotese_como_dizer": hipotese.como_dizer if hipotese else None,
+            "hipotese_codigo": hipotese.codigo if hipotese else None,
+            # O ESTADO tambem e reconstruido, e nao reposto em ABERTA: quem
+            # move a hipotese e a resposta a DISCRIMINANTE, e o desfecho
+            # dela esta gravado na linha daquela etapa. Ver
+            # `_estado_da_hipotese`.
+            "hipotese_estado": (
+                await self._estado_da_hipotese(aluno, inv, hipotese)
+                if hipotese else None),
         }
+
+    async def _estado_da_hipotese(self, aluno: str, inv: Investigacao,
+                                  hipotese) -> str:
+        """O estado da suposicao, refeito do desfecho da discriminante.
+
+        Nao e gravado em lugar nenhum, e nao precisa ser: a etapa
+        discriminante tem linha propria, e o que ela diz basta.
+
+            discriminante resolvida        -> ENFRAQUECIDA (ele conta certo)
+            tentada e nao resolvida        -> APOIADA
+            nao tentada, ou so pedido      -> ABERTA
+
+        A ordem importa: "ainda nao perguntei" e "perguntei e ele acertou"
+        sao conclusoes diferentes, e tratar a primeira como a segunda faria
+        o Edu abandonar uma hipotese que nunca foi testada.
+        """
+        linha = await self._linha(
+            aluno, _chave(inv.key, hipotese.discriminante))
+        if linha is None:
+            return ABERTA
+        if linha.completed:
+            return atualizar_hipotese(ABERTA, discriminante_correta=True)
+        if int(linha.attempts or 0) > 0:
+            return atualizar_hipotese(ABERTA, discriminante_correta=False)
+        return ABERTA
 
     async def abrir(self, aluno: str, content_code: str, skill: str | None, *,
                     requester: Requester) -> dict:
@@ -181,9 +286,10 @@ class InvestigacaoService:
         """
         self._so_o_proprio(aluno, requester)
         inv = self._resolver(content_code, skill)
-        respostas, tentativas = await self._estado_gravado(aluno, inv)
+        respostas, tentativas, falas = await self._estado_gravado(aluno, inv)
         return para_o_aluno(inv, respostas, tentativas=tentativas,
-                            abertura=await self._abertura(aluno, inv))
+                            abertura=await self._abertura(aluno, inv),
+                            falas=falas)
 
     async def pendente(self, aluno: str, content_code: str, skill: str | None,
                        *, requester: Requester) -> bool:
@@ -201,7 +307,7 @@ class InvestigacaoService:
                 await self._abertura(aluno, inv)).get("respondida"):
             # A abertura ainda nao foi feita: ha o que percorrer.
             return True
-        respostas, _ = await self._estado_gravado(aluno, inv)
+        respostas, _, _ = await self._estado_gravado(aluno, inv)
         return proxima_etapa(inv, respostas) is not None
 
     # -- escrita -----------------------------------------------------------
@@ -239,17 +345,40 @@ class InvestigacaoService:
                               esperado_numero=inv.abertura.resposta)
         acertou = observacao == OBS_CORRETA
 
+        # O QUE O EDU NAO LEU NAO FECHA A ABERTURA.
+        #
+        # A abertura e a porta da conversa: fecha-la com uma resposta
+        # ilegivel levaria o aluno a discriminante sem ter dito nada, e a
+        # cadeia investigaria um erro que ninguem observou. Fail-closed, e
+        # visivel: a pergunta volta, e o Edu diz por que.
+        #
+        # "NAO SEI" NAO ENTRA NESSA REGRA, e a diferenca e pedagogica: ele
+        # nao e uma leitura que falhou, e uma informacao. Nao saber a massa
+        # molar e exatamente o motivo pelo qual a investigacao existe, e
+        # devolver a mesma pergunta a quem acabou de dizer que nao sabe
+        # seria insistir no que ja foi respondido. Ele segue para a
+        # micropergunta, e o pedido de ajuda fica contado.
+        leu = observacao not in (OBS_AMBIGUA, OBS_SEM_RESPOSTA)
+
         ja = await self._abertura(aluno, inv)
-        if not ja.get("respondida"):
+        if leu and not ja.get("respondida"):
+            # O PEDIDO DE AJUDA FICA CONTADO EM VEZ DE SUMIR. Sem isto,
+            # "nao sei" na porta da conversa nao deixaria rastro nenhum - e
+            # e o pedido de ajuda mais informativo que o aluno pode fazer.
+            pediu = observacao == OBS_NAO_SEI
             await self._registrar_ordem(
                 aluno, inv, ordem=ORDEM_DA_ABERTURA,
-                habilidade=inv.habilidade_alvo, acertou=acertou)
+                habilidade=inv.habilidade_alvo,
+                acertou=acertou and not pediu,
+                texto=None if pediu else normalizada.bruto,
+                ajuda=pediu)
 
-        hipotese = hipotese_para(inv, normalizada.numero)
-        respostas, tentativas = await self._estado_gravado(aluno, inv)
+        hipotese = (hipotese_para(inv, normalizada.numero)
+                    if leu and observacao != OBS_NAO_SEI else None)
+        respostas, tentativas, falas = await self._estado_gravado(aluno, inv)
         saida = para_o_aluno(
-            inv, respostas, tentativas=tentativas,
-            abertura={
+            inv, respostas, tentativas=tentativas, falas=falas,
+            abertura=(await self._abertura(aluno, inv)) if not leu else {
                 "respondida": True,
                 "bruto": normalizada.bruto,
                 "observacao": observacao,
@@ -279,7 +408,7 @@ class InvestigacaoService:
         if etapa is None:
             raise SemInvestigacao(f"{inv_key}#{ordem}")
 
-        resolvidas, tentativas = await self._estado_gravado(aluno, inv)
+        resolvidas, tentativas, falas = await self._estado_gravado(aluno, inv)
         aberta = proxima_etapa(inv, resolvidas)
         # A OBSERVACAO VEM JUNTO do acerto. "errou" e "nao entendi o que
         # voce escreveu" pedem respostas diferentes do Edu, e perder essa
@@ -296,25 +425,34 @@ class InvestigacaoService:
             # tentativa faria o retorno escalar de pista para regra
             # aplicada sem que ele tivesse tentado uma vez sequer.
             #
-            # O CUSTO ESTA DECLARADO: o pedido de ajuda nao fica gravado.
-            # `GuidedPracticeItem` nao tem coluna para distinguir "tentou e
-            # errou" de "pediu ajuda", e grava-lo como tentativa seria
-            # registrar um erro que nao houve. Se um dia for preciso contar
-            # quantas vezes ele pediu ajuda, ai havera necessidade
-            # arquitetural de coluna - e nao antes.
-            from agente_ia_edu.services.resposta_do_aluno import (
-                OBS_AMBIGUA,
-                OBS_NAO_SEI,
-                OBS_SEM_RESPOSTA,
-            )
-            if observacao not in (OBS_AMBIGUA, OBS_SEM_RESPOSTA, OBS_NAO_SEI):
-                await self._registrar(aluno, inv, etapa, acertou=acertou)
-                resolvidas, tentativas = await self._estado_gravado(aluno, inv)
+            # MAS "NAO SEI" DEIXA RASTRO, desde a migration 068.
+            #
+            # `help_requests` conta o pedido sem contar uma tentativa, e o
+            # CheckConstraint `ck_guided_practice_unaided_has_no_help`
+            # impede que quem pediu ajuda e acertou depois seja gravado
+            # como tendo resolvido sozinho. Ate aqui, esse pedido sumia
+            # junto com o turno - e o acerto seguinte virava autonomia.
+            #
+            # A ambiguidade e a ausencia continuam sem rastro, e de
+            # proposito: nao houve pedido nem tentativa, houve uma leitura
+            # que falhou. Registra-las como ajuda inflaria o contador com o
+            # que e, na verdade, um problema de interface.
+            if observacao not in _NAO_E_RESPOSTA:
+                await self._registrar(aluno, inv, etapa, acertou=acertou,
+                                      texto=escolha)
+                resolvidas, tentativas, falas = await self._estado_gravado(
+                    aluno, inv)
+            elif observacao == OBS_NAO_SEI:
+                await self._registrar(aluno, inv, etapa, acertou=False,
+                                      ajuda=True)
+                resolvidas, tentativas, falas = await self._estado_gravado(
+                    aluno, inv)
         else:
             # Fora da vez: nada e gravado, e a visao devolvida e a real.
             acertou = False
 
         saida = para_o_aluno(inv, resolvidas, tentativas=tentativas,
+                             falas=falas,
                              abertura=await self._abertura(aluno, inv))
         saida["correct"] = acertou
         saida["observacao"] = observacao
@@ -333,7 +471,8 @@ class InvestigacaoService:
 
     async def _registrar_ordem(self, aluno: str, inv: Investigacao, *,
                                ordem: int, habilidade: str,
-                               acertou: bool) -> None:
+                               acertou: bool, texto: str | None = None,
+                               ajuda: bool = False) -> None:
         """Grava uma linha por (aluno, ordem). Serve a abertura e as etapas."""
         class _Falsa:
             pass
@@ -341,10 +480,12 @@ class InvestigacaoService:
         falsa = _Falsa()
         falsa.ordem = ordem
         falsa.habilidade = habilidade
-        await self._registrar(aluno, inv, falsa, acertou=acertou)
+        await self._registrar(aluno, inv, falsa, acertou=acertou,
+                              texto=texto, ajuda=ajuda)
 
     async def _registrar(self, aluno: str, inv: Investigacao, etapa,
-                         *, acertou: bool) -> None:
+                         *, acertou: bool, texto: str | None = None,
+                         ajuda: bool = False) -> None:
         """Grava a tentativa - e NUNCA le um atributo depois de um commit.
 
         A fabrica de sessao da aplicacao nao passa `expire_on_commit=False`,
@@ -368,14 +509,20 @@ class InvestigacaoService:
                 # A micro-habilidade da ETAPA, nao a da investigacao: e a
                 # etapa que isola uma coisa so.
                 skill=etapa.habilidade, started_at=agora,
-                attempts=1, completed=acertou,
-                completed_at=agora if acertou else None,
+                # PEDIR AJUDA NAO E TENTAR. A linha nasce com zero
+                # tentativas, e e isso que a distingue de um erro: a etapa
+                # continua aberta e o retorno nao escala.
+                attempts=0 if ajuda else 1,
+                help_requests=1 if ajuda else 0,
+                completed=False if ajuda else acertou,
+                completed_at=None if ajuda else (agora if acertou else None),
+                response_text=_cortado(texto),
                 # DE PRIMEIRA. Nao e dominio - e a informacao de que esta
                 # etapa nao precisou de ensino, e e isso que permite ao apoio
                 # diminuir mais rapido. `hints_used` fica em zero: a
                 # investigacao nao tem niveis de dica, e o CheckConstraint da
                 # tabela exige essa coerencia.
-                solved_unaided=acertou)
+                solved_unaided=False if ajuda else acertou)
             self._session.add(nova)
             try:
                 await self._session.commit()
@@ -388,13 +535,28 @@ class InvestigacaoService:
                 if linha is None:  # pragma: no cover - a UNIQUE garante
                     raise
 
+        linha.updated_at = _agora()
+        if ajuda:
+            # So o contador sobe. Nenhuma tentativa, nenhum texto: "nao sei"
+            # nao e uma resposta a exibir como fala do aluno na etapa - ele
+            # disse que nao sabe, e o Edu responde a isso no turno.
+            linha.help_requests = int(linha.help_requests or 0) + 1
+            await self._session.commit()
+            return
+
         tentativas = linha.attempts + 1
         linha.attempts = tentativas
-        linha.updated_at = _agora()
+        if texto:
+            linha.response_text = _cortado(texto)
         if acertou and not linha.completed:
             linha.completed = True
             linha.completed_at = _agora()
-            linha.solved_unaided = (tentativas == 1)
+            # DE PRIMEIRA E SEM TER PEDIDO AJUDA. Quem disse "nao sei" e
+            # acertou em seguida nao resolveu sozinho - e o
+            # CheckConstraint `ck_guided_practice_unaided_has_no_help`
+            # rejeitaria a linha se este `and` fosse esquecido.
+            linha.solved_unaided = (tentativas == 1
+                                    and not int(linha.help_requests or 0))
         await self._session.commit()
 
 

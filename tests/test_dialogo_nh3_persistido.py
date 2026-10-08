@@ -216,17 +216,29 @@ class CAMINHOC_NAO_SEI(_Base):
         self.assertEqual(1, v["etapa"]["ordem"])
 
     def test_nao_sei_numa_etapa_NAO_gasta_tentativa(self):
-        """Ele não errou: o sistema não leu uma tentativa dele."""
+        """Ele não errou: o sistema não leu uma tentativa dele.
+
+        Este teste afirmava a AUSÊNCIA DA LINHA. Era um proxy, e deixou de
+        valer na migration 068: o pedido de ajuda passou a ser contado, e
+        contá-lo exige uma linha. O que importava sempre foi a tentativa, e
+        agora é isso que está escrito — com a vantagem de que a asserção
+        falha se alguém transformar o pedido em erro, o que a ausência da
+        linha não detectava.
+        """
         self.responder_abertura("15")
         self.responder(1, "não sei")
 
         async def ler():
             async with self.factory() as s:
-                linha = (await s.execute(select(GuidedPracticeItem).where(
+                return (await s.execute(select(GuidedPracticeItem).where(
                     GuidedPracticeItem.item_key == f"{INV.key}#1"))
                 ).scalar_one_or_none()
-                return linha
-        self.assertIsNone(self.loop.run_until_complete(ler()))
+        linha = self.loop.run_until_complete(ler())
+        self.assertIsNotNone(linha)
+        self.assertEqual(0, linha.attempts)
+        self.assertFalse(linha.completed)
+        self.assertFalse(linha.solved_unaided)
+        self.assertEqual(1, linha.help_requests)
 
     def test_e_a_observacao_e_de_nao_sei(self):
         self.responder_abertura("15")

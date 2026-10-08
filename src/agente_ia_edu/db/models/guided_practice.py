@@ -58,6 +58,13 @@ class GuidedPracticeItem(Base):
         # Resolver sem ajuda e incompativel com ter usado ajuda.
         CheckConstraint("NOT solved_unaided OR hints_used = 0",
                         name="ck_guided_practice_unaided_has_no_hints"),
+        CheckConstraint("help_requests >= 0",
+                        name="ck_guided_practice_help_requests"),
+        # ... nem com ter PEDIDO ajuda. Dizer "nao sei" e acertar depois nao
+        # e resolver sozinho, e a trava fica no banco porque o servico
+        # sozinho nao a garantiria contra o proximo caminho de escrita.
+        CheckConstraint("NOT solved_unaided OR help_requests = 0",
+                        name="ck_guided_practice_unaided_has_no_help"),
         Index("ix_guided_practice_student_content",
               "student_external_id", "content_code"),
     )
@@ -83,6 +90,25 @@ class GuidedPracticeItem(Base):
         Boolean, nullable=False, default=False, server_default=text("false"))
     completed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false"))
+
+    # O QUE O ALUNO ESCREVEU, nas palavras dele.
+    #
+    # O unico fato da conversa que nenhuma funcao pura reconstroi: ele nao e
+    # consequencia de nada, e a entrada. A resposta normalizada, a observacao
+    # pedagogica e a hipotese saem DAQUI a cada leitura - guardar qualquer
+    # uma delas seria uma segunda fonte de verdade para algo recalculavel.
+    #
+    # NULL quando nao houve fala lida: ambiguidade e ausencia nao viram
+    # resposta, e inventar uma seria pior que admitir que nao se leu.
+    response_text: Mapped[str | None] = mapped_column(String(400))
+
+    # QUANTAS VEZES ELE PEDIU AJUDA nesta etapa - "nao sei", "me ajuda".
+    #
+    # Nao e tentativa: dizer "nao sei" nao e errar. Mas tambem nao e nada,
+    # e some-lo em `hints_used` faria "pediu ajuda" e "chegou ao nivel 1 da
+    # dica" ficarem indistinguiveis.
+    help_requests: Mapped[int] = mapped_column(Integer, nullable=False,
+                                               default=0, server_default="0")
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

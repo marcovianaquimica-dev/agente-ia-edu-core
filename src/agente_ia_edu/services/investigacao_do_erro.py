@@ -598,8 +598,16 @@ ORDEM_DA_ABERTURA = 0
 def para_o_aluno(inv: Investigacao,
                  respostas: Mapping[int, str] | None,
                  tentativas: Mapping[int, int] | None = None,
-                 abertura: Mapping | None = None) -> dict:
+                 abertura: Mapping | None = None,
+                 falas: Mapping[int, str] | None = None) -> dict:
     """A investigacao como ela pode chegar ao cliente.
+
+    `falas` e o que o ALUNO escreveu em cada ordem, vindo do banco. Quando
+    existe, ela vence o texto do gabarito: ele respondeu "tres", e exibir
+    "3 atomos" seria por na boca dele uma frase que nao foi dita. Ausente -
+    numa linha gravada antes desta coluna existir - o texto da alternativa
+    correta volta a servir, porque uma etapa resolvida foi resolvida
+    acertando e a substancia e a mesma.
 
     O QUE NAO ESTA AQUI NAO VAZA. A letra correta de uma etapa ABERTA nao sai
     em campo nenhum - nem marcada na alternativa, nem solta. Ela so aparece
@@ -610,6 +618,7 @@ def para_o_aluno(inv: Investigacao,
     """
     dadas = {int(k): (v or "").strip().upper()
              for k, v in dict(respostas or {}).items()}
+    ditas = {int(k): v for k, v in dict(falas or {}).items() if v}
     atual = proxima_etapa(inv, dadas)
 
     concluidas = []
@@ -620,13 +629,14 @@ def para_o_aluno(inv: Investigacao,
                 "question": e.pergunta,
                 "selected": dadas[e.ordem],
                 "correct_option": e.correta,
-                # O CONTEUDO da alternativa, e nao so a letra.
+                # O QUE ELE ESCREVEU, e nao a letra nem o gabarito.
                 #
                 # Numa conversa a tela mostra o que o aluno respondeu, e
-                # "C" nao e o que ele respondeu - ele escreveu "3". Uma
-                # etapa resolvida foi resolvida acertando, entao o texto da
-                # correta E o que ele disse, em substancia.
-                "resposta_texto": e.alternativas.get(e.correta),
+                # "C" nao e o que ele respondeu - ele escreveu "tres". So
+                # quando a fala nao foi gravada e que o texto da correta
+                # serve de substituto; ver a docstring.
+                "resposta_texto": (ditas.get(e.ordem)
+                                   or e.alternativas.get(e.correta)),
                 "comentario": e.se_acertar,
             })
 
@@ -686,6 +696,12 @@ def para_o_aluno(inv: Investigacao,
             "question": atual.pergunta,
             "options": [{"key": k, "text": t}
                         for k, t in sorted(atual.alternativas.items())],
+            # A FALA DA TENTATIVA QUE NAO DEU CONTA.
+            #
+            # Ela precisa voltar junto com a pergunta reaberta: sem ela, o
+            # aluno le o ensino do erro sem ver o erro, e a conversa parece
+            # comecar pela correcao de algo que ele nao disse.
+            "resposta_do_aluno": ditas.get(atual.ordem),
         },
         "concluidas": concluidas,
         "retorno": ultima_errada,
