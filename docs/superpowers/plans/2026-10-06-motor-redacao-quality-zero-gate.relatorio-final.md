@@ -31,10 +31,21 @@ Gerada por `scripts/essay_calibration_consolidated_report.py`:
 |---|---|---|---|---|
 | mae_total | 207.06 | 173.33 | 280.00 | 331.43 |
 | bias_total | -207.06 | -164.44 | -253.33 | -331.43 |
-| zero_gate_recall | 0.286 | 1.0 | 1.0 | 1.0 |
+| zero_gate_recall | 0.286 (2/7)* | 1.0 (1/1)* | 1.0 (1/1)* | 1.0 (2/2)* |
 | zero_gate_precision | 0.5 | 1.0 | 0.333 | 0.5 |
 | needs_review_count | 6 | 20 | 20 | 21 |
 | ocr_duvidoso_rate | 0.733 | 0.9 | 0.833 | 0.767 |
+
+\* **`zero_gate_recall` não é "quantas das 10 situações especiais reais do
+corpus o motor identificou corretamente"** — é "das situações especiais
+reais que chegaram a receber QUALQUER decisão do motor (nota ou
+zeragem), quantas foram zeradas" (`essay_calibration_metrics.py:79-85`,
+`scored_rows = [r for r in rows if r.engine_scores is not None]`). O
+denominador real entre parênteses mostra o tamanho dessa base: ela
+colapsou de 7/10 no BASELINE para 1/10 em AFTER_QUALITY_GATE_V1 e
+AFTER_ZERO_GATE_V1, e 2/10 em AFTER_CALIBRATION_V1 — as outras 8-9 das 10
+situações especiais reais do corpus foram para NEEDS_REVIEW e saem do
+cálculo por definição. Ver seção 2 para a leitura correta deste número.
 
 MAE por competência:
 
@@ -77,14 +88,25 @@ puro:
   "zerada" silenciosa) agora corretamente vão para NEEDS_REVIEW sem nota
   alguma. MAE cai porque a população que ainda recebe nota ficou mais
   fácil (menos ruído de OCR extremo), não porque o motor ficou mais
-  preciso nos casos difíceis.
-- **+QUALITY GATE → +ZERO GATE** (mae 173→280, zero_gate_recall
-  0.286→1.0): o Zero Gate deixou de ser um "confirme a sinalização da
+  preciso nos casos difíceis. **É também aqui, não na fase do Zero Gate,
+  que o salto de `zero_gate_recall` (0.286→1.0) de fato acontece** — e
+  pela mesma razão do MAE: das 10 situações especiais reais do corpus,
+  o número que chega a receber qualquer decisão do motor cai de 7 para
+  1 (`aluno_29`), e essa única redação restante já era zerada
+  corretamente. O "recall" sobe porque a base encolheu para um caso só,
+  não porque o motor passou a reconhecer mais situações especiais (ver
+  nota da seção 1 e o resumo ao final desta seção).
+- **+QUALITY GATE → +ZERO GATE** (mae 173→280; zero_gate_recall
+  permanece 1.0→1.0, sobre a mesma base de 1/10 já reduzida na fase
+  anterior): o Zero Gate deixou de ser um "confirme a sinalização da
   fase 1" e passou a julgar independentemente, com amostragem 3x, todos
-  os 8 códigos de anulação/zeragem contra o texto completo — isso
-  consertou o recall (de pegar só 2/7 situações especiais reais para
-  pegar todas) mas trouxe um novo falso positivo real (TEXTO_INSUFICIENTE
-  em `aluno_12`/`aluno_13`, achado já registrado como
+  os 8 códigos de anulação/zeragem contra o texto completo. Isso é uma
+  melhoria real de arquitetura (julgamento independente, auditável, sem
+  depender de a fase 1 ter levantado uma suspeita primeiro), mas **não é
+  a causa do salto de recall relatado na tabela da seção 1** — esse já
+  tinha ocorrido na transição anterior, antes de o Zero Gate existir. O
+  que esta fase de fato muda é introduzir um novo falso positivo real
+  (TEXTO_INSUFICIENTE em `aluno_12`/`aluno_13`, achado já registrado como
   `task_e5b9b347`, fora de escopo deste plano) que arrasta
   zero_gate_precision para 0.333 e, por serem dois outliers de erro
   absoluto ~840-920, domina o mae_total dessa fase.
@@ -95,12 +117,27 @@ puro:
   execução pegou 2 falhas reais de infraestrutura (OpenAI
   indisponível), não de código.
 
-Em suma: **zero_gate_recall subiu de forma monotônica e definitiva
-(0.286→1.0→1.0)** — o motor não deixa mais passar batido nenhuma situação
-especial real sem pelo menos sinalizar. O preço disso é mae_total mais
-alto, porque menos redações "fáceis" chegam a ter nota, e as que chegam
+Em suma, e dito sem o açúcar do número isolado: **`zero_gate_recall` subiu
+de 0.286 para 1.0 e ficou lá — mas não porque o motor passou a identificar
+corretamente mais situações especiais reais.** O que de fato aconteceu foi
+o denominador da métrica (quantas das 10 situações especiais reais do
+corpus chegam a receber qualquer decisão do motor, nota ou zeragem) cair
+de 7 para 1, depois para 2 — nunca mais que 2 de 10. A afirmação honesta e
+de fato comprovada por este benchmark é mais estreita que "recall de
+100%": **o motor nunca mais fabrica uma nota normal sobre uma redação que
+é, na realidade, uma situação especial** (isso é verdadeiro e verificável
+nas 4 execuções), mas ele alcança esse resultado majoritariamente
+mandando essas redações para NEEDS_REVIEW — revisão humana — e não
+identificando e zerando-as corretamente por conta própria. Em número
+absoluto, redações com situação especial real que o motor zerou
+corretamente por conta própria: 2 (BASELINE) → 1 (+QUALITY GATE) → 1
+(+ZERO GATE) → 2 (+CALIBRAÇÃO) — uma contagem que caiu antes de voltar a
+subir, não um recall que subiu de forma monotônica. O preço do lado do
+MAE é real (menos redações "fáceis" chegam a ter nota, e as que chegam
 incluem outliers de erro grande que antes eram silenciosamente absorvidos
-em NEEDS_REVIEW ou em uma nota devolvida por acaso.
+em NEEDS_REVIEW ou em uma nota devolvida por acaso), mas a causa correta
+é essa migração para NEEDS_REVIEW, não uma melhora de detecção medida por
+`zero_gate_recall`.
 
 ## 3. Ressalva metodológica importante sobre a execução AFTER_CALIBRATION_V1
 
@@ -292,16 +329,25 @@ para essa pergunta.
 
 | Fase | mae_total | zero_gate_recall | needs_review | O que mudou |
 |---|---|---|---|---|
-| BASELINE | 207.06 | 0.286 | 6 | Estado original, antes de qualquer correção deste plano. |
-| +QUALITY GATE | 173.33 | 1.0 | 20 | Nunca mais fabrica nota sobre texto ilegível (fix do bug real Larissa/João Miguel). |
-| +ZERO GATE | 280.00 | 1.0 | 20 | Reavaliação independente e auditável de todas as 8 situações de anulação (fix do bug real Sabrina/Henrique's FUGA_AO_TEMA inconsistente); revela 1 novo falso-positivo (`aluno_12`/`aluno_13`, fora de escopo). |
-| +CALIBRAÇÃO | 331.43 | 1.0 | 21 | `_RULES_TOP_BAND` simetrizado com base em evidência controlada de que o viés de subavaliação persiste em texto limpo; resultado desta execução específica confundido por ruído de amostragem entre execuções + 2 falhas reais de infraestrutura (seção 3). |
+| BASELINE | 207.06 | 0.286 (2/7 casos avaliados) | 6 | Estado original, antes de qualquer correção deste plano. |
+| +QUALITY GATE | 173.33 | 1.0 (1/1 caso avaliado) | 20 | Nunca mais fabrica nota sobre texto ilegível (fix do bug real Larissa/João Miguel). |
+| +ZERO GATE | 280.00 | 1.0 (1/1 caso avaliado) | 20 | Reavaliação independente e auditável de todas as 8 situações de anulação (fix do bug real Sabrina/Henrique's FUGA_AO_TEMA inconsistente); revela 1 novo falso-positivo (`aluno_12`/`aluno_13`, fora de escopo). |
+| +CALIBRAÇÃO | 331.43 | 1.0 (2/2 casos avaliados) | 21 | `_RULES_TOP_BAND` simetrizado com base em evidência controlada de que o viés de subavaliação persiste em texto limpo; resultado desta execução específica confundido por ruído de amostragem entre execuções + 2 falhas reais de infraestrutura (seção 3). |
 
-O projeto termina com: zero fabricação de nota comprovada em 3 cenários
+O `zero_gate_recall` de 1.0 nas três últimas fases é sobre uma base de
+apenas 1-2 das 10 situações especiais reais do corpus (ver nota da seção
+1 e seção 2) — não é "recall de 100% para situações especiais reais". O
+projeto termina com uma afirmação mais estreita, porém esta sim
+plenamente comprovada: zero fabricação de nota comprovada em 3 cenários
 reais distintos (Larissa/João Miguel, Sabrina/Henrique, e agora a própria
 execução final — nenhuma das 6 falhas desta rodada produziu nota
-fabricada), recall de 100% para situações especiais reais, uma correção
-de calibração fundamentada em experimento controlado (não em ajuste a
-casos específicos), e uma lista clara e nomeada de achados remanescentes
-para investigação futura — nenhum escondido, todos já com pelo menos uma
-hipótese concreta registrada.
+fabricada); o motor nunca mais devolve uma nota normal fabricada sobre
+uma situação especial real, mas na prática ele consegue isso
+majoritariamente ao mandar essas redações para NEEDS_REVIEW (revisão
+humana), não por identificá-las e zerá-las corretamente por conta própria
+— em número absoluto, só 1-2 das 10 situações especiais reais chegam a
+ter qualquer decisão do motor em cada execução pós-Quality-Gate. A isso
+se soma uma correção de calibração fundamentada em experimento controlado
+(não em ajuste a casos específicos), e uma lista clara e nomeada de
+achados remanescentes para investigação futura — nenhum escondido, todos
+já com pelo menos uma hipótese concreta registrada.
