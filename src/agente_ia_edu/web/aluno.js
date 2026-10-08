@@ -853,8 +853,14 @@
     return `
       <section class="conversa" aria-label="Pergunte ao Assessor">
         <h3 class="conversa-titulo">Pergunte ao Assessor</h3>
-        <p class="conversa-nota">Sobre o que você está estudando agora. Esta
-           conversa não fica salva.</p>
+        <!--
+          A NOTA DIZIA "sobre o que você está estudando agora", e isso deixou
+          de ser verdade quando o §9 entrou: a curiosidade de outro assunto
+          agora é respondida, e não devolvida ao ponto. Uma nota que
+          contradiz o que a tela faz ensina o aluno a não ler notas.
+        -->
+        <p class="conversa-nota">Sobre o que você está estudando — ou outro
+           assunto, se marcar abaixo. Esta conversa não fica salva.</p>
         ${turnos ? `<ol class="conversa-turnos">${turnos}</ol>` : ''}
         ${c.enviando ? '<p class="conversa-esperando">Pensando…</p>' : ''}
         ${aviso_erro}
