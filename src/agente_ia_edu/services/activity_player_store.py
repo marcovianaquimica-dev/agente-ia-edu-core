@@ -251,6 +251,25 @@ class ActivityPlayerStore:
         if not current_position:
             current_position = (pending_positions[0] if pending_positions else 1) if total else None
 
+        # A INTERVENCAO PENDENTE SOBREVIVE AO RECARREGAR.
+        #
+        # Ela nao e gravada: e REDERIVADA da resposta que ja esta no banco.
+        # Guardar a decisao ao lado da resposta criaria duas verdades, e a
+        # gravada envelheceria no instante em que o aluno percorresse a
+        # investigacao - voltaria dizendo "investigue" o que ele acabou de
+        # investigar.
+        #
+        # E a pergunta e sempre a da POSICAO CORRENTE, que `save_answer`
+        # move para o item respondido: e nela que o aluno estava quando
+        # errou, e e a ela que ele tem de voltar.
+        pendente = None
+        if attempt is not None and status == STATUS_IN_PROGRESS:
+            atual = next((q for q in questions
+                          if q["position"] == current_position), None)
+            if atual is not None and atual["answered"]:
+                pendente = await self._intervencao_de(
+                    row, atual, requester=requester) or None
+
         return {
             "activity": {
                 "assignment_id": str(row.id),
@@ -281,7 +300,31 @@ class ActivityPlayerStore:
             "current_position": current_position,
             "questions": questions,
             "answer_key_visible": False,
+            # None quando nao ha. Ver o bloco que a calcula: ela e
+            # rederivada da resposta gravada, nunca guardada.
+            "pending_intervention": pendente,
         }
+
+    async def _intervencao_de(self, row, questao: dict, *,
+                              requester: Requester) -> dict:
+        """A decisao pedagogica daquela questao ja respondida, ou {}.
+
+        Um lugar so para as duas chamadas - `save_answer` e `_state` -,
+        para que a resposta do turno e a da retomada nao possam divergir.
+        """
+        from agente_ia_edu.services.intervencao_formativa import (
+            decidir_apos_resposta,
+        )
+
+        try:
+            return await decidir_apos_resposta(
+                self._session, aluno=requester.external_user_id,
+                metadata=(row.metadata_ or {}),
+                question_version_id=questao["question_version_id"],
+                selected_option_key=questao.get("selected_option"),
+                requester=requester)
+        except Exception:  # noqa: BLE001 - a decisao nunca derruba a leitura
+            return {}
 
     # -- save answer (autosave) --------------------------------------
 
@@ -367,6 +410,24 @@ class ActivityPlayerStore:
             attempt.current_position = position
             await self._session.commit()
 
+        # A DECISAO PEDAGOGICA DESTA RESPOSTA.
+        #
+        # Ate 2026-10-08 esta funcao devolvia so um recibo - gravou, quantas
+        # faltam - e nunca consultava o gabarito. O cliente entao avancava
+        # sozinho, e o aluno errava cinco questoes seguidas sem que nada
+        # acontecesse. A observacao passa a existir AQUI, no momento em que
+        # a resposta chega, como ja acontecia no dialogo.
+        #
+        # So a PRATICA FORMATIVA e interrompida: `modo_pedagogico` e o
+        # portao, e ele protege o diagnostico, a verificacao L0 e a prova.
+        #
+        # Nao grava nada: `decidir_apos_resposta` e leitura e decisao. A
+        # correcao da tentativa e a evidencia continuam onde sempre
+        # estiveram, em `attempt/correct`.
+        decisao = await self._intervencao_de(
+            row, {"question_version_id": qvid, "selected_option": key},
+            requester=requester)
+
         state = await self._state(assignment_id, requester=requester)
         return {
             "saved": True,
@@ -378,6 +439,8 @@ class ActivityPlayerStore:
             "pending_count": state["pending_count"],
             "total_questions": state["total_questions"],
             "status": state["status"],
+            "may_advance": not decisao,
+            "intervention": decisao or None,
         }
 
     # -- lightweight "last viewed question" -------------------------

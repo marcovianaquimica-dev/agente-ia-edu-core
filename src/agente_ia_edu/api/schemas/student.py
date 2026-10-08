@@ -217,6 +217,14 @@ class ActivityAnswerSaveResponse(BaseModel):
     pending_count: int
     total_questions: int
     status: str
+    # A DECISAO PEDAGOGICA DESTA RESPOSTA, quando ha uma.
+    #
+    # Ate 2026-10-08 esta resposta era so um recibo, e o cliente avancava
+    # sozinho: o aluno errava e recebia a proxima questao, e a proxima. Quem
+    # decide o proximo passo e o backend; `may_advance` e o que o cliente
+    # obedece, e `intervention` e o que ele desenha.
+    may_advance: bool = True
+    intervention: dict | None = None
 
 
 # ---------------------------------------------------------------------------
