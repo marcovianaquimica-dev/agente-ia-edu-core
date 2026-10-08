@@ -42,6 +42,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from agente_ia_edu.assessor_prompts import VERSAO_ATUAL, prompt_da_conversa
+from agente_ia_edu.services.concisao import extensao_para, pode_encerrar
 from agente_ia_edu.providers.contracts import TextGenerationProvider
 from agente_ia_edu.providers.factory import build_text_provider
 from agente_ia_edu.providers.models import TextGenerationRequest
@@ -90,12 +91,34 @@ class ConversaDoAssessor:
             raise PerguntaInvalida(
                 f"pergunta com {len(texto)} caracteres; limite {LIMITE_DA_PERGUNTA}")
 
+        # QUANTO FALAR E SE PODE FECHAR - decisao do produto, nao do modelo.
+        #
+        # Ate 2026-10-08 o prompt mandava "2 a 5 frases" para toda pergunta e
+        # "termine oferecendo" ao fim de toda resposta. Os dois contradizem o
+        # §4: o teto era universal, e a oferta era obrigatoria. A politica
+        # agora e `services/concisao`, deterministica e com teste, e o prompt
+        # so a transmite.
+        #
+        # `turnos_no_mesmo_ponto` sai do historico que o cliente ja envia: e
+        # contagem do que aconteceu, nao inferencia sobre silencio ou tempo -
+        # o §5 lista essas como o que NAO autoriza concluir dificuldade.
+        extensao = extensao_para(
+            pergunta=texto,
+            turnos_no_mesmo_ponto=_turnos_do_aluno(historico) + 1)
+        encerrar = pode_encerrar(pergunta=texto)
+
         artefato = prompt_da_conversa()
-        prompt = artefato.montar(
+        parametros = dict(
             contexto=_contexto_em_texto(contexto),
             historico=_historico_em_texto(historico, artefato.TURNOS_DE_HISTORICO),
             pergunta=texto,
         )
+        # As versoes antigas do prompt nao conhecem a politica. Mante-las
+        # chamaveis e o que permite comparar uma conversa de ontem com uma de
+        # hoje sem reescrever o registro.
+        if _aceita_politica(artefato.montar):
+            parametros.update(extensao=extensao, pode_encerrar=encerrar)
+        prompt = artefato.montar(**parametros)
 
         try:
             resultado = await self._resolver_provider().generate(
@@ -113,6 +136,32 @@ class ConversaDoAssessor:
         except Exception:  # noqa: BLE001 - qualquer falha vira fallback honesto
             return {"reply": TEXTO_DE_FALLBACK, "provider": None, "model": None,
                     "fallback": True, "prompt_version": VERSAO_ATUAL}
+
+
+def _turnos_do_aluno(historico: Sequence[dict]) -> int:
+    """Quantas vezes ele ja falou nesta conversa.
+
+    A conversa acontece DENTRO de uma intervencao sobre um ponto - entao
+    "turnos desta conversa" e "turnos sobre o mesmo ponto" sao a mesma coisa
+    aqui. Se um dia a conversa atravessar pontos, esta funcao e que muda.
+    """
+    # A chave e `de`, e nao `quem`: e assim que `_historico_em_texto` le o
+    # mesmo turno, logo abaixo. Escrevi `quem` primeiro e o contador teria
+    # devolvido zero em silencio - a insistencia nunca ampliaria a resposta,
+    # e nenhum teste de prompt notaria.
+    return sum(1 for t in (historico or ())
+               if str((t or {}).get("de") or "").lower() == "aluno")
+
+
+def _aceita_politica(montar) -> bool:
+    """O `montar` desta versao recebe extensao e autorizacao de fechamento?"""
+    import inspect
+
+    try:
+        parametros = inspect.signature(montar).parameters
+    except (TypeError, ValueError):  # pragma: no cover - callable exotico
+        return False
+    return "extensao" in parametros and "pode_encerrar" in parametros
 
 
 class _RespostaVazia(RuntimeError):
