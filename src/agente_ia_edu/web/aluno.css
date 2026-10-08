@@ -1422,6 +1422,7 @@ p  { margin: 0 0 .75rem; }
 .dialogo-campo {
   flex: 1 1 auto;
   min-width: 0;            /* sem isto o input estoura o flex em 320px */
+  min-height: var(--toque); /* medido em 320px: dava 43px, 1 abaixo do minimo */
   padding: .7rem .8rem;
   font-size: 1rem;         /* 16px: abaixo disso o iOS da zoom ao focar */
   border: 1px solid var(--borda);
