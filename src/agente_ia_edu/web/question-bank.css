@@ -135,3 +135,37 @@
 #qb-dist .qb-preview-dialog { max-width: 560px; }
 #qb-dist fieldset.qb-field { border: 1px solid #e6e8ee; border-radius: 8px; padding: 10px 12px; }
 #qb-dist fieldset.qb-field label { display: block; margin: 4px 0; font-weight: normal; }
+
+/* NO TELEFONE, O BANCO DE QUESTÕES CABIA EM 513px NUMA TELA DE 320px.
+ *
+ * Medido em 2026-10-06: a página rolava de lado e os campos de filtro tinham
+ * 37px de altura — abaixo do alvo de toque do sistema. Quem filtra questões
+ * no corredor, entre uma aula e outra, faz isso no telefone.
+ *
+ * As duas causas, e as duas correções:
+ */
+
+/* 1. A FILA DE ABAS NÃO QUEBRAVA. Quatro botões lado a lado num flex sem
+ *    `wrap` empurram a página inteira para fora da tela. */
+.qb-view-switch { flex-wrap: wrap; }
+
+/* 2. OS ALVOS DE TOQUE VINHAM DO PADDING, E NÃO DO TOKEN. O token existe
+ *    justamente para não dependerem da fonte e do padding de cada campo. */
+.qb-field input,
+.qb-field select,
+.qb-search input,
+.qb-search button,
+.qb-tab,
+.qb-row-actions .btn {
+  min-height: var(--nucleo-toque, 44px);
+}
+
+/* `#qb-identity-id` fica de fora de proposito: ele vive dentro do bloco
+   "Ambiente de desenvolvimento", fechado, e e um controle de quem desenvolve
+   - nao um alvo de toque do produto. */
+
+@media (max-width: 420px) {
+  /* Uma coluna: `minmax(160px, 1fr)` em 320px com 16px de margem ainda tenta
+     duas, e cada rótulo vira duas linhas cortadas. */
+  .qb-filters-primary { grid-template-columns: 1fr; }
+}

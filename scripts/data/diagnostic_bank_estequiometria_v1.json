@@ -1,0 +1,1642 @@
+[
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "EASY",
+      "stem": "Na reação N₂ + 3 H₂ → 2 NH₃, qual massa de NH₃ é produzida a partir de 6,0 g de H₂? Considere N = 14 g/mol e H = 1 g/mol.",
+      "options": {
+        "A": "34,0 g",
+        "B": "51,0 g",
+        "C": "2,0 g",
+        "D": "30,0 g",
+        "E": "76,5 g"
+      },
+      "correct_answer": "A",
+      "rationale": "A massa de H₂ corresponde a 6,0/2,0 = 3,0 mol. Pela proporção 3 mol de H₂ para 2 mol de NH₃, formam-se 2,0 mol de NH₃, equivalentes a 2,0 × 17,0 = 34,0 g.",
+      "equacao": "1 N₂ + 3 H₂ → 2 NH₃",
+      "especie_de": "H₂",
+      "especie_para": "NH₃",
+      "quantidade": 6.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N₂": 1,
+            "H₂": 3,
+            "NH₃": 2
+          },
+          "valor_calculado": 33.791666666666664,
+          "valores_das_alternativas": {
+            "A": 76.5,
+            "B": 51.0,
+            "C": 2.0,
+            "D": 30.0,
+            "E": 34.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "6,0 g de H₂ correspondem a 3,0 mol, que produzem 2,0 mol de NH₃ pela proporção 3:2 da equação. Como a massa molar do NH₃ é 17 g/mol, a massa produzida é 2,0 × 17 = 34,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 1 N₂(g) + 3 H₂(g) → 2 NH₃(g), 6,0 mol de H₂ reagem completamente. Considerando N = 14 g/mol e H = 1 g/mol, qual é a massa de NH₃ formada?",
+      "options": {
+        "A": "56,0 g",
+        "B": "68,0 g",
+        "C": "4,0 mol",
+        "D": "102,0 g",
+        "E": "153,0 g"
+      },
+      "correct_answer": "B",
+      "rationale": "Pela equação, 3 mol de H₂ formam 2 mol de NH₃; portanto, 6,0 mol de H₂ formam 4,0 mol de NH₃. Como a massa molar do NH₃ é 17 g/mol, a massa formada é 4,0 × 17 = 68,0 g.",
+      "equacao": "1 N₂(g) + 3 H₂(g) → 2 NH₃(g)",
+      "especie_de": "H₂",
+      "especie_para": "NH₃",
+      "quantidade": 6.0,
+      "unidade_entrada": "mol",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N₂": 1,
+            "H₂": 3,
+            "NH₃": 2
+          },
+          "valor_calculado": 68.124,
+          "valores_das_alternativas": {
+            "A": 56.0,
+            "B": 102.0,
+            "C": 4.0,
+            "D": 68.0,
+            "E": 153.0
+          },
+          "alternativas_corretas": [
+            "D"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "D",
+        "resolucao": "Pela proporção estequiométrica, 3 mol de H₂ formam 2 mol de NH₃; portanto, 6,0 mol de H₂ formam 4,0 mol de NH₃. Como a massa molar do NH₃ é 17 g/mol, a massa formada é 4,0 × 17 = 68,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂ + 1 O₂ → 2 H₂O, qual massa de O₂ é necessária para reagir com 4,0 g de H₂? Considere H₂ = 2,0 g/mol, O₂ = 32,0 g/mol e H₂O = 18,0 g/mol.",
+      "options": {
+        "A": "18,0 g",
+        "B": "64,0 g",
+        "C": "32,0 g",
+        "D": "128,0 g",
+        "E": "1,0 mol"
+      },
+      "correct_answer": "C",
+      "rationale": "4,0 g de H2 correspondem a 2,0 mol, e a equação indica a proporção de 2 mol de H2 para 1 mol de O2. Portanto, são necessários 1,0 mol de O2, ou 32,0 g.",
+      "equacao": "2 H2 + 1 O2 → 2 H2O",
+      "especie_de": "H2",
+      "especie_para": "O2",
+      "quantidade": 4.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H2": 2,
+            "O2": 1,
+            "H2O": 2
+          },
+          "valor_calculado": 31.74404761904762,
+          "valores_das_alternativas": {
+            "A": 18.0,
+            "B": 64.0,
+            "C": 1.0,
+            "D": 128.0,
+            "E": 32.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "4,0 g de H₂ correspondem a 2,0 mol, pois sua massa molar é 2,0 g/mol. Pela proporção 2:1, são necessários 1,0 mol de O₂, cuja massa é 1,0 × 32,0 = 32,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MOL_MOL",
+      "diagnostic_objective": "O aluno converte quantidade de materia de uma especie em quantidade de materia de outra?",
+      "difficulty": "EASY",
+      "stem": "Na reação 1 N₂ + 3 H₂ → 2 NH₃, com N₂ em excesso, 6,0 mol de H₂ produzem quantos mol de NH₃? Considere M(H₂) = 2,0 g/mol e M(NH₃) = 17,0 g/mol.",
+      "options": {
+        "A": "0,71 mol",
+        "B": "6,0 mol",
+        "C": "9,0 mol",
+        "D": "4,0 mol",
+        "E": "18,0 mol"
+      },
+      "correct_answer": "D",
+      "rationale": "Pela equação, 3 mol de H₂ produzem 2 mol de NH₃; portanto, 6,0 mol de H₂ produzem 6,0 × 2/3 = 4,0 mol de NH₃. As demais opções representam erros como ignorar ou inverter os coeficientes, usar massa molar de modo indevido ou multiplicar os coeficientes.",
+      "equacao": "1 N₂ + 3 H₂ → 2 NH₃",
+      "especie_de": "H₂",
+      "especie_para": "NH₃",
+      "quantidade": 6.0,
+      "unidade_entrada": "mol",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N₂": 1,
+            "H₂": 3,
+            "NH₃": 2
+          },
+          "valor_calculado": 4.0,
+          "valores_das_alternativas": {
+            "A": 0.71,
+            "B": 6.0,
+            "C": 9.0,
+            "D": 4.0,
+            "E": 18.0
+          },
+          "alternativas_corretas": [
+            "D"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "D",
+        "resolucao": "Pela equação balanceada, 3 mol de H₂ produzem 2 mol de NH₃. Assim, 6,0 mol de H₂ produzem 6,0 × 2/3 = 4,0 mol de NH₃.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MOL_MOL",
+      "diagnostic_objective": "O aluno converte quantidade de materia de uma especie em quantidade de materia de outra?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, 16,0 g de O₂ reagem completamente com H₂ em excesso. Considerando M(O₂) = 32,0 g/mol e M(H₂O) = 18,0 g/mol, qual é a massa de H₂O formada?",
+      "options": {
+        "A": "4,5 g",
+        "B": "9,0 g",
+        "C": "16,0 g",
+        "D": "32,0 g",
+        "E": "18,0 g"
+      },
+      "correct_answer": "E",
+      "rationale": "A quantidade de O₂ é 16,0/32,0 = 0,50 mol, que pela proporção 1:2 produz 1,00 mol de H₂O. Como M(H₂O) = 18,0 g/mol, a massa formada é 18,0 g.",
+      "equacao": "2 H₂ + 1 O₂ → 2 H₂O",
+      "especie_de": "O₂",
+      "especie_para": "H₂O",
+      "quantidade": 16.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H₂": 2,
+            "O₂": 1,
+            "H₂O": 2
+          },
+          "valor_calculado": 18.016126007875492,
+          "valores_das_alternativas": {
+            "A": 4.5,
+            "B": 9.0,
+            "C": 16.0,
+            "D": 18.0,
+            "E": 32.0
+          },
+          "alternativas_corretas": [
+            "D"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "D",
+        "resolucao": "16,0 g de O₂ correspondem a 0,50 mol. Pela proporção 1 mol de O₂ produz 2 mol de H₂O, ou 1,00 mol, cuja massa é 18,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MOL_MOL",
+      "diagnostic_objective": "O aluno converte quantidade de materia de uma especie em quantidade de materia de outra?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, são consumidos 3,0 mol de H₂. Sabendo que a massa molar do O₂ é 32,0 g/mol, qual é a massa de O₂ consumida?",
+      "options": {
+        "A": "48,0 g",
+        "B": "96,0 g",
+        "C": "3,0 g",
+        "D": "192,0 g",
+        "E": "24,0 g"
+      },
+      "correct_answer": "A",
+      "rationale": "A proporção molar é 2 mol de H₂ para 1 mol de O₂, portanto 3,0 mol de H₂ correspondem a 1,5 mol de O₂. Multiplicando por 32,0 g/mol, obtém-se 48,0 g de O₂.",
+      "equacao": "2 H₂ + 1 O₂ → 2 H₂O",
+      "especie_de": "H₂",
+      "especie_para": "O₂",
+      "quantidade": 3.0,
+      "unidade_entrada": "mol",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H₂": 2,
+            "O₂": 1,
+            "H₂O": 2
+          },
+          "valor_calculado": 47.997,
+          "valores_das_alternativas": {
+            "A": 192.0,
+            "B": 96.0,
+            "C": 3.0,
+            "D": 48.0,
+            "E": 24.0
+          },
+          "alternativas_corretas": [
+            "D"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "D",
+        "resolucao": "Pela equação, 2 mol de H₂ reagem com 1 mol de O₂; portanto, 3,0 mol de H₂ consomem 1,5 mol de O₂. A massa consumida é 1,5 × 32,0 = 48,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MOL_MOL",
+      "diagnostic_objective": "O aluno converte quantidade de materia de uma especie em quantidade de materia de outra?",
+      "difficulty": "HARD",
+      "stem": "Na reação 2 Al + 3 Cl₂ -> 2 AlCl₃, qual massa de Cl₂ é necessária para reagir completamente com 13,5 g de Al? Use Al = 27,0 g/mol e Cl₂ = 71,0 g/mol.",
+      "options": {
+        "A": "23,7 g",
+        "B": "53,25 g",
+        "C": "0,75 g",
+        "D": "26,6 g",
+        "E": "35,5 g"
+      },
+      "correct_answer": "B",
+      "rationale": "13,5 g de Al correspondem a 0,50 mol, e a proporção da equação exige 3/2 mol de Cl2, ou 0,75 mol. Multiplicando por 71,0 g/mol, obtém-se 53,25 g de Cl2.",
+      "equacao": "2 Al + 3 Cl2 -> 2 AlCl3",
+      "especie_de": "Al",
+      "especie_para": "Cl2",
+      "quantidade": 13.5,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "Al": 2,
+            "Cl2": 3,
+            "AlCl3": 2
+          },
+          "valor_calculado": 53.21047364909941,
+          "valores_das_alternativas": {
+            "A": 23.7,
+            "B": 35.5,
+            "C": 0.75,
+            "D": 26.6,
+            "E": 53.25
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "13,5 g de Al correspondem a 13,5/27,0 = 0,50 mol, e a proporção da reação exige (3/2)·0,50 = 0,75 mol de Cl₂. Assim, a massa necessária é 0,75·71,0 = 53,25 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "EASY",
+      "stem": "Na reação 1 N₂ + 3 H₂ → 2 NH₃, considere N = 14 g/mol e H = 1 g/mol. A partir de 34 g de NH₃, qual quantidade de matéria de H₂ foi consumida?",
+      "options": {
+        "A": "2,0 mol",
+        "B": "1,33 mol",
+        "C": "3,0 mol",
+        "D": "34 mol",
+        "E": "17 mol"
+      },
+      "correct_answer": "C",
+      "rationale": "A massa molar do NH3 é 17 g/mol, portanto 34 g correspondem a 2,0 mol de NH3. Pela proporção da equação, 2,0 mol de NH3 correspondem a 3,0 mol de H2.",
+      "equacao": "1 N2 + 3 H2 → 2 NH3",
+      "especie_de": "NH3",
+      "especie_para": "H2",
+      "quantidade": 34.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N2": 1,
+            "H2": 3,
+            "NH3": 2
+          },
+          "valor_calculado": 2.994539369385239,
+          "valores_das_alternativas": {
+            "A": 2.0,
+            "B": 1.33,
+            "C": 3.0,
+            "D": 34.0,
+            "E": 17.0
+          },
+          "alternativas_corretas": [
+            "C"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "A massa molar do NH₃ é 17 g/mol, portanto 34 g correspondem a 2 mol de NH₃. Pela proporção da equação, 2 mol de NH₃ consomem 3 mol de H₂.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "MEDIUM",
+      "stem": "Na decomposição 2 KClO₃(s) → 2 KCl(s) + 3 O₂(g), são decompostos 49,0 g de KClO₃. Sabendo que M(KClO₃) = 122,5 g/mol, M(KCl) = 74,5 g/mol e M(O₂) = 32,0 g/mol, qual é a quantidade de matéria de O₂ formada?",
+      "options": {
+        "A": "2,30 mol",
+        "B": "0,40 mol",
+        "C": "0,27 mol",
+        "D": "0,60 mol",
+        "E": "49,0 mol"
+      },
+      "correct_answer": "D",
+      "rationale": "A quantidade de KClO3 é 49,0 ÷ 122,5 = 0,40 mol. Pela proporção 2:3 da equação, formam-se 0,40 × 3/2 = 0,60 mol de O2.",
+      "equacao": "2 KClO3(s) → 2 KCl(s) + 3 O2(g)",
+      "especie_de": "KClO3",
+      "especie_para": "O2",
+      "quantidade": 49.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "KClO3": 2,
+            "KCl": 2,
+            "O2": 3
+          },
+          "valor_calculado": 0.5997796727732669,
+          "valores_das_alternativas": {
+            "A": 0.6,
+            "B": 0.4,
+            "C": 0.27,
+            "D": 2.3,
+            "E": 49.0
+          },
+          "alternativas_corretas": [
+            "A"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "A",
+        "resolucao": "A quantidade de KClO₃ é 49,0/122,5 = 0,40 mol. Pela proporção estequiométrica, 2 mol de KClO₃ formam 3 mol de O₂, portanto n(O₂) = 0,40 × 3/2 = 0,60 mol.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 4 Fe + 3 O₂ → 2 Fe₂O₃, quantos gramas de Fe₂O₃ são formados a partir de 112 g de Fe? Considere Fe = 56 g/mol, O₂ = 32 g/mol e Fe₂O₃ = 160 g/mol.",
+      "options": {
+        "A": "112 g",
+        "B": "640 g",
+        "C": "320 g",
+        "D": "2 g",
+        "E": "160 g"
+      },
+      "correct_answer": "E",
+      "rationale": "112 g de Fe correspondem a 2 mol, e a proporção 4:2 indica a formação de 1 mol de Fe₂O₃. Como a massa molar do Fe₂O₃ é 160 g/mol, formam-se 160 g.",
+      "equacao": "4 Fe + 3 O₂ → 2 Fe₂O₃",
+      "especie_de": "Fe",
+      "especie_para": "Fe₂O₃",
+      "quantidade": 112.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "Fe": 4,
+            "O₂": 3,
+            "Fe₂O₃": 2
+          },
+          "valor_calculado": 160.13021756647868,
+          "valores_das_alternativas": {
+            "A": 160.0,
+            "B": 640.0,
+            "C": 320.0,
+            "D": 2.0,
+            "E": 112.0
+          },
+          "alternativas_corretas": [
+            "A"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "A",
+        "resolucao": "112 g de Fe correspondem a 2 mol, pois 112/56 = 2. Pela proporção 4 mol de Fe produzem 2 mol de Fe₂O₃, então 2 mol de Fe produzem 1 mol, ou 160 g, de Fe₂O₃.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação balanceada 1 N₂(g) + 3 H₂(g) → 2 NH₃(g), 14,0 g de N₂ reagem completamente. Massas molares: N₂ = 28,0 g/mol e NH₃ = 17,0 g/mol. Qual massa de NH₃ é formada?",
+      "options": {
+        "A": "17,0 g",
+        "B": "8,50 g",
+        "C": "1,0 mol",
+        "D": "28,0 g",
+        "E": "4,25 g"
+      },
+      "correct_answer": "A",
+      "rationale": "14,0 g de N₂ correspondem a 0,50 mol, e a proporção da equação produz 1,00 mol de NH₃. Como a massa molar do NH₃ é 17,0 g/mol, a massa formada é 17,0 g.",
+      "equacao": "1 N₂(g) + 3 H₂(g) → 2 NH₃(g)",
+      "especie_de": "N₂",
+      "especie_para": "NH₃",
+      "quantidade": 14.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N₂": 1,
+            "H₂": 3,
+            "NH₃": 2
+          },
+          "valor_calculado": 17.022488755622188,
+          "valores_das_alternativas": {
+            "A": 4.25,
+            "B": 8.5,
+            "C": 1.0,
+            "D": 28.0,
+            "E": 17.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "14,0 g de N₂ correspondem a 14,0/28,0 = 0,50 mol. Pela proporção da equação, formam-se 1,0 mol de NH₃, cuja massa é 1,0 × 17,0 = 17,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "EASY",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, são usadas 16 g de O₂. Sabendo que as massas molares são O₂ = 32 g/mol e H₂O = 18 g/mol, qual é a massa de H₂O formada?",
+      "options": {
+        "A": "4,5 g",
+        "B": "18,0 g",
+        "C": "9,0 g",
+        "D": "1,0 g",
+        "E": "32,0 g"
+      },
+      "correct_answer": "B",
+      "rationale": "16 g de O₂ correspondem a 0,5 mol, que formam 1,0 mol de H₂O pela proporção 1:2 da equação. Como a massa molar da água é 18 g/mol, a massa formada é 18,0 g.",
+      "equacao": "2 H₂ + 1 O₂ → 2 H₂O",
+      "especie_de": "O₂",
+      "especie_para": "H₂O",
+      "quantidade": 16.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H₂": 2,
+            "O₂": 1,
+            "H₂O": 2
+          },
+          "valor_calculado": 18.016126007875492,
+          "valores_das_alternativas": {
+            "A": 4.5,
+            "B": 9.0,
+            "C": 18.0,
+            "D": 1.0,
+            "E": 32.0
+          },
+          "alternativas_corretas": [
+            "C"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "16 g de O₂ correspondem a 0,5 mol, e pela proporção 1 mol de O₂ forma 2 mol de H₂O. Assim, formam-se 1 mol de H₂O, cuja massa é 1 × 18 = 18,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, 4,0 g de H₂ reagem completamente. Sabendo que as massas molares são H₂ = 2,0 g/mol, O₂ = 32,0 g/mol e H₂O = 18,0 g/mol, qual é a massa de H₂O formada?",
+      "options": {
+        "A": "18,0 g",
+        "B": "2,0 g",
+        "C": "36,0 g",
+        "D": "72,0 g",
+        "E": "32,0 g"
+      },
+      "correct_answer": "C",
+      "rationale": "Convertem-se 4,0 g de H₂ em 2,0 mol, e a proporção molar entre H₂ e H₂O é de 2:2, portanto formam-se 2,0 mol de H₂O. Multiplicando por 18,0 g/mol, obtém-se 36,0 g de H₂O.",
+      "equacao": "2 H₂ + 1 O₂ → 2 H₂O",
+      "especie_de": "H₂",
+      "especie_para": "H₂O",
+      "quantidade": 4.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H₂": 2,
+            "O₂": 1,
+            "H₂O": 2
+          },
+          "valor_calculado": 35.74404761904762,
+          "valores_das_alternativas": {
+            "A": 18.0,
+            "B": 2.0,
+            "C": 32.0,
+            "D": 72.0,
+            "E": 36.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "4,0 g de H₂ correspondem a 2,0 mol, e a proporção estequiométrica indica que se formam 2,0 mol de H₂O. Assim, a massa de água é 2,0 × 18,0 = 36,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, 16,0 g de O₂ são completamente consumidos. Considerando M(O₂) = 32,0 g/mol e M(H₂O) = 18,0 g/mol, qual é a massa de H₂O formada?",
+      "options": {
+        "A": "4,5 g",
+        "B": "9,0 g",
+        "C": "1,0 g",
+        "D": "18,0 g",
+        "E": "16,0 g"
+      },
+      "correct_answer": "D",
+      "rationale": "16,0 g de O₂ correspondem a 0,50 mol, que pela proporção 1:2 formam 1,0 mol de H₂O. Como a massa molar da água é 18,0 g/mol, formam-se 18,0 g de H₂O.",
+      "equacao": "2 H2 + 1 O2 → 2 H2O",
+      "especie_de": "O2",
+      "especie_para": "H2O",
+      "quantidade": 16.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H2": 2,
+            "O2": 1,
+            "H2O": 2
+          },
+          "valor_calculado": 18.016126007875492,
+          "valores_das_alternativas": {
+            "A": 4.5,
+            "B": 9.0,
+            "C": 1.0,
+            "D": 16.0,
+            "E": 18.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "16,0 g de O₂ correspondem a 16,0/32,0 = 0,50 mol. Pela proporção 1 mol de O₂ → 2 mol de H₂O, formam-se 1,00 mol de H₂O, cuja massa é 1,00 × 18,0 = 18,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "EASY",
+      "stem": "Na reação 1 N₂ + 3 H₂ -> 2 NH₃, são usados 6,0 g de H₂. Sabendo que as massas molares são H₂ = 2,0 g/mol e NH₃ = 17,0 g/mol, qual quantidade de NH₃ é formada?",
+      "options": {
+        "A": "0,22 mol",
+        "B": "3,0 mol",
+        "C": "6,0 mol",
+        "D": "4,5 mol",
+        "E": "2,0 mol"
+      },
+      "correct_answer": "E",
+      "rationale": "Os 6,0 g de H2 correspondem a 3,0 mol, pois 6,0 ÷ 2,0 = 3,0. Pela proporção da equação, 3 mol de H2 formam 2 mol de NH3.",
+      "equacao": "1 N2 + 3 H2 -> 2 NH3",
+      "especie_de": "H2",
+      "especie_para": "NH3",
+      "quantidade": 6.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N2": 1,
+            "H2": 3,
+            "NH3": 2
+          },
+          "valor_calculado": 1.9841269841269842,
+          "valores_das_alternativas": {
+            "A": 0.22,
+            "B": 3.0,
+            "C": 2.0,
+            "D": 4.5,
+            "E": 6.0
+          },
+          "alternativas_corretas": [
+            "C"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "6,0 g de H₂ correspondem a 6,0/2,0 = 3,0 mol de H₂. Pela proporção 3 mol de H₂ para 2 mol de NH₃, formam-se 2,0 mol de NH₃.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂(g) + O₂(g) → 2 H₂O(l), com H₂ em excesso, qual é a quantidade de matéria de H₂O formada a partir de 32 g de O₂? Massas molares: H₂ = 2 g/mol, O₂ = 32 g/mol e H₂O = 18 g/mol.",
+      "options": {
+        "A": "2,0 mol",
+        "B": "0,5 mol",
+        "C": "32 mol",
+        "D": "1,78 mol",
+        "E": "1,0 mol"
+      },
+      "correct_answer": "A",
+      "rationale": "32 g de O2 correspondem a 1,0 mol, pois sua massa molar é 32 g/mol. Pela proporção da equação, 1 mol de O2 forma 2 mol de H2O, resultando em 2,0 mol.",
+      "equacao": "2 H2(g) + 1 O2(g) → 2 H2O(l)",
+      "especie_de": "O2",
+      "especie_para": "H2O",
+      "quantidade": 32.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H2": 2,
+            "O2": 1,
+            "H2O": 2
+          },
+          "valor_calculado": 2.000125007812988,
+          "valores_das_alternativas": {
+            "A": 1.0,
+            "B": 0.5,
+            "C": 32.0,
+            "D": 1.78,
+            "E": 2.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "32 g de O₂ correspondem a 1 mol de O₂, pois sua massa molar é 32 g/mol. Pela proporção 1 mol de O₂ para 2 mol de H₂O, formam-se 2,0 mol de H₂O.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, são produzidos 36 g de H₂O. Sabendo que M(H₂O) = 18 g/mol e M(O₂) = 32 g/mol, qual quantidade de matéria de O₂ é necessária?",
+      "options": {
+        "A": "2,0 mol",
+        "B": "1,0 mol",
+        "C": "4,0 mol",
+        "D": "32 g",
+        "E": "1,125 mol"
+      },
+      "correct_answer": "B",
+      "rationale": "Os 36 g de H₂O correspondem a 2,0 mol, pois 36 ÷ 18 = 2,0. Pela proporção 1 mol de O₂ para 2 mol de H₂O, são necessários 1,0 mol de O₂.",
+      "equacao": "2 H₂ + 1 O₂ → 2 H₂O",
+      "especie_de": "H₂O",
+      "especie_para": "O₂",
+      "quantidade": 36.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H₂": 2,
+            "O₂": 1,
+            "H₂O": 2
+          },
+          "valor_calculado": 0.9991673605328892,
+          "valores_das_alternativas": {
+            "A": 1.0,
+            "B": 2.0,
+            "C": 4.0,
+            "D": 32.0,
+            "E": 1.125
+          },
+          "alternativas_corretas": [
+            "A"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "A",
+        "resolucao": "36 g de H₂O correspondem a 36/18 = 2,0 mol de H₂O. Pela proporção 1 mol de O₂ produz 2 mol de H₂O, portanto são necessários 1,0 mol de O₂.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "EASY",
+      "stem": "Na reação 1 N₂(g) + 3 H₂(g) → 2 NH₃(g), 6,0 mol de H₂ reagem completamente. Sabendo que as massas molares são N₂ = 28 g/mol, H₂ = 2 g/mol e NH₃ = 17 g/mol, qual é a massa de NH₃ formada?",
+      "options": {
+        "A": "102,0 g",
+        "B": "153,0 g",
+        "C": "68,0 g",
+        "D": "4,0 g",
+        "E": "56,0 g"
+      },
+      "correct_answer": "C",
+      "rationale": "A equação indica que 3 mol de H2 formam 2 mol de NH3; portanto, 6,0 mol de H2 formam 4,0 mol de NH3. Multiplicando por 17 g/mol, obtém-se 68,0 g de NH3.",
+      "equacao": "1 N2(g) + 3 H2(g) → 2 NH3(g)",
+      "especie_de": "H2",
+      "especie_para": "NH3",
+      "quantidade": 6.0,
+      "unidade_entrada": "mol",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N2": 1,
+            "H2": 3,
+            "NH3": 2
+          },
+          "valor_calculado": 68.124,
+          "valores_das_alternativas": {
+            "A": 68.0,
+            "B": 153.0,
+            "C": 102.0,
+            "D": 4.0,
+            "E": 56.0
+          },
+          "alternativas_corretas": [
+            "A"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "A",
+        "resolucao": "Pela proporção estequiométrica, 3 mol de H₂ formam 2 mol de NH₃; portanto, 6,0 mol de H₂ formam 4,0 mol de NH₃. Multiplicando pela massa molar do NH₃, 4,0 × 17 = 68,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação N₂ + 3 H₂ → 2 NH₃, são consumidos 6,0 g de H₂. Considerando M(H₂) = 2,0 g/mol e M(NH₃) = 17,0 g/mol, qual é a massa de NH₃ formada?",
+      "options": {
+        "A": "28,0 g",
+        "B": "76,5 g",
+        "C": "51,0 g",
+        "D": "34,0 g",
+        "E": "2,0 g"
+      },
+      "correct_answer": "D",
+      "rationale": "6,0 g de H₂ correspondem a 3,0 mol, e a proporção da equação indica que 3 mol de H₂ formam 2 mol de NH₃. Assim, formam-se 2,0 mol de NH₃, equivalentes a 34,0 g.",
+      "equacao": "N₂ + 3 H₂ → 2 NH₃",
+      "especie_de": "H₂",
+      "especie_para": "NH₃",
+      "quantidade": 6.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "N₂": 1,
+            "H₂": 3,
+            "NH₃": 2
+          },
+          "valor_calculado": 33.791666666666664,
+          "valores_das_alternativas": {
+            "A": 28.0,
+            "B": 34.0,
+            "C": 51.0,
+            "D": 76.5,
+            "E": 2.0
+          },
+          "alternativas_corretas": [
+            "B"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "6,0 g de H₂ correspondem a 3,0 mol, pois sua massa molar é 2,0 g/mol. Pela proporção 3 mol de H₂ produzem 2 mol de NH₃, cuja massa é 2 × 17,0 = 34,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 H₂(g) + O₂(g) → 2 H₂O(l), são fornecidas as massas molares O₂ = 32 g/mol e H₂O = 18 g/mol. Qual massa de H₂O é formada a partir de 16 g de O₂?",
+      "options": {
+        "A": "4,5 g",
+        "B": "9,0 g",
+        "C": "1,0 mol",
+        "D": "32 g",
+        "E": "18 g"
+      },
+      "correct_answer": "E",
+      "rationale": "16 g de O2 correspondem a 0,5 mol, e a proporção 1 mol de O2 para 2 mol de H2O produz 1,0 mol de H2O. Como 1,0 mol de H2O tem massa 18 g, a resposta correta é 18 g.",
+      "equacao": "2 H2(g) + O2(g) → 2 H2O(l)",
+      "especie_de": "O2",
+      "especie_para": "H2O",
+      "quantidade": 16.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, calculo refeito em Python e batendo com o gabarito, verificador resolveu sozinho e chegou na mesma resposta"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H2": 2,
+            "O2": 1,
+            "H2O": 2
+          },
+          "valor_calculado": 18.016126007875492,
+          "valores_das_alternativas": {
+            "A": 4.5,
+            "B": 9.0,
+            "C": 1.0,
+            "D": 32.0,
+            "E": 18.0
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "16 g de O₂ correspondem a 0,5 mol, e pela proporção 1 mol de O₂ forma 2 mol de H₂O, ou seja, 1,0 mol de H₂O. Como a massa molar da água é 18 g/mol, a massa formada é 18 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "PROPORCAO_ESTEQUIOMETRICA",
+      "diagnostic_objective": "O aluno le a proporcao entre as especies a partir dos coeficientes da equacao?",
+      "difficulty": "HARD",
+      "stem": "Na reação 2 Al + 3 Cl₂ → 2 AlCl₃, 13,5 g de Al reagem completamente. Considerando Al = 27 g/mol e Cl₂ = 71 g/mol, qual é a massa de Cl₂ consumida?",
+      "options": {
+        "A": "23,7 g",
+        "B": "35,5 g",
+        "C": "0,75 g",
+        "D": "20,3 g",
+        "E": "53,3 g"
+      },
+      "correct_answer": "E",
+      "rationale": "13,5 g de Al correspondem a 0,50 mol, e a proporção da equação indica 3/2 mol de Cl2 para cada mol de Al, resultando em 0,75 mol de Cl2. Multiplicando por 71 g/mol, obtém-se 53,25 g, aproximadamente 53,3 g.",
+      "equacao": "2 Al + 3 Cl2 -> 2 AlCl3",
+      "especie_de": "Al",
+      "especie_para": "Cl2",
+      "quantidade": 13.5,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "REQUIRES_REVIEW",
+      "motivos": [
+        "da para acertar sem calcular"
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "Al": 2,
+            "Cl2": 3,
+            "AlCl3": 2
+          },
+          "valor_calculado": 53.21047364909941,
+          "valores_das_alternativas": {
+            "A": 23.7,
+            "B": 35.5,
+            "C": 0.75,
+            "D": 20.3,
+            "E": 53.3
+          },
+          "alternativas_corretas": [
+            "E"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "13,5 g de Al correspondem a 13,5/27 = 0,5 mol, e a proporção da equação indica 0,5 × 3/2 = 0,75 mol de Cl₂. Assim, a massa consumida é 0,75 × 71 = 53,25 g, aproximadamente 53,3 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": true,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "MEDIUM",
+      "stem": "Na reação 2 Al(s) + 3 Cl₂(g) → 2 AlCl₃(s), 27,0 g de Al reagem completamente. Considerando M(Al) = 27,0 g/mol, M(Cl₂) = 71,0 g/mol e M(AlCl₃) = 133,5 g/mol, qual é a quantidade de Cl₂ consumida?",
+      "options": {
+        "A": "0,67 mol",
+        "B": "1,0 mol",
+        "C": "1,5 mol",
+        "D": "106,5 g",
+        "E": "0,20 mol"
+      },
+      "correct_answer": "C",
+      "rationale": "A massa de Al corresponde a 27,0 ÷ 27,0 = 1,0 mol de Al. Pela proporção 2 mol de Al para 3 mol de Cl2, são consumidos 1,5 mol de Cl2.",
+      "equacao": "2 Al(s) + 3 Cl2(g) → 2 AlCl3(s)",
+      "especie_de": "Al",
+      "especie_para": "Cl2",
+      "quantidade": 27.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "REQUIRES_REVIEW",
+      "motivos": [
+        "o verificador nao viu uma unica resposta correta",
+        "outras alternativas defensaveis: ['D']",
+        "verificador: O enunciado não especifica se a quantidade deve ser expressa em mol ou em massa; assim, C corresponde a 1,5 mol e D corresponde à massa equivalente, 106,5 g, tornando a questão ambígua."
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "Al": 2,
+            "Cl2": 3,
+            "AlCl3": 2
+          },
+          "valor_calculado": 1.5010006671114078,
+          "valores_das_alternativas": {
+            "A": 0.67,
+            "B": 1.0,
+            "C": 1.5,
+            "D": 106.5,
+            "E": 0.2
+          },
+          "alternativas_corretas": [
+            "C"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "27,0 g de Al correspondem a 1,0 mol, pois M(Al) = 27,0 g/mol. Pela proporção 2 mol de Al : 3 mol de Cl₂, consomem-se (3/2) × 1,0 = 1,5 mol de Cl₂.",
+        "unica_resposta": false,
+        "outras_defensaveis": [
+          "D"
+        ],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": [
+          "O enunciado não especifica se a quantidade deve ser expressa em mol ou em massa; assim, C corresponde a 1,5 mol e D corresponde à massa equivalente, 106,5 g, tornando a questão ambígua."
+        ]
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MOL",
+      "diagnostic_objective": "O aluno converte massa em quantidade de materia usando a massa molar?",
+      "difficulty": "HARD",
+      "stem": "Na reação 2 H₂ + O₂ → 2 H₂O, são consumidos 36 g de H₂O (M = 18 g/mol) para formar os produtos. Considerando M(O₂) = 32 g/mol, qual é a quantidade de O₂ envolvida?",
+      "options": {
+        "A": "1,0 mol",
+        "B": "2,0 mol",
+        "C": "4,0 mol",
+        "D": "32 g",
+        "E": "2,25 mol"
+      },
+      "correct_answer": "A",
+      "rationale": "36 g de H₂O correspondem a 2,0 mol, pois 36 ÷ 18 = 2,0. Pela proporção 2 mol de H₂O para 1 mol de O₂, a quantidade de O₂ é 1,0 mol.",
+      "equacao": "2 H₂ + 1 O₂ → 2 H₂O",
+      "especie_de": "H₂O",
+      "especie_para": "O₂",
+      "quantidade": 36.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "mol",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "REQUIRES_REVIEW",
+      "motivos": [
+        "o verificador apontou quimica incorreta",
+        "verificador: O enunciado afirma que H₂O é consumida, mas, na reação apresentada, H₂O é formada; provavelmente deveria dizer que são produzidos 36 g de H₂O."
+      ],
+      "verificacao_calculo": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "proporcao_molar": {
+            "H₂": 2,
+            "O₂": 1,
+            "H₂O": 2
+          },
+          "valor_calculado": 0.9991673605328892,
+          "valores_das_alternativas": {
+            "A": 1.0,
+            "B": 2.0,
+            "C": 4.0,
+            "D": 32.0,
+            "E": 2.25
+          },
+          "alternativas_corretas": [
+            "A"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "A",
+        "resolucao": "36 g de H₂O correspondem a 36/18 = 2,0 mol. Pela proporção 2 mol de H₂O para 1 mol de O₂, a quantidade envolvida de O₂ é 1,0 mol.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": false,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": [
+          "O enunciado afirma que H₂O é consumida, mas, na reação apresentada, H₂O é formada; provavelmente deveria dizer que são produzidos 36 g de H₂O."
+        ]
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "EASY",
+      "stem": "Na reação N₂ + H₂ → NH₃, com H₂ em excesso, qual massa de NH₃ é formada a partir de 28 g de N₂? Massas molares: N₂ = 28 g/mol, H₂ = 2 g/mol e NH₃ = 17 g/mol.",
+      "options": {
+        "A": "17 g",
+        "B": "34 g",
+        "C": "56 g",
+        "D": "4,0 mol",
+        "E": "68 g"
+      },
+      "correct_answer": "E",
+      "rationale": "28 g de N₂ correspondem a 1 mol, que produz 2 mol de NH₃ pela proporção 1:2 da equação. Como 1 mol de NH₃ tem massa de 17 g, a massa formada é 2 × 17 = 34 g.",
+      "equacao": "1 N₂ + 3 H₂ → 2 NH₃",
+      "especie_de": "N₂",
+      "especie_para": "NH₃",
+      "quantidade": 28.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "REQUIRES_REVIEW",
+      "motivos": [
+        "calculo: gabarito declarado 'E', mas o calculo da 'B' (34.04)",
+        "o verificador resolveu e chegou em 'B', o gerador afirma 'E'"
+      ],
+      "verificacao_calculo": {
+        "conferiu": false,
+        "problemas": [
+          "gabarito declarado 'E', mas o calculo da 'B' (34.04)"
+        ],
+        "detalhes": {
+          "proporcao_molar": {
+            "N₂": 1,
+            "H₂": 3,
+            "NH₃": 2
+          },
+          "valor_calculado": 34.044977511244376,
+          "valores_das_alternativas": {
+            "A": 17.0,
+            "B": 34.0,
+            "C": 56.0,
+            "D": 4.0,
+            "E": 68.0
+          },
+          "alternativas_corretas": [
+            "B"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "A equação balanceada é N₂ + 3 H₂ → 2 NH₃. Como 28 g de N₂ correspondem a 1 mol, formam-se 2 mol de NH₃, cuja massa é 2 × 17 = 34 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RELACAO_MASSA_MASSA",
+      "diagnostic_objective": "O aluno percorre massa -> mol -> proporcao -> mol -> massa ate o fim?",
+      "difficulty": "HARD",
+      "stem": "Na reação N₂ + H₂ → NH₃, qual massa de NH₃ é formada a partir de 14,0 g de N₂? Considere N₂ = 28,0 g/mol e NH₃ = 17,0 g/mol.",
+      "options": {
+        "A": "8,5 g",
+        "B": "17,0 g",
+        "C": "34,0 g",
+        "D": "28,0 g",
+        "E": "476,0 g"
+      },
+      "correct_answer": "C",
+      "rationale": "14,0 g de N2 correspondem a 0,50 mol, e a proporção da equação produz 1,00 mol de NH3. Como 1,00 mol de NH3 tem massa 17,0 g, a massa formada é 34,0 g.",
+      "equacao": "1 N2 + 3 H2 → 2 NH3",
+      "especie_de": "N2",
+      "especie_para": "NH3",
+      "quantidade": 14.0,
+      "unidade_entrada": "g",
+      "unidade_saida": "g",
+      "generator_version": "estequiometria-gerador@2026-10-04-v1",
+      "massas_molares": {}
+    },
+    "decisao": {
+      "status": "REQUIRES_REVIEW",
+      "motivos": [
+        "calculo: gabarito declarado 'C', mas o calculo da 'B' (17.02)",
+        "o verificador resolveu e chegou em 'B', o gerador afirma 'C'"
+      ],
+      "verificacao_calculo": {
+        "conferiu": false,
+        "problemas": [
+          "gabarito declarado 'C', mas o calculo da 'B' (17.02)"
+        ],
+        "detalhes": {
+          "proporcao_molar": {
+            "N2": 1,
+            "H2": 3,
+            "NH3": 2
+          },
+          "valor_calculado": 17.022488755622188,
+          "valores_das_alternativas": {
+            "A": 8.5,
+            "B": 17.0,
+            "C": 34.0,
+            "D": 28.0,
+            "E": 476.0
+          },
+          "alternativas_corretas": [
+            "B"
+          ]
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "A equação balanceada é N₂ + 3H₂ → 2NH₃. Como 14,0 g de N₂ correspondem a 0,5 mol, formam-se 1,0 mol de NH₃, cuja massa é 17,0 g.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_estequiometria": true,
+        "da_para_acertar_sem_calcular": false,
+        "problemas": []
+      }
+    }
+  }
+]

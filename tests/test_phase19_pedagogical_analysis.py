@@ -564,7 +564,12 @@ class Phase19Tests(unittest.TestCase):
         self._run(aid, ids, correct_idx=set(range(6)))
         self.assertEqual(self._analysis(aid).status_code, 200)
         self._student("other_stu")
-        self.assertEqual(self._analysis(aid).status_code, 403)
+        # 404, nao 403, desde 2026-10-04: as rotas do ALUNO passaram a
+        # responder igual para "nao existe" e "nao e seu". Um 403 com mensagem
+        # propria confirmava a existencia do recurso a quem varresse UUIDs.
+        # A propriedade que este teste mede - so o dono ve - nao mudou; mudou
+        # o codigo que a expressa. Ver tests/test_anti_enumeracao.py.
+        self.assertEqual(self._analysis(aid).status_code, 404)
 
     # -- 25: determinism ---------------------------------
     def test_deterministic(self):

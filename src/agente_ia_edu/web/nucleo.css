@@ -1,0 +1,251 @@
+/* ========================================================================
+   NÚCLEO EDU 360 - a camada que todos os módulos compartilham.
+
+   O QUE A AUDITORIA ENCONTROU, E POR QUE ESTE ARQUIVO É PEQUENO
+   =============================================================
+   Os tokens já eram os MESMOS nos dois vocabulários do projeto:
+
+       portal/aluno (pt)          styles.css (en)
+       --fundo     #f4f6fb        --bg-app      #f4f6fb
+       --papel     #ffffff        --bg-card     #ffffff
+       --tinta     #1e293b        --text-main   #1e293b
+       --primaria  #4f46e5        --primary     #4f46e5
+       --primaria-escura #4338ca  --primary-hover #4338ca
+
+   Não faltava um design system: faltava terminar de propagar o que já
+   existia. Por isso aqui não há um terceiro vocabulário - há a FONTE ÚNICA
+   dos valores, e os dois nomes apontando para ela. Quem escreve
+   `var(--tinta-fraca)` e quem escreve `var(--text-muted)` passam a receber a
+   mesma cor, e um ajuste futuro não corrige metade do produto.
+
+   O CINZA QUE REPROVAVA
+   ======================
+   `--text-muted` era #64748b, que dá 4,34 sobre o papel - reprova em AA para
+   texto normal. O Portal já tinha corrigido para #5b6b82 (5,02 sobre o papel,
+   4,67 sobre o fundo) com um comentário explicando. A correção não tinha
+   chegado às telas de professor e coordenação, que usavam o outro nome.
+   Agora é uma cor só.
+
+   O QUE ESTE ARQUIVO NÃO FAZ
+   ===========================
+   Não redesenha página nenhuma. Define tokens e três primitivas de casca
+   (marca, rodapé, foco). Cada módulo continua com o seu CSS e pode
+   especializar - por isso esta folha vem SEMPRE antes da folha da página.
+   ======================================================================== */
+
+:root {
+  /* -------------------------------------------------- tipografia ---- */
+  --nucleo-fonte: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+
+  /* ------------------------------------------------------- cores ---- */
+  --nucleo-fundo: #f4f6fb;
+  --nucleo-papel: #ffffff;
+  --nucleo-tinta: #1e293b;
+  /* 5,02 sobre o papel e 4,67 sobre o fundo. Medido, não escolhido: o
+     #64748b usual reprova em AA para texto normal, e texto de apoio é
+     justamente o que mais gente precisa conseguir ler. */
+  --nucleo-tinta-fraca: #5b6b82;
+  --nucleo-primaria: #4f46e5;
+  --nucleo-primaria-escura: #4338ca;
+  --nucleo-primaria-clara: #eef2ff;
+  --nucleo-borda: #e2e8f0;
+  --nucleo-escuro: #0f172a;
+
+  /* ------------------------------------------------------ formas ---- */
+  --nucleo-r-p: 8px;
+  --nucleo-r-m: 14px;
+  --nucleo-r-g: 20px;
+  --nucleo-sombra: 0 1px 3px rgba(15, 23, 42, .06);
+  /* 44px e o minimo confortavel de toque. Não é estética: abaixo disso
+     dedo médio erra o alvo. */
+  --nucleo-toque: 44px;
+
+  /* ======================= OS DOIS VOCABULÁRIOS, UMA FONTE =========
+     Não duplicar valor aqui é o ponto do arquivo. Qualquer ajuste acima
+     chega aos dois lados do produto no mesmo commit. */
+  --fonte: var(--nucleo-fonte);
+  --fundo: var(--nucleo-fundo);
+  --papel: var(--nucleo-papel);
+  --tinta: var(--nucleo-tinta);
+  --tinta-fraca: var(--nucleo-tinta-fraca);
+  --primaria: var(--nucleo-primaria);
+  --primaria-escura: var(--nucleo-primaria-escura);
+  --primaria-clara: var(--nucleo-primaria-clara);
+  --borda: var(--nucleo-borda);
+  --r-m: var(--nucleo-r-m);
+  --r-g: var(--nucleo-r-g);
+  --sombra: var(--nucleo-sombra);
+  --toque: var(--nucleo-toque);
+
+  --font-family: var(--nucleo-fonte);
+  --bg-app: var(--nucleo-fundo);
+  --bg-card: var(--nucleo-papel);
+  --bg-sidebar: var(--nucleo-escuro);
+  --text-main: var(--nucleo-tinta);
+  --text-muted: var(--nucleo-tinta-fraca);
+  --primary: var(--nucleo-primaria);
+  --primary-hover: var(--nucleo-primaria-escura);
+  --primary-light: var(--nucleo-primaria-clara);
+  --border-color: var(--nucleo-borda);
+}
+
+/* ------------------------------------------------------- a marca ------
+   O símbolo oficial, nunca um emoji e nunca um nome anterior. Um produto
+   que se chama de dois jeitos em duas telas é lido como dois produtos. */
+.nucleo-marca {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  min-width: 0;
+}
+
+.nucleo-marca img {
+  display: block;
+  height: 34px;
+  width: auto;
+  flex: none;
+}
+
+.nucleo-marca-nome {
+  font-weight: 800;
+  font-size: .9375rem;
+  letter-spacing: -.01em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------ o rodapé ------
+   Discreto de propósito: identifica a versão sem disputar com o conteúdo.
+   `Alfa 1.0` é informação honesta - quem vê a tela precisa saber que está
+   olhando uma alfa. */
+.nucleo-rodape {
+  margin-top: auto;
+  padding: 1rem 1.25rem;
+  font-size: .75rem;
+  line-height: 1.4;
+  color: var(--nucleo-tinta-fraca);
+  text-align: center;
+}
+
+.nucleo-rodape-escuro {
+  color: rgba(248, 250, 252, .55);
+  text-align: left;
+}
+
+/* -------------------------------------------------------- o foco ------
+   Um anel visível, igual em todos os módulos. Quem navega por teclado não
+   deve ter de descobrir onde está em cada tela de novo. */
+.nucleo-foco:focus-visible,
+.nucleo-marca:focus-visible {
+  outline: 3px solid var(--nucleo-primaria);
+  outline-offset: 2px;
+  border-radius: var(--nucleo-r-p);
+}
+
+/* So para leitor de tela - repetido aqui porque as paginas que ainda nao
+   tinham esta classe precisam dela para os rotulos de estado. */
+.nucleo-sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ------------------------------------------- a marca nas laterais ------
+   `.brand-logo` era `font-size: 28px` porque a marca era um emoji. Com o
+   simbolo oficial ele precisa de caixa, nao de corpo de fonte. */
+.brand-logo img {
+  display: block;
+  width: 34px;
+  height: auto;
+}
+
+.brand-text { line-height: 1.15; }
+
+/* ------------------------------------- quem esta olhando a tela --------
+   Nome e instituicao em linguagem de gente. Discreto: e contexto, nao
+   conteudo. */
+.contexto-humano {
+  margin: 0;
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--nucleo-tinta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22rem;
+}
+
+/* ------------------------------ as entradas de desenvolvimento ---------
+   Elas continuam funcionando - sao o mecanismo real de troca de identidade
+   neste ambiente. O que mudou e nao estarem abertas na cara de quem nao e
+   desenvolvedor. */
+.dev-identidade {
+  font-size: .75rem;
+  color: var(--nucleo-tinta-fraca);
+}
+
+.dev-identidade > summary {
+  cursor: pointer;
+  padding: .3rem .5rem;
+  border-radius: var(--nucleo-r-p);
+  list-style: none;
+  user-select: none;
+}
+
+.dev-identidade > summary::-webkit-details-marker { display: none; }
+
+.dev-identidade > summary::before {
+  content: "⚙ ";
+  opacity: .6;
+}
+
+.dev-identidade > summary:hover { background: var(--nucleo-primaria-clara); }
+
+.dev-identidade > summary:focus-visible {
+  outline: 3px solid var(--nucleo-primaria);
+  outline-offset: 2px;
+}
+
+.dev-identidade[open] {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  padding-bottom: .4rem;
+}
+
+/* -------------------------------------- os grupos da navegacao --------
+   Catorze itens numa lista plana sao um inventario do que o sistema sabe
+   fazer, nao a arquitetura mental de quem usa. O grupo e so um rotulo
+   discreto: ele organiza a leitura sem acrescentar um nivel de clique. */
+.nav-grupo {
+  margin: 1.1rem .75rem .3rem;
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, .45);
+}
+
+.nav-grupo:first-of-type { margin-top: .9rem; }
+
+/* A VOLTA AO ECOSSISTEMA fica visualmente separada dos itens do modulo:
+   ela sai daqui, nao navega dentro. */
+.nav-item-portal {
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  margin-top: .2rem;
+  padding-top: .8rem;
+}
+
+/* `hidden` SIGNIFICA ESCONDIDO.
+ *
+ * O atributo só esconde pela folha do navegador, e qualquer `display` do
+ * autor a vence. Isto já foi corrigido caso a caso três vezes em styles.css
+ * (`.activity-player-dialog-backdrop`, `.activity-result-questions`,
+ * `.ss-time-custom`) e quebrou de novo nos filtros globais: `switchView`
+ * marcava `hidden` na view da Redação, o JS decidia certo, e os filtros
+ * continuavam na tela por causa do `display: flex` de `.filter-group`.
+ *
+ * Aqui a regra passa a valer para o produto inteiro, de uma vez. Quem
+ * precisar mostrar um elemento tira o atributo - que é o que ele quer dizer.
+ */
+[hidden] { display: none !important; }

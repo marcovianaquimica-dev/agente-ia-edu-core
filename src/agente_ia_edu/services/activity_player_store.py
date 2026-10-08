@@ -118,6 +118,32 @@ class ActivityPlayerStore:
             )
         )).scalar_one_or_none()
 
+    async def statuses_for(self, assignment_ids: list[UUID], *,
+                           requester: Requester) -> dict[str, str]:
+        """Em que pe esta a tentativa DESTE aluno em cada atividade da lista.
+
+        Uma consulta so. `get_state` responderia o mesmo, mas carrega o
+        enunciado e as alternativas de cada questao - para uma lista de
+        atividades isso e um banquete para servir um copo d'agua.
+
+        Filtra por `student_external_id`: o estado e de quem pergunta. Quem
+        pode VER cada atividade ja foi decidido por `student_activities`, que
+        e quem monta a lista; aqui nao ha ampliacao de visibilidade - uma
+        atividade que nao chegou ate aqui simplesmente nao tem estado.
+        """
+        if not assignment_ids:
+            return {}
+        rows = (await self._session.execute(
+            select(ActivityAttempt.assignment_id, ActivityAttempt.status).where(
+                ActivityAttempt.assignment_id.in_(assignment_ids),
+                ActivityAttempt.student_external_id == requester.external_user_id,
+            )
+        )).all()
+        achados = {str(aid): (status or STATUS_IN_PROGRESS) for aid, status in rows}
+        # Sem tentativa nao e ausencia de dado: e "ainda nao comecou".
+        return {str(a): achados.get(str(a), STATUS_NOT_STARTED)
+                for a in assignment_ids}
+
     # -- start -----------------------------------------------------------
 
     async def start(self, assignment_id: UUID, *, requester: Requester) -> dict:
@@ -225,6 +251,25 @@ class ActivityPlayerStore:
         if not current_position:
             current_position = (pending_positions[0] if pending_positions else 1) if total else None
 
+        # A INTERVENCAO PENDENTE SOBREVIVE AO RECARREGAR.
+        #
+        # Ela nao e gravada: e REDERIVADA da resposta que ja esta no banco.
+        # Guardar a decisao ao lado da resposta criaria duas verdades, e a
+        # gravada envelheceria no instante em que o aluno percorresse a
+        # investigacao - voltaria dizendo "investigue" o que ele acabou de
+        # investigar.
+        #
+        # E a pergunta e sempre a da POSICAO CORRENTE, que `save_answer`
+        # move para o item respondido: e nela que o aluno estava quando
+        # errou, e e a ela que ele tem de voltar.
+        pendente = None
+        if attempt is not None and status == STATUS_IN_PROGRESS:
+            atual = next((q for q in questions
+                          if q["position"] == current_position), None)
+            if atual is not None and atual["answered"]:
+                pendente = await self._intervencao_de(
+                    (row.metadata_ or {}), atual, requester=requester) or None
+
         return {
             "activity": {
                 "assignment_id": str(row.id),
@@ -255,7 +300,31 @@ class ActivityPlayerStore:
             "current_position": current_position,
             "questions": questions,
             "answer_key_visible": False,
+            # None quando nao ha. Ver o bloco que a calcula: ela e
+            # rederivada da resposta gravada, nunca guardada.
+            "pending_intervention": pendente,
         }
+
+    async def _intervencao_de(self, metadata, questao: dict, *,
+                              requester: Requester) -> dict:
+        """A decisao pedagogica daquela questao ja respondida, ou {}.
+
+        Um lugar so para as duas chamadas - `save_answer` e `_state` -,
+        para que a resposta do turno e a da retomada nao possam divergir.
+        """
+        from agente_ia_edu.services.intervencao_formativa import (
+            decidir_apos_resposta,
+        )
+
+        try:
+            return await decidir_apos_resposta(
+                self._session, aluno=requester.external_user_id,
+                metadata=dict(metadata or {}),
+                question_version_id=questao["question_version_id"],
+                selected_option_key=questao.get("selected_option"),
+                requester=requester)
+        except Exception:  # noqa: BLE001 - a decisao nunca derruba a leitura
+            return {}
 
     # -- save answer (autosave) --------------------------------------
 
@@ -305,6 +374,13 @@ class ActivityPlayerStore:
         attempt_id = attempt.id
         qvid = item.question_version_id
         position = item.position
+        # O METADATA DA ATRIBUICAO TAMBEM, e pelo mesmo motivo: a decisao
+        # pedagogica e tomada DEPOIS do commit abaixo, e um commit expira os
+        # objetos desta sessao. Ler `row.metadata_` la tentaria recarregar
+        # fora do contexto async e levantaria MissingGreenlet - que o
+        # `except` da decisao engoliria, devolvendo "pode avancar" para uma
+        # resposta errada. Medido no navegador em 2026-10-08.
+        meta_da_atribuicao = dict(row.metadata_ or {})
         answer = (await self._session.execute(
             select(ActivityAnswer).where(
                 ActivityAnswer.attempt_id == attempt_id,
@@ -341,6 +417,25 @@ class ActivityPlayerStore:
             attempt.current_position = position
             await self._session.commit()
 
+        # A DECISAO PEDAGOGICA DESTA RESPOSTA.
+        #
+        # Ate 2026-10-08 esta funcao devolvia so um recibo - gravou, quantas
+        # faltam - e nunca consultava o gabarito. O cliente entao avancava
+        # sozinho, e o aluno errava cinco questoes seguidas sem que nada
+        # acontecesse. A observacao passa a existir AQUI, no momento em que
+        # a resposta chega, como ja acontecia no dialogo.
+        #
+        # So a PRATICA FORMATIVA e interrompida: `modo_pedagogico` e o
+        # portao, e ele protege o diagnostico, a verificacao L0 e a prova.
+        #
+        # Nao grava nada: `decidir_apos_resposta` e leitura e decisao. A
+        # correcao da tentativa e a evidencia continuam onde sempre
+        # estiveram, em `attempt/correct`.
+        decisao = await self._intervencao_de(
+            meta_da_atribuicao,
+            {"question_version_id": qvid, "selected_option": key},
+            requester=requester)
+
         state = await self._state(assignment_id, requester=requester)
         return {
             "saved": True,
@@ -352,6 +447,8 @@ class ActivityPlayerStore:
             "pending_count": state["pending_count"],
             "total_questions": state["total_questions"],
             "status": state["status"],
+            "may_advance": not decisao,
+            "intervention": decisao or None,
         }
 
     # -- lightweight "last viewed question" -------------------------

@@ -1,0 +1,1452 @@
+/* =========================================================================
+   PROTOTIPO DO PERFIL ALUNO — mobile first.
+
+   Nasce separado de styles.css de proposito. Aquele arquivo tem 1.822 linhas
+   e e desktop-first (`max-width` em todas as media queries). Aqui os estilos
+   base valem para o telefone e `min-width` acrescenta o resto.
+
+   Os VALORES dos tokens sao os mesmos de styles.css, para a marca nao mudar.
+   ========================================================================= */
+
+:root {
+  --fonte: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+
+  --fundo: #f4f6fb;
+  --papel: #ffffff;
+  --tinta: #1e293b;
+  /* 5b6b82 e nao o 64748b do portal: medido, 64748b da 4,40 sobre o
+     fundo da aplicacao e reprova em AA para texto normal. Este da 5,02
+     sobre o fundo e 5,43 sobre o cartao. */
+  --tinta-fraca: #5b6b82;
+
+  --primaria: #4f46e5;
+  --primaria-escura: #4338ca;
+  --primaria-clara: #eef2ff;
+
+  --sucesso: #10b981;
+  --sucesso-claro: #ecfdf5;
+  --alerta: #f59e0b;
+  --alerta-claro: #fffbeb;
+  /* Os tons acima sao de PREENCHIMENTO. Para TEXTO eles reprovam: medido,
+     #10b981 da 2,35 e #f59e0b da 1,99 sobre o fundo da aplicacao - longe dos
+     4,5 de AA. Estes dois existem para quando a cor precisa ser lida:
+     7,11 e 6,56 sobre o fundo. */
+  --sucesso-tinta: #065f46;
+  --alerta-tinta: #92400e;
+  --perigo: #ef4444;
+
+  --borda: #e2e8f0;
+  --r-p: 8px;
+  --r-m: 14px;
+  --r-g: 20px;
+
+  --sombra: 0 1px 3px rgba(15, 23, 42, .06);
+  --sombra-alta: 0 8px 24px -8px rgba(15, 23, 42, .18);
+
+  /* alvo de toque minimo */
+  --toque: 44px;
+
+  /* ESPACAMENTO - §12 do bloco de 2026-10-08.
+     Nao havia token nenhum: cada regra escolhia um valor, e na tela da
+     conversa o resultado foi "Responder" encostando no campo e "Nao sei"
+     encostando em "Voltar ao inicio", que entao parecia uma terceira
+     alternativa da pergunta.
+
+       --e-p  entre controles do MESMO grupo
+       --e-m  respiro interno de um grupo
+       --e-g  entre grupos DIFERENTES */
+  --e-p: 12px;
+  --e-m: 16px;
+  --e-g: 24px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--fonte);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--tinta);
+  background: var(--fundo);
+  /* a barra de abas é fixa: reserva o espaço dela */
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+
+h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; font-weight: 700; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.25rem; }
+p  { margin: 0 0 .75rem; }
+
+/* acessibilidade -------------------------------------------------------- */
+.sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.pular {
+  position: absolute; left: -999px; top: 0; z-index: 100;
+  background: var(--primaria); color: #fff; padding: .75rem 1rem;
+  border-radius: 0 0 var(--r-p) 0;
+}
+.pular:focus { left: 0; }
+
+:focus-visible {
+  outline: 3px solid var(--primaria);
+  outline-offset: 2px;
+  border-radius: var(--r-p);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* topo ------------------------------------------------------------------ */
+.topo {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem;
+  padding: .75rem 1.25rem;
+  padding-top: calc(.75rem + env(safe-area-inset-top, 0px));
+  /* Fundo branco de proposito: a logo oficial entregue vem com fundo branco,
+     e sobre o cinza do corpo (--fundo) ela desenharia um retangulo. Recortar
+     o fundo dela seria mexer na marca - o que esta fora de questao - e um
+     header branco sobre corpo cinza e o arranjo institucional comum. */
+  background: var(--papel);
+  border-bottom: 1px solid var(--borda);
+  margin-bottom: 1rem;
+}
+
+/* A marca e a imagem oficial, so redimensionada. `width: auto` preserva a
+   proporcao; a altura e menor no telefone porque ali ela divide a linha com o
+   avatar - e, abaixo de 360px, com pouco mais que isso. */
+.marca { display: inline-flex; align-items: center; flex: 0 0 auto; }
+/* 52px, nao 34: medido no navegador, a 34 a assinatura da marca fica
+   ilegivel - a arte e quase quadrada (1,78:1), entao e a ALTURA que da
+   tamanho ao texto. A 52 ela ocupa 93px de largura, e em 320px ainda sobram
+   mais de 140px para o avatar e o respiro. */
+.marca-logo { height: 52px; width: auto; display: block; }
+
+@media (min-width: 768px) {
+  .marca-logo { height: 64px; }
+}
+
+.avatar {
+  width: var(--toque); height: var(--toque);
+  min-width: var(--toque);
+  border: 0; border-radius: 50%;
+  background: var(--primaria); color: #fff;
+  font-family: inherit; font-size: 1rem; font-weight: 700;
+  cursor: pointer;
+}
+
+/* palco e telas --------------------------------------------------------- */
+
+/* O atributo `hidden` do HTML esconde via `display: none` da folha do
+   NAVEGADOR, que qualquer regra nossa de `display` vence por especificidade.
+   Foi assim que o banner de objetivo apareceu vazio ("🎯 Para:" sem texto):
+   o JS fazia `hidden = true` corretamente e o `.objetivo { display: flex }`
+   anulava. Esta regra fecha a classe inteira do problema - vale para todo
+   elemento que o JS esconde, hoje e depois - em vez de remendar caso a caso.
+   `!important` e deliberado: `hidden` e uma afirmacao sobre a existencia do
+   elemento na interface, nao uma preferencia de estilo. */
+[hidden] { display: none !important; }
+
+.palco { padding: 0 1.25rem; }
+
+/* --------------------------------------------------- cartao de contexto */
+.contexto {
+  background: var(--papel);
+  border-radius: var(--r-g);
+  box-shadow: var(--sombra);
+  padding: 1.5rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.saudacao { font-size: 1.5rem; font-weight: 700; margin-bottom: .25rem; }
+
+.chamada {
+  font-size: 1.125rem;
+  color: var(--tinta);
+  margin-bottom: 1.25rem;
+}
+.chamada strong { font-weight: 700; }
+
+.detalhe {
+  display: block;
+  font-size: .875rem; color: var(--tinta-fraca);
+  margin-bottom: 1.25rem;
+}
+
+.selo {
+  display: inline-block;
+  font-size: .75rem; font-weight: 600;
+  padding: .25rem .625rem; border-radius: 999px;
+  margin-bottom: .75rem;
+}
+.selo-prazo  { background: var(--alerta-claro); color: #92400e; }
+.selo-bom    { background: var(--sucesso-claro); color: #065f46; }
+.selo-neutro { background: var(--primaria-clara); color: var(--primaria-escura); }
+
+/* botoes ---------------------------------------------------------------- */
+.botao {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--toque);
+  padding: .75rem 1.25rem;
+  border: 0; border-radius: var(--r-m);
+  font-family: inherit; font-size: 1rem; font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+.botao + .botao { margin-top: .625rem; }
+
+.botao-principal { background: var(--primaria); color: #fff; }
+.botao-principal:hover { background: var(--primaria-escura); }
+
+.botao-secundario {
+  background: var(--papel); color: var(--tinta);
+  box-shadow: inset 0 0 0 1px var(--borda);
+}
+
+.botao:disabled { opacity: .45; cursor: not-allowed; }
+
+.ligacao {
+  display: block;
+  text-align: left;
+  background: none; border: 0; padding: .625rem 0;
+  min-height: var(--toque);
+  font-family: inherit; font-size: .9375rem;
+  color: var(--primaria); text-decoration: underline;
+  cursor: pointer;
+}
+
+.dupla { display: grid; grid-template-columns: 1fr 1fr; gap: .625rem; }
+.dupla .botao { margin-top: 0; }
+
+/* tempo ----------------------------------------------------------------- */
+.tempo-rotulo { font-weight: 600; margin-bottom: .75rem; }
+
+.tempos { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+
+.tempo {
+  min-height: var(--toque);
+  border: 0; border-radius: var(--r-m);
+  background: var(--primaria-clara); color: var(--primaria-escura);
+  font-family: inherit; font-size: 1rem; font-weight: 700;
+  cursor: pointer;
+}
+.tempo:hover { background: #e0e7ff; }
+
+/* perguntar ------------------------------------------------------------- */
+.perguntar { margin: 1.5rem 0 .5rem; }
+.perguntar-rotulo {
+  display: block; font-size: .9375rem; font-weight: 600; margin-bottom: .5rem;
+}
+/* A linha de entrada QUEBRA quando nao cabe, em vez de empurrar o botao
+   para fora da tela. Em 320px, antes desta regra, o conteudo media 486px: o
+   campo sobrava com 30px de largura - inutilizavel - e "Enviar" terminava
+   166px alem da viewport.
+
+   Sem media query: `flex-wrap` + uma base de 12rem no campo fazem a
+   composicao se reorganizar sozinha no ponto em que ela de fato precisa.
+   Em telas largas tudo continua numa linha; em telas estreitas o campo fica
+   com a linha inteira e os controles descem. */
+.perguntar-linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .375rem;
+  align-items: center;
+}
+
+.perguntar-campo {
+  /* 12rem de base: abaixo disso o campo deixa de ser utilizavel, entao e
+     melhor ele tomar a linha inteira e os controles descerem. */
+  flex: 1 1 12rem; min-width: 0;
+  min-height: var(--toque);
+  padding: .625rem .875rem;
+  border: 1px solid var(--borda); border-radius: var(--r-m);
+  background: var(--papel);
+  font-family: inherit; font-size: 1rem; color: var(--tinta);
+}
+.perguntar-campo::placeholder { color: var(--tinta-fraca); }
+
+.icone {
+  width: var(--toque); height: var(--toque); min-width: var(--toque);
+  border: 1px solid var(--borda); border-radius: var(--r-m);
+  background: var(--papel); font-size: 1.125rem; cursor: pointer;
+}
+.icone:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Os tres icones andam juntos: quando a linha quebra, eles descem como um
+   bloco so em vez de se espalharem. */
+.perguntar-icones {
+  display: flex;
+  gap: .375rem;
+  flex: 0 0 auto;
+}
+
+.nota { font-size: .8125rem; color: var(--tinta-fraca); margin: .5rem 0 0; }
+
+/* sessao ---------------------------------------------------------------- */
+.objetivo {
+  display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap;
+  background: var(--primaria-clara);
+  border-radius: var(--r-m);
+  padding: .75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: .9375rem;
+}
+.objetivo-rotulo { font-weight: 700; color: var(--primaria-escura); }
+
+.trilho { display: flex; gap: .375rem; margin-bottom: .5rem; }
+.passo {
+  flex: 1; height: 6px; border-radius: 999px; background: var(--borda);
+}
+.passo-feito  { background: var(--sucesso); }
+.passo-agora  { background: var(--primaria); }
+
+.sessao-resumo {
+  font-size: .875rem; color: var(--tinta-fraca); margin-bottom: 1.25rem;
+}
+
+.cartao-bloco {
+  background: var(--papel);
+  border-radius: var(--r-g);
+  box-shadow: var(--sombra);
+  padding: 1.5rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.bloco-etiqueta {
+  font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--primaria);
+  margin-bottom: .375rem;
+}
+.bloco-titulo { font-size: 1.25rem; font-weight: 700; margin-bottom: .5rem; }
+.bloco-porque { color: var(--tinta-fraca); margin-bottom: 1.25rem; }
+
+.indisponivel {
+  background: var(--alerta-claro);
+  border-radius: var(--r-m);
+  padding: .875rem 1rem;
+  font-size: .9375rem;
+  color: #92400e;
+}
+
+.a-seguir { font-size: .875rem; color: var(--tinta-fraca); margin-top: 1rem; }
+
+/* progresso ------------------------------------------------------------- */
+.fatos { list-style: none; padding: 0; margin: 0 0 1.5rem; }
+.fatos li {
+  background: var(--papel);
+  border-radius: var(--r-m);
+  box-shadow: var(--sombra);
+  padding: 1rem 1.125rem;
+  margin-bottom: .625rem;
+  font-size: 1.0625rem;
+}
+
+.panorama { margin-top: 1.5rem; }
+.panorama summary {
+  cursor: pointer; color: var(--primaria); font-size: .9375rem;
+  min-height: var(--toque); display: flex; align-items: center;
+}
+.faixa { margin: .75rem 0; }
+.faixa h3 { font-size: .9375rem; margin-bottom: .25rem; }
+.faixa p { font-size: .9375rem; color: var(--tinta-fraca); margin: 0; }
+
+/* abas ------------------------------------------------------------------ */
+.abas {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  /* colunas automaticas acompanham o numero de abas. Estava fixo em duas, e
+     ao entrar a terceira ela caiu para uma segunda linha - em 320px a barra
+     inteira virava dois andares. */
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: var(--papel);
+  border-top: 1px solid var(--borda);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.aba {
+  min-height: 64px;
+  border: 0; background: none;
+  font-family: inherit; font-size: .8125rem; font-weight: 600;
+  /* com tres abas em 320px cada uma tem ~106px: o rotulo precisa poder
+     encolher um pouco sem estourar a coluna */
+  padding: 0 .25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--tinta-fraca);
+  cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .125rem;
+}
+.aba span { font-size: 1.25rem; }
+.aba.ativa { color: var(--primaria); }
+
+/* folhas ---------------------------------------------------------------- */
+.folha {
+  border: 0; border-radius: var(--r-g) var(--r-g) 0 0;
+  padding: 1.5rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  width: 100%; max-width: 560px;
+  margin: auto auto 0;
+  box-shadow: var(--sombra-alta);
+  color: var(--tinta);
+}
+.folha::backdrop { background: rgba(15, 23, 42, .45); }
+
+.lista-tarefas { list-style: none; padding: 0; margin: 0 0 1rem; }
+.lista-tarefas li {
+  padding: .875rem 0; border-bottom: 1px solid var(--borda);
+}
+.lista-tarefas li:last-child { border-bottom: 0; }
+.lista-tarefas strong { display: block; }
+
+.divisor { border: 0; border-top: 1px solid var(--borda); margin: 1.25rem 0; }
+
+.estados { display: grid; grid-template-columns: repeat(4, 1fr); gap: .375rem; margin-bottom: 1rem; }
+.estados button {
+  min-height: var(--toque);
+  border: 1px solid var(--borda); border-radius: var(--r-p);
+  background: var(--papel); font-family: inherit; font-weight: 700;
+  cursor: pointer;
+}
+.estados button[aria-pressed="true"] {
+  background: var(--primaria); color: #fff; border-color: var(--primaria);
+}
+
+/* =================================================== tablet / desktop == */
+@media (min-width: 768px) {
+  body { padding-bottom: 0; }
+
+  .palco { max-width: 720px; margin: 0 auto; padding: 0 2rem 4rem; }
+  .topo  { max-width: 720px; margin: 0 auto; padding: 1.5rem 2rem; }
+
+  h1 { font-size: 1.75rem; }
+  .saudacao { font-size: 1.75rem; }
+  .chamada { font-size: 1.25rem; }
+
+  .contexto, .cartao-bloco { padding: 2rem; }
+
+  /* a acao principal nao precisa ocupar a largura toda fora do telefone,
+     mas continua comecando em linha propria: ela e o destino da tela. */
+  .botao { width: auto; min-width: 240px; }
+  .contexto > .botao, .cartao-bloco > .botao { display: flex; }
+  .dupla { max-width: 480px; }
+  .dupla .botao { width: 100%; min-width: 0; }
+
+  /* a barra de abas vira horizontal no topo do conteudo */
+  .abas {
+    position: static;
+    display: flex; gap: .5rem;
+    max-width: 720px; margin: 0 auto 1.5rem;
+    padding: 0 2rem;
+    background: none; border-top: 0;
+  }
+  .aba {
+    min-height: var(--toque);
+    flex-direction: row; gap: .5rem;
+    padding: .5rem 1rem; border-radius: 999px;
+  }
+  .aba span { font-size: 1rem; }
+  .aba.ativa { background: var(--primaria-clara); }
+
+  .folha { border-radius: var(--r-g); margin: auto; }
+}
+
+@media (min-width: 1024px) {
+  /* largura maxima de LEITURA. Nao vira dashboard: a coluna nao se divide. */
+  .palco, .topo, .abas { max-width: 760px; }
+}
+
+
+/* ===================================== PILOTO ZERO: responder a questao ===
+   O enunciado e as alternativas do microdiagnostico. Alvo de toque de 44px
+   em diante (a alternativa inteira e o botao, nao so a letra), porque no
+   telefone errar o alvo durante um diagnostico registra a resposta errada
+   como se fosse a escolha do aluno. */
+
+.bloco-enunciado {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--tinta);
+}
+
+.alternativas {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: 1rem;
+}
+
+.alternativa {
+  display: flex;
+  align-items: flex-start;
+  gap: .75rem;
+  width: 100%;
+  min-height: 44px;
+  padding: .75rem;
+  text-align: left;
+  font: inherit;
+  line-height: 1.4;
+  color: var(--tinta);
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.alternativa:hover { border-color: var(--primaria); }
+
+.alternativa-escolhida {
+  border-color: var(--primaria);
+  box-shadow: inset 0 0 0 1px var(--primaria);
+}
+
+.alternativa-letra {
+  flex: 0 0 1.5rem;
+  font-weight: 700;
+  color: var(--primaria);
+}
+
+
+/* ======================================= PILOTO ZERO: busca e progresso ===
+   O campo "O que voce precisa agora?" tinha texto e nenhuma forma de enviar -
+   observado no teste humano de 2026-10-04. */
+
+.botao-enviar {
+  /* Cresce para ocupar a sobra quando desce de linha, mas nunca espreme os
+     icones: `flex-basis: auto` com `min-width` do proprio texto. */
+  flex: 1 0 auto;
+  padding: 0 1rem;
+  min-height: var(--toque);
+  white-space: nowrap;
+}
+
+.busca-resultado { margin-top: .75rem; }
+
+.busca-titulo {
+  margin: 0 0 .5rem;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+.busca-lista {
+  margin: 0 0 .5rem;
+  padding-left: 1.1rem;
+  color: var(--tinta-fraca);
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+/* --- Meu Progresso: um cartao por conteudo, com o estado visivel --------
+   Os dados ja eram reais; o que faltava era hierarquia. A cor nao carrega
+   sozinha o significado - o estado tambem esta escrito, para quem nao
+   distingue as cores. */
+
+.fatos { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+
+.cartao-faixa {
+  display: flex;
+  align-items: center;
+  /* QUEBRA quando o botao de acao nao couber. Sem isto, em 390px o cartao
+     com "Revisar agora" media 528px e empurrava a pagina inteira para o
+     scroll horizontal - e so acontecia no estado "Precisa de atencao",
+     porque so ele tem botao. A auditoria com tudo "Consolidado" passava. */
+  flex-wrap: wrap;
+  gap: .75rem;
+  padding: .85rem 1rem;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-left-width: 4px;
+  border-radius: 12px;
+}
+
+.faixa-icone {
+  flex: 0 0 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 700;
+  background: var(--fundo);
+  color: var(--tinta-fraca);
+}
+
+/* 8rem de base: abaixo disso o nome do conteudo fica ilegivel, entao e
+   melhor o botao descer para a linha de baixo. */
+.faixa-corpo { flex: 1 1 8rem; min-width: 0; display: flex; flex-direction: column; }
+.faixa-conteudo { overflow-wrap: anywhere; }
+.faixa-conteudo { font-weight: 600; color: var(--tinta); line-height: 1.3; }
+.faixa-estado { font-size: .8rem; color: var(--tinta-fraca); }
+
+.faixa-bom { border-left-color: var(--sucesso); }
+.faixa-bom .faixa-icone { background: var(--sucesso-claro); color: var(--sucesso); }
+
+.faixa-meio { border-left-color: var(--alerta); }
+.faixa-meio .faixa-icone { background: var(--alerta-claro); color: var(--alerta); }
+
+.faixa-atencao { border-left-color: var(--primaria); }
+.faixa-atencao .faixa-icone { background: var(--primaria-clara); color: var(--primaria); }
+
+.botao-pequeno {
+  /* cresce para a largura toda quando desce de linha */
+  flex: 1 0 auto;
+  padding: .45rem .75rem;
+  font-size: .85rem;
+  min-height: 40px;
+}
+
+.vazio { color: var(--tinta-fraca); list-style: none; }
+
+/* tom do cartao de resultado do diagnostico */
+.cartao-bom { border-left: 4px solid var(--sucesso); }
+.cartao-revisar { border-left: 4px solid var(--primaria); }
+
+
+/* ========================================= PILOTO ZERO: icones das abas ===
+   SVG tracejado, nao emoji: o desenho e o tamanho de 🏠 e 📈 mudam entre
+   sistemas, e a barra saia desalinhada. `currentColor` faz o icone seguir o
+   estado ativo sem uma segunda regra de cor. */
+
+.aba-icone {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+  margin: 0 auto .15rem;
+}
+
+
+/* ============================ ATIVIDADE OFICIAL: navegar entre questoes ===
+   O diagnostico e linear (tres perguntas, sem volta). A tarefa da escola nao:
+   o aluno pode voltar, pular e mudar de ideia antes de finalizar. */
+
+.navegacao-questoes {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+.navegacao-questoes .botao { flex: 1 1 0; }
+
+.navegacao-questoes .botao[disabled] {
+  opacity: .45;
+  cursor: default;
+}
+
+
+/* ====================================== REVISAO da atividade concluida ===
+   Leitura, nao tentativa: as alternativas aqui nao sao botoes.
+
+   O estado NAO e dito so pela cor. Cada alternativa marcada ou correta traz
+   simbolo e palavra ("✓ correta", "✗ sua resposta"), porque quem nao
+   distingue verde de vermelho tambem precisa saber se acertou. */
+
+.alternativa-revisao {
+  cursor: default;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.alternativa-revisao:hover { border-color: var(--borda); }
+
+.alternativa-certa {
+  border-color: var(--sucesso);
+  background: var(--sucesso-claro);
+}
+
+.alternativa-errada {
+  border-color: var(--alerta);
+  background: var(--alerta-claro);
+}
+
+.alt-selo {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: .8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.alternativa-certa .alt-selo { color: var(--sucesso); }
+.alternativa-errada .alt-selo { color: var(--alerta); }
+
+.resolucao {
+  margin: 0 0 1rem;
+  padding: .75rem;
+  background: var(--fundo);
+  border-radius: 10px;
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.resolucao summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--primaria);
+}
+
+.resolucao p { margin: .5rem 0 0; color: var(--tinta-fraca); }
+
+/* no trilho, questao errada aparece diferente de nao-visitada */
+.passo-errado { background: var(--alerta); }
+
+
+/* ========================================================== A JORNADA =====
+   Diagnostico -> Preparacao -> Atividade -> Resultado.
+
+   Responde "onde estou?". E diferente do `.trilho`, que mede questoes DENTRO
+   da etapa atual.
+
+   O estado nao e dito so pela cor: cada etapa tem um simbolo (✓ ● ○) e um
+   texto para leitor de tela. */
+
+.jornada {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem .5rem;
+  list-style: none;
+  margin: 0 0 .75rem;
+  padding: 0;
+}
+
+.etapa {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .8125rem;
+  color: var(--tinta-fraca);
+  white-space: nowrap;
+}
+
+/* A seta e decorativa (`aria-hidden` por ser ::after) e pertence ao item
+   ANTERIOR, nao ao seguinte. Era ::before do seguinte, e quando a jornada de
+   quatro etapas quebrava em 390px a linha de baixo COMECAVA com uma seta
+   solta. Presa ao item anterior, ela termina a linha de cima - que e o que
+   uma seta no fim da linha quer dizer: continua abaixo. */
+.etapa:not(:last-child)::after {
+  content: "→";
+  margin-left: .35rem;
+  color: var(--borda);
+}
+
+.etapa-marca { font-weight: 700; }
+
+.etapa-feita { color: var(--sucesso); }
+.etapa-agora { color: var(--primaria); font-weight: 600; }
+
+/* so para leitor de tela */
+.jornada .sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+
+/* ============================================= SHELL DO PORTAL DO ALUNO ===
+   Duas disposicoes da MESMA navegacao:
+
+     desktop  navegacao no header, ao lado da marca
+     mobile   header so com marca e perfil; navegacao na barra inferior
+
+   Nao e a navbar comprimida: no telefone a navegacao fica ao alcance do
+   polegar, e no desktop o rodape seria o lugar mais longe do olhar. */
+
+.topo-nav { display: none; }
+
+@media (min-width: 768px) {
+  .topo-nav {
+    display: flex;
+    gap: .25rem;
+    margin-left: 1.5rem;
+    flex: 1 1 auto;
+  }
+
+  .topo-aba {
+    padding: .5rem .875rem;
+    min-height: var(--toque);
+    border: 0;
+    border-radius: var(--r-m);
+    background: transparent;
+    font: inherit;
+    font-size: .9375rem;
+    color: var(--tinta-fraca);
+    cursor: pointer;
+  }
+
+  .topo-aba:hover { background: var(--fundo); color: var(--tinta); }
+
+  .topo-aba.ativa {
+    background: var(--primaria-clara);
+    color: var(--primaria);
+    font-weight: 600;
+  }
+
+  /* No desktop a barra inferior sai: a navegacao ja esta no topo. */
+  .abas { display: none; }
+  .palco { padding-bottom: 2rem; }
+}
+
+/* a jornada dentro do cartao da Home respira um pouco menos */
+.jornada-cartao { margin: .25rem 0 .75rem; }
+
+/* ------------------------------------------------- minhas atividades --- */
+
+.lista-atividades {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .6rem;
+}
+
+.cartao-atividade {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .75rem;
+  padding: .9rem 1rem;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+}
+
+/* 10rem: abaixo disso o titulo da atividade fica ilegivel e o botao desce */
+.atividade-corpo { flex: 1 1 10rem; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
+.atividade-titulo { font-weight: 600; color: var(--tinta); overflow-wrap: anywhere; }
+.atividade-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.atividade-prazo { font-size: .8125rem; color: var(--tinta-fraca); }
+
+
+/* ============================================= ASSESSOR PEDAGOGICO ========
+   A tela de ENSINO. Nao e um chat: a ajuda chega estruturada - o que esta
+   travando, a ideia, um exemplo ate o fim - em vez de esperar que o aluno
+   descubra o que perguntar. */
+
+.cartao-assessor { border-left: 4px solid var(--primaria); }
+
+.assessor-etiqueta { display: flex; align-items: center; gap: .5rem; }
+.assessor-marca { height: 1.5rem; width: auto; display: block; }
+
+/* A fala do assessor tem peso de fala, nao de aviso de sistema. */
+.assessor-fala {
+  font-size: 1.0625rem;
+  color: var(--tinta);
+  margin: .25rem 0 .75rem;
+}
+
+.assessor-meta {
+  font-size: .9375rem;
+  color: var(--tinta-fraca);
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .6rem .75rem;
+  margin: .5rem 0;
+}
+
+.secao-estudo { margin: 1.25rem 0; }
+.secao-estudo h2 { font-size: 1.125rem; margin: 0 0 .5rem; }
+.bloco-texto p { margin: 0 0 .6rem; }
+
+/* O quadro do coeficiente x indice: e o erro conceitual que esta explicacao
+   existe para evitar, entao ele nao pode parecer mais um paragrafo. */
+.aviso-conceito {
+  background: var(--fundo);
+  border-left: 3px solid var(--alerta);
+  border-radius: 0 var(--r-m) var(--r-m) 0;
+  padding: .75rem .9rem;
+  margin: .75rem 0;
+}
+.aviso-conceito p:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------- o exemplo resolvido --- */
+
+.exemplo { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; }
+
+.passo-exemplo {
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .75rem .9rem;
+}
+
+/* A equacao e o objeto de estudo: maior que o texto, e com espaco para
+   respirar. `anywhere` porque em 320px uma equacao longa nao cabe numa linha
+   e cortar seria pior que quebrar. */
+.equacao {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--tinta);
+  margin: 0 0 .5rem;
+  overflow-wrap: anywhere;
+}
+
+.contagem {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .875rem;
+  margin: 0 0 .5rem;
+}
+.contagem th, .contagem td {
+  text-align: left;
+  padding: .25rem .4rem;
+  border-bottom: 1px solid var(--borda);
+}
+.contagem thead th { color: var(--tinta-fraca); font-weight: 600; }
+
+/* O estado NAO e dito so pela cor: a ultima coluna diz "fecha" / "nao fecha"
+   em texto, para quem nao distingue as duas. */
+.atomo-fecha td:last-child { color: var(--sucesso-tinta); font-weight: 600; }
+.atomo-aberto td:last-child { color: var(--alerta-tinta); font-weight: 600; }
+
+.passo-exemplo .fala { margin: 0; color: var(--tinta); }
+
+@media (min-width: 768px) {
+  .assessor-marca { height: 1.75rem; }
+  .equacao { font-size: 1.25rem; }
+}
+
+
+/* ------------------------------------------------- a pratica guiada ---- */
+
+.alternativas { display: grid; gap: .5rem; margin: .75rem 0; }
+
+/* A alternativa certa so ganha marca DEPOIS de concluir - antes disso o
+   backend nem manda qual e. */
+.alternativa-certa {
+  border-color: var(--sucesso);
+  background: var(--sucesso-claro);
+}
+.alternativa-marca {
+  font-size: .8125rem;
+  font-weight: 600;
+  color: var(--sucesso-tinta);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ajudas {
+  list-style: none;
+  margin: .75rem 0;
+  padding: 0;
+  display: grid;
+  gap: .5rem;
+}
+
+/* Cada ajuda numerada: o aluno ve que ha uma progressao, e que nao esta
+   recebendo a mesma coisa de novo com outras palavras. */
+.ajuda {
+  background: var(--fundo);
+  border-left: 3px solid var(--primaria);
+  border-radius: 0 var(--r-m) var(--r-m) 0;
+  padding: .6rem .8rem;
+}
+.ajuda-nivel {
+  display: block;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--primaria);
+  margin-bottom: .2rem;
+}
+.ajuda p { margin: 0; }
+
+/* ------------------------------------------- a trilha da preparacao ----
+   DENTRO da Preparacao, qual sub-passo. A barra de quatro etapas continua
+   acima; esta linha so existe enquanto o aluno esta na preparacao, e some
+   fora dela - desenha-la no diagnostico ou na atividade diria que ele esta
+   numa etapa em que nao esta.
+
+   Deliberadamente mais discreta que a jornada: fonte menor, sem marca, sem
+   cor forte. Ela informa, nao compete com a barra principal. */
+.trilha-caixa { margin: -.25rem 0 .75rem; }
+
+.trilha-titulo {
+  margin: 0 0 .2rem;
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
+.trilha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .2rem .4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.subpasso {
+  font-size: .75rem;
+  color: var(--tinta-fraca);
+  white-space: nowrap;
+}
+
+.subpasso:not(:last-child)::after {
+  content: "→";
+  margin-left: .3rem;
+  color: var(--borda);
+}
+
+.subpasso-feito { color: var(--sucesso-tinta); }
+.subpasso-agora { color: var(--primaria); font-weight: 700; }
+
+.trilha .sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* O placar da pratica: informacao, nao conclusao. Fica abaixo da frase
+   pedagogica porque e ela que responde "e agora?" - o numero sozinho nunca
+   respondeu. */
+.bloco-placar {
+  margin: .15rem 0 .35rem;
+  font-size: .9375rem;
+  color: var(--tinta-fraca);
+}
+
+/* ----------------------------------------- o botao do proximo passo ----
+   Medido no teste humano de 2026-10-05: respiro de ZERO pixel entre a tabela
+   de contagem e o botao - ele encostava na borda do `<ol class="exemplo">` e
+   parecia parte dela, nao o convite ao passo seguinte.
+
+   `scroll-margin-top` existe pelo mesmo motivo que a margem: quando o passo
+   recem-revelado e levado a vista, ele precisa parar um pouco abaixo do topo,
+   senao encosta no cabecalho e o aluno le a primeira linha espremida. */
+.botao-proximo-passo { margin-top: 1.25rem; }
+
+.passo-exemplo { scroll-margin-top: 1rem; }
+
+/* ------------------------------------------- pergunte ao assessor ------
+   A conversa mora DENTRO do cartao da intervencao, nao numa tela separada:
+   o aluno nao esta "indo ao chat", esta perguntando sobre o que tem na
+   frente. Visualmente ela e subordinada - borda acima, titulo pequeno - e
+   nao compete com a explicacao nem com o botao do proximo passo. */
+.conversa {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--borda);
+}
+
+.conversa-titulo {
+  margin: 0 0 .15rem;
+  font-size: .9375rem;
+}
+
+.conversa-nota {
+  margin: 0 0 .75rem;
+  font-size: .8125rem;
+  color: var(--tinta-fraca);
+}
+
+.conversa-turnos {
+  list-style: none;
+  margin: 0 0 .75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  /* Teto para a conversa nao empurrar o botao do proximo passo para fora da
+     tela numa sessao longa. Rola por dentro. */
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.turno p {
+  margin: .1rem 0 0;
+  /* `anywhere` porque o aluno pode colar uma formula ou uma palavra enorme, e
+     uma linha que nao quebra estoura a largura do cartao no celular. */
+  overflow-wrap: anywhere;
+}
+
+.turno-quem {
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
+.turno-aluno p {
+  background: var(--fundo-suave, #f1f5f9);
+  border-radius: var(--r-m, .5rem);
+  padding: .5rem .7rem;
+}
+
+.turno-assessor p {
+  border-left: 3px solid var(--primaria);
+  padding-left: .7rem;
+}
+
+.conversa-esperando,
+.conversa-erro {
+  margin: 0 0 .5rem;
+  font-size: .875rem;
+}
+
+.conversa-esperando { color: var(--tinta-fraca); }
+.conversa-erro { color: var(--alerta-tinta); }
+
+.conversa-forma {
+  display: flex;
+  gap: .5rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.conversa-campo {
+  flex: 1 1 12rem;
+  min-width: 0;          /* sem isto o textarea nao encolhe e estoura em 320px */
+  resize: vertical;
+  font: inherit;
+  font-size: .9375rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-m, .5rem);
+  background: var(--papel);
+  color: var(--tinta);
+}
+
+.conversa-campo:focus-visible {
+  outline: 3px solid var(--primaria);
+  outline-offset: 1px;
+}
+
+.conversa .botao { margin-top: .5rem; }
+
+/* ENTENDER O ERRO
+ *
+ * Não é um `<details>` fechado como a antiga "resolução": quem errou precisa
+ * VER que há algo ali, e não descobrir que há. O bloco fica aberto, com a
+ * explicação e as três reações possíveis logo abaixo dela.
+ */
+.explicacao {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  background: var(--primaria-clara);
+  border-left: 3px solid var(--primaria);
+  border-radius: 10px;
+}
+
+.explicacao-etiqueta {
+  margin: 0 0 .5rem;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--primaria-escura);
+}
+
+.explicacao-texto {
+  margin: 0;
+  font-size: .95rem;
+  line-height: 1.6;
+  color: var(--tinta);
+}
+
+.explicacao-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: .9rem;
+}
+
+/* Alvo de toque do sistema: estas são as ações de quem acabou de errar, no
+   telefone, e um botão apertado aqui custa a reação que a tela pediu. */
+.explicacao-acoes .botao {
+  min-height: var(--nucleo-toque, 44px);
+  flex: 1 1 auto;
+}
+
+@media (max-width: 420px) {
+  /* Empilhadas: três botões lado a lado a 320px viram três palavras cortadas. */
+  .explicacao-acoes { flex-direction: column; }
+}
+
+/* ------------------------------------------- o exemplo SEQUENCIAL -------
+   Um calculo estequiometrico nao tem dois lados da seta para comparar: tem
+   uma conta por etapa. A estrutura visual e a propria explicacao - rotulo,
+   conta, resultado -, e nao um paragrafo com os numeros no meio dele.
+
+   Nada aqui depende de imagem. O raciocinio matematico e texto, inclusive
+   os subscritos, porque imagem nao e lida por leitor de tela, nao e
+   selecionavel e nao reflui em 320px. */
+
+.sequencia {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .75rem;
+}
+
+.passo-sequencia {
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .75rem .9rem;
+  position: relative;
+  scroll-margin-top: 1rem;
+}
+
+/* A seta que liga um passo ao seguinte. E DECORATIVA: a ordem ja esta na
+   numeracao dos rotulos e na semantica do <ol>. Como `content` de
+   pseudo-elemento, ela nao vira um caractere lido em voz alta a cada passo
+   nem um no selecionavel. */
+.passo-sequencia + .passo-sequencia::before {
+  content: "\2193";
+  position: absolute;
+  top: -.72rem;
+  left: 1.2rem;
+  color: var(--tinta-fraca);
+  font-size: .9rem;
+  line-height: 1;
+}
+
+.passo-rotulo {
+  margin: 0 0 .35rem;
+  font-weight: 700;
+  color: var(--tinta-fraca);
+  font-size: .9375rem;
+}
+
+/* A CONTA E O OBJETO DE ESTUDO. Maior que o texto em volta, com o sinal de
+   igual separando visivelmente a expressao do resultado.
+   `anywhere` porque em 320px "14,0 / 28,0 = 0,5 mol de N2" nao cabe numa
+   linha, e cortar seria pior que quebrar. */
+.passo-conta {
+  margin: 0 0 .45rem;
+  font-size: 1.125rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .4rem;
+  overflow-wrap: anywhere;
+}
+.conta-expressao { font-weight: 600; color: var(--tinta); }
+.conta-igual { color: var(--tinta-fraca); }
+.conta-resultado {
+  font-weight: 700;
+  color: var(--tinta);
+  background: var(--fundo-painel, rgba(0, 0, 0, .05));
+  border-radius: .4rem;
+  padding: .1rem .4rem;
+}
+
+.passo-sequencia .fala { margin: 0; color: var(--tinta); }
+
+@media (min-width: 768px) {
+  .passo-conta { font-size: 1.25rem; }
+}
+
+/* ------------------------------------------------- a investigacao -------
+   O degrau mais alto da escada: uma micropergunta de cada vez, com as
+   etapas ja resolvidas visiveis acima. Nao e historico decorativo - e o
+   raciocinio sendo montado na frente do aluno, e e o que transforma tres
+   perguntas soltas numa cadeia. */
+
+/* A hipotese e uma SUPOSICAO, e o peso visual diz isso: ela nao tem o
+   destaque de uma conclusao. */
+.assessor-hipotese {
+  margin: 0 0 .6rem;
+  font-size: .9375rem;
+  color: var(--tinta-fraca);
+  border-left: 3px solid var(--borda);
+  padding-left: .7rem;
+}
+
+.etapas-feitas {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: .6rem;
+}
+
+.etapa-feita {
+  background: var(--fundo);
+  border-radius: var(--r-m);
+  padding: .6rem .75rem;
+  font-size: .9375rem;
+}
+.etapa-pergunta { margin: 0 0 .3rem; color: var(--tinta-fraca); }
+.etapa-resposta { margin: 0 0 .3rem; font-weight: 600; color: var(--tinta); }
+/* O estado nao depende so da cor: o simbolo acompanha. */
+.etapa-marca { color: var(--sucesso-tinta); font-weight: 700; }
+.etapa-comentario { margin: 0; color: var(--tinta); }
+
+.etapa-retorno { margin: .25rem 0 1rem; }
+
+/* A SECAO DO FOCO - a que a micro-habilidade medida aponta.
+   Destaque discreto: ela ja vem primeiro, e um realce forte faria o resto
+   parecer indisponivel quando continua tudo ali. */
+.secao-foco {
+  background: var(--fundo);
+  border-left: 3px solid var(--acento, #2d6a4f);
+  border-radius: var(--r-m);
+  padding: .75rem .9rem;
+}
+.secao-etiqueta {
+  margin: 0 0 .5rem;
+  font-size: .8125rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
+/* O convite do primeiro retorno da investigacao: a regra chegou sem o
+   numero, e esta linha diz que a ajuda nao acabou. */
+.etapa-convite {
+  margin: .5rem 0 0;
+  font-size: .9375rem;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+/* ======================================================= A CONVERSA =====
+   §19: a espinha dorsal do Assessor deixa de ser uma pilha de cards.
+
+   O aluno precisa ver a sequencia - o que o Edu perguntou, o que ELE
+   respondeu, o que o Edu disse depois. Sem isso cada tela parece a
+   primeira, e a investigacao vira um formulario com historico. */
+
+.dialogo {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: .6rem;
+}
+
+.turno { max-width: 100%; }
+
+.turno-texto {
+  margin: 0;
+  padding: .7rem .9rem;
+  border-radius: var(--r-m);
+  /* `anywhere` porque em 320px um enunciado com formula nao cabe numa linha,
+     e cortar seria pior que quebrar. */
+  overflow-wrap: anywhere;
+  /* O enunciado chega com quebra de linha propria - "Qual e a massa molar
+     do NH3?" / "Considere N = 14..." - e ela e parte da pergunta. */
+  white-space: pre-line;
+}
+
+.turno-edu .turno-texto {
+  background: var(--fundo);
+  color: var(--tinta);
+  border-top-left-radius: .25rem;
+}
+
+/* A fala do ALUNO fica do outro lado e com outra cor. Nao e enfeite: e o
+   que torna a sequencia legivel de relance. E quem nao distingue as duas
+   cores continua tendo a POSICAO e o rotulo de leitor de tela. */
+.turno-aluno { display: flex; justify-content: flex-end; }
+.turno-aluno .turno-texto {
+  background: var(--primaria);
+  color: #fff;
+  border-top-right-radius: .25rem;
+  max-width: 85%;
+}
+
+/* A HIPOTESE tem peso de suposicao, nao de conclusao. */
+.turno-hipotese .turno-texto {
+  border-left: 3px solid var(--borda);
+  background: transparent;
+  color: var(--tinta-fraca);
+  padding-left: .7rem;
+}
+
+.turno-ensino .turno-texto { background: var(--fundo-painel, rgba(0,0,0,.05)); }
+.turno-nao-li .turno-texto { color: var(--tinta-fraca); }
+
+/* A pergunta ABERTA agora - a unica que espera algo dele. */
+.turno-atual .turno-texto { font-weight: 600; }
+
+.turno { scroll-margin-top: 1rem; }
+
+/* ---------------------------------------------- a caixa de resposta ---- */
+
+/* O campo, o botao, os atalhos e o "Nao sei" sao GRUPOS diferentes. */
+.dialogo-entrada { display: grid; gap: var(--e-g); }
+
+/* O campo e o botao que o envia sao do mesmo grupo. */
+.dialogo-linha { display: flex; gap: var(--e-p); align-items: stretch; }
+
+/* OS ATALHOS, com rotulo. Eles nao sao a resposta principal - sao um
+   atalho para quem prefere tocar -, e e o rotulo que diz isso. */
+.dialogo-atalhos { display: grid; gap: var(--e-p); }
+
+.dialogo-atalhos-rotulo {
+  margin: 0;
+  font-size: .875rem;
+  color: var(--tinta-fraca);
+}
+
+/* "VOLTAR AO INICIO" E NAVEGACAO, nao resposta. Fora do cartao, com o
+   respiro de um grupo diferente e sem peso de botao. */
+.acoes-de-saida {
+  margin-top: var(--e-g);
+  display: flex;
+  justify-content: center;
+}
+
+.botao-texto {
+  width: auto;
+  background: transparent;
+  color: var(--tinta-fraca);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.botao-texto:hover { color: var(--tinta); }
+
+/* Acoes empilhadas de um cartao de intervencao. */
+.acoes-empilhadas { display: grid; gap: var(--e-p); margin-top: var(--e-m); }
+.acoes-empilhadas .botao + .botao { margin-top: 0; }
+
+.dialogo-campo {
+  flex: 1 1 auto;
+  min-width: 0;            /* sem isto o input estoura o flex em 320px */
+  min-height: var(--toque); /* medido em 320px: dava 43px, 1 abaixo do minimo */
+  padding: .7rem .8rem;
+  font-size: 1rem;         /* 16px: abaixo disso o iOS da zoom ao focar */
+  border: 1px solid var(--borda);
+  border-radius: var(--r-m);
+  background: #fff;
+  color: var(--tinta);
+}
+
+.dialogo-linha .botao { flex: 0 0 auto; }
+
+/* Os atalhos de alternativa continuam existindo - §20, a interface escolhe
+   o componente. Eles ESCREVEM a resposta em vez de marca-la. */
+.alternativa-atalho { cursor: pointer; min-height: var(--toque); }
+.alternativas { display: grid; gap: var(--e-p); }
+
+/* Ele e uma resposta, e nao uma acao secundaria da pagina - fica no grupo
+   da resposta, mas com respiro proprio para nao parecer parte da linha do
+   campo. O `gap` da grade ja o separa; `width:auto` impede que ele ocupe a
+   largura toda e compita com "Responder". */
+.botao-nao-sei { justify-self: start; width: auto; }
+
+@media (max-width: 400px) {
+  /* Em 320px o botao ao lado do campo deixa o campo pequeno demais para
+     ler o que se digitou. */
+  .dialogo-linha { flex-wrap: wrap; }
+  .dialogo-linha .botao { width: 100%; }
+}

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Núcleo Edu 360 — Aluno</title>
+  <!--
+    PROTOTIPO DO PERFIL ALUNO.
+
+    Pagina SEPARADA de propósito. O portal atual (`index.html` + `app.js`)
+    continua intacto e funcionando: 11 arquivos de teste leem aquele markup
+    por regex, e reestruturá-lo quebraria todos. Ver
+    docs/frontend-aluno-auditoria.md, secao 6.
+
+    Duas telas de navegacao permanente (Inicio, Meu progresso) contra as 13
+    do portal atual. Mobile first. Nenhum controle sem funcao: o que ainda
+    nao tem backend nasce desabilitado e dito.
+
+    PILOTO ZERO: o conteudo pedagogico desta pagina vem todo do servidor.
+    Ver o cabecalho de aluno.js.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="nucleo.css">
+  <link rel="stylesheet" href="aluno.css">
+</head>
+<body>
+
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<!--
+  SHELL DO PORTAL DO ALUNO.
+
+  A MARCA E O ARQUIVO OFICIAL, nao uma recriacao. `assets/nucleo-edu-360.png`
+  e a logo horizontal entregue (simbolo + nome + assinatura), so
+  redimensionada. Proporcao preservada por `width: auto`; o `alt` carrega o
+  nome para quem nao ve a imagem.
+
+  Ate 2026-10-05 a marca era textual aqui, porque nao havia arquivo nenhum em
+  src/agente_ia_edu/web. Agora ha.
+
+  DESKTOP: a navegacao mora no header, ao lado da marca.
+  MOBILE:  o header fica so com marca e perfil, e a navegacao vai para a
+           barra inferior, ao alcance do polegar. Nao e a navbar de desktop
+           comprimida - sao dois arranjos para dois formatos.
+-->
+<header class="topo">
+  <!-- A MARCA E O CAMINHO DE VOLTA ao Portal - convencao que ninguem precisa
+       descobrir. Antes ela apontava para #conteudo, que e o que o link
+       "Pular para o conteudo" ja faz, logo acima. -->
+  <a class="marca" href="/portal" aria-label="Voltar ao Núcleo Edu 360">
+    <img class="marca-logo" src="assets/nucleo-edu-360.png"
+         alt="Núcleo Edu 360" width="228" height="128" decoding="async">
+  </a>
+
+  <nav class="topo-nav" aria-label="Navegação principal (desktop)">
+    <button class="topo-aba ativa" data-tela="inicio" type="button"
+            aria-current="page">Início</button>
+    <button class="topo-aba" data-tela="atividades" type="button">Minhas atividades</button>
+    <button class="topo-aba" data-tela="progresso" type="button">Meu progresso</button>
+  </nav>
+
+  <button class="avatar" id="btn-perfil" type="button"
+          aria-haspopup="dialog" aria-label="Perfil e configurações">P</button>
+</header>
+
+<main id="conteudo" class="palco">
+
+  <!-- ===================================================== INÍCIO ===== -->
+  <section id="tela-inicio" class="tela" aria-labelledby="h-inicio">
+    <h1 id="h-inicio" class="sr">Início</h1>
+
+    <!-- o estado da Home é renderizado aqui; ver aluno.js -->
+    <div id="home" aria-live="polite"></div>
+
+    <form class="perguntar" id="form-perguntar">
+      <!-- Entrada universal do Nucleo: duvida, conteudo, questao, revisao ou
+           objetivo de estudo. A universalidade mora no ROTULO, que tem a
+           largura toda; o placeholder fica curto porque no telefone sobram
+           ~155px uteis depois dos tres botoes de icone - medido, nao
+           suposto, e "Uma duvida, um assunto, uma questao..." era cortado no
+           meio. Hoje NAO ha interpretacao: ver nota-perguntar abaixo. -->
+      <label class="perguntar-rotulo" for="campo-duvida">O que você precisa agora?</label>
+      <div class="perguntar-linha">
+        <input class="perguntar-campo" id="campo-duvida" type="text" autocomplete="off"
+               placeholder="Dúvida, assunto...">
+        <!-- Os tres juntos num grupo: sem isto o wrap os separa em linhas
+             diferentes quando a largura aperta, e um icone orfao ao lado do
+             campo nao se parece com nada. -->
+        <span class="perguntar-icones">
+          <button class="icone" type="button" disabled
+                  title="Enviar foto — em breve" aria-label="Enviar foto (em breve)">📷</button>
+          <button class="icone" type="button" disabled
+                  title="Enviar arquivo — em breve" aria-label="Enviar arquivo (em breve)">📎</button>
+          <button class="icone" type="button" disabled
+                  title="Falar — em breve" aria-label="Falar (em breve)">🎤</button>
+        </span>
+        <!-- Acao REAL: GET /api/v1/student/search. Enter tambem envia, porque
+             o campo esta num <form> e este botao e type="submit". -->
+        <button class="botao botao-principal botao-enviar" type="submit">Enviar</button>
+      </div>
+      <p class="nota" id="nota-perguntar">
+        Busca no acervo. Entrada por foto, arquivo e voz ainda não está disponível.
+      </p>
+      <div id="resultado-busca" class="busca-resultado" aria-live="polite" hidden></div>
+    </form>
+  </section>
+
+  <!-- ===================================================== SESSÃO ===== -->
+  <section id="tela-sessao" class="tela" aria-labelledby="h-sessao" hidden>
+    <h1 id="h-sessao" class="sr">Sessão de estudo</h1>
+
+    <div class="objetivo" id="objetivo" hidden>
+      <span class="objetivo-rotulo">🎯 Para:</span>
+      <span id="objetivo-texto"></span>
+    </div>
+
+    <!-- A JORNADA: onde o aluno esta no caminho pedagogico. Vem de
+         `readiness.journey`, calculada no backend a partir de evidencia
+         real - nao de navegacao. -->
+    <ol class="jornada" id="jornada" aria-label="Etapas da jornada"></ol>
+    <!-- Dentro da Preparacao, qual sub-passo. Fica escondido fora dela. -->
+    <div class="trilha-caixa" id="trilha" hidden></div>
+
+    <!-- O trilho mede questoes DENTRO da etapa atual. Sao coisas diferentes. -->
+    <div class="trilho" id="trilho" role="img" aria-label="Progresso nesta etapa"></div>
+    <p class="sessao-resumo" id="sessao-resumo"></p>
+
+    <div id="bloco" aria-live="polite"></div>
+
+    <button class="ligacao" id="btn-sair-sessao" type="button">Sair e continuar depois</button>
+  </section>
+
+  <!-- ================================================ ATIVIDADES ===== -->
+  <section id="tela-atividades" class="tela" aria-labelledby="h-atividades" hidden>
+    <h1 id="h-atividades">Minhas atividades</h1>
+    <ul class="lista-atividades" id="lista-atividades"></ul>
+  </section>
+
+  <!-- ================================================== PROGRESSO ===== -->
+  <section id="tela-progresso" class="tela" aria-labelledby="h-progresso" hidden>
+    <h1 id="h-progresso">Meu progresso</h1>
+    <ul class="fatos" id="fatos"></ul>
+
+    <details class="panorama">
+      <summary>ver panorama completo</summary>
+      <div id="panorama-corpo"></div>
+    </details>
+  </section>
+
+</main>
+
+<!--
+  DUAS abas, nao tres. Uma terceira ("Estudar" / "Minha trilha") levaria
+  exatamente ao que a Home ja oferece - o proximo passo decidido pelo backend -
+  e uma aba que repete a anterior orienta menos, nao mais. Quando houver
+  trilha de verdade, ela entra aqui.
+
+  Icones em SVG, nao emoji: 🏠 e 📈 mudam de desenho e de tamanho entre
+  Android, iOS e Windows, e no teste humano a barra ficou visualmente
+  desalinhada por isso.
+-->
+<nav class="abas" aria-label="Navegação principal">
+  <button class="aba ativa" data-tela="inicio" type="button" aria-current="page">
+    <svg class="aba-icone" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 10.5 12 3l9 7.5V21H3z" />
+    </svg>
+    Início
+  </button>
+  <button class="aba" data-tela="atividades" type="button">
+    <svg class="aba-icone" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 5h10M9 12h10M9 19h10M4 5h.01M4 12h.01M4 19h.01" />
+    </svg>
+    Atividades
+  </button>
+  <button class="aba" data-tela="progresso" type="button">
+    <svg class="aba-icone" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </svg>
+    Meu progresso
+  </button>
+</nav>
+
+<!-- ======================================================= FOLHAS ===== -->
+<dialog class="folha" id="folha-tarefas" aria-labelledby="h-folha-tarefas">
+  <h2 id="h-folha-tarefas">Suas tarefas</h2>
+  <ul class="lista-tarefas" id="lista-tarefas"></ul>
+  <button class="botao botao-secundario" data-fechar-folha type="button">Fechar</button>
+</dialog>
+
+<dialog class="folha" id="folha-perfil" aria-labelledby="h-folha-perfil">
+  <h2 id="h-folha-perfil">Perfil</h2>
+  <p class="nota" id="perfil-nome"></p>
+  <!-- O caminho de volta ao Portal. Ver a nota equivalente em redacao.html. -->
+  <a class="ligacao" href="/portal">← Núcleo Edu 360</a>
+
+  <hr class="divisor">
+  <button class="ligacao" data-acao="sair" type="button">Sair desta identidade</button>
+
+  <button class="botao botao-secundario" data-fechar-folha type="button">Fechar</button>
+</dialog>
+
+<!-- As decisoes de interface da PRATICA GUIADA moram aqui, fora do IIFE de
+     aluno.js, para poderem ser exercitadas por `node --test`. Ver
+     tests/test_aluno_guiada_frontend.js e a ponte em
+     tests/test_frontend_comportamental.py. -->
+<script src="aluno-guiada.js"></script>
+<script src="aluno-investigacao.js"></script>
+<script src="aluno-intervencao.js"></script>
+<script src="aluno-resultado.js"></script>
+<script src="aluno-preparacao.js"></script>
+<script src="aluno-conversa.js"></script>
+<script src="aluno-explicacao.js"></script>
+<script src="aluno.js"></script>
+  <footer class="nucleo-rodape">© 2026 Núcleo Edu 360 · Alfa 1.0</footer>
+</body>
+</html>

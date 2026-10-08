@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Redação</title>
+  <title>Redação — Núcleo Edu 360</title>
   <!-- served at /redacao but its static assets are mounted at
        /redacao/assets/ - resolve every relative asset there. API calls are
        absolute (/api/v1/...) and unaffected. -->
   <base href="/redacao/assets/">
+  <link rel="stylesheet" href="nucleo.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="redacao.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,11 +16,20 @@
 </head>
 <body>
   <header class="redacao-header">
-    <div class="redacao-brand">
-      <span class="brand-logo">📝</span>
-      <span class="brand-text">AGENTE IA <span>EDU</span> — Redação</span>
-    </div>
-    <a href="/entrada" class="btn btn-secondary redacao-switch-link">🔀 Trocar de ambiente</a>
+    <!-- A MARCA OFICIAL, e um rotulo do modulo ao lado. Nao e um redesenho
+         da Redacao: so o cabecalho, para que entrar aqui vindo do Portal
+         pareca o mesmo produto - e nao um segundo site. A logo tambem leva
+         de volta, como em qualquer portal. -->
+    <a class="redacao-brand" href="/portal" aria-label="Voltar ao Núcleo Edu 360">
+      <img src="/redacao/assets/assets/nucleo-edu-360.png"
+           alt="Núcleo Edu 360" width="228" height="128" decoding="async">
+      <span class="brand-modulo">Redação</span>
+    </a>
+    <!-- RETORNO AO PORTAL. Era "Trocar de ambiente" para /entrada, o seletor
+         antigo. O destino mudou e o rotulo passou a nomear para onde se vai:
+         "trocar de ambiente" nao diz que ha um Nucleo Edu 360 acima dos
+         modulos. /entrada continua servido, para nao quebrar favoritos. -->
+    <a href="/portal" class="btn btn-secondary redacao-switch-link">← Núcleo Edu 360</a>
   </header>
 
   <main class="redacao-main">
@@ -28,10 +38,14 @@
 
   <!-- Nenhuma linha destes 4 arquivos é editada aqui - só referenciados,
        exatamente como index.html já faz hoje para a aba de redação. -->
+  <!-- Os codigos do motor ditos em portugues. Carregado ANTES de
+       essay-report.js, que os usa. Ver tests/test_essay_rotulos_frontend.js. -->
+  <script src="essay-rotulos.js"></script>
   <script src="essay-annotations.js"></script>
   <script src="essay-report.js"></script>
   <script src="essay-evolution.js"></script>
   <script src="essay.js"></script>
   <script>window.EssayView.init();</script>
+  <footer class="nucleo-rodape">© 2026 Núcleo Edu 360 · Alfa 1.0</footer>
 </body>
 </html>

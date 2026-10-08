@@ -1,0 +1,135 @@
+{
+ "origem": "adjudicacao cega de 58 linhas, 2026-10-03",
+ "o_que_e": "os 10 itens que a V2 da primeira medicao IMPORTARIA e que o humano reprovou. Nenhum literal de prova aqui: so coordenadas e o estado esperado depois do endurecimento.",
+ "nota": "nenhum destes pode voltar a ser aprovado em silencio. Ou o defeito foi corrigido, ou o item passa a declarar o problema.",
+ "casos": [
+  {
+   "id_adjudicacao": "A009",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2022,
+   "dia": 1,
+   "numero": 45,
+   "esperado_aprovado_pelo_gate": false,
+   "esperado_problemas": [
+    "ULTIMA_ALTERNATIVA_ANOMALA"
+   ],
+   "comprimento_da_ultima_alternativa": 1592,
+   "ativos_associados": 0
+  },
+  {
+   "id_adjudicacao": "A024",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2020,
+   "dia": 1,
+   "numero": 38,
+   "esperado_aprovado_pelo_gate": true,
+   "esperado_problemas": [],
+   "comprimento_da_ultima_alternativa": 97,
+   "ativos_associados": 1
+  },
+  {
+   "id_adjudicacao": "A030",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2024,
+   "dia": 1,
+   "numero": 76,
+   "esperado_aprovado_pelo_gate": true,
+   "esperado_problemas": [],
+   "comprimento_da_ultima_alternativa": 26,
+   "ativos_associados": 1
+  },
+  {
+   "id_adjudicacao": "A040",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2025,
+   "dia": 1,
+   "numero": 80,
+   "esperado_aprovado_pelo_gate": true,
+   "esperado_problemas": [],
+   "comprimento_da_ultima_alternativa": 33,
+   "ativos_associados": 1
+  },
+  {
+   "id_adjudicacao": "A044",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2025,
+   "dia": 2,
+   "numero": 108,
+   "esperado_aprovado_pelo_gate": true,
+   "esperado_problemas": [],
+   "comprimento_da_ultima_alternativa": 11,
+   "ativos_associados": 1
+  },
+  {
+   "id_adjudicacao": "A047",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2024,
+   "dia": 2,
+   "numero": 152,
+   "esperado_aprovado_pelo_gate": true,
+   "esperado_problemas": [],
+   "comprimento_da_ultima_alternativa": 3,
+   "ativos_associados": 2
+  },
+  {
+   "id_adjudicacao": "A048",
+   "criterio_reprovado": "E_sem_lixo",
+   "modo": "mobilia",
+   "ano": 2024,
+   "dia": 1,
+   "numero": 49,
+   "esperado_aprovado_pelo_gate": true,
+   "esperado_problemas": [],
+   "comprimento_da_ultima_alternativa": 27,
+   "ativos_associados": 1
+  },
+  {
+   "id_adjudicacao": "A028",
+   "criterio_reprovado": "F_visual",
+   "modo": "ativo",
+   "ano": 2022,
+   "dia": 2,
+   "numero": 135,
+   "esperado_aprovado_pelo_gate": false,
+   "esperado_problemas": [
+    "ULTIMA_ALTERNATIVA_ANOMALA"
+   ],
+   "comprimento_da_ultima_alternativa": 55,
+   "ativos_associados": 0
+  },
+  {
+   "id_adjudicacao": "A029",
+   "criterio_reprovado": "F_visual",
+   "modo": "ativo",
+   "ano": 2023,
+   "dia": 2,
+   "numero": 91,
+   "esperado_aprovado_pelo_gate": false,
+   "esperado_problemas": [
+    "DEPENDENCIA_VISUAL_NAO_RESOLVIDA"
+   ],
+   "comprimento_da_ultima_alternativa": 22,
+   "ativos_associados": 0
+  },
+  {
+   "id_adjudicacao": "A054",
+   "criterio_reprovado": "F_visual",
+   "modo": "ativo",
+   "ano": 2025,
+   "dia": 2,
+   "numero": 157,
+   "esperado_aprovado_pelo_gate": false,
+   "esperado_problemas": [
+    "DEPENDENCIA_VISUAL_NAO_RESOLVIDA"
+   ],
+   "comprimento_da_ultima_alternativa": 2,
+   "ativos_associados": 0
+  }
+ ]
+}

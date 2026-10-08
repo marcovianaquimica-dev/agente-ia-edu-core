@@ -24,6 +24,7 @@ small). It never invents questions.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -57,6 +58,21 @@ MODE_PREREQUISITE = "PRACTICE_PREREQUISITE"
 MODE_MIXED = "PRACTICE_MIXED"
 SUPPORTED_MODES = (MODE_CONTENT,)
 CONTRACT_MODES = (MODE_CONTENT, MODE_REVIEW, MODE_PREREQUISITE, MODE_MIXED)
+
+# PARA QUE ESTE LOTE DE QUESTOES EXISTE.
+#
+# A verificacao do assessor usa este mesmo motor, com menos questoes - e, uma
+# vez corrigida, ficava indistinguivel de uma pratica comum: mesma origem,
+# mesmos metadados. Em 2026-10-06 isso foi medido doendo: o aluno falhava a
+# verificacao 0/3 e o assessor, lendo "mais uma pratica fraca", oferecia outro
+# lote de cinco. O proposito nao e analitico; ele muda a DECISAO seguinte.
+#
+# Fica nos metadados que o assignment ja carrega: sem coluna nova, sem
+# migration. Quem nao informa continua sendo pratica - o padrao preserva o
+# comportamento antigo de quem ja chamava este servico.
+PROPOSITO_PRATICA = "PRACTICE"
+PROPOSITO_VERIFICACAO = "VERIFY"
+PROPOSITOS = (PROPOSITO_PRATICA, PROPOSITO_VERIFICACAO)
 
 ALLOWED_COUNTS = (5, 10, 15, 20)
 MAX_QUESTIONS = 20
@@ -95,6 +111,18 @@ class PracticeSelectionPolicy:
     exclude_visual_dependency: bool = True
     exclude_protected: bool = True
     recent_exclude: int = RECENT_EXCLUDE_DEFAULT
+    # SONDAGEM COMECA PELO MAIS SIMPLES - e so sondagem.
+    #
+    # O microdiagnostico usa esta mesma selecao, que ordena por numero
+    # oficial. Para Estequiometria o acervo tem 6 FACEIS, 14 MEDIAS e 1
+    # DIFICIL: pedindo tres em ordem de numero, um aluno nunca medido podia
+    # abrir a sondagem numa cadeia completa e errar por travar no primeiro
+    # elo - e o sistema registrava "nao sabe estequiometria" quando o que ele
+    # nao sabia era converter massa em mol.
+    #
+    # Desligado por padrao: pratica NAO e sondagem, e comecar sempre pelas
+    # faceis tornaria a evidencia mais fraca do que ela precisa ser.
+    prefer_easier: bool = False
 
     @classmethod
     def default(cls) -> "PracticeSelectionPolicy":
@@ -106,14 +134,26 @@ class PracticeSelectionPolicy:
             "EXCLUDE_VISUAL_DEPENDENCY": self.exclude_visual_dependency,
             "EXCLUDE_PROTECTED": self.exclude_protected,
             "RECENT_EXCLUDE": self.recent_exclude,
+            "PREFER_EASIER": self.prefer_easier,
         }
 
     def rank(self, items: list) -> list:
-        """Stable, deterministic order: official_number, then question_version_id."""
-        return sorted(items, key=lambda it: (
-            it.official_number if it.official_number is not None else 1_000_000,
-            str(it.question_version_id),
-        ))
+        """Stable, deterministic order: official_number, then question_version_id.
+
+        Com `prefer_easier`, o que esta MARCADO como facil vem primeiro - e so
+        isso. O resto mantem exatamente a ordem de antes, inclusive as sem
+        dificuldade atribuida (514 das 595 do acervo): dizer que uma questao
+        nao classificada e "facil" ou "media" seria inventar sobre ela.
+        """
+        def chave(it):
+            base = (it.official_number if it.official_number is not None else 1_000_000,
+                    str(it.question_version_id))
+            if not self.prefer_easier:
+                return (0,) + base
+            facil = 0 if getattr(it, "recommended_difficulty", None) == "EASY" else 1
+            return (facil,) + base
+
+        return sorted(items, key=chave)
 
     def choose(self, ranked_vids: list[str], *, count: int,
                recent_ids: set[str]) -> tuple[list[str], int]:
@@ -146,8 +186,51 @@ class AdaptivePracticeService:
 
     async def create_practice(self, student_external_id: str, *, requester: Requester,
                               content_code: str, mode: str = MODE_CONTENT,
-                              question_count: int = 10) -> dict:
+                              question_count: int = 10,
+                              origin: str = ORIGIN_PRACTICE,
+                              purpose: str = PROPOSITO_PRATICA,
+                              metadata_extra: dict | None = None,
+                              title: str | None = None,
+                              instructions: str | None = None,
+                              question_version_ids: Sequence[str] | None = None
+                              ) -> dict:
+        """Build a question set for one content and distribute it to the student.
+
+        ``origin`` / ``metadata_extra`` / ``title`` / ``instructions`` exist so a
+        DIFFERENT PURPOSE can reuse this exact selection without a second
+        engine - today, the micro-diagnostic (see services/micro_diagnostic.py).
+        Everything that makes the selection trustworthy is shared: same bank,
+        same deterministic policy, same exclusions, same refusal to invent
+        questions. What changes is only where the evidence is filed and what
+        the student is told it is for.
+
+        A caller passing a new ``origin`` MUST register it in
+        curriculum_domain_map._KNOWN_ORIGINS, or the evidence lands in the
+        UNKNOWN_ORIGIN quarantine bucket instead of its own.
+
+        ``question_version_ids`` LETS THE CALLER BRING ITS OWN SELECTION
+        ----------------------------------------------------------------
+        The content-level selection below answers "which questions of this
+        content?". A diagnostic probe needs a different question - "which
+        INSTRUMENT for each micro-skill?" - and the answer is not a subset of
+        this one: it is chosen by `seletor_de_sondagem`, per skill, with the
+        curated item winning over the generic bank.
+
+        When ids are supplied they are used in the given order and the
+        content-level ranking is skipped. Everything AFTER selection is
+        identical: same list building, same assignment, same evidence origin.
+        That is the point - there is still one executor, and only the
+        selection has two strategies.
+
+        The ids are still verified to belong to this content: a caller
+        passing something else gets a PracticeError, not a practice about
+        another subject.
+        """
         self._authz_self(student_external_id, requester)
+        purpose = (purpose or PROPOSITO_PRATICA).upper()
+        if purpose not in PROPOSITOS:
+            raise PracticeError(
+                f"purpose {purpose!r} desconhecido; conhecidos: {list(PROPOSITOS)}")
         mode = (mode or MODE_CONTENT).upper()
         if mode not in SUPPORTED_MODES:
             raise PracticeError(
@@ -190,9 +273,24 @@ class AdaptivePracticeService:
         available = len(kept)
 
         recent_ids = await self._recent_question_ids(student_external_id, self.policy.recent_exclude)
-        ranked = [str(it.question_version_id) for it in self.policy.rank(kept)]
-        selected, reused_recent = self.policy.choose(
-            ranked, count=requested, recent_ids=recent_ids)
+
+        if question_version_ids is not None:
+            # SELECAO TRAZIDA DE FORA. Ver a docstring: quem a fez respondeu
+            # uma pergunta diferente da que esta funcao sabe responder.
+            do_conteudo = {str(it.question_version_id) for it in items}
+            pedidos = [str(v) for v in question_version_ids]
+            intrusos = [v for v in pedidos if v not in do_conteudo]
+            if intrusos:
+                raise PracticeError(
+                    "seleção contém questões que não são deste conteúdo",
+                    payload={"content_code": content_code,
+                             "unexpected_questions": intrusos})
+            selected, reused_recent = pedidos, 0
+            requested = len(selected)
+        else:
+            ranked = [str(it.question_version_id) for it in self.policy.rank(kept)]
+            selected, reused_recent = self.policy.choose(
+                ranked, count=requested, recent_ids=recent_ids)
 
         selection_report = {
             "available_questions": available,
@@ -203,6 +301,10 @@ class AdaptivePracticeService:
             "reused_recent_questions": reused_recent,
             "recent_pool_excluded": len(recent_ids),
             "policy": self.policy.as_dict(),
+            # Como a selecao foi feita. Sem isto, "por que esta questao?" so
+            # se responde relendo o codigo.
+            "selection_mode": ("CALLER_SUPPLIED" if question_version_ids is not None
+                               else "CONTENT_RANKED"),
         }
         # Insufficient bank: never invent questions and never silently shrink the
         # practice. Report the three counts and the standard explanation so the
@@ -219,8 +321,9 @@ class AdaptivePracticeService:
                           school_id=requester.school_id, role=requester.role,
                           is_platform_admin=requester.is_platform_admin)
         config = ListConfiguration(
-            title=f"Prática — {content_name}",
-            instructions="Prática de estudo. Este resultado não é uma nota escolar.",
+            title=title or f"Prática — {content_name}",
+            instructions=instructions
+            or "Prática de estudo. Este resultado não é uma nota escolar.",
             answer_key_presentation="KEY_AT_END",
         )
         summary = await self._lists.create(
@@ -234,15 +337,20 @@ class AdaptivePracticeService:
         view, _existed = await self._assignments.create(
             list_id, requester=owner,
             target_type="STUDENT", target_id=student_external_id,
-            origin=ORIGIN_PRACTICE,
-            extra_metadata={"practice": True, "mode": mode, "content_code": content_code},
+            origin=origin,
+            extra_metadata={"practice": True, "mode": mode, "content_code": content_code,
+                            "purpose": purpose,
+                            **(metadata_extra or {})},
         )
         return {
             "practice_id": view.id,
             "assignment_id": view.id,
             "student_external_id": student_external_id,
             "mode": mode,
-            "origin": ORIGIN_PRACTICE,
+            "origin": origin,
+            "purpose": purpose,
+            "title": config.title,
+            "instructions": config.instructions,
             "content_code": content_code,
             "content_name": content_name,
             "state": STATE_CREATED,
@@ -369,6 +477,7 @@ class AdaptivePracticeService:
             "mode": md.get("mode", MODE_CONTENT),
             "content_code": md.get("content_code"),
             "origin": md.get("origin", ORIGIN_PRACTICE),
+            "purpose": md.get("purpose", PROPOSITO_PRATICA),
             "question_count": a.question_count,
             "state": state,
             "created_at": a.created_at.isoformat() if a.created_at else None,

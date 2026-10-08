@@ -245,13 +245,27 @@ class StudentRouteCoverageHTTP(unittest.TestCase):
     # assignment exists, but the caller is not its recipient.
     # ------------------------------------------------------------------
 
-    def test_get_student_activity_wrong_student_forbidden(self):
+    def test_get_student_activity_wrong_student_is_indistinguishable(self):
+        """404, nao 403, desde 2026-10-04.
+
+        O teste logo abaixo (`..._not_found`) tambem espera 404. Era essa a
+        diferenca que revelava quais ids existem: quem varresse UUIDs
+        distinguiria "nao existe" de "existe, mas nao e seu".
+
+        Agora os dois casos respondem IGUAL, e este teste confere isso em vez
+        de so olhar o status de um deles.
+        """
         assignment_id = self._distributed_activity(target_id="stu-owner")
         self._as(_ctx("stu-intruder"))
-        response = self.client.get(
+        alheia = self.client.get(
             f"/api/v1/student/activities/{assignment_id}", headers=self.headers
         )
-        self.assertEqual(response.status_code, 403, response.text)
+        inexistente = self.client.get(
+            f"/api/v1/student/activities/{_uuid.uuid4()}", headers=self.headers
+        )
+        self.assertEqual(alheia.status_code, 404, alheia.text)
+        self.assertEqual(alheia.status_code, inexistente.status_code)
+        self.assertEqual(alheia.text, inexistente.text)
 
     def test_get_student_activity_not_found(self):
         response = self.client.get(

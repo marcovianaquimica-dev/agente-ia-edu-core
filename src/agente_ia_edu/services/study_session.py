@@ -47,6 +47,14 @@ ST_SCHEDULED = "SCHEDULED"
 ST_READY = "READY"
 ST_IN_PROGRESS = "IN_PROGRESS"
 ST_COMPLETED = "COMPLETED"
+
+# Como o aluno chegou ate a tarefa da escola. Conjunto fechado, espelhando o
+# CheckConstraint de study_sessions (migration 064) - se divergirem, o banco
+# recusa a escrita, que e o comportamento desejado.
+READINESS_DIRECT = "DIRECT"
+READINESS_DIAGNOSTIC = "DIAGNOSTIC"
+READINESS_PREREQUISITE = "PREREQUISITE_PREPARATION"
+READINESS_ROUTES = (READINESS_DIRECT, READINESS_DIAGNOSTIC, READINESS_PREREQUISITE)
 ST_CANCELLED = "CANCELLED"
 _ACTIVE_STATUSES = (ST_SCHEDULED, ST_READY, ST_IN_PROGRESS)
 
@@ -104,8 +112,21 @@ class StudySessionService:
         self, student_external_id: str, *, requester: Requester,
         available_minutes: int | None = None, no_timer: bool = False,
         target_content_codes: list[str] | None = None,
+        readiness_route: str | None = None,
+        objective_assignment_id: UUID | None = None,
     ) -> dict:
+        """``readiness_route`` / ``objective_assignment_id``: how the student
+        arrived at a school task, and which task it was (migration 064).
+
+        Both are optional, because a session can exist without a school task.
+        But when there IS one, recording it here is the only chance: the route
+        is the outcome of a decision taken over the domain state of this
+        instant, and cannot be reconstructed later. Without it,
+        "did not do the task" silently merges the student who ignored it with
+        the student who is studying the prerequisite it needs.
+        """
         self._authz_self(student_external_id, requester)
+        readiness_route = self._validate_route(readiness_route)
 
         # a mandatory school session cannot be replaced by a free one (s20)
         school_row = await self._active_session(student_external_id, only_source=SOURCE_SCHOOL)
@@ -146,9 +167,51 @@ class StudySessionService:
             target_content_codes=plan["target_content_codes"] or None,
             config={"breaks": []}, plan=plan,
             status=ST_READY, current_block_index=0,
+            readiness_route=readiness_route,
+            objective_assignment_id=objective_assignment_id,
+            objective_completed=False,
         )
         self._session.add(row)
         await self._session.flush()
+        view = self._view(row)
+        await self._session.commit()
+        return view
+
+    # ---- rota pedagogica (migration 064) ---------------------------------
+
+    @staticmethod
+    def _validate_route(route: str | None) -> str | None:
+        """Recusa uma rota inventada ANTES de chegar ao banco.
+
+        O CheckConstraint da migration 064 ja recusaria, mas devolvendo um
+        erro de integridade no meio de um commit. Aqui o erro e da linguagem
+        do dominio e aponta para quem chamou.
+        """
+        if route is None:
+            return None
+        if route not in READINESS_ROUTES:
+            raise StudySessionError(
+                f"rota de prontidão desconhecida: {route!r} "
+                f"(esperado um de {', '.join(READINESS_ROUTES)})")
+        return route
+
+    async def marcar_objetivo_concluido(
+        self, student_external_id: str, session_id: UUID, *, requester: Requester,
+    ) -> dict:
+        """O aluno chegou ao fim da tarefa da escola nesta sessao.
+
+        Separado de ``complete_session`` de proposito, e esta e a distincao
+        pedagogica inteira: terminar a sessao de PREPARACAO nao e ter feito a
+        tarefa. Se os dois fossem a mesma coisa, o aluno que estudou o
+        pre-requisito apareceria para o professor como tendo cumprido a
+        atividade - e ele nao cumpriu, ele se preparou para cumprir.
+        """
+        row = await self._own_row(student_external_id, session_id, requester)
+        if row.objective_assignment_id is None:
+            raise StudySessionError(
+                "esta sessão não tem tarefa da escola como objetivo")
+        row.objective_completed = True
+        row.updated_at = _now()
         view = self._view(row)
         await self._session.commit()
         return view
@@ -677,6 +740,11 @@ class StudySessionService:
             "blocks_done": done,
             "progress_percent": round(done / len(blocks) * 100, 1) if blocks else 0.0,
             "created_by_external_id": row.created_by_external_id,
+            # migration 064 - como o aluno chegou ate a tarefa da escola
+            "readiness_route": row.readiness_route,
+            "objective_assignment_id": (str(row.objective_assignment_id)
+                                        if row.objective_assignment_id else None),
+            "objective_completed": bool(row.objective_completed),
             "ai_used": False,
         }
         if brief:

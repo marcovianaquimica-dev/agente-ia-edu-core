@@ -26,6 +26,10 @@ from .routes.question_extraction import qe_router
 from .routes.question_classification import qc_router
 from .routes.video_engine import video_router
 from .routes.discovery import discovery_router
+from .routes.curriculum_bncc import curriculum_bncc_router
+from .routes.knowledge_engine import knowledge_engine_router
+from .routes.knowledge_lexical import knowledge_lexical_router
+from .routes.portal import portal_router
 from .routes.student import student_router
 from .routes.admin import admin_router
 from .routes.admin_essay_prompts import admin_essay_prompts_router
@@ -42,6 +46,32 @@ from .routes.reception import reception_router
 from .routes.domain_map import domain_map_router
 from .dependencies import reject_reception_only_role
 from ..auth.bootstrap import configure_identity_provider_from_env
+
+
+class _EstaticoQueRevalida(StaticFiles):
+    """Arquivos estaticos que o navegador guarda, mas nao reusa calado.
+
+    `StaticFiles` manda `etag` e `last-modified` e nenhum `cache-control`.
+    Sem ele o navegador escolhe sozinho por quanto tempo reusar - e foi assim
+    que, duas vezes no ensaio da apresentacao, uma correcao ja em disco
+    apareceu como "nao funcionou". Numa demonstracao isso custaria a propria
+    demonstracao.
+
+    `no-cache` nao e "nao guarde": e "pergunte antes de usar". Nada mudou, a
+    resposta e 304.
+    """
+
+    def file_response(self, *args, **kwargs):
+        resposta = super().file_response(*args, **kwargs)
+        resposta.headers.setdefault("cache-control", "no-cache")
+        return resposta
+
+
+def _pagina(caminho: Path) -> FileResponse:
+    """Uma pagina do produto. Mesma regra de `_EstaticoQueRevalida`: um HTML
+    velho continuaria pedindo os scripts antigos, e o JS novo nunca chegaria.
+    """
+    return FileResponse(caminho, headers={"cache-control": "no-cache"})
 
 
 def create_app() -> FastAPI:
@@ -75,6 +105,18 @@ def create_app() -> FastAPI:
     app.include_router(qc_router, dependencies=reception_only_guard)
     app.include_router(video_router, dependencies=reception_only_guard)
     app.include_router(discovery_router, dependencies=reception_only_guard)
+    # CEREBRO / Knowledge Engine: corpus interno, platform admin por rota e
+    # sob o mesmo guard de recepcao de todo router nao-publico.
+    app.include_router(knowledge_engine_router, dependencies=reception_only_guard)
+    # Diagnostico da busca lexical (Fase 5). Router separado porque o seu
+    # proposito e MEDIR o motor, nao operar o corpus - e porque ele nao
+    # resolve texto livre para CatalogNode, ao contrario do caminho do Pack.
+    app.include_router(knowledge_lexical_router, dependencies=reception_only_guard)
+    # Curadoria curriculo <-> BNCC: dominio de CURRICULO, router separado
+    # do engine de proposito - ver o docstring de routes/curriculum_bncc.py.
+    app.include_router(curriculum_bncc_router, dependencies=reception_only_guard)
+    # O PORTAL e a porta de entrada do ecossistema: ele vem antes dos modulos.
+    app.include_router(portal_router, dependencies=reception_only_guard)
     app.include_router(student_router, dependencies=reception_only_guard)
     app.include_router(admin_router, dependencies=reception_only_guard)
     app.include_router(admin_essay_prompts_router, dependencies=reception_only_guard)
@@ -90,61 +132,70 @@ def create_app() -> FastAPI:
 
     web_dir = Path(__file__).parent.parent / "web"
     if web_dir.exists():
-        app.mount("/student", StaticFiles(directory=str(web_dir), html=True), name="student")
-        app.mount("/teacher/assets", StaticFiles(directory=str(web_dir), html=False), name="teacher-assets")
-        app.mount("/coordination/assets", StaticFiles(directory=str(web_dir), html=False), name="coordination-assets")
-        app.mount("/reception/assets", StaticFiles(directory=str(web_dir), html=False), name="reception-assets")
-        app.mount("/question-bank/assets", StaticFiles(directory=str(web_dir), html=False), name="question-bank-assets")
-        app.mount("/admin/assets", StaticFiles(directory=str(web_dir), html=False), name="admin-assets")
-        app.mount("/entrada/assets", StaticFiles(directory=str(web_dir), html=False), name="entrada-assets")
-        app.mount("/redacao/assets", StaticFiles(directory=str(web_dir), html=False), name="redacao-assets")
+        app.mount("/student", _EstaticoQueRevalida(directory=str(web_dir), html=True), name="student")
+        app.mount("/teacher/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="teacher-assets")
+        app.mount("/coordination/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="coordination-assets")
+        app.mount("/reception/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="reception-assets")
+        app.mount("/question-bank/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="question-bank-assets")
+        app.mount("/admin/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="admin-assets")
+        app.mount("/entrada/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="entrada-assets")
+        app.mount("/redacao/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="redacao-assets")
+        app.mount("/portal/assets", _EstaticoQueRevalida(directory=str(web_dir), html=False), name="portal-assets")
 
         @app.get("/teacher", include_in_schema=False)
         @app.get("/teacher/", include_in_schema=False)
         async def serve_teacher_portal():
             teacher_html = web_dir / "teacher.html"
             if teacher_html.exists():
-                return FileResponse(teacher_html)
-            return FileResponse(web_dir / "index.html")
+                return _pagina(teacher_html)
+            return _pagina(web_dir / "index.html")
 
         @app.get("/coordination", include_in_schema=False)
         @app.get("/coordination/", include_in_schema=False)
         async def serve_coordination_portal():
             coord_html = web_dir / "coordination.html"
             if coord_html.exists():
-                return FileResponse(coord_html)
-            return FileResponse(web_dir / "index.html")
+                return _pagina(coord_html)
+            return _pagina(web_dir / "index.html")
 
         @app.get("/reception", include_in_schema=False)
         @app.get("/reception/", include_in_schema=False)
         async def serve_reception_portal():
-            return FileResponse(web_dir / "reception.html")
+            return _pagina(web_dir / "reception.html")
 
         @app.get("/question-bank", include_in_schema=False)
         @app.get("/question-bank/", include_in_schema=False)
         async def serve_question_bank_professor():
             page = web_dir / "question-bank.html"
             if page.exists():
-                return FileResponse(page)
-            return FileResponse(web_dir / "index.html")
+                return _pagina(page)
+            return _pagina(web_dir / "index.html")
 
         @app.get("/admin", include_in_schema=False)
         @app.get("/admin/", include_in_schema=False)
         async def serve_admin_portal():
             page = web_dir / "admin.html"
             if page.exists():
-                return FileResponse(page)
-            return FileResponse(web_dir / "index.html")
+                return _pagina(page)
+            return _pagina(web_dir / "index.html")
+
+        # O PORTAL - a porta de entrada do ecossistema. `/entrada` continua
+        # servido: ele e o seletor antigo, e remove-lo quebraria qualquer
+        # link ou favorito existente.
+        @app.get("/portal", include_in_schema=False)
+        @app.get("/portal/", include_in_schema=False)
+        async def serve_portal():
+            return _pagina(web_dir / "portal.html")
 
         @app.get("/entrada", include_in_schema=False)
         @app.get("/entrada/", include_in_schema=False)
         async def serve_entrada():
-            return FileResponse(web_dir / "entrada.html")
+            return _pagina(web_dir / "entrada.html")
 
         @app.get("/redacao", include_in_schema=False)
         @app.get("/redacao/", include_in_schema=False)
         async def serve_redacao():
-            return FileResponse(web_dir / "redacao.html")
+            return _pagina(web_dir / "redacao.html")
 
     return app
 

@@ -101,6 +101,24 @@ CREDENTIAL_COLUMN_EXCEPTIONS = {
         "'token' fragment, same class as the "
         "pedagogical_classifications.*_tokens entries above."
     ),
+    ("knowledge_chunks", "token_estimate"): (
+        "CEREBRO / Knowledge Engine: estimated LLM token length of this "
+        "corpus chunk, used to budget how much context a Knowledge Pack can "
+        "carry. A size measurement, not a secret - false positive of the "
+        "'token' fragment, same class as the "
+        "pedagogical_classifications.*_tokens entries above."
+    ),
+    ("knowledge_chunk_lexical_index", "token_count"): (
+        "CEREBRO / Fase 5: number of LEXICAL terms indexed for this chunk's "
+        "body - it is the `dl` (document length) of the BM25 formula. A "
+        "count of words, not a secret, and not even an LLM token: false "
+        "positive of the 'token' fragment, same class as "
+        "knowledge_chunks.token_estimate above."
+    ),
+    ("knowledge_chunk_lexical_index", "heading_token_count"): (
+        "CEREBRO / Fase 5: same as token_count above, for the context field "
+        "(heading_path plus BNCC codes). A count of words, not a secret."
+    ),
 }
 
 

@@ -27,6 +27,7 @@ from agente_ia_edu.api.schemas.question_bank import (
     QBAsset,
     QBClassification,
     QBGeneratedListDefinition,
+    QBLabels,
     QBListGenerateRequest,
     QBListPersistRequest,
     QBListUpdateRequest,
@@ -43,6 +44,10 @@ from agente_ia_edu.api.schemas.question_bank import (
     QBStoredListSummary,
 )
 from agente_ia_edu.identity import AuthenticatedUserContext, ExternalIdentityContext
+from agente_ia_edu.services.rotulos_da_taxonomia import (
+    DIFICULDADES,
+    RotulosDaTaxonomia,
+)
 from agente_ia_edu.services.activity_assignment_store import (
     ActivityAssignmentStore,
     AssignmentAuthError,
@@ -144,6 +149,30 @@ def _to_schema(item: QuestionBankItem) -> QBQuestion:
     )
 
 
+async def _rotulos_de(session, itens) -> QBLabels:
+    """COMO CHAMAR, NA TELA, O QUE O SISTEMA CHAMA POR CODIGO.
+
+    Uma consulta para a pagina inteira. Os codigos canonicos continuam em
+    todos os campos: isto anda ao lado deles, nunca no lugar.
+    """
+    codigos: set[str] = set()
+    for it in itens or []:
+        c = getattr(it, "classification", None)
+        for campo in ("discipline_code", "area_code", "content_code",
+                      "subcontent_code"):
+            valor = getattr(c, campo, None) if c else None
+            if valor:
+                codigos.add(valor)
+        if getattr(it, "content_code", None):
+            codigos.add(it.content_code)
+    return QBLabels(
+        taxonomy=await RotulosDaTaxonomia(session).para(codigos),
+        # As tres faixas inteiras, sempre: o filtro de dificuldade oferece as
+        # tres mesmo quando a pagina so tem uma.
+        difficulty=dict(DIFICULDADES),
+    )
+
+
 @question_bank_router.get("/questions", response_model=QBQuestionListResponse)
 async def list_questions(
     year: int | None = Query(default=None, gt=0),
@@ -193,12 +222,14 @@ async def list_questions(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        rotulos = await _rotulos_de(session, page_result.items)
     return QBQuestionListResponse(
         items=[_to_summary(item) for item in page_result.items],
         pagination=QBPagination(
             page=page_result.page, page_size=page_result.page_size,
             total=page_result.total, total_pages=page_result.total_pages,
         ),
+        labels=rotulos,
     )
 
 
@@ -234,9 +265,12 @@ async def get_question(
                 # not refused - existence of out-of-scope content is not
                 # something to reveal via a different status code.
                 item = None
+        rotulos = await _rotulos_de(session, [item] if item else [])
     if item is None:
         raise HTTPException(status_code=404, detail="Question not found")
-    return _to_schema(item)
+    schema = _to_schema(item)
+    schema.labels = rotulos
+    return schema
 
 
 @question_bank_router.post("/selections/preview", response_model=QBSelectionResponse)
