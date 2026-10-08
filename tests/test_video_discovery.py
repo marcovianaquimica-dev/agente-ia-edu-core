@@ -277,7 +277,10 @@ class TestVideoDiscoveryLayer(unittest.IsolatedAsyncioTestCase):
             empty_cands = await service.discover_candidates(content_node_id=content_id, providers=[empty_provider])
             self.assertEqual(len(empty_cands), 0)
 
-            # Stubbed unconfigured YouTube Provider -> empty list
+            # YouTube sem credencial: o PROVEDOR levanta (§8 - "nao
+            # procurei" nao pode parecer "nao achei"), e o SERVICO
+            # degrada com elegancia, seguindo com os outros provedores.
+            # A descoberta nao cai; a falha aparece no log como erro.
             yt_stub = YouTubeDiscoveryProvider(api_key=None)
             yt_cands = await service.discover_candidates(content_node_id=content_id, providers=[yt_stub])
             self.assertEqual(len(yt_cands), 0)
