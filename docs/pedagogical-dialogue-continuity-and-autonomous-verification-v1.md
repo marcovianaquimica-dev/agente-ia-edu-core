@@ -25,6 +25,8 @@ persistido ou **já** é derivável:
 | quantas tentativas | `attempts` |
 | resolveu sem ajuda | `solved_unaided` |
 | nível de apoio | derivado pela escada, de três fatos já gravados |
+| estratégia atual | `_abordagem(ação, ciclo)` — função pura |
+| estratégias já tentadas | o ciclo conta as práticas concluídas, que são gravadas |
 | resposta normalizada | `normalizar(texto)` |
 | observação pedagógica | `observar(normalizada)` |
 | hipótese | `hipotese_para(inv, numero)` |
