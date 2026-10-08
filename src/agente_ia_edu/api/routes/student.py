@@ -1239,6 +1239,16 @@ class _ConversaRequest(_BaseModel):
     # versao: recarregar a pagina a perde, e esta dito na tela. Guardar texto
     # de aluno exige decisao de retencao que este bloco nao tomou.
     history: list[_TurnoDaConversa] = _Field(default_factory=list, max_length=20)
+    # O ASSUNTO QUE ELE QUIS EXPLORAR - §9.
+    #
+    # Opcional. Vindo preenchido, esta interacao e EXPLORACAO: curiosidade
+    # fora do trilho, que o §9 manda responder em vez de devolver ao ponto.
+    # Vindo vazio, a conversa continua sendo a de dentro da intervencao, e
+    # nada muda para quem ja chamava esta rota.
+    #
+    # E texto de aluno: entra no prompt rotulado como conteudo, nunca como
+    # instrucao - ver `assessor_prompts/v4._bloco_de_exploracao`.
+    topic: str | None = _Field(default=None, max_length=200)
 
 
 @student_router.post("/assessor/conversation",
@@ -1267,20 +1277,49 @@ async def conversar_com_o_assessor(
             raise HTTPException(
                 status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
+    from agente_ia_edu.services.percurso import (  # noqa: PLC0415
+        PERCURSO_EXPLORACAO,
+        classificar,
+        retomada as _retomada,
+    )
+
     contexto = _contexto_da_conversa(prontidao)
+    passo = prontidao.get("next_step") or {}
+
+    # EM QUE PERCURSO ISTO ACONTECE - §9, decidido no servidor.
+    #
+    # `em_intervencao` e o fato de haver intervencao aberta no passo atual, e
+    # nao uma suposicao sobre o texto: o que distingue apoio de exploracao e o
+    # aluno ter nomeado outro assunto, nao o Assessor adivinhar o tema.
+    percurso = classificar(assunto=payload.topic,
+                           em_intervencao=bool(passo.get("intervention")))
+    explorando = payload.topic if percurso == PERCURSO_EXPLORACAO else None
+
+    # A VOLTA, COM NOME. O §9 pede retorno ao ponto anterior sem perda de
+    # contexto, e "voltar ao percurso" nao diz para onde.
+    volta = _retomada(conteudo=passo.get("content_name"),
+                      titulo_da_atividade=prontidao.get("title"),
+                      destino=passo.get("kind"))
+
     try:
         resposta = await ConversaDoAssessor().responder(
             pergunta=payload.message,
             contexto=contexto,
-            historico=[t.model_dump() for t in payload.history])
+            historico=[t.model_dump() for t in payload.history],
+            explorando=explorando,
+            voltar_para=(volta or {}).get("nome"))
     except PerguntaInvalida as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # O passo continua sendo do sistema: a conversa nao o move, e a tela usa
     # este campo para o botao "voltar ao percurso".
     resposta["next_step"] = {
-        "kind": (prontidao.get("next_step") or {}).get("kind"),
-        "cta": (prontidao.get("next_step") or {}).get("cta"),
+        "kind": passo.get("kind"),
+        "cta": passo.get("cta"),
     }
+    resposta["percurso"] = percurso
+    # EXPLORAR NAO APAGA O PERCURSO: a volta vai na resposta, e a atividade
+    # nao foi tocada - nada aqui escreve.
+    resposta["retomada"] = volta
     return resposta
 
 

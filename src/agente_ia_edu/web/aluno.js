@@ -88,7 +88,10 @@
     // A CONVERSA NAO E PERSISTIDA: vive aqui, e recarregar a perde.
     // A tela diz isso ao aluno em vez de fingir que guarda.
     conversa: { historico: [], enviando: false, erro: null,
-                cta: null, fecho: null },
+                cta: null, fecho: null,
+                // A volta ao ponto anterior, e a marca de "outro assunto"
+                // que o ALUNO declara - §9.
+                retomada: null, outroAssunto: false },
     // O RELATORIO DE APOIO (§17) so existe depois de pedido: ele e uma
     // leitura do historico, e montar sem o aluno pedir seria gerar um
     // documento sobre ele sem que ele tenha aberto a tela.
@@ -820,9 +823,17 @@
 
     const aviso_erro = c.erro
       ? `<p class="conversa-erro" role="alert">${esc(c.erro)}</p>` : '';
-    const seguir = c.cta
+    // O BOTAO DE VOLTA, NOMEADO - §9.
+    //
+    // Quando o backend sabe de onde o aluno saiu, o rotulo e o dele:
+    // "Voltar para Atividade de Estequiometria" em vez de um CTA genérico.
+    // O destino continua sendo o passo real do sistema - so o texto muda,
+    // e ele vem montado do servidor.
+    const rotuloDaVolta = (c.retomada && c.retomada.rotulo)
+      || (c.cta && c.cta.rotulo);
+    const seguir = (c.cta && rotuloDaVolta)
       ? `<button class="botao botao-principal" data-acao="conversa-seguir">
-           ${esc(c.cta.rotulo)}</button>`
+           ${esc(rotuloDaVolta)}</button>`
       : '';
     // A SAIDA SEM ATIVIDADE - §6. Ela fica AO LADO do passo, nao no lugar
     // dele: quem quiser praticar continua a um clique, e quem so tinha uma
@@ -848,6 +859,22 @@
                     ${c.enviando ? 'disabled' : ''}></textarea>
           <button class="botao botao-secundario" type="submit"
                   ${c.enviando ? 'disabled' : ''}>Enviar</button>
+          <!--
+            QUEM DECIDE QUE E OUTRO ASSUNTO E O ALUNO - §9.
+
+            Nao e juizo pedagogico da tela: e uma intencao que ele declara,
+            do mesmo jeito que escolhe o que digitar. Com isto marcado, o
+            backend trata a pergunta como EXPLORACAO - responde a
+            curiosidade em vez de devolver ao ponto - e devolve a volta
+            nomeada. Quem decide o que fazer com a declaracao continua sendo
+            o servidor (services/percurso).
+          -->
+          <label class="conversa-outro">
+            <input type="checkbox" id="conversa-outro-assunto"
+                   ${c.outroAssunto ? 'checked' : ''}
+                   ${c.enviando ? 'disabled' : ''}>
+            É sobre outro assunto
+          </label>
         </form>
         ${seguir}
         ${fechar}
@@ -878,12 +905,15 @@
     const campo = $('campo-conversa');
     const texto = campo ? campo.value : '';
     if (!ConversaUI.podeEnviar(texto, c)) return;
+    const marca = $('conversa-outro-assunto');
+    c.outroAssunto = !!(marca && marca.checked);
 
     c.historico = ConversaUI.comTurno(c.historico, 'aluno', texto);
     c.enviando = true;
     c.erro = null;
     c.cta = null;
     c.fecho = null;
+    c.retomada = null;
     repintarConversa();
 
     const assignment = (app.prontidao && app.prontidao.assignment_id) || null;
@@ -891,12 +921,16 @@
       const d = await api('/api/v1/student/assessor/conversation', {
         method: 'POST',
         body: JSON.stringify({ assignment_id: assignment, message: texto.trim(),
-                               history: c.historico.slice(0, -1) }),
+                               history: c.historico.slice(0, -1),
+                               // §9: so vai quando ELE marcou. Sem marca,
+                               // nada muda para quem ja usava a conversa.
+                               topic: c.outroAssunto ? texto.trim() : null }),
       });
       const lida = ConversaUI.leituraDaResposta(d);
       c.historico = ConversaUI.comTurno(c.historico, 'assessor', lida.texto);
       c.cta = lida.cta;
       c.fecho = lida.fecho;
+      c.retomada = lida.retomada;
       c.fallback = lida.fallback;
     } catch (erro) {
       c.erro = ConversaUI.leituraDaFalha(erro);
@@ -2542,7 +2576,9 @@
       // que ele estava. NAO move passo, NAO marca nada, NAO verifica: uma
       // duvida respondida nao precisa virar atividade.
       case 'conversa-fechar':
-        app.conversa = { historico: [], enviando: false, erro: null };
+        app.conversa = { historico: [], enviando: false, erro: null,
+                         cta: null, fecho: null, retomada: null,
+                         outroAssunto: false };
         repintarConversa();
         return;
       // O botao principal da tela de resultado quando ha proxima

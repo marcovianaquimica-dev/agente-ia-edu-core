@@ -56,7 +56,7 @@
     var texto = String(r.reply || '').trim();
     if (!texto) {
       return { texto: 'Não consegui responder agora.', fallback: true,
-               cta: null, fecho: null };
+               cta: null, fecho: null, retomada: null };
     }
     var passo = r.next_step || {};
     return {
@@ -79,6 +79,19 @@
       // isso a checagem e pelo rotulo, que so o backend novo envia.
       fecho: (r.pode_encerrar === true && r.rotulo_de_fecho)
         ? { rotulo: String(r.rotulo_de_fecho) } : null,
+      // A VOLTA AO PONTO ANTERIOR, COM NOME - §9.
+      //
+      // "Voltar ao percurso" não diz para onde. O §9 pede retorno ao ponto
+      // anterior sem perda de contexto, e saber o que se está retomando é
+      // parte do contexto. O rótulo vem montado do backend
+      // (`services/percurso.retomada`): a tela não escreve o nome do
+      // destino, porque quem sabe onde ele estava é o servidor.
+      //
+      // Sem destino, nada - um botão que não leva a lugar nenhum é pior que
+      // nenhum botão.
+      retomada: (r.retomada && r.retomada.rotulo && r.retomada.destino)
+        ? { rotulo: String(r.retomada.rotulo),
+            destino: String(r.retomada.destino) } : null,
     };
   }
 

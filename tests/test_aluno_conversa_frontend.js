@@ -163,3 +163,34 @@ test('sem passo e sem autorizacao, nenhum botao e inventado', () => {
   assert.equal(l.cta, null);
   assert.equal(l.fecho, null);
 });
+
+// ===================== a volta ao ponto anterior (§9) ======================
+//
+// "Voltar ao percurso" nao diz para onde. O rotulo vem MONTADO do backend:
+// se a tela o escrevesse, ela estaria decidindo o nome do destino.
+
+test('a retomada nomeada chega a tela', () => {
+  const l = C.leituraDaResposta({ reply: 'ok',
+    retomada: { rotulo: 'Voltar para Atividade de Estequiometria',
+                destino: 'ACTIVITY' } });
+  assert.equal(l.retomada.rotulo, 'Voltar para Atividade de Estequiometria');
+  assert.equal(l.retomada.destino, 'ACTIVITY');
+});
+
+test('sem destino nao ha retomada', () => {
+  assert.equal(C.leituraDaResposta({ reply: 'ok' }).retomada, null);
+  assert.equal(C.leituraDaResposta({ reply: 'ok', retomada: {} }).retomada, null);
+});
+
+test('retomada sem rotulo tambem nao vale', () => {
+  const l = C.leituraDaResposta({ reply: 'ok',
+    retomada: { destino: 'ACTIVITY' } });
+  assert.equal(l.retomada, null);
+});
+
+test('a tela nao inventa o nome do destino', () => {
+  const l = C.leituraDaResposta({ reply: 'ok',
+    next_step: { kind: 'PRACTICE', cta: 'Praticar agora' } });
+  assert.equal(l.retomada, null);
+  assert.equal(l.cta.rotulo, 'Praticar agora');
+});

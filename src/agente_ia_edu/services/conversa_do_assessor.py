@@ -83,7 +83,9 @@ class ConversaDoAssessor:
         return self._provider if self._provider is not None else build_text_provider()
 
     async def responder(self, *, pergunta: str, contexto: dict,
-                        historico: Sequence[dict] = ()) -> dict:
+                        historico: Sequence[dict] = (),
+                        explorando: str | None = None,
+                        voltar_para: str | None = None) -> dict:
         texto = (pergunta or "").strip()
         if not texto:
             raise PerguntaInvalida("pergunta vazia")
@@ -118,6 +120,12 @@ class ConversaDoAssessor:
         # hoje sem reescrever o registro.
         if _aceita_politica(artefato.montar):
             parametros.update(extensao=extensao, pode_encerrar=encerrar)
+        # O PERCURSO - §9. Quem decide que isto e exploracao e
+        # `services/percurso`, na rota; aqui so se transmite. As versoes
+        # anteriores do prompt nao conhecem o campo, e continuam chamaveis.
+        if _aceita_percurso(artefato.montar):
+            parametros.update(explorando=(explorando or None),
+                              voltar_para=(voltar_para or None))
         prompt = artefato.montar(**parametros)
 
         try:
@@ -183,6 +191,17 @@ def _aceita_politica(montar) -> bool:
     except (TypeError, ValueError):  # pragma: no cover - callable exotico
         return False
     return "extensao" in parametros and "pode_encerrar" in parametros
+
+
+def _aceita_percurso(montar) -> bool:
+    """O `montar` desta versao recebe o assunto explorado e a volta?"""
+    import inspect
+
+    try:
+        parametros = inspect.signature(montar).parameters
+    except (TypeError, ValueError):  # pragma: no cover - callable exotico
+        return False
+    return "explorando" in parametros and "voltar_para" in parametros
 
 
 class _RespostaVazia(RuntimeError):

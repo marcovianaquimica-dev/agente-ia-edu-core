@@ -1487,3 +1487,12 @@ p  { margin: 0 0 .75rem; }
   border-top: 1px solid var(--linha, rgba(0, 0, 0, .12));
   font-size: .8125rem;
 }
+
+/* O controle de "outro assunto" (§9). Fica discreto ao lado de Enviar: e
+   uma declaracao ocasional do aluno, nao uma opcao de configuracao. */
+.conversa-outro {
+  display: flex; align-items: center; gap: .4rem;
+  font-size: .8125rem; color: var(--tinta-fraca); cursor: pointer;
+  min-height: var(--toque);
+}
+.conversa-outro input { min-width: 1rem; min-height: 1rem; }
