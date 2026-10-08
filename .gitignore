@@ -28,3 +28,6 @@ tests/_p10tmp/mf_*.json
 
 # Artefatos de sessão do superpowers (ledgers SDD, mockups do companion visual).
 .superpowers/
+
+# Benchmark de calibracao de redacao - nomes reais, nunca versionados
+tests/fixtures/essay_calibration_benchmark_v1.local.json

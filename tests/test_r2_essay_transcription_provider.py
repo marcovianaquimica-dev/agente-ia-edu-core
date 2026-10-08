@@ -33,12 +33,19 @@ class FakeProviderTranscriptionTests(unittest.TestCase):
 
 class OpenAIProviderTranscriptionTests(unittest.TestCase):
     def test_raises_when_not_configured(self):
-        provider = OpenAIProvider(api_key=None, vision_model=None)
-        request = EssayPageTranscriptionRequest(
-            image_path=Path("/tmp/page1.png"), mime_type="image/png"
-        )
-        with self.assertRaises(ProviderConfigurationError):
-            asyncio.run(provider.transcribe_page(request))
+        # Hermetic: conftest.py loads OPENAI_API_KEY from .env for every
+        # pytest session (needed for the live Quality Gate regression
+        # test), so this test must explicitly ensure it is absent for its
+        # own duration regardless of what the ambient environment has.
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("OPENAI_API_KEY", None)
+            provider = OpenAIProvider(api_key=None, vision_model=None)
+            request = EssayPageTranscriptionRequest(
+                image_path=Path("/tmp/page1.png"), mime_type="image/png"
+            )
+            with self.assertRaises(ProviderConfigurationError):
+                asyncio.run(provider.transcribe_page(request))
 
     def test_derives_confidence_from_logprobs(self):
         image_path = Path("/tmp/r2_test_page.png")
@@ -188,13 +195,18 @@ class OpenAIProviderTranscriptionTests(unittest.TestCase):
 
     def test_raises_when_vision_model_not_configured_but_key_present(self):
         # Distinct branch from test_raises_when_not_configured: api_key IS set,
-        # only vision_model is missing.
-        provider = OpenAIProvider(api_key="sk-test", vision_model=None)
-        request = EssayPageTranscriptionRequest(
-            image_path=Path("/tmp/page1.png"), mime_type="image/png"
-        )
-        with self.assertRaises(ProviderConfigurationError):
-            asyncio.run(provider.transcribe_page(request))
+        # only vision_model is missing. Hermetic for the same reason as that
+        # test, but here it is OPENAI_VISION_MODEL (also loaded from .env by
+        # conftest.py) that must be absent, not OPENAI_API_KEY.
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("OPENAI_VISION_MODEL", None)
+            provider = OpenAIProvider(api_key="sk-test", vision_model=None)
+            request = EssayPageTranscriptionRequest(
+                image_path=Path("/tmp/page1.png"), mime_type="image/png"
+            )
+            with self.assertRaises(ProviderConfigurationError):
+                asyncio.run(provider.transcribe_page(request))
 
     def test_raises_invalid_response_on_empty_transcription(self):
         image_path = Path("/tmp/r2_empty_test_page.png")
@@ -300,8 +312,16 @@ class OpenAIProviderTranscriptionTests(unittest.TestCase):
 
 class FactoryTests(unittest.TestCase):
     def test_build_essay_transcriber_requires_configuration(self):
-        with self.assertRaises(ProviderConfigurationError):
-            build_essay_transcriber("openai")
+        # Hermetic for the same reason as OpenAIProviderTranscriptionTests'
+        # two configuration tests above: conftest.py loads both
+        # OPENAI_API_KEY and OPENAI_VISION_MODEL from .env for every pytest
+        # session.
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+            _os.environ.pop("OPENAI_API_KEY", None)
+            _os.environ.pop("OPENAI_VISION_MODEL", None)
+            with self.assertRaises(ProviderConfigurationError):
+                build_essay_transcriber("openai")
 
     def test_build_essay_transcriber_raises_when_vision_model_missing(self):
         with patch.dict(

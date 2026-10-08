@@ -31,7 +31,18 @@ def _output_dict(**kwargs) -> dict:
     only "identification" is added here (never part of _happy_payload,
     since real code always overwrites it with the service's own values -
     see essay_correction.py's _run_ai)."""
-    raw = json.loads(_happy_payload(anchor_mode="TEXT_OFFSET", text="Texto qualquer.", **kwargs))
+    raw = json.loads(
+        _happy_payload(
+            anchor_mode="TEXT_OFFSET", text="Texto qualquer.",
+            # This pipeline is still pinned to contract v5 (see this
+            # module's own docstring and mass_correction_batch.py's) -
+            # v5 has no input_reliability field and is extra="forbid", so
+            # the Task 8/Fase B default on _happy_payload() must be
+            # omitted here, not just left unused.
+            input_reliability=None,
+            **kwargs,
+        )
+    )
     raw["identification"] = {
         "essay_id": str(uuid.uuid4()),
         "essay_version_id": str(uuid.uuid4()),
