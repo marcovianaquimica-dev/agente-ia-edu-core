@@ -268,7 +268,7 @@ class ActivityPlayerStore:
                           if q["position"] == current_position), None)
             if atual is not None and atual["answered"]:
                 pendente = await self._intervencao_de(
-                    row, atual, requester=requester) or None
+                    (row.metadata_ or {}), atual, requester=requester) or None
 
         return {
             "activity": {
@@ -305,7 +305,7 @@ class ActivityPlayerStore:
             "pending_intervention": pendente,
         }
 
-    async def _intervencao_de(self, row, questao: dict, *,
+    async def _intervencao_de(self, metadata, questao: dict, *,
                               requester: Requester) -> dict:
         """A decisao pedagogica daquela questao ja respondida, ou {}.
 
@@ -319,7 +319,7 @@ class ActivityPlayerStore:
         try:
             return await decidir_apos_resposta(
                 self._session, aluno=requester.external_user_id,
-                metadata=(row.metadata_ or {}),
+                metadata=dict(metadata or {}),
                 question_version_id=questao["question_version_id"],
                 selected_option_key=questao.get("selected_option"),
                 requester=requester)
@@ -374,6 +374,13 @@ class ActivityPlayerStore:
         attempt_id = attempt.id
         qvid = item.question_version_id
         position = item.position
+        # O METADATA DA ATRIBUICAO TAMBEM, e pelo mesmo motivo: a decisao
+        # pedagogica e tomada DEPOIS do commit abaixo, e um commit expira os
+        # objetos desta sessao. Ler `row.metadata_` la tentaria recarregar
+        # fora do contexto async e levantaria MissingGreenlet - que o
+        # `except` da decisao engoliria, devolvendo "pode avancar" para uma
+        # resposta errada. Medido no navegador em 2026-10-08.
+        meta_da_atribuicao = dict(row.metadata_ or {})
         answer = (await self._session.execute(
             select(ActivityAnswer).where(
                 ActivityAnswer.attempt_id == attempt_id,
@@ -425,7 +432,8 @@ class ActivityPlayerStore:
         # correcao da tentativa e a evidencia continuam onde sempre
         # estiveram, em `attempt/correct`.
         decisao = await self._intervencao_de(
-            row, {"question_version_id": qvid, "selected_option": key},
+            meta_da_atribuicao,
+            {"question_version_id": qvid, "selected_option": key},
             requester=requester)
 
         state = await self._state(assignment_id, requester=requester)
