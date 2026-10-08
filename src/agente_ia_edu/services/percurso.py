@@ -44,6 +44,19 @@ PERCURSO_APOIO = "APOIO"
 
 PERCURSOS = (PERCURSO_PLANEJADO, PERCURSO_EXPLORACAO, PERCURSO_APOIO)
 
+# PARA ONDE A VOLTA LEVA.
+#
+# "A atividade de onde ele saiu", e NAO o proximo passo que o sistema
+# calculou. Medido no QA de 2026-10-08: o destino era `next_step.kind`, e
+# para um aluno que tinha esgotado o teto de ciclos aquilo era ESCALATE - o
+# botao dizia "Voltar para Atividade de Estequiometria" e despachava uma
+# escalacao ao professor.
+#
+# O §9 pede retorno AO PONTO ANTERIOR. O ponto anterior e a atividade que a
+# conversa ja conhece, pelo `assignment_id` com que ela foi aberta. O proximo
+# passo continua existindo - no botao dele.
+DESTINO_ATIVIDADE = "ATIVIDADE"
+
 # Como cada um se chama para o aluno, se um dia a tela precisar dizer.
 _ROTULOS = {
     PERCURSO_PLANEJADO: "No seu plano de estudos",
@@ -71,7 +84,7 @@ def rotulo_do_percurso(percurso: str) -> str:
 
 
 def retomada(*, conteudo: str | None, titulo_da_atividade: str | None,
-             destino: str | None) -> dict | None:
+             destino: str | None, atividade: str | None = None) -> dict | None:
     """Para onde voltar, e com que nome.
 
     O titulo da atividade ganha do nome do conteudo quando existe: e assim
@@ -86,11 +99,15 @@ def retomada(*, conteudo: str | None, titulo_da_atividade: str | None,
     nome = (titulo_da_atividade or "").strip() or (conteudo or "").strip()
     if not nome:
         return None
-    return {"rotulo": f"Voltar para {nome}", "destino": destino.strip(),
-            "nome": nome}
+    volta = {"rotulo": f"Voltar para {nome}", "destino": destino.strip(),
+             "nome": nome}
+    if (atividade or "").strip():
+        volta["assignment_id"] = str(atividade).strip()
+    return volta
 
 
 __all__ = [
+    "DESTINO_ATIVIDADE",
     "PERCURSOS",
     "PERCURSO_APOIO",
     "PERCURSO_EXPLORACAO",

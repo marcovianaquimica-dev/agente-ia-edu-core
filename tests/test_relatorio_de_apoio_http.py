@@ -213,6 +213,46 @@ class OPDFBAIXA(_Base):
         self.assertIn("olar", texto, "o PDF saiu sem o conteúdo do relatório")
         self.assertIn("sozinho", texto.lower())
 
+    def test_o_TRAVESSAO_nao_vira_bolinha_no_papel(self):
+        """O defeito encontrado no QA de 2026-10-08, no PDF de verdade.
+
+        `insert_text` com a fonte base-14 troca em silêncio tudo o que ela
+        não tem: travessão, meia-risca, aspas curvas, reticências e seta
+        viravam "·". O título saía "Apoio à aprendizagem · Aluno", e as
+        aspas de uma citação sumiam — num papel que o aluno leva a um
+        adulto.
+
+        A substituição é determinística agora, e para um caractere que a
+        fonte TEM: "-". Melhor um hífen do que um ponto no meio da frase.
+        """
+        import pymupdf
+
+        documento = self._pedir()
+        r = self.client.get(ROTA + ".pdf")
+        doc = pymupdf.open(stream=r.content, filetype="pdf")
+        texto = "\n".join(p.get_text() for p in doc)
+        doc.close()
+
+        # O TÍTULO usa travessão. No papel ele tem de ser um hífen, e não
+        # um ponto no meio da frase.
+        primeira = texto.splitlines()[0]
+        self.assertNotIn("·", primeira, f"o título saiu com ponto: {primeira!r}")
+        self.assertIn("-", primeira)
+
+        # E NENHUM "·" A MAIS: o relatório usa o ponto-do-meio de propósito
+        # como separador no subtítulo. A contagem no PDF tem de ser igual à
+        # do documento de origem — um a mais é substituição silenciosa.
+        fonte = " ".join([documento["titulo"], documento["subtitulo"],
+                          documento["ressalva"]]
+                         + [i for s in documento["secoes"] for i in s["itens"]]
+                         + [s["titulo"] for s in documento["secoes"]])
+        self.assertEqual(fonte.count("·"), texto.count("·"),
+                         "a fonte do PDF trocou algum caractere por "
+                         "ponto-do-meio em silêncio")
+
+        # E os acentos, que a fonte TEM, continuam inteiros.
+        self.assertIn("ã", texto)
+
     def test_e_vem_como_download_com_nome(self):
         r = self.client.get(ROTA + ".pdf")
         disp = r.headers.get("content-disposition", "")

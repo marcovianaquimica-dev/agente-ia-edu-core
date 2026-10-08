@@ -89,9 +89,10 @@
     // A tela diz isso ao aluno em vez de fingir que guarda.
     conversa: { historico: [], enviando: false, erro: null,
                 cta: null, fecho: null,
-                // A volta ao ponto anterior, e a marca de "outro assunto"
-                // que o ALUNO declara - §9.
-                retomada: null, outroAssunto: false },
+                // A volta ao ponto anterior, o percurso que o backend
+                // classificou, e a marca de "outro assunto" que o ALUNO
+                // declara - §9.
+                retomada: null, percurso: null, outroAssunto: false },
     // O RELATORIO DE APOIO (§17) so existe depois de pedido: ele e uma
     // leitura do historico, e montar sem o aluno pedir seria gerar um
     // documento sobre ele sem que ele tenha aberto a tela.
@@ -823,18 +824,24 @@
 
     const aviso_erro = c.erro
       ? `<p class="conversa-erro" role="alert">${esc(c.erro)}</p>` : '';
-    // O BOTAO DE VOLTA, NOMEADO - §9.
+    // VOLTAR E SEGUIR SAO DUAS COISAS - §9.
     //
-    // Quando o backend sabe de onde o aluno saiu, o rotulo e o dele:
-    // "Voltar para Atividade de Estequiometria" em vez de um CTA genérico.
-    // O destino continua sendo o passo real do sistema - so o texto muda,
-    // e ele vem montado do servidor.
-    const rotuloDaVolta = (c.retomada && c.retomada.rotulo)
-      || (c.cta && c.cta.rotulo);
-    const seguir = (c.cta && rotuloDaVolta)
-      ? `<button class="botao botao-principal" data-acao="conversa-seguir">
-           ${esc(rotuloDaVolta)}</button>`
-      : '';
+    // Quando ele saiu do trilho, o que ele quer e VOLTAR: o botao reabre a
+    // atividade de onde ele saiu, pelo `assignment_id` que o backend
+    // devolveu, e usa a acao que o app ja tem para abrir tarefa. O rotulo
+    // vem montado do servidor - quem sabe onde ele estava e o servidor.
+    //
+    // Fora da exploracao, o botao continua sendo o PROXIMO PASSO, como
+    // sempre foi. Dois botoes ao mesmo tempo seriam tres controles numa
+    // conversa que precisa ser concisa.
+    const volta = (c.percurso === 'EXPLORACAO' && c.retomada) ? c.retomada : null;
+    const seguir = volta
+      ? `<button class="botao botao-principal" data-acao="abrir-tarefa"
+                 data-id="${esc(volta.atividade)}">${esc(volta.rotulo)}</button>`
+      : (c.cta
+        ? `<button class="botao botao-principal" data-acao="conversa-seguir">
+             ${esc(c.cta.rotulo)}</button>`
+        : '');
     // A SAIDA SEM ATIVIDADE - §6. Ela fica AO LADO do passo, nao no lugar
     // dele: quem quiser praticar continua a um clique, e quem so tinha uma
     // duvida pode fechar. Quem autoriza e o backend.
@@ -914,6 +921,7 @@
     c.cta = null;
     c.fecho = null;
     c.retomada = null;
+    c.percurso = null;
     repintarConversa();
 
     const assignment = (app.prontidao && app.prontidao.assignment_id) || null;
@@ -931,6 +939,7 @@
       c.cta = lida.cta;
       c.fecho = lida.fecho;
       c.retomada = lida.retomada;
+      c.percurso = lida.percurso;
       c.fallback = lida.fallback;
     } catch (erro) {
       c.erro = ConversaUI.leituraDaFalha(erro);
@@ -2578,7 +2587,7 @@
       case 'conversa-fechar':
         app.conversa = { historico: [], enviando: false, erro: null,
                          cta: null, fecho: null, retomada: null,
-                         outroAssunto: false };
+                         percurso: null, outroAssunto: false };
         repintarConversa();
         return;
       // O botao principal da tela de resultado quando ha proxima

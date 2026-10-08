@@ -169,22 +169,28 @@ test('sem passo e sem autorizacao, nenhum botao e inventado', () => {
 // "Voltar ao percurso" nao diz para onde. O rotulo vem MONTADO do backend:
 // se a tela o escrevesse, ela estaria decidindo o nome do destino.
 
-test('a retomada nomeada chega a tela', () => {
-  const l = C.leituraDaResposta({ reply: 'ok',
+test('a retomada nomeada chega a tela, com a atividade', () => {
+  const l = C.leituraDaResposta({ reply: 'ok', percurso: 'EXPLORACAO',
     retomada: { rotulo: 'Voltar para Atividade de Estequiometria',
-                destino: 'ACTIVITY' } });
+                destino: 'ATIVIDADE', assignment_id: 'a-1' } });
   assert.equal(l.retomada.rotulo, 'Voltar para Atividade de Estequiometria');
-  assert.equal(l.retomada.destino, 'ACTIVITY');
+  assert.equal(l.retomada.atividade, 'a-1');
+  assert.equal(l.percurso, 'EXPLORACAO');
 });
 
-test('sem destino nao ha retomada', () => {
+test('sem atividade nao ha para onde voltar, e nao ha retomada', () => {
+  // O defeito do QA de 2026-10-08: um rotulo prometendo a atividade com um
+  // destino que era outro passo. Sem o id, a tela nao oferece a volta.
   assert.equal(C.leituraDaResposta({ reply: 'ok' }).retomada, null);
   assert.equal(C.leituraDaResposta({ reply: 'ok', retomada: {} }).retomada, null);
+  const semId = C.leituraDaResposta({ reply: 'ok',
+    retomada: { rotulo: 'Voltar para X', destino: 'ATIVIDADE' } });
+  assert.equal(semId.retomada, null);
 });
 
 test('retomada sem rotulo tambem nao vale', () => {
   const l = C.leituraDaResposta({ reply: 'ok',
-    retomada: { destino: 'ACTIVITY' } });
+    retomada: { destino: 'ATIVIDADE', assignment_id: 'a-1' } });
   assert.equal(l.retomada, null);
 });
 
@@ -193,4 +199,8 @@ test('a tela nao inventa o nome do destino', () => {
     next_step: { kind: 'PRACTICE', cta: 'Praticar agora' } });
   assert.equal(l.retomada, null);
   assert.equal(l.cta.rotulo, 'Praticar agora');
+});
+
+test('e o percurso nao e adivinhado pela tela', () => {
+  assert.equal(C.leituraDaResposta({ reply: 'ok' }).percurso, null);
 });

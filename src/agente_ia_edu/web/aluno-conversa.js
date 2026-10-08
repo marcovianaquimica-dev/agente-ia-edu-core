@@ -56,7 +56,7 @@
     var texto = String(r.reply || '').trim();
     if (!texto) {
       return { texto: 'Não consegui responder agora.', fallback: true,
-               cta: null, fecho: null, retomada: null };
+               cta: null, fecho: null, retomada: null, percurso: null };
     }
     var passo = r.next_step || {};
     return {
@@ -89,9 +89,19 @@
       //
       // Sem destino, nada - um botão que não leva a lugar nenhum é pior que
       // nenhum botão.
-      retomada: (r.retomada && r.retomada.rotulo && r.retomada.destino)
+      //
+      // E ela carrega A ATIVIDADE, não o próximo passo: o botão reabre
+      // aquela atividade. Sem `assignment_id` não há para onde voltar, e
+      // então não há botão - era esse o defeito achado no QA de 2026-10-08,
+      // quando o destino era `next_step.kind` e o rótulo prometia a
+      // atividade enquanto a ação despachava uma escalação.
+      retomada: (r.retomada && r.retomada.rotulo && r.retomada.assignment_id)
         ? { rotulo: String(r.retomada.rotulo),
-            destino: String(r.retomada.destino) } : null,
+            destino: String(r.retomada.destino || ''),
+            atividade: String(r.retomada.assignment_id) } : null,
+      // Em que percurso o backend disse que esta resposta aconteceu. A tela
+      // não classifica nada - ela só sabe se deve oferecer a volta.
+      percurso: r.percurso ? String(r.percurso) : null,
     };
   }
 

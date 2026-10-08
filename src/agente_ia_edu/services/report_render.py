@@ -192,6 +192,41 @@ def pdf_available() -> bool:
         return False
 
 
+# WHAT THE BASE-14 FONT CANNOT DRAW, AND SILENTLY REPLACED.
+#
+# `insert_text` with "helv"/"hebo" swaps any glyph the font lacks for a
+# middle dot, without a word. Measured on 2026-10-08: the em dash, the en
+# dash, curly quotes, the ellipsis and the arrow all came out as "·" - the
+# student's report read "Apoio à aprendizagem · Aluno", and a quotation lost
+# its quotes. Accented Latin-1 letters are fine; this punctuation is not.
+#
+# So it is transliterated DELIBERATELY, to characters the font does have. A
+# hyphen is not the typography anyone wanted, but it reads; a dot in the
+# middle of a sentence does not.
+_FORA_DA_FONTE = {
+    "—": "-",      # travessão
+    "–": "-",      # meia-risca
+    "‒": "-",
+    "−": "-",      # menos matemático
+    "“": '"', "”": '"', "„": '"',
+    "‘": "'", "’": "'", "‚": "'",
+    "…": "...",
+    "→": "->", "←": "<-",
+    "≥": ">=", "≤": "<=", "≠": "!=",
+    " ": " ",      # espaço inquebrável
+    " ": " ", " ": " ", "​": "",
+    "•": "-",      # bullet
+    "×": "x",
+}
+
+_TRADUCAO = str.maketrans(_FORA_DA_FONTE)
+
+
+def _desenhavel(texto: str) -> str:
+    """O mesmo texto, com o que a fonte não tem trocado por algo que ela tem."""
+    return (texto or "").translate(_TRADUCAO)
+
+
 def _writer(doc, fitz):
     """Pagination and line wrapping, in ONE place.
 
@@ -227,7 +262,10 @@ def _writer(doc, fitz):
         state["y"] += gap
         font = "helv" if not bold else "hebo"
         max_w = _A4[0] - 2 * _MARGIN - indent
-        for line in _wrap(text, max_w, size, font):
+        # A TRADUÇÃO VEM ANTES DA QUEBRA, e não depois: "..." é mais largo
+        # que "…", e medir o texto original daria uma linha mais curta do
+        # que a que vai ser desenhada.
+        for line in _wrap(_desenhavel(text), max_w, size, font):
             if state["y"] > _A4[1] - _MARGIN:
                 new_page()
             state["page"].insert_text((_MARGIN + indent, state["y"]), line,

@@ -284,6 +284,30 @@ class AVOLTAEOFERECIDAECOMNOME(_Base):
         self.assertTrue("stequiometria" in rotulo or "Atividade" in rotulo,
                         f"a volta não nomeia o ponto anterior: {rotulo!r}")
 
+    def test_e_ela_leva_a_ATIVIDADE_e_nao_ao_proximo_passo(self):
+        """O defeito encontrado no QA de 2026-10-08.
+
+        O destino era `next_step.kind`, e para o aluno de QA aquilo era
+        ESCALATE — o teto de ciclos tinha acabado. O botão dizia "Voltar
+        para Atividade de Estequiometria" e despachava uma ESCALAÇÃO.
+
+        O §9 pede retorno AO PONTO ANTERIOR, e o ponto anterior é a
+        atividade de onde ele saiu, que a própria conversa já conhece. O
+        próximo passo continua existindo, no botão dele.
+        """
+        from agente_ia_edu.services.percurso import DESTINO_ATIVIDADE
+
+        volta = self._explorar().get("retomada") or {}
+        self.assertEqual(DESTINO_ATIVIDADE, volta.get("destino"))
+        self.assertEqual(str(self.atividade), volta.get("assignment_id"),
+                         "a volta não aponta para a atividade da conversa")
+
+    def test_o_proximo_passo_continua_vindo_separado(self):
+        """Voltar e seguir são duas coisas, e o contrato mantém as duas."""
+        r = self._explorar()
+        self.assertIn("next_step", r)
+        self.assertIsNot(r.get("next_step"), r.get("retomada"))
+
     def test_sem_explorar_a_conversa_NAO_e_exploracao(self):
         """E, nesta fixture, é o percurso planejado — não o de apoio.
 

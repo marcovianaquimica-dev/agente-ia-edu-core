@@ -188,6 +188,131 @@ class CONCISO(unittest.TestCase):
                 self.assertTrue(s["itens"], "seção sem item nenhum foi impressa")
 
 
+class NENHUMASECAOVIRAPAREDE(unittest.TestCase):
+    """O §17 pede CONCISO, e o QA de 2026-10-08 mostrou o oposto.
+
+    Com o histórico real de `aluno_qa_jornada_est`, "O que ainda está
+    custando" saiu com SETE frases idênticas — uma por micro-habilidade — e
+    "Para conversar com seu professor" repetiu as mesmas sete numa linha só.
+    Isso não é um resumo: é uma lista de veredictos, e é o que faz um papel
+    sobre aprendizagem parecer um laudo.
+
+    O corte é honesto: os primeiros, e depois a CONTAGEM do que ficou de
+    fora. Nada desaparece sem ser dito, e o quadro completo continua em
+    "Meu progresso".
+    """
+
+    def _muitas(self, quantas: int, estado=None, revisao=False):
+        from agente_ia_edu.services.consolidacao import ESTADO_EM_APRENDIZADO
+
+        estado = estado or ESTADO_EM_APRENDIZADO
+        return {f"HABILIDADE_{i:02d}": _situacao(estado, revisao=revisao)
+                for i in range(quantas)}
+
+    def _secao(self, relatorio, chave):
+        return next(s for s in relatorio["secoes"] if s["chave"] == chave)
+
+    def test_uma_secao_nao_passa_do_limite(self):
+        from agente_ia_edu.services.relatorio_de_apoio import ITENS_POR_SECAO
+
+        r = montar_relatorio(aluno_nome="Ana", conteudo="Estequiometria",
+                             habilidades=self._muitas(9), apoios=[], agora=HOJE)
+        for s in r["secoes"]:
+            with self.subTest(s["chave"]):
+                self.assertLessEqual(len(s["itens"]), ITENS_POR_SECAO + 1,
+                                     "seção virou parede de texto")
+
+    def test_e_o_que_ficou_de_fora_e_CONTADO_em_vez_de_sumir(self):
+        from agente_ia_edu.services.relatorio_de_apoio import ITENS_POR_SECAO
+
+        r = montar_relatorio(aluno_nome="Ana", conteudo="Estequiometria",
+                             habilidades=self._muitas(9), apoios=[], agora=HOJE)
+        dificuldades = self._secao(r, "dificuldades")
+        ultimo = dificuldades["itens"][-1]
+        self.assertIn(str(9 - ITENS_POR_SECAO), ultimo,
+                      f"a sobra não foi contada: {ultimo!r}")
+
+    def test_com_pouca_coisa_nao_ha_linha_de_sobra(self):
+        """Dois itens não precisam de "e mais 0"."""
+        r = montar_relatorio(aluno_nome="Ana", conteudo="Estequiometria",
+                             habilidades=self._muitas(2), apoios=[], agora=HOJE)
+        for item in self._secao(r, "dificuldades")["itens"]:
+            with self.subTest(item):
+                self.assertNotIn("e mais", item.lower())
+
+    def test_o_que_ele_JA_MOSTROU_e_escorregou_vem_primeiro(self):
+        """A ordem não é alfabética: é o que dá para agir.
+
+        Quem demonstrou antes e errou agora tem recuperação possível. Quem
+        nunca saiu sem ajuda precisa de ensino. A primeira informação é mais
+        acionável, e é a que cabe nas quatro linhas que o papel tem.
+        """
+        from agente_ia_edu.services.consolidacao import (
+            ESTADO_DEMONSTRADO,
+            ESTADO_EM_APRENDIZADO,
+        )
+
+        habilidades = {f"ZZ_TRAVADA_{i}": _situacao(ESTADO_EM_APRENDIZADO)
+                       for i in range(8)}
+        habilidades["AA_ESCORREGOU"] = _situacao(ESTADO_DEMONSTRADO,
+                                                 revisao=True)
+        r = montar_relatorio(aluno_nome="Ana", conteudo="Estequiometria",
+                             habilidades=habilidades, apoios=[], agora=HOJE)
+        primeiro = self._secao(r, "dificuldades")["itens"][0]
+        self.assertIn("ESCORREGOU", primeiro,
+                      f"o que dá para recuperar ficou fora da lista: "
+                      f"{primeiro!r}")
+
+    def test_a_sugestao_nao_enumera_tudo_numa_linha_so(self):
+        r = montar_relatorio(aluno_nome="Ana", conteudo="Estequiometria",
+                             habilidades=self._muitas(9), apoios=[], agora=HOJE)
+        for item in self._secao(r, "sugestoes")["itens"]:
+            with self.subTest(item):
+                self.assertLessEqual(item.count(","), 6,
+                                     "a sugestão virou um inventário")
+
+    def test_e_o_que_trabalhamos_tambem_nao(self):
+        r = montar_relatorio(aluno_nome="Ana", conteudo="Estequiometria",
+                             habilidades=self._muitas(12), apoios=[],
+                             agora=HOJE)
+        for item in self._secao(r, "trabalhado")["itens"]:
+            with self.subTest(item):
+                self.assertLessEqual(item.count(","), 8)
+
+    def test_a_sobra_de_UM_nao_sai_em_plural_errado(self):
+        """"e outros 1" foi o que saiu no QA. Concordância é parte do texto."""
+        from agente_ia_edu.services.relatorio_de_apoio import (
+            ITENS_POR_SECAO,
+            NOMES_POR_LINHA,
+        )
+
+        # Uma sobra de exatamente um, nos dois cortes: o de itens e o de nomes.
+        r = montar_relatorio(aluno_nome="Ana", conteudo="X",
+                             habilidades=self._muitas(NOMES_POR_LINHA + 1),
+                             apoios=[], agora=HOJE)
+        inteiro = " ".join(i for s in r["secoes"] for i in s["itens"])
+        self.assertIn("e mais 1", inteiro)
+        self.assertNotIn("outros 1", inteiro)
+
+        sobra_de_um = montar_relatorio(
+            aluno_nome="Ana", conteudo="X",
+            habilidades=self._muitas(ITENS_POR_SECAO + 1), apoios=[],
+            agora=HOJE)
+        dificuldades = " ".join(
+            self._secao(sobra_de_um, "dificuldades")["itens"])
+        self.assertIn("1 ponto", dificuldades)
+        self.assertNotIn("1 pontos", dificuldades)
+
+    def test_o_corte_e_deterministico(self):
+        """Duas chamadas iguais dão o mesmo papel. Sem isto não é relatório."""
+        habilidades = self._muitas(9)
+        a = montar_relatorio(aluno_nome="Ana", conteudo="X",
+                             habilidades=habilidades, apoios=[], agora=HOJE)
+        b = montar_relatorio(aluno_nome="Ana", conteudo="X",
+                             habilidades=habilidades, apoios=[], agora=HOJE)
+        self.assertEqual(a["secoes"], b["secoes"])
+
+
 def _texto_inteiro(relatorio: dict) -> str:
     partes = [relatorio.get("titulo", ""), relatorio.get("subtitulo", ""),
               relatorio.get("ressalva", "")]

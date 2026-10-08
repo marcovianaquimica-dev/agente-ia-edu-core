@@ -1278,6 +1278,7 @@ async def conversar_com_o_assessor(
                 status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
     from agente_ia_edu.services.percurso import (  # noqa: PLC0415
+        DESTINO_ATIVIDADE,
         PERCURSO_EXPLORACAO,
         classificar,
         retomada as _retomada,
@@ -1295,11 +1296,16 @@ async def conversar_com_o_assessor(
                            em_intervencao=bool(passo.get("intervention")))
     explorando = payload.topic if percurso == PERCURSO_EXPLORACAO else None
 
-    # A VOLTA, COM NOME. O §9 pede retorno ao ponto anterior sem perda de
-    # contexto, e "voltar ao percurso" nao diz para onde.
+    # A VOLTA, COM NOME E PARA O LUGAR CERTO.
+    #
+    # O §9 pede retorno ao ponto anterior sem perda de contexto, e "voltar ao
+    # percurso" nao diz para onde. O destino e A ATIVIDADE DESTA CONVERSA, e
+    # nao `next_step.kind`: no QA de 2026-10-08 o passo era ESCALATE, e o
+    # botao prometia a atividade e despachava uma escalacao.
     volta = _retomada(conteudo=passo.get("content_name"),
                       titulo_da_atividade=prontidao.get("title"),
-                      destino=passo.get("kind"))
+                      destino=DESTINO_ATIVIDADE,
+                      atividade=str(alvo))
 
     try:
         resposta = await ConversaDoAssessor().responder(

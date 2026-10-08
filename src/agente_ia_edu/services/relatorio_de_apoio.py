@@ -82,6 +82,61 @@ _RESSALVA = (
 # uma lista nova: duas definicoes do que e fazer sozinho divergiriam.
 _FEZ_SOZINHO = (ESTADO_DEMONSTRADO, ESTADO_CONSOLIDADO, ESTADO_RETIDO)
 
+# QUANTOS ITENS CABEM NUMA SECAO - e por que ha um limite.
+#
+# Medido no QA de 2026-10-08, com historico real: "O que ainda esta
+# custando" saiu com SETE frases identicas, uma por micro-habilidade, e a
+# sugestao repetiu as mesmas sete numa linha so. Isso nao e um resumo - e uma
+# lista de vereditos, e e o que faz um papel sobre aprendizagem parecer laudo.
+#
+# O §17 pede "conciso, compreensivel e baseado em evidencias". Quatro linhas
+# por secao e o que um adulto le de verdade antes de passar o olho.
+#
+# O CORTE E HONESTO: o que sobra e CONTADO, nunca omitido em silencio, e o
+# quadro inteiro continua em "Meu progresso".
+ITENS_POR_SECAO = 4
+
+# Quantos nomes cabem numa enumeracao de uma linha. Maior que o limite de
+# itens porque uma lista de nomes se le de relance; sete frases, nao.
+NOMES_POR_LINHA = 6
+
+
+def _com_sobra(itens: list[str], limite: int = ITENS_POR_SECAO) -> list[str]:
+    """Os primeiros `limite`, e uma linha dizendo quantos ficaram de fora."""
+    if len(itens) <= limite:
+        return itens
+    sobra = len(itens) - limite
+    plural = "pontos" if sobra > 1 else "ponto"
+    return itens[:limite] + [
+        f"E mais {sobra} {plural} — estão no seu progresso."]
+
+
+def _enumera(nomes: list[str], limite: int = NOMES_POR_LINHA) -> str:
+    """Uma lista de nomes em uma linha, com a sobra contada."""
+    if len(nomes) <= limite:
+        return ", ".join(nomes)
+    sobra = len(nomes) - limite
+    # "e outros 1" e portugues errado, e saiu assim no QA de 2026-10-08.
+    return ", ".join(nomes[:limite]) + f" e mais {sobra}"
+
+
+def _ordem_da_dificuldade(habilidades: Mapping[str, dict]):
+    """A ordem do que esta custando: o ACIONAVEL primeiro.
+
+    Quem ja mostrou e escorregou tem recuperacao possivel - vale uma
+    conferida. Quem nunca saiu sem ajuda precisa de ensino, que e mais longo.
+    A primeira informacao e a mais acionavel, e e a que cabe nas quatro
+    linhas que o papel tem.
+
+    O desempate e alfabetico, para que duas chamadas iguais produzam o mesmo
+    papel - um relatorio que muda de ordem a cada abertura nao e relatorio.
+    """
+    def chave(codigo: str):
+        s = habilidades.get(codigo) or {}
+        return (0 if s.get("revisao_recomendada") else 1, codigo)
+
+    return sorted(habilidades, key=chave)
+
 
 def rotulo_legivel(codigo: str) -> str:
     """`MASSA_MOLAR` -> "Massa molar". FORMATACAO, nao traducao.
@@ -121,13 +176,18 @@ def montar_relatorio(*, aluno_nome: str, conteudo: str,
     def nome(codigo: str) -> str:
         return rotulos.get(codigo, codigo)
 
+    # O CORTE VALE PARA TODAS, e nao so para as que explodiram no QA: a
+    # proxima a crescer seria outra, e um limite por secao escolhida a dedo
+    # deixaria a parede so mudar de lugar.
     secoes = [
-        _secao("sozinho", _itens_sozinho(habilidades, nome)),
-        _secao("com_apoio", _itens_com_apoio(apoios, nome)),
-        _secao("avancos", _itens_avancos(habilidades, nome)),
-        _secao("dificuldades", _itens_dificuldades(habilidades, apoios, nome)),
+        _secao("sozinho", _com_sobra(_itens_sozinho(habilidades, nome))),
+        _secao("com_apoio", _com_sobra(_itens_com_apoio(apoios, nome))),
+        _secao("avancos", _com_sobra(_itens_avancos(habilidades, nome))),
+        _secao("dificuldades",
+               _com_sobra(_itens_dificuldades(habilidades, apoios, nome))),
         _secao("trabalhado", _itens_trabalhado(habilidades, apoios, nome)),
-        _secao("sugestoes", _itens_sugestoes(habilidades, apoios, nome)),
+        _secao("sugestoes",
+               _com_sobra(_itens_sugestoes(habilidades, apoios, nome))),
     ]
 
     return {
@@ -221,12 +281,15 @@ def _itens_dificuldades(habilidades: Mapping[str, dict],
     um laudo que nenhuma resposta a questao sustenta, e que o §17 proibe.
     """
     saida = []
-    for codigo, s in sorted(habilidades.items()):
-        if s.get("estado") == ESTADO_EM_APRENDIZADO:
-            saida.append(f"{nome(codigo)} — ainda não saiu sem ajuda.")
-        elif s.get("revisao_recomendada"):
+    for codigo in _ordem_da_dificuldade(habilidades):
+        s = habilidades[codigo]
+        # A REVISAO VEM ANTES do estado: quem ja mostrou e escorregou entra
+        # por este ramo, e e o item mais acionavel da secao.
+        if s.get("revisao_recomendada"):
             saida.append(f"{nome(codigo)} — já saiu antes, e da última vez "
                          f"não saiu.")
+        elif s.get("estado") == ESTADO_EM_APRENDIZADO:
+            saida.append(f"{nome(codigo)} — ainda não saiu sem ajuda.")
     muita_ajuda = sorted({str(a.get("skill") or "") for a in apoios
                           if int(a.get("hints_used") or 0) >= 3})
     for codigo in muita_ajuda:
@@ -242,7 +305,7 @@ def _itens_trabalhado(habilidades: Mapping[str, dict],
                                          for a in apoios if a.get("skill")})
     if not codigos:
         return []
-    return [", ".join(nome(c) for c in codigos) + "."]
+    return [_enumera([nome(c) for c in codigos]) + "."]
 
 
 def _itens_sugestoes(habilidades: Mapping[str, dict],
@@ -256,20 +319,21 @@ def _itens_sugestoes(habilidades: Mapping[str, dict],
     travadas = [c for c, s in sorted(habilidades.items())
                 if s.get("estado") == ESTADO_EM_APRENDIZADO]
     if travadas:
-        saida.append("Retomar com ele: " + ", ".join(nome(c) for c in travadas)
-                     + ".")
+        saida.append("Retomar com ele: "
+                     + _enumera([nome(c) for c in travadas]) + ".")
     revisar = [c for c, s in sorted(habilidades.items())
                if s.get("revisao_recomendada")]
     if revisar:
         saida.append("Vale uma conferida rápida em: "
-                     + ", ".join(nome(c) for c in revisar) + ".")
+                     + _enumera([nome(c) for c in revisar]) + ".")
     dependeu = sorted({str(a.get("skill") or "") for a in apoios
                        if int(a.get("hints_used") or 0) >= 3})
     if dependeu:
         saida.append("Ele chegou ao resultado com apoio em: "
-                     + ", ".join(nome(c) for c in dependeu if c)
+                     + _enumera([nome(c) for c in dependeu if c])
                      + ". Vale ver se sai sem ajuda.")
     return saida
 
 
-__all__ = ["SECOES", "montar_relatorio", "rotulo_legivel"]
+__all__ = ["ITENS_POR_SECAO", "NOMES_POR_LINHA", "SECOES",
+           "montar_relatorio", "rotulo_legivel"]
