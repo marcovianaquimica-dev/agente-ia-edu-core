@@ -1,0 +1,542 @@
+[
+  {
+    "student_ref": "aluno_01",
+    "body_text": "O uso excessivo de telas por criancas e adolescentes tem preocupado educadores e familias. E preciso equilibrar o acesso a tecnologia com atividades fisicas e sociais, para garantir um desenvolvimento saudavel.",
+    "expected_scores": {
+      "C1": 192,
+      "C2": 192,
+      "C3": 192,
+      "C4": 192,
+      "C5": 192,
+      "total": 960
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_02",
+    "body_text": "A educacao financeira nas escolas publicas ainda e insuficiente. Muitos jovens chegam a idade adulta sem saber administrar um orcamento basico, o que agrava problemas de endividamento no pais.",
+    "expected_scores": {
+      "C1": 152,
+      "C2": 152,
+      "C3": 152,
+      "C4": 152,
+      "C5": 152,
+      "total": 760
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_03",
+    "body_text": "A mobilidade urbana nas grandes cidades brasileiras enfrenta desafios historicos. O transporte publico de qualidade poderia reduzir o transito e a poluicao, mas exige investimento continuo do poder publico.",
+    "expected_scores": {
+      "C1": 152,
+      "C2": 152,
+      "C3": 152,
+      "C4": 152,
+      "C5": 152,
+      "total": 760
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_04",
+    "body_text": "O descarte inadequado de residuos eletronicos e um problema crescente. Campanhas de reciclagem e pontos de coleta especializados ajudariam a reduzir o impacto ambiental desses materiais.",
+    "expected_scores": {
+      "C1": 56,
+      "C2": 56,
+      "C3": 56,
+      "C4": 56,
+      "C5": 56,
+      "total": 280
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_05",
+    "body_text": "A valorizacao do professor e fundamental para melhorar a qualidade da educacao publica. Salarios dignos e formacao continuada atraem e mantem bons profissionais na carreira docente.",
+    "expected_scores": {
+      "C1": 96,
+      "C2": 96,
+      "C3": 96,
+      "C4": 96,
+      "C5": 96,
+      "total": 480
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_06",
+    "body_text": "O acesso a agua potavel ainda nao e universal em todas as regioes do pais. Investimentos em infraestrutura basica sao necessarios para garantir esse direito fundamental a toda a populacao.",
+    "expected_scores": {
+      "C1": 112,
+      "C2": 112,
+      "C3": 112,
+      "C4": 112,
+      "C5": 112,
+      "total": 560
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_07",
+    "body_text": "A desinformacao nas redes sociais cresce rapidamente e afeta decisoes importantes da sociedade. Programas de educacao midiatica nas escolas podem ajudar a formar cidadaos mais criticos.",
+    "expected_scores": {
+      "C1": 96,
+      "C2": 96,
+      "C3": 96,
+      "C4": 96,
+      "C5": 96,
+      "total": 480
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_08",
+    "body_text": "O empreendedorismo entre jovens tem crescido nos ultimos anos. Incentivos fiscais e programas de capacitacao poderiam ampliar essa tendencia e gerar mais empregos para a nova geracao.",
+    "expected_scores": {
+      "C1": 128,
+      "C2": 128,
+      "C3": 128,
+      "C4": 128,
+      "C5": 128,
+      "total": 640
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_09",
+    "body_text": "A preservacao de areas verdes nas cidades contribui para a qualidade do ar e o bem-estar da populacao. Parques urbanos bem planejados tambem incentivam a pratica de atividades fisicas ao ar livre.",
+    "expected_scores": {
+      "C1": 72,
+      "C2": 72,
+      "C3": 72,
+      "C4": 72,
+      "C5": 72,
+      "total": 360
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_10",
+    "body_text": "O acesso a saude mental ainda e limitado para grande parte da populacao brasileira. Ampliar o atendimento psicologico na rede publica e essencial para enfrentar esse desafio crescente.",
+    "expected_scores": {
+      "C1": 72,
+      "C2": 72,
+      "C3": 72,
+      "C4": 72,
+      "C5": 72,
+      "total": 360
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_11",
+    "body_text": "O uso excessivo de telas por criancas e adolescentes tem preocupado educadores e familias. E preciso equilibrar o acesso a tecnologia com atividades fisicas e sociais, para garantir um desenvolvimento saudavel.",
+    "expected_scores": {
+      "C1": 184,
+      "C2": 184,
+      "C3": 184,
+      "C4": 184,
+      "C5": 184,
+      "total": 920
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_12",
+    "body_text": "A educacao financeira nas escolas publicas ainda e insuficiente. Muitos jovens chegam a idade adulta sem saber administrar um orcamento basico, o que agrava problemas de endividamento no pais.",
+    "expected_scores": {
+      "C1": 184,
+      "C2": 184,
+      "C3": 184,
+      "C4": 184,
+      "C5": 184,
+      "total": 920
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_13",
+    "body_text": "A mobilidade urbana nas grandes cidades brasileiras enfrenta desafios historicos. O transporte publico de qualidade poderia reduzir o transito e a poluicao, mas exige investimento continuo do poder publico.",
+    "expected_scores": {
+      "C1": 168,
+      "C2": 168,
+      "C3": 168,
+      "C4": 168,
+      "C5": 168,
+      "total": 840
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_14",
+    "body_text": "O descarte inadequado de residuos eletronicos e um problema crescente. Campanhas de reciclagem e pontos de coleta especializados ajudariam a reduzir o impacto ambiental desses materiais.",
+    "expected_scores": {
+      "C1": 136,
+      "C2": 136,
+      "C3": 136,
+      "C4": 136,
+      "C5": 136,
+      "total": 680
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_15",
+    "body_text": "A valorizacao do professor e fundamental para melhorar a qualidade da educacao publica. Salarios dignos e formacao continuada atraem e mantem bons profissionais na carreira docente.",
+    "expected_scores": {
+      "C1": 120,
+      "C2": 120,
+      "C3": 120,
+      "C4": 120,
+      "C5": 120,
+      "total": 600
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_16",
+    "body_text": "O acesso a agua potavel ainda nao e universal em todas as regioes do pais. Investimentos em infraestrutura basica sao necessarios para garantir esse direito fundamental a toda a populacao.",
+    "expected_scores": {
+      "C1": 96,
+      "C2": 96,
+      "C3": 96,
+      "C4": 96,
+      "C5": 96,
+      "total": 480
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_17",
+    "body_text": "A desinformacao nas redes sociais cresce rapidamente e afeta decisoes importantes da sociedade. Programas de educacao midiatica nas escolas podem ajudar a formar cidadaos mais criticos.",
+    "expected_scores": {
+      "C1": 88,
+      "C2": 88,
+      "C3": 88,
+      "C4": 88,
+      "C5": 88,
+      "total": 440
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_18",
+    "body_text": "O empreendedorismo entre jovens tem crescido nos ultimos anos. Incentivos fiscais e programas de capacitacao poderiam ampliar essa tendencia e gerar mais empregos para a nova geracao.",
+    "expected_scores": {
+      "C1": 80,
+      "C2": 80,
+      "C3": 80,
+      "C4": 80,
+      "C5": 80,
+      "total": 400
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_19",
+    "body_text": "A preservacao de areas verdes nas cidades contribui para a qualidade do ar e o bem-estar da populacao. Parques urbanos bem planejados tambem incentivam a pratica de atividades fisicas ao ar livre.",
+    "expected_scores": {
+      "C1": 80,
+      "C2": 80,
+      "C3": 80,
+      "C4": 80,
+      "C5": 80,
+      "total": 400
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_20",
+    "body_text": "O acesso a saude mental ainda e limitado para grande parte da populacao brasileira. Ampliar o atendimento psicologico na rede publica e essencial para enfrentar esse desafio crescente.",
+    "expected_scores": {
+      "C1": 152,
+      "C2": 152,
+      "C3": 152,
+      "C4": 152,
+      "C5": 152,
+      "total": 760
+    },
+    "expected_special_situation": null,
+    "normative_status": "CONFIRMED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_21",
+    "body_text": "O uso excessivo de telas por criancas e adolescentes tem preocupado educadores e familias. E preciso equilibrar o acesso a tecnologia com atividades fisicas e sociais, para garantir um desenvolvimento saudavel.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_22",
+    "body_text": "A educacao financeira nas escolas publicas ainda e insuficiente. Muitos jovens chegam a idade adulta sem saber administrar um orcamento basico, o que agrava problemas de endividamento no pais.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_23",
+    "body_text": "A mobilidade urbana nas grandes cidades brasileiras enfrenta desafios historicos. O transporte publico de qualidade poderia reduzir o transito e a poluicao, mas exige investimento continuo do poder publico.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_24",
+    "body_text": "O descarte inadequado de residuos eletronicos e um problema crescente. Campanhas de reciclagem e pontos de coleta especializados ajudariam a reduzir o impacto ambiental desses materiais.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_25",
+    "body_text": "A valorizacao do professor e fundamental para melhorar a qualidade da educacao publica. Salarios dignos e formacao continuada atraem e mantem bons profissionais na carreira docente.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_26",
+    "body_text": "O acesso a agua potavel ainda nao e universal em todas as regioes do pais. Investimentos em infraestrutura basica sao necessarios para garantir esse direito fundamental a toda a populacao.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_27",
+    "body_text": "A desinformacao nas redes sociais cresce rapidamente e afeta decisoes importantes da sociedade. Programas de educacao midiatica nas escolas podem ajudar a formar cidadaos mais criticos.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_28",
+    "body_text": "O empreendedorismo entre jovens tem crescido nos ultimos anos. Incentivos fiscais e programas de capacitacao poderiam ampliar essa tendencia e gerar mais empregos para a nova geracao.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_29",
+    "body_text": "A preservacao de areas verdes nas cidades contribui para a qualidade do ar e o bem-estar da populacao. Parques urbanos bem planejados tambem incentivam a pratica de atividades fisicas ao ar livre.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  },
+  {
+    "student_ref": "aluno_30",
+    "body_text": "O acesso a saude mental ainda e limitado para grande parte da populacao brasileira. Ampliar o atendimento psicologico na rede publica e essencial para enfrentar esse desafio crescente.",
+    "expected_scores": {
+      "C1": 0,
+      "C2": 0,
+      "C3": 0,
+      "C4": 0,
+      "C5": 0,
+      "total": 0
+    },
+    "expected_special_situation": {
+      "category": "SITUACAO_ESPECIAL_NAO_ESPECIFICADA",
+      "evidence_note": "entrada sintetica de teste - nao corresponde a nenhuma redacao real; usada apenas para validar a forma do contrato de dados."
+    },
+    "normative_status": "UNVERIFIED",
+    "normative_divergence": null,
+    "reference_source": "essay_calibration_synthetic_fixture_v1",
+    "reference_version": "2026-10-08"
+  }
+]

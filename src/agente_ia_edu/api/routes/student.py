@@ -227,9 +227,23 @@ async def list_student_activities(
     ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
     session_factory=Depends(get_session_factory),
 ) -> QBStudentActivityListResponse:
+    from ...services.activity_player_store import ActivityPlayerStore
+    from ...services.proximo_passo import PASSO_ATIVIDADE, cta_para
+
+    requester = _student_requester(ctx)
     async with session_factory() as session:
-        store = ActivityAssignmentStore(session)
-        rows = await store.student_activities(requester=_student_requester(ctx))
+        rows = await ActivityAssignmentStore(session).student_activities(
+            requester=requester)
+        # O estado de cada atividade, numa consulta so - nao uma por linha.
+        # Antes a tela buscava isso item a item em `/attempt`, N+1 na rede, e
+        # ainda escrevia o rotulo do botao no JavaScript, com uma tabela
+        # paralela que ja divergia da matriz ("Abrir" onde a matriz diz
+        # "Comecar atividade"). O rotulo sai da matriz, aqui.
+        estados = await ActivityPlayerStore(session).statuses_for(
+            [_UUID(r["assignment_id"]) for r in rows], requester=requester)
+    for r in rows:
+        r["state"] = estados.get(r["assignment_id"], "NOT_STARTED")
+        r["cta"] = cta_para(PASSO_ATIVIDADE, r["state"]) or ""
     return QBStudentActivityListResponse(items=[QBStudentActivity(**r) for r in rows])
 
 
@@ -244,10 +258,9 @@ async def get_student_activity(
         store = ActivityAssignmentStore(session)
         try:
             return await store.student_activity_detail(assignment_id, requester=_student_requester(ctx))
-        except AssignmentNotFound as exc:
-            raise HTTPException(status_code=404, detail="Activity not found") from exc
-        except AssignmentAuthError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (AssignmentNotFound, AssignmentAuthError) as exc:
+            raise HTTPException(
+                status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -268,11 +281,33 @@ from ...services.activity_player_store import (  # noqa: E402
 )
 
 
+# ============================== ANTI-ENUMERACAO (rotas do ALUNO) ===========
+# Um recurso inexistente respondia 404; um recurso real de outro aluno
+# respondia 403 com "this activity is not assigned to you". A diferenca entre
+# as duas respostas e um oraculo: quem varre UUIDs aprende quais existem.
+#
+# Nas rotas DO ALUNO o recurso e privado por definicao - ele nunca tem motivo
+# legitimo para saber que existe uma atividade que nao e dele. Entao "nao
+# existe" e "nao e seu" respondem IGUAL, com o mesmo corpo.
+#
+# O QUE NAO MUDA, DE PROPOSITO:
+#   - as rotas de GESTAO (professor, coordenacao) continuam 403. La o
+#     requester pode listar as distribuicoes da escola, entao esconder a
+#     existencia nao protege nada e esconderia um erro de permissao de quem
+#     precisa corrigi-lo;
+#   - `AssignmentAuthError` continua sendo o que era. Mexer na excecao mudaria
+#     o contrato de pratica, diagnostico e gestao de uma vez; o que muda aqui
+#     e so como a camada HTTP DO ALUNO a traduz.
+RECURSO_PRIVADO_NAO_ENCONTRADO = "Activity not found"
+
+
 def _map_player_error(exc: Exception) -> HTTPException:
     if isinstance(exc, PlayerNotFound):
         return HTTPException(status_code=404, detail="Activity not found")
     if isinstance(exc, PlayerAuthError):
-        return HTTPException(status_code=403, detail=str(exc))
+        # Mesma resposta de PlayerNotFound, acima: indistinguivel de proposito.
+        return HTTPException(status_code=404,
+                             detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
     if isinstance(exc, PlayerStateError):
         detail = {"message": str(exc), **(getattr(exc, "payload", {}) or {})}
         return HTTPException(status_code=409, detail=detail)
@@ -380,10 +415,9 @@ from ...services.activity_correction_store import (  # noqa: E402
 
 
 def _map_correction_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, CorrectionNotFound):
-        return HTTPException(status_code=404, detail="Result not found")
-    if isinstance(exc, CorrectionAuthError):
-        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, (CorrectionNotFound, CorrectionAuthError)):
+        return HTTPException(status_code=404,
+                             detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
     if isinstance(exc, CorrectionSnapshotError):
         return HTTPException(status_code=409, detail={"message": str(exc), "reason": "snapshot_inconsistent",
                                                       **(getattr(exc, "payload", {}) or {})})
@@ -426,6 +460,56 @@ async def get_activity_result(
 
 
 # ---------------------------------------------------------------------------
+# ENTENDER O ERRO - a intervenção que faltava entre errar e tentar de novo
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _ModeloDeEntrada  # noqa: E402
+
+from ...services.explicacao_do_erro import (  # noqa: E402
+    ExplicacaoDoErro,
+    proxima_estrategia,
+)
+
+
+class _ExplicacaoRequest(_ModeloDeEntrada):
+    question_version_id: _UUID
+    # A ABORDAGEM ANTERIOR, quando o aluno pede OUTRO JEITO. Não é a tela
+    # escolhendo a estratégia: ela diz qual já mostrou, e `proxima_estrategia`
+    # - do domínio - decide a seguinte. Sem isto, "explique de outro jeito"
+    # devolveria o mesmo texto, que é a definição do problema.
+    previous_strategy: str | None = None
+
+
+@student_router.post("/activities/{assignment_id}/attempt/result/explanation",
+                     summary="Explain ONE wrong answer of the caller's own "
+                             "corrected result (curated > AI > fallback)")
+async def explain_activity_result_error(
+    assignment_id: _UUID,
+    payload: _ExplicacaoRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """Uma explicação não é evidência, e esta rota não tem como torná-la uma.
+
+    Ela lê (contexto da questão já corrigida) e devolve texto. `ExplicacaoDoErro`
+    não recebe sessão: não há caminho daqui para `domain_content_mastery`.
+    """
+    async with session_factory() as session:
+        store = ActivityCorrectionStore(session)
+        try:
+            contexto = await store.contexto_do_erro(
+                assignment_id, payload.question_version_id,
+                requester=_student_requester(ctx))
+        except Exception as exc:  # noqa: BLE001
+            raise _map_correction_error(exc) from exc
+
+    estrategia = proxima_estrategia(payload.previous_strategy)
+    return await ExplicacaoDoErro().explicar(
+        resolucao_curada=contexto.pop("resolucao_curada", None),
+        contexto=contexto, estrategia=estrategia)
+
+
+# ---------------------------------------------------------------------------
 # PHASE 19 - pedagogical analysis (READ-ONLY aggregation over the PHASE 18 result)
 # ---------------------------------------------------------------------------
 
@@ -438,10 +522,9 @@ from ...services.pedagogical_analysis import (  # noqa: E402
 
 
 def _map_analysis_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, AnalysisNotFound):
-        return HTTPException(status_code=404, detail="Result analysis not found")
-    if isinstance(exc, AnalysisAuthError):
-        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, (AnalysisNotFound, AnalysisAuthError)):
+        return HTTPException(status_code=404,
+                             detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
     if isinstance(exc, (AnalysisError, ValueError)):
         return HTTPException(status_code=422, detail=str(exc))
     raise exc  # pragma: no cover
@@ -502,6 +585,55 @@ async def get_curriculum_domain(
                                      since=since, until=until)
         except Exception as exc:  # noqa: BLE001
             raise _map_domain_error(exc) from exc
+
+
+@student_router.get("/progress",
+                    summary="Meu Progresso - the student's own domain map, in three plain bands")
+async def get_student_progress(
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """The same Domain Map as ``/domain``, translated for the student.
+
+    ``/domain`` is the engine's view: accuracy, sample size, evidence state,
+    origin breakdown, curriculum codes. Useful for the teacher, wrong for a
+    15-year-old - a number next to his name invites him to read it as a grade.
+
+    This returns only band names and content names. No cut-off is decided
+    here: the bands come from PerformanceThresholdPolicy, the single source of
+    truth the whole engine already uses. See services/student_progress.py.
+    """
+    from ...services.consolidacao_do_aluno import (  # noqa: PLC0415
+        situacao_por_habilidade,
+    )
+    from ...services.student_progress import (  # noqa: PLC0415
+        habilidades_para_o_aluno,
+        panorama_do_aluno,
+    )
+
+    async with session_factory() as session:
+        svc = CurriculumDomainMapService(session)
+        try:
+            mapa = await svc.get_map(_me(ctx), requester=_student_requester(ctx))
+        except Exception as exc:  # noqa: BLE001
+            raise _map_domain_error(exc) from exc
+        # CONSOLIDACAO E RETENCAO, por micro-habilidade - §12.
+        #
+        # As faixas acima respondem "qual e o acerto dele?". Estas duas
+        # respondem o que a media nao ve: ele repetiu em OUTRA ocasiao, e
+        # lembrou DEPOIS de um intervalo? Sao projecao do mesmo historico
+        # imutavel, nao uma segunda fonte de verdade.
+        try:
+            habilidades = await situacao_por_habilidade(session, aluno=_me(ctx))
+        except Exception:  # noqa: BLE001 - detalhe opcional nunca derruba a tela
+            habilidades = {}
+
+    panorama = panorama_do_aluno(mapa)
+    # TRADUZIDO, e nao cru: a chave do dicionario de `situacao` e o codigo
+    # curricular, e os valores trazem acerto e amostra. Nada disso e
+    # vocabulario de aluno - ver `habilidades_para_o_aluno`.
+    panorama["habilidades"] = habilidades_para_o_aluno(habilidades)
+    return panorama
 
 
 @student_router.post("/domain/rebuild",
@@ -648,9 +780,13 @@ from pydantic import BaseModel as _BaseModel, Field as _Field  # noqa: E402
 from ...services.adaptive_practice import (  # noqa: E402
     AdaptivePracticeService,
     MODE_CONTENT,
+    PROPOSITO_PRATICA,
     PracticeAuthError,
     PracticeError,
     PracticeNotFound,
+)
+from ...services.verificacao_da_habilidade import (  # noqa: E402
+    selecao_para_pratica,
 )
 
 
@@ -658,6 +794,14 @@ class _PracticeCreateRequest(_BaseModel):
     content_code: str = _Field(min_length=1, max_length=100)
     question_count: int = _Field(default=10, ge=1, le=20)
     mode: str = MODE_CONTENT
+    # PARA QUE ESTE LOTE EXISTE. A verificacao do assessor usa o mesmo motor
+    # com menos questoes; sem isto ela ficava indistinguivel de uma pratica
+    # depois de corrigida, e uma verificacao FALHADA era lida como "mais uma
+    # pratica fraca" - o achado medido em 2026-10-06. Lista fechada: um valor
+    # novo e decisao consciente, nao campo livre vindo do navegador.
+    # A lista fechada vive no servico (`PROPOSITOS`), que recusa o que nao
+    # conhece com 422 - aqui seria uma segunda copia para divergir depois.
+    purpose: str = PROPOSITO_PRATICA
 
 
 def _map_practice_error(exc: Exception) -> HTTPException:
@@ -680,11 +824,37 @@ async def create_student_practice(
 ) -> dict:
     async with session_factory() as session:
         svc = AdaptivePracticeService(session)
+        aluno = _me(ctx)
+        requester = _student_requester(ctx)
         try:
-            return await svc.create_practice(
-                _me(ctx), requester=_student_requester(ctx),
+            # A SELECAO POR MICRO-HABILIDADE, quando existe item curado para
+            # verificar a lacuna sem apoio.
+            #
+            # Ate 2026-10-07 este lote vinha sempre da selecao por CONTEUDO,
+            # e para Estequiometria isso significava questoes de proporcao e
+            # de relacao massa-mol: a micro-habilidade que acabou de ser
+            # ensinada nunca era verificada sozinha. A habilidade e decidida
+            # no SERVIDOR - ver `selecao_para_pratica`.
+            #
+            # Sem item curado a selecao devolve vazio e tudo segue como
+            # antes. Nenhum conteudo perde o que ja tinha.
+            escolha = await selecao_para_pratica(
+                session, aluno=aluno, conteudo=payload.content_code,
+                quantas=payload.question_count, requester=requester)
+            saida = await svc.create_practice(
+                aluno, requester=requester,
                 content_code=payload.content_code, mode=payload.mode,
-                question_count=payload.question_count)
+                question_count=payload.question_count,
+                purpose=payload.purpose,
+                question_version_ids=(escolha.get("question_version_ids")
+                                      or None))
+            if escolha:
+                # A ORIGEM DA SELECAO VIAJA COMO DADO. Sem isto, descobrir
+                # por que o aluno recebeu Na2O e nao uma questao qualquer do
+                # conteudo exigiria reexecutar a selecao.
+                saida["skill_verified"] = escolha["skill"]
+                saida["selection_reason"] = escolha["motivo"]
+            return saida
         except Exception as exc:  # noqa: BLE001
             raise _map_practice_error(exc) from exc
 
@@ -962,3 +1132,622 @@ async def save_student_material_progress(
                 completed=payload.completed)
         except Exception as exc:  # noqa: BLE001
             raise _map_material_error(exc) from exc
+
+
+# ============================================================================
+# PILOTO ZERO - prontidao para a tarefa da escola e o microdiagnostico.
+#
+# Tres endpoints finos sobre servicos que ja existiam. Nenhum motor novo:
+#   readiness       -> ReadinessRouteService (planejador + conteudos exigidos)
+#   micro-diagnostic-> MicroDiagnosticService (que reusa AdaptivePracticeService)
+#   decision        -> MicroDiagnosticService.decidir sobre o dominio RECALCULADO
+#
+# O que eles acrescentam e o CAMINHO: ate aqui o aluno via a decisao de
+# prontidao calculada no proprio navegador, a partir de um MOCK.
+# ============================================================================
+from ...services.micro_diagnostic import (  # noqa: E402
+    DECISION_INSUFFICIENT,
+    MicroDiagnosticService,
+)
+from ...services.diagnostico_por_habilidade import (  # noqa: E402
+    diagnostico_por_habilidade,
+)
+from ...services.feedback_pedagogico import feedback_do_diagnostico  # noqa: E402
+from ...services.readiness_route import (  # noqa: E402
+    AtividadeNaoVisivel,
+    ReadinessRouteService,
+)
+
+
+async def _respostas_por_habilidade(session, assignment_id, aluno: str) -> list[dict]:
+    """Casa cada resposta corrigida com a micro-habilidade que o item mede.
+
+    A habilidade vive em `PedagogicalClassification.subcontent`, gravada pelo
+    gerador do Diagnostic Bank. Um item sem habilidade declarada fica de fora
+    da agregacao - contaria como evidencia sobre algo que nao sabemos o que e.
+    """
+    from sqlalchemy import select as _select
+
+    from ...db.models import ActivityResult, ActivityResultItem
+    from ...db.models.pedagogical import PedagogicalClassification as _PC
+
+    resultado = (await session.execute(
+        _select(ActivityResult).where(
+            ActivityResult.assignment_id == assignment_id,
+            ActivityResult.student_external_id == aluno))).scalar_one_or_none()
+    if resultado is None:
+        return []
+    itens = (await session.execute(
+        _select(ActivityResultItem).where(
+            ActivityResultItem.result_id == resultado.id))).scalars().all()
+    if not itens:
+        return []
+
+    vids = {i.question_version_id for i in itens}
+    skills = dict((await session.execute(
+        _select(_PC.question_version_id, _PC.subcontent).where(
+            _PC.question_version_id.in_(vids),
+            _PC.lifecycle == "ACTIVE"))).all())
+    return [{"diagnostic_skill": skills.get(i.question_version_id),
+             "is_correct": bool(i.is_correct)} for i in itens]
+
+
+@student_router.get("/activities/{assignment_id}/readiness",
+                    summary="Pode comecar esta atividade? (DIRECT / DIAGNOSTIC / PREREQUISITE_PREPARATION)")
+async def get_activity_readiness(
+    assignment_id: _UUID,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await ReadinessRouteService(session).para_atividade(
+                assignment_id, _me(ctx), requester=_student_requester(ctx))
+        except (AtividadeNaoVisivel, AssignmentNotFound, PlayerNotFound,
+                AssignmentAuthError, PlayerAuthError) as exc:
+            raise HTTPException(
+                status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
+
+
+# ============================================================================
+# CONVERSAR COM O ASSESSOR
+#
+# Uma duvida, DENTRO da intervencao que o aluno esta vivendo - nao um chat de
+# uso geral com um campo de texto.
+#
+# O CONTEXTO E MONTADO AQUI, NO BACKEND, a partir da prontidao - que ja e a
+# autoridade sobre o passo pedagogico e ja so devolve atividade DESTE aluno.
+# Isso resolve duas coisas de uma vez: o isolamento (quem pergunta sobre a
+# atividade de outro recebe 404, pelo mesmo caminho de sempre) e a regra de
+# que o JavaScript nao constroi verdade pedagogica.
+#
+# E o que NAO vai: alternativa, enunciado e resposta correta. A protecao
+# contra "me diga a letra" nao e uma instrucao no prompt - e a ausencia do
+# dado. Ver `conversa_do_assessor.CAMPOS_DO_CONTEXTO`.
+# ============================================================================
+
+
+class _TurnoDaConversa(_BaseModel):
+    de: str = _Field(max_length=16)
+    texto: str = _Field(max_length=600)
+
+
+class _ConversaRequest(_BaseModel):
+    assignment_id: str
+    message: str = _Field(min_length=1, max_length=600)
+    # O historico vem do navegador porque a conversa NAO E PERSISTIDA nesta
+    # versao: recarregar a pagina a perde, e esta dito na tela. Guardar texto
+    # de aluno exige decisao de retencao que este bloco nao tomou.
+    history: list[_TurnoDaConversa] = _Field(default_factory=list, max_length=20)
+    # O ASSUNTO QUE ELE QUIS EXPLORAR - §9.
+    #
+    # Opcional. Vindo preenchido, esta interacao e EXPLORACAO: curiosidade
+    # fora do trilho, que o §9 manda responder em vez de devolver ao ponto.
+    # Vindo vazio, a conversa continua sendo a de dentro da intervencao, e
+    # nada muda para quem ja chamava esta rota.
+    #
+    # E texto de aluno: entra no prompt rotulado como conteudo, nunca como
+    # instrucao - ver `assessor_prompts/v4._bloco_de_exploracao`.
+    topic: str | None = _Field(default=None, max_length=200)
+
+
+@student_router.post("/assessor/conversation",
+                     summary="Pergunta ao Assessor, no contexto da intervencao atual")
+async def conversar_com_o_assessor(
+    payload: _ConversaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    from agente_ia_edu.services.conversa_do_assessor import (
+        ConversaDoAssessor, PerguntaInvalida,
+    )
+
+    try:
+        alvo = _UUID(payload.assignment_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=404,
+                            detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
+
+    async with session_factory() as session:
+        try:
+            prontidao = await ReadinessRouteService(session).para_atividade(
+                alvo, _me(ctx), requester=_student_requester(ctx))
+        except (AtividadeNaoVisivel, AssignmentNotFound, PlayerNotFound,
+                AssignmentAuthError, PlayerAuthError) as exc:
+            raise HTTPException(
+                status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO) from exc
+
+    from agente_ia_edu.services.percurso import (  # noqa: PLC0415
+        DESTINO_ATIVIDADE,
+        PERCURSO_EXPLORACAO,
+        classificar,
+        retomada as _retomada,
+    )
+
+    contexto = _contexto_da_conversa(prontidao)
+    passo = prontidao.get("next_step") or {}
+
+    # EM QUE PERCURSO ISTO ACONTECE - §9, decidido no servidor.
+    #
+    # `em_intervencao` e o fato de haver intervencao aberta no passo atual, e
+    # nao uma suposicao sobre o texto: o que distingue apoio de exploracao e o
+    # aluno ter nomeado outro assunto, nao o Assessor adivinhar o tema.
+    percurso = classificar(assunto=payload.topic,
+                           em_intervencao=bool(passo.get("intervention")))
+    explorando = payload.topic if percurso == PERCURSO_EXPLORACAO else None
+
+    # A VOLTA, COM NOME E PARA O LUGAR CERTO.
+    #
+    # O §9 pede retorno ao ponto anterior sem perda de contexto, e "voltar ao
+    # percurso" nao diz para onde. O destino e A ATIVIDADE DESTA CONVERSA, e
+    # nao `next_step.kind`: no QA de 2026-10-08 o passo era ESCALATE, e o
+    # botao prometia a atividade e despachava uma escalacao.
+    volta = _retomada(conteudo=passo.get("content_name"),
+                      titulo_da_atividade=prontidao.get("title"),
+                      destino=DESTINO_ATIVIDADE,
+                      atividade=str(alvo))
+
+    try:
+        resposta = await ConversaDoAssessor().responder(
+            pergunta=payload.message,
+            contexto=contexto,
+            historico=[t.model_dump() for t in payload.history],
+            explorando=explorando,
+            voltar_para=(volta or {}).get("nome"))
+    except PerguntaInvalida as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # O passo continua sendo do sistema: a conversa nao o move, e a tela usa
+    # este campo para o botao "voltar ao percurso".
+    resposta["next_step"] = {
+        "kind": passo.get("kind"),
+        "cta": passo.get("cta"),
+    }
+    resposta["percurso"] = percurso
+    # EXPLORAR NAO APAGA O PERCURSO: a volta vai na resposta, e a atividade
+    # nao foi tocada - nada aqui escreve.
+    resposta["retomada"] = volta
+    return resposta
+
+
+def _contexto_da_conversa(prontidao: dict) -> dict:
+    """So o que a conversa precisa saber - e nada que ela nao deva."""
+    passo = prontidao.get("next_step") or {}
+    intervencao = passo.get("intervention") or {}
+    return {
+        "objetivo": passo.get("for_content_name") or prontidao.get("title"),
+        "conteudo": passo.get("content_name"),
+        "habilidade": intervencao.get("skill_name"),
+        "passo": passo.get("kind"),
+        "ciclo": intervencao.get("cycle"),
+        "tendencia": intervencao.get("trend"),
+        # Ha questao de avaliacao aberta? Entao o Assessor ensina o caminho e
+        # nao a alternativa - e ele nem recebe a alternativa para poder errar.
+        "avaliacao_aberta": passo.get("kind") in (
+            "DIAGNOSTIC", "PRACTICE", "VERIFY", "ACTIVITY"),
+    }
+
+
+class _MicroDiagnosticRequest(_BaseModel):
+    content_code: str = _Field(min_length=1, max_length=100)
+    # A tarefa da escola continua sendo o OBJETIVO enquanto o aluno se prepara.
+    objective_assignment_id: str | None = None
+
+
+@student_router.post("/micro-diagnostic",
+                     summary="Abre o microdiagnostico de um conteudo (evidencia MICRO_DIAGNOSTIC)")
+async def start_micro_diagnostic(
+    payload: _MicroDiagnosticRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        svc = MicroDiagnosticService(session)
+        try:
+            out = await svc.start(_me(ctx), requester=_student_requester(ctx),
+                                  content_code=payload.content_code)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_practice_error(exc) from exc
+        out["objective_assignment_id"] = payload.objective_assignment_id
+        out["objective_completed"] = False
+        # 200 mesmo quando o banco nao tem questoes suficientes: nao e erro do
+        # cliente, e um fato sobre o acervo, e a tela precisa dizer qual.
+        return out
+
+
+@student_router.get("/micro-diagnostic/{assignment_id}/decision",
+                    summary="A decisao, sobre o dominio RECALCULADO depois da correcao")
+async def get_micro_diagnostic_decision(
+    assignment_id: _UUID,
+    content_code: str,
+    objective_assignment_id: str | None = None,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """Le o estado NOVO do aluno, nunca a decisao que estava em memoria.
+
+    Entre o inicio do diagnostico e esta chamada entraram respostas, correcao
+    e evidencia; reaproveitar a decisao anterior seria responder a pergunta
+    antiga. Por isso o dominio e reconstruido aqui, e so entao a politica
+    decide.
+    """
+    async with session_factory() as session:
+        requester = _student_requester(ctx)
+        aluno = _me(ctx)
+
+        dominio = CurriculumDomainMapService(session)
+        try:
+            await dominio.rebuild_student(aluno, requester=requester)
+            envelope = await dominio.get_content(aluno, content_code, requester=requester)
+        except Exception as exc:  # noqa: BLE001
+            raise _map_domain_error(exc) from exc
+
+        # `get_content` devolve {student, taxonomy, discipline, content}. Ler
+        # do envelope em vez de `content` daria sempre 0 respostas, e o
+        # diagnostico concluiria INSUFFICIENT_EVIDENCE para todo mundo.
+        conteudo = envelope.get("content") or {}
+        respondidas = int(conteudo.get("questions_answered") or 0)
+        acerto = conteudo.get("accuracy")
+
+        # Ha pre-requisito a preparar? Sem isso, "prepare o pre-requisito"
+        # seria um conselho sem destino.
+        caminho = AdaptiveLearningPathService(session)
+        faltando = None
+        try:
+            rec = await caminho.get_content_recommendation(
+                aluno, content_code, requester=requester)
+            pendentes = (rec.get("recommendation") or {}).get("unsatisfied_prerequisites") or []
+            faltando = (pendentes[0].get("code") if pendentes else None)
+        except Exception:  # noqa: BLE001 - conteudo fora do caminho: sem pre-requisito conhecido
+            faltando = None
+
+        decisao = MicroDiagnosticService(session).decidir(
+            answered=respondidas, accuracy=acerto, prerequisito_em_falta=faltando)
+        decisao["content_code"] = content_code
+        decisao["content_name"] = (conteudo.get("content_name") or content_code)
+        decisao["assignment_id"] = str(assignment_id)
+        decisao["evidence_origin"] = "MICRO_DIAGNOSTIC"
+        # Diagnostico NAO conclui a tarefa da escola.
+        decisao["objective_completed"] = False
+
+        # O TEXTO E DAQUI, nao do JavaScript. Ate 2026-10-04 a tela montava a
+        # frase num `switch` sobre a decisao, e dizia "agora falta
+        # Balanceamento" a quem acabara de demonstrar Balanceamento.
+        objetivo_nome = None
+        proximo = None
+        if objective_assignment_id:
+            try:
+                prontidao = await ReadinessRouteService(session).para_atividade(
+                    _UUID(objective_assignment_id), aluno, requester=requester)
+                # O nome do OBJETIVO so faz sentido quando ele e OUTRO
+                # conteudo. Quando o diagnostico e do proprio conteudo da
+                # atividade, `for_content_name` e igual ao que acabou de ser
+                # diagnosticado, e cair no titulo produzia a frase
+                # "Estequiometria e base para avancarmos em Atividade de
+                # Estequiometria".
+                alvo_nome = (prontidao.get("next_step") or {}).get("for_content_name")
+                objetivo_nome = (alvo_nome
+                                 if alvo_nome and alvo_nome != content_code
+                                 and alvo_nome != conteudo.get("content_name")
+                                 else None)
+                proximo = prontidao.get("next_step")
+            except Exception:  # noqa: BLE001 - sem objetivo visivel, segue sem ele
+                objetivo_nome = None
+
+        # O ALVO DA INTERVENCAO ENTRA NA FRASE.
+        #
+        # Sem ele, a tela dizia "bom dominio de Estequiometria" enquanto o
+        # botao logo abaixo levava a investigar massa molar. `proximo` ja foi
+        # calculado acima e carrega a intervencao - e usa-lo aqui faz a
+        # mensagem seguir a decisao mais especifica que existe, em vez da
+        # mais geral.
+        alvo_da_intervencao = (
+            ((proximo or {}).get("intervention") or {}).get("skill_name"))
+        decisao["feedback"] = feedback_do_diagnostico(
+            decision=decisao["decision"], band=decisao["band"],
+            content_name=decisao["content_name"], objective_name=objetivo_nome,
+            alvo_nome=alvo_da_intervencao)
+
+        # POR HABILIDADE - so quando a amostra sustenta.
+        #
+        # Tres perguntas por sessao e quatro habilidades: o normal e cada
+        # habilidade receber UMA resposta, e uma resposta nao distingue quem
+        # sabe de quem chutou. O modulo cala sozinho nesse caso, e a tela so
+        # mostra `texto` quando ele existe.
+        try:
+            por_habilidade = await _respostas_por_habilidade(
+                session, assignment_id, aluno)
+            decisao["skills"] = diagnostico_por_habilidade(por_habilidade)
+        except Exception:  # noqa: BLE001 - detalhe opcional nunca derruba a decisao
+            decisao["skills"] = {"por_habilidade": {}, "suficiente": False,
+                                 "texto": None}
+        # O proximo passo ja recalculado sobre o estado NOVO, para a tela nao
+        # precisar de uma segunda chamada nem adivinhar.
+        decisao["next_step"] = proximo
+        return decisao
+
+
+# ============================================================================
+# PRATICA GUIADA - o aluno tenta, e a ajuda chega quando precisa.
+#
+# Tres rotas finas sobre `PraticaGuiadaService`. Nenhum motor novo: a
+# conferencia e a progressao da ajuda estao no servico, e a tela so desenha.
+#
+# NADA DAQUI ESCREVE DOMINIO. A interacao assistida vai para
+# `guided_practice_items`, que o mapa de dominio nao le - acertar com ajuda
+# nao e dominar sozinho, e a comprovacao continua exigindo pratica autonoma.
+# ============================================================================
+from ...services.pratica_guiada import (  # noqa: E402
+    PraticaGuiadaService,
+    SemItemGuiado,
+)
+
+
+class _RespostaGuiadaRequest(_BaseModel):
+    selected_option: str = _Field(default="", max_length=8)
+
+
+def _guiada_404(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
+
+
+@student_router.get("/guided-practice",
+                    summary="Abre (ou retoma) a pratica guiada de um conteudo")
+async def abrir_pratica_guiada(
+    content_code: str,
+    skill: str | None = None,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await PraticaGuiadaService(session).abrir(
+                _me(ctx), content_code, skill,
+                requester=_student_requester(ctx))
+        except SemItemGuiado as exc:
+            raise _guiada_404(exc) from exc
+        except PermissionError as exc:
+            # Mesma resposta de "nao existe": quem nao pode ver tambem nao
+            # pode descobrir que existe.
+            raise _guiada_404(exc) from exc
+
+
+@student_router.post("/guided-practice/{item_key}/answer",
+                     summary="Uma tentativa na pratica guiada")
+async def responder_pratica_guiada(
+    item_key: str,
+    payload: _RespostaGuiadaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await PraticaGuiadaService(session).responder(
+                _me(ctx), item_key, payload.selected_option,
+                requester=_student_requester(ctx))
+        except SemItemGuiado as exc:
+            raise _guiada_404(exc) from exc
+        except PermissionError as exc:
+            raise _guiada_404(exc) from exc
+
+
+# ============================================================================
+# INVESTIGACAO - o degrau mais alto da escada de apoio.
+#
+# Duas rotas finas sobre `InvestigacaoService`. Nenhum motor novo: a cadeia
+# curada esta em `investigacao_do_erro`, a conferencia esta no servico, e a
+# tela so desenha.
+#
+# NADA DAQUI ESCREVE DOMINIO. Cada etapa respondida vai para
+# `guided_practice_items` - a mesma tabela da pratica guiada, que o mapa de
+# dominio nao le. Responder uma micropergunta logo depois de o sistema dizer
+# qual etapa e nao e a mesma coisa que resolver o problema sozinho.
+# ============================================================================
+from ...services.servico_de_investigacao import (  # noqa: E402
+    InvestigacaoService,
+    SemInvestigacao,
+)
+
+
+class _RespostaDaEtapaRequest(_BaseModel):
+    ordem: int = _Field(ge=1, le=20)
+    # A LETRA OU O QUE ELE ESCREVEU. Numa conversa o aluno digita "3", nao
+    # "C"; exigir a letra o obrigaria a traduzir a propria resposta para o
+    # formato interno da tela. O limite subiu de 8 para caber uma frase
+    # curta - "acho que sao 3" -, e a leitura continua deterministica.
+    selected_option: str = _Field(default="", max_length=200)
+
+
+def _investigacao_404(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=404, detail=RECURSO_PRIVADO_NAO_ENCONTRADO)
+
+
+@student_router.get("/investigation",
+                    summary="Abre (ou retoma) a investigacao de uma lacuna")
+async def abrir_investigacao(
+    content_code: str,
+    skill: str | None = None,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await InvestigacaoService(session).abrir(
+                _me(ctx), content_code, skill,
+                requester=_student_requester(ctx))
+        except SemInvestigacao as exc:
+            raise _investigacao_404(exc) from exc
+        except PermissionError as exc:
+            # Mesma resposta de "nao existe": quem nao pode ver tambem nao
+            # pode descobrir que existe.
+            raise _investigacao_404(exc) from exc
+
+
+class _RespostaAbertaRequest(_BaseModel):
+    # Texto livre, curto. O limite existe para nao transformar a caixa de
+    # resposta num campo de redacao: a pergunta pede um numero ou uma frase.
+    texto: str = _Field(default="", max_length=400)
+
+
+@student_router.post("/investigation/{inv_key}/opening",
+                     summary="Responde, por escrito, a pergunta de abertura")
+async def responder_abertura_da_investigacao(
+    inv_key: str,
+    payload: _RespostaAbertaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """A resposta ESCRITA que abre a conversa.
+
+    O que volta carrega a observacao e, quando o valor sugerir uma, a frase
+    HEDGEADA da hipotese - nunca uma afirmacao sobre o raciocinio do aluno.
+    A conferencia e aqui, como sempre: o cliente nao sabe o gabarito.
+    """
+    async with session_factory() as session:
+        try:
+            return await InvestigacaoService(session).responder_abertura(
+                _me(ctx), inv_key, payload.texto,
+                requester=_student_requester(ctx))
+        except SemInvestigacao as exc:
+            raise _investigacao_404(exc) from exc
+        except PermissionError as exc:
+            raise _investigacao_404(exc) from exc
+
+
+@student_router.post("/investigation/{inv_key}/answer",
+                     summary="Responde uma etapa da investigacao")
+async def responder_etapa_da_investigacao(
+    inv_key: str,
+    payload: _RespostaDaEtapaRequest,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await InvestigacaoService(session).responder(
+                _me(ctx), inv_key, payload.ordem, payload.selected_option,
+                requester=_student_requester(ctx))
+        except SemInvestigacao as exc:
+            raise _investigacao_404(exc) from exc
+        except PermissionError as exc:
+            raise _investigacao_404(exc) from exc
+
+
+@student_router.post("/guided-practice/{item_key}/hint",
+                     summary="Libera o PROXIMO nivel de ajuda - um por vez")
+async def pedir_ajuda_pratica_guiada(
+    item_key: str,
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    async with session_factory() as session:
+        try:
+            return await PraticaGuiadaService(session).pedir_ajuda(
+                _me(ctx), item_key, requester=_student_requester(ctx))
+        except SemItemGuiado as exc:
+            raise _guiada_404(exc) from exc
+        except PermissionError as exc:
+            raise _guiada_404(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# RELATORIO DE APOIO A APRENDIZAGEM (§17) - do aluno, e so dele
+# ---------------------------------------------------------------------------
+#
+# DUAS ROTAS, DOIS GET. Nada mais.
+#
+# O §17 proibe enviar ao professor, encaminhar a Coordenacao, compartilhar
+# automaticamente, notificar terceiros e integrar a um mecanismo de
+# distribuicao. Entao nao ha POST aqui: nao ha o que postar, porque gerar o
+# documento nao e um evento - e uma leitura de historico que ja existe.
+#
+# E NAO HA PARAMETRO DE ALUNO. Autorizacao que depende de uma checagem e
+# autorizacao que alguem pode esquecer de fazer; sem o parametro, pedir o
+# relatorio de outra pessoa e inexprimivel. O aluno vem de `_me(ctx)`, como
+# em todo o resto desta rota.
+#
+# O aluno pode levar o PDF a quem quiser - no celular, impresso, por conta
+# propria. O que a plataforma nao faz e mandar.
+
+
+@student_router.get("/learning-support-report",
+                    summary="Relatorio de apoio a aprendizagem do proprio aluno (§17)")
+async def get_learning_support_report(
+    content_code: Optional[str] = Query(None, description="Restringe a um conteudo"),
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+) -> dict:
+    """O documento, para a tela.
+
+    Conciso, baseado em evidencias, e sem inventar: secao sem registro diz
+    que ainda nao ha registro, em vez de ser preenchida com suposicao.
+    """
+    from ...services.relatorio_de_apoio_do_aluno import (  # noqa: PLC0415
+        montar_do_banco,
+    )
+
+    async with session_factory() as session:
+        return await montar_do_banco(session, aluno=_me(ctx),
+                                     conteudo=content_code,
+                                     escola=getattr(ctx, "school_id", None))
+
+
+@student_router.get("/learning-support-report.pdf",
+                    summary="O mesmo relatorio, em PDF, para o aluno baixar")
+async def download_learning_support_report(
+    content_code: Optional[str] = Query(None, description="Restringe a um conteudo"),
+    ctx: AuthenticatedUserContext = Depends(get_current_authenticated_context),
+    session_factory=Depends(get_session_factory),
+):
+    """O PDF - devolvido a quem pediu, e a mais ninguem.
+
+    `attachment`: o navegador baixa em vez de abrir, porque o documento
+    existe para o aluno TER, e nao para ficar numa aba.
+    """
+    from fastapi import Response  # noqa: PLC0415
+
+    from ...services.relatorio_de_apoio_do_aluno import (  # noqa: PLC0415
+        montar_do_banco,
+    )
+    from ...services.report_render import pdf_available, render_simple_pdf  # noqa: PLC0415
+
+    if not pdf_available():
+        # Dependencia ausente e falha de ambiente, e dizer isso e melhor que
+        # devolver um arquivo vazio que o aluno abriria sem entender.
+        raise HTTPException(status_code=503,
+                            detail="Geracao de PDF indisponivel neste ambiente")
+
+    async with session_factory() as session:
+        doc = await montar_do_banco(session, aluno=_me(ctx),
+                                    conteudo=content_code,
+                                    escola=getattr(ctx, "school_id", None))
+
+    pdf = render_simple_pdf(
+        title=doc["titulo"], subtitle=doc.get("subtitulo", ""),
+        note=doc.get("ressalva", ""),
+        sections=[{"title": s["titulo"], "items": s["itens"]}
+                  for s in doc["secoes"]])
+
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition":
+                 'attachment; filename="apoio-a-aprendizagem.pdf"'})

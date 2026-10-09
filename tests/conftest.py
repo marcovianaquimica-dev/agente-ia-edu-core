@@ -44,3 +44,13 @@ if "DATABASE_URL" not in os.environ:
         os.environ["DATABASE_URL"] = (
             f"postgresql+psycopg://{user}:{password}@{_DEFAULT_HOST}:{_DEFAULT_PORT}/{database}"
         )
+
+# Same reasoning as DATABASE_URL above, for the handful of tests marked
+# 'live' that make a REAL OpenAI call (e.g.
+# tests/test_essay_quality_gate_regression.py): without this, `pytest -m
+# live` needs OPENAI_API_KEY exported by hand in every shell that runs it.
+# Mirrors the identical fix in scripts/essay_calibration_benchmark.py.
+_env_values = _load_env_file(_ENV_FILE)
+for _key in ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_VISION_MODEL"):
+    if _key in _env_values:
+        os.environ.setdefault(_key, _env_values[_key])

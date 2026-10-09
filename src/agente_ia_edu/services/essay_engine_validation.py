@@ -328,6 +328,7 @@ def validate_engine_output_from_payload(
     page_boxes: Mapping[int, tuple[float, float]] | None = None,
     raw_output: Any = None,
     input_hash: str | None = None,
+    output_model: type = EssayEngineOutput,
 ) -> EssayEngineOutput:
     """Single entry point for engine-output validation: layers 1, 2 and 3.
 
@@ -346,10 +347,24 @@ def validate_engine_output_from_payload(
     ``raw_output`` defaults to ``raw_payload`` itself when not given, since the
     payload passed in here already IS the raw model output worth keeping for
     reprocessing.
+
+    ``output_model`` is which contract-version Pydantic class performs layer-1
+    shape parsing - defaults to this module's own ``essay_engine_contract.v5``
+    import so every EXISTING caller (``mass_correction_batch.py``, still
+    deliberately pinned to v5/``essay_correction_v15`` - see that module's own
+    docstring - and every v5-targeted test in ``test_r1_engine_validation.py``)
+    keeps its exact current behaviour with zero change. ``essay_correction.py``
+    (spec Fase B, Quality Gate) is the first caller that needs a DIFFERENT
+    shape - v6's extra ``input_reliability`` field - so it passes its own
+    v6 ``EssayEngineOutput`` explicitly here instead of this function growing
+    a second hardcoded import. Layers 2/3 below never inspect which concrete
+    class ``output`` is an instance of - they only read attributes every
+    contract version from v2 on shares (identification, scores, annotations,
+    rewrites, rationales) - so no other change was needed to support this.
     """
     effective_raw_output = raw_payload if raw_output is None else raw_output
     try:
-        output = EssayEngineOutput.model_validate(raw_payload)
+        output = output_model.model_validate(raw_payload)
     except ValidationError as exc:
         raise EssayEngineOutputRejected(
             "CONTRACT_SHAPE_INVALID",

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -19,6 +20,7 @@ from sqlalchemy import (
     Integer,
     String,
     Uuid,
+    text,
 )
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -39,6 +41,12 @@ class StudySession(Base):
             "status IN ('SCHEDULED', 'READY', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')",
             name="ck_study_sessions_status"),
         CheckConstraint("timer_mode IN ('TIMED', 'UNTIMED')", name="ck_study_sessions_timer_mode"),
+        # migration 064 - a rota pedagogica que levou o aluno ate a tarefa.
+        # Conjunto fechado: sao os tres caminhos de prontidao do planejador.
+        CheckConstraint(
+            "readiness_route IS NULL OR readiness_route IN "
+            "('DIRECT', 'DIAGNOSTIC', 'PREREQUISITE_PREPARATION')",
+            name="ck_study_sessions_readiness_route"),
         Index("ix_study_sessions_student_date", "student_external_id", "session_date"),
         Index("ix_study_sessions_school_scope_date", "school_id", "scope_external_id", "session_date"),
         Index("ix_study_sessions_status", "status"),
@@ -46,6 +54,12 @@ class StudySession(Base):
         # classroom_id filter (scope_external_id unconstrained) can't use
         # the composite above past its first column; this serves that shape.
         Index("ix_study_sessions_school_source_date", "school_id", "source", "session_date"),
+        # migration 064 - "desta atividade, quem chegou por qual rota e quem
+        # concluiu": a consulta que Professor/Coordenacao farao.
+        Index("ix_study_sessions_objective_route",
+              "objective_assignment_id", "readiness_route", "objective_completed",
+              postgresql_where=text("objective_assignment_id IS NOT NULL"),
+              sqlite_where=text("objective_assignment_id IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -68,6 +82,23 @@ class StudySession(Base):
     config: Mapped[dict[str, Any] | None] = mapped_column(_MutJSONDict)
     plan: Mapped[dict[str, Any] | None] = mapped_column(_MutJSONDict)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="SCHEDULED")
+
+    # --- migration 064: como o aluno chegou ate a tarefa da escola ---------
+    # Sem isto, "nao realizou a tarefa" e um balde unico que mistura quem nao
+    # abriu a atividade com quem abriu, encontrou um pre-requisito faltando e
+    # esta estudando ele. Pedagogicamente sao situacoes opostas.
+    # DIRECT                   - o aluno ja tinha prontidao, foi direto
+    # DIAGNOSTIC               - evidencia insuficiente, passou por um check curto
+    # PREREQUISITE_PREPARATION - lacuna conhecida, estudou o pre-requisito antes
+    readiness_route: Mapped[str | None] = mapped_column(String(30))
+    # Sem ForeignKey: a sessao e registro historico. Apagar a atividade nao
+    # pode apagar nem travar o fato de que o aluno estudou para ela.
+    objective_assignment_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    # False com objective_assignment_id preenchido = "esta se preparando",
+    # que e justamente o estado que hoje nao se consegue distinguir.
+    objective_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false"))
+
     current_block_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

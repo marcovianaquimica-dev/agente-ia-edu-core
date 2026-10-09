@@ -70,6 +70,18 @@ from .catalog import (
     MaterialBlock,
     MaterialExercise,
 )
+from .curriculum_bncc import CurriculumBnccLink, CurriculumBnccLinkReview
+from .knowledge_engine import (
+    KnowledgeChunk,
+    KnowledgeChunkEmbedding,
+    KnowledgeEmbeddingActivation,
+    KnowledgeChunkLexicalIndex,
+    KnowledgeChunkTerm,
+    KnowledgeDocument,
+    KnowledgeEmbeddingSpace,
+    KnowledgeLexicalIndexState,
+    KnowledgeSource,
+)
 from .ingestion import (
     IngestionDocument,
     IngestionRun,
@@ -110,6 +122,7 @@ from .pedagogical_universe import (
 from .reception import ReceptionCandidate
 from .modification_proposals import ModificationProposal
 from .study_session import StudySession
+from .guided_practice import GuidedPracticeItem
 from .material_progress import MaterialProgress
 from .authorial_ingestion import IngestionMaterialReview
 from .question_extraction import (
@@ -141,6 +154,7 @@ from .mass_correction_run import MassCorrectionRun
 
 __all__ = [
     "StudySession",
+    "GuidedPracticeItem",
     "MaterialProgress",
     "IngestionMaterialReview",
     "QuestionExtractionRun",
@@ -247,4 +261,19 @@ __all__ = [
     "Student",
     "StudentEnrollment",
     "EnrollmentTransition",
+    # CEREBRO / Knowledge Engine (Fase 1)
+    "KnowledgeSource",
+    "KnowledgeDocument",
+    "KnowledgeChunk",
+    "KnowledgeChunkTerm",
+    "KnowledgeEmbeddingSpace",
+    "KnowledgeChunkEmbedding",
+    # CEREBRO / Fase 6 - historico de ativacao de espaco de embedding
+    "KnowledgeEmbeddingActivation",
+    # CEREBRO / Fase 5 - estado do indice lexical
+    "KnowledgeChunkLexicalIndex",
+    "KnowledgeLexicalIndexState",
+    # CEREBRO / Fase 4 - curadoria do vinculo curriculo <-> BNCC
+    "CurriculumBnccLink",
+    "CurriculumBnccLinkReview",
 ]

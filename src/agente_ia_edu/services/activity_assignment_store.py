@@ -32,7 +32,17 @@ from sqlalchemy.orm import selectinload
 
 from agente_ia_edu.db.models import ActivityAssignment
 from agente_ia_edu.db.models.admin import UserSchoolLink
-from agente_ia_edu.db.models.assessments import Assessment, AssessmentVersion
+from agente_ia_edu.db.models.assessments import (
+    Assessment,
+    AssessmentItem,
+    AssessmentVersion,
+)
+from agente_ia_edu.db.models.catalog import CatalogNode, ContentQuestionLink
+
+# Mesmo valor de `curriculum_domain_map.ORIGIN_OFFICIAL_ACTIVITY`, repetido
+# aqui porque importar aquele modulo deste cria ciclo (ele importa este). Ha
+# teste amarrando os dois: se divergirem, ele falha.
+ORIGIN_OFFICIAL_ACTIVITY = "OFFICIAL_ACTIVITY"
 from agente_ia_edu.services.question_list_store import (
     LIST_MATERIAL_TYPE,
     ListAuthorizationError,
@@ -374,9 +384,18 @@ class ActivityAssignmentStore:
         )
         rows = list((await self._session.scalars(q)).all())
         # "Atividades" is documented to the student as work distributed by
-        # their teachers - a self-initiated PHASE 22 practice (origin=PRACTICE,
-        # distributed to oneself via this same store) is not that.
-        rows = [r for r in rows if (r.metadata_ or {}).get("origin") != "PRACTICE"]
+        # their teachers. Anything the student (or the system) started for
+        # themselves through this same store - a PHASE 22 practice, a
+        # micro-diagnostic - is not that.
+        #
+        # This filter used to EXCLUDE origin == "PRACTICE". The day the
+        # micro-diagnostic arrived with an origin of its own, it silently
+        # started showing up as homework: a deny-list only knows the origins
+        # that existed when it was written. It is an allow-list now, so a new
+        # origin defaults to "not school work" and has to be let in on purpose.
+        rows = [r for r in rows
+                if ((r.metadata_ or {}).get("origin") or ORIGIN_OFFICIAL_ACTIVITY)
+                == ORIGIN_OFFICIAL_ACTIVITY]
         if schools:
             rows = [r for r in rows if r.school_id is None or str(r.school_id) in schools]
         if not rows:
@@ -387,6 +406,9 @@ class ActivityAssignmentStore:
                 select(Assessment).where(Assessment.id.in_(assessment_ids))
             )).all()
         }
+        conteudos = await self.content_codes_by_version(
+            [r.assessment_version_id for r in rows]
+        )
         out = []
         for r in rows:
             a = assessments.get(r.assessment_id)
@@ -394,6 +416,10 @@ class ActivityAssignmentStore:
                 "assignment_id": str(r.id),
                 "list_id": str(r.assessment_id),
                 "assessment_version_id": str(r.assessment_version_id),
+                # [] quando as questoes ainda nao foram classificadas. Lista
+                # vazia e um fato ("nao sabemos o que esta atividade exige"),
+                # nao um erro: o planejador trata como evidencia ausente.
+                "content_codes": conteudos.get(r.assessment_version_id, []),
                 "title": a.title if a else "(atividade)",
                 "author_external_id": a.created_by_external_identity if a else None,
                 "question_count": r.question_count,
@@ -404,6 +430,54 @@ class ActivityAssignmentStore:
                 "target_type": r.target_type,
             })
         return out
+
+    async def content_codes_by_version(
+        self, assessment_version_ids: Sequence[UUID]
+    ) -> dict[UUID, list[str]]:
+        """Quais conteudos uma atividade exige, por versao da lista.
+
+        Fecha o elo que faltava na cadeia do perfil Aluno:
+
+            atividade -> CONTEUDOS EXIGIDOS -> dominio -> prontidao -> sessao
+
+        A atividade nunca declarou conteudo, mas as questoes dela ja estao
+        classificadas: ``content_question_links`` liga cada QuestionVersion a
+        um CatalogNode, e o ``code`` desse no e o mesmo vocabulario que o
+        planejador (``/learning-path``) e ``domain_content_mastery`` usam. Ou
+        seja, a informacao ja existia - faltava agregar.
+
+        E LEITURA, so. Nenhuma tabela nova, nenhuma coluna nova, nenhuma
+        mudanca no Question Bank: tres JOINs sobre o que ja esta la.
+
+        Uma consulta para TODAS as versoes de uma vez, nao uma por atividade:
+        a lista do aluno tem N atividades e o N+1 apareceria direto na tela
+        inicial dele, que e a requisicao mais quente do perfil.
+        """
+        ids = [v for v in dict.fromkeys(assessment_version_ids) if v is not None]
+        if not ids:
+            return {}
+        q = (
+            select(AssessmentItem.assessment_version_id, CatalogNode.code)
+            .join(
+                ContentQuestionLink,
+                ContentQuestionLink.question_version_id == AssessmentItem.question_version_id,
+            )
+            .join(CatalogNode, CatalogNode.id == ContentQuestionLink.content_node_id)
+            .where(
+                AssessmentItem.assessment_version_id.in_(ids),
+                CatalogNode.code.is_not(None),
+                CatalogNode.active.is_(True),
+            )
+            .order_by(AssessmentItem.assessment_version_id, AssessmentItem.position)
+        )
+        agrupado: dict[UUID, list[str]] = {v: [] for v in ids}
+        for version_id, code in (await self._session.execute(q)).all():
+            codes = agrupado.setdefault(version_id, [])
+            # ordem de primeira aparicao na lista, sem repetir: o conteudo que
+            # abre a atividade e o que ela trata primeiro.
+            if code not in codes:
+                codes.append(code)
+        return agrupado
 
     async def resolve_student_assignment(
         self, assignment_id: UUID, *, requester: Requester

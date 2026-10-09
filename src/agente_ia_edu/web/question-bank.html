@@ -3,8 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Banco de Questões (Professor)</title>
+  <title>Núcleo Edu 360 — Banco de Questões</title>
   <base href="/question-bank/assets/">
+  <!-- A camada compartilhada vem PRIMEIRO: ela define os tokens que as
+       folhas seguintes usam, e e dela que saem `.contexto-humano` e
+       `.dev-identidade` deste cabecalho. -->
+  <link rel="stylesheet" href="nucleo.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="stylesheet" href="question-bank.css">
@@ -27,10 +31,26 @@
           <button class="btn btn-secondary qb-tab" data-qb-view="list" role="tab" aria-selected="false">Configurar Lista</button>
           <button class="btn btn-secondary qb-tab" data-qb-view="mylists" role="tab" aria-selected="false">Minhas Listas</button>
         </div>
-        <div class="filter-group">
-          <span class="filter-label">🆔 Usuário:</span>
-          <input type="text" id="qb-identity-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes ou user:coord_a">
-        </div>
+        <!-- QUEM ESTA AQUI, EM LINGUAGEM DE GENTE.
+             O cabecalho mostrava `user:prof_mendes` aberto na tela. Um
+             identificador tecnico num cabecalho diz "ferramenta interna",
+             nao "produto". O nome vem de /portal/overview - a mesma rota que
+             o Portal e a tela do professor ja usam. -->
+        <p class="contexto-humano" id="qb-contexto-humano"></p>
+
+        <!-- A ENTRADA DE DESENVOLVIMENTO CONTINUA, FECHADA.
+             Ela e o mecanismo real de troca de identidade neste ambiente, e
+             o JavaScript a le. Remove-la quebraria a tela; o que se corrige
+             e ela estar ABERTA na cara de quem nao e desenvolvedor. -->
+        <details class="dev-identidade">
+          <summary>Ambiente de desenvolvimento</summary>
+          <div class="filter-group">
+            <span class="filter-label">Usuário</span>
+            <!-- O rotulo ao lado e um <span>, nao um <label>: sem isto um
+                 leitor de tela anuncia "editar texto" e nada mais. -->
+            <input type="text" id="qb-identity-id" class="text-input" value="user:prof_mendes" placeholder="user:prof_mendes" aria-label="Identificador do usuário (ambiente de desenvolvimento)">
+          </div>
+        </details>
       </header>
 
       <div id="qb-alert" class="alert-box" hidden role="status"></div>
@@ -59,18 +79,25 @@
                 <option value="CN">Ciências da Natureza</option>
                 <option value="MT">Matemática</option>
               </select></label>
+            <!-- DISCIPLINA, CONTEUDO E SUBCONTEUDO VEM DO CATALOGO.
+                 A lista de disciplinas era escrita a mao aqui, com quatro
+                 traducoes fixas: uma disciplina nova ficaria de fora sem
+                 ninguem perceber. E Conteudo/Subconteudo eram texto livre
+                 que so funcionava com o codigo canonico - medido: o codigo
+                 achava 21 questoes e o nome achava zero. Agora o professor
+                 escolhe pelo nome e a requisicao manda o codigo. -->
             <label class="qb-field"><span>Disciplina</span>
               <select id="qb-filter-discipline">
                 <option value="">Todas</option>
-                <option value="PHYSICS">Física</option>
-                <option value="CHEMISTRY">Química</option>
-                <option value="BIOLOGY">Biologia</option>
-                <option value="MATH">Matemática</option>
               </select></label>
             <label class="qb-field"><span>Conteúdo</span>
-              <input type="text" id="qb-filter-content" placeholder="código curriculum-v2" /></label>
+              <select id="qb-filter-content">
+                <option value="">Todos</option>
+              </select></label>
             <label class="qb-field"><span>Subconteúdo</span>
-              <input type="text" id="qb-filter-subcontent" placeholder="código curriculum-v2" /></label>
+              <select id="qb-filter-subcontent">
+                <option value="">Todos</option>
+              </select></label>
             <label class="qb-field"><span>Status</span>
               <select id="qb-filter-status">
                 <option value="">Todos</option>
@@ -83,7 +110,7 @@
             <label class="qb-field"><span>Dificuldade</span>
               <select id="qb-filter-difficulty">
                 <option value="">Todas</option><option value="EASY">Fácil</option>
-                <option value="MEDIUM">Média</option><option value="HARD">Difícil</option>
+                <option value="MEDIUM">Médio</option><option value="HARD">Difícil</option>
               </select></label>
             <label class="qb-field"><span>Origem</span>
               <select id="qb-filter-source">
@@ -316,6 +343,7 @@
       </div>
     </main>
   </div>
-  <script src="question-bank.js"></script>
+  <script src="qbank-taxonomia.js"></script>
+<script src="question-bank.js"></script>
 </body>
 </html>

@@ -59,10 +59,19 @@ STATE_INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 STATE_OBSERVED = "OBSERVED"
 ORIGIN_OFFICIAL_ACTIVITY = "OFFICIAL_ACTIVITY"
 ORIGIN_PRACTICE = "PRACTICE"
-# INITIAL_DIAGNOSTIC / SIMULADO are reserved for future evidence origins - the
-# column shape (origin_breakdown JSON) already keeps them separable.
+# Micro-diagnostic: the 3-question check that decides whether the student can
+# go straight to the school task or needs to prepare first. Its evidence is
+# REAL (it counts towards accuracy) but it is NOT school assessment - the
+# teacher must never see it as a grade the school measured.
+ORIGIN_MICRO_DIAGNOSTIC = "MICRO_DIAGNOSTIC"
+# SIMULADO is reserved for a future evidence origin - the column shape
+# (origin_breakdown JSON) already keeps them separable.
 _KNOWN_ORIGINS = (ORIGIN_OFFICIAL_ACTIVITY, ORIGIN_PRACTICE,
-                  "INITIAL_DIAGNOSTIC", "SIMULADO")
+                  ORIGIN_MICRO_DIAGNOSTIC, "INITIAL_DIAGNOSTIC", "SIMULADO")
+
+# Quarantine bucket. NOT a declarable origin - deliberately absent from
+# _KNOWN_ORIGINS, so nobody can claim it. See _Grain.add() for why it exists.
+ORIGIN_UNKNOWN = "UNKNOWN_ORIGIN"
 
 _CLS_NEEDS_REVIEW = "NEEDS_REVIEW"
 _CLS_FORCED_CLOSURE = "FORCED_CLOSURE"
@@ -135,7 +144,22 @@ class _Grain:
             if visual:
                 self.visual += 1
             self.origin = self.origin or {}
-            key = origin if origin in _KNOWN_ORIGINS else ORIGIN_OFFICIAL_ACTIVITY
+            # FAIL-CLOSED. An origin we do not recognise goes to quarantine,
+            # never to OFFICIAL_ACTIVITY.
+            #
+            # The old fallback sent it to OFFICIAL_ACTIVITY, and that was
+            # backwards: the row had explicitly said "I am not official" and
+            # the code overrode it, silently. A new evidence source whose
+            # constant someone forgot to register here would be reported to
+            # the teacher as school assessment - a grade the school never
+            # measured.
+            #
+            # This is NOT the same as the default of the `origin` parameter
+            # above, which stays OFFICIAL_ACTIVITY. That one covers the caller
+            # that passes nothing - every teacher-distributed activity, and
+            # everything predating PHASE 22. Those genuinely are official.
+            # Absent means official; present-but-unrecognised means unknown.
+            key = origin if origin in _KNOWN_ORIGINS else ORIGIN_UNKNOWN
             self.origin[key] = self.origin.get(key, 0) + 1
         at = _as_aware(at)
         if at is not None:
@@ -707,6 +731,8 @@ __all__ = [
     "DomainMapNotFound",
     "ORIGIN_OFFICIAL_ACTIVITY",
     "ORIGIN_PRACTICE",
+    "ORIGIN_MICRO_DIAGNOSTIC",
+    "ORIGIN_UNKNOWN",
     "STATE_INSUFFICIENT",
     "STATE_OBSERVED",
     "TAXONOMY_VERSION",

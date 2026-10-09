@@ -115,12 +115,56 @@ class MockVideoDiscoveryProvider:
 
 
 class YouTubeDiscoveryProvider:
-    """YouTube discovery provider adapter structure (unconfigured external calls return empty/mock)."""
+    """A busca real no YouTube - §8.
+
+    A CONSULTA, A VALIDACAO E O DESCARTE vivem em `services/youtube_busca`,
+    testados com respostas reais da API v3 injetadas, sem rede e sem chave.
+    Aqui fica apenas a ligacao com o resto da descoberta.
+
+    SEM CHAVE, ELE LEVANTA - e nao devolve lista vazia.
+
+    Ate 2026-10-08 este metodo devolvia `[]` nos dois casos: sem credencial e
+    sem resultado. Sao coisas diferentes, e embaca-las e exatamente o que o
+    §8.2 proibe - "nao procurei" apareceria como "procurei e nao achei nada".
+    `VideoDiscoveryService.discover_candidates` captura excecao de provedor e
+    segue com os outros, entao levantar nao derruba a descoberta: ela passa a
+    aparecer no log como erro, que e o que e.
+
+    O CLIENTE HTTP ENTRA POR ARGUMENTO, como nos adapters de provedor - e por
+    isso este caminho e exercitavel sem rede.
+    """
 
     name = "YOUTUBE"
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, http=None):
         self.api_key = api_key
+        self._http = http
+
+    @property
+    def esta_configurado(self) -> bool:
+        return bool((self.api_key or "").strip())
+
+    def disponibilidade(self) -> dict[str, Any]:
+        """A busca real esta ligada? E, se nao, o que falta para ligar."""
+        from agente_ia_edu.services.youtube_busca import disponibilidade
+
+        return disponibilidade(chave=self.api_key)
+
+    def _cliente(self):
+        if self._http is not None:
+            return self._http
+        import httpx
+
+        class _Json:
+            """Devolve JSON, para o contrato de `youtube_busca.buscar`."""
+
+            async def get(self, url, params=None):
+                async with httpx.AsyncClient(timeout=10.0) as cliente:
+                    r = await cliente.get(url, params=params)
+                    r.raise_for_status()
+                    return r.json()
+
+        return _Json()
 
     async def search(
         self,
@@ -129,11 +173,14 @@ class YouTubeDiscoveryProvider:
         context: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        if not self.api_key:
-            logger.info("YouTube API key not configured. Returning empty search result.")
-            return []
-        # Structural stub for future API HTTP client integration
-        return []
+        from agente_ia_edu.services.youtube_busca import BuscaIndisponivel, buscar
+
+        if not self.esta_configurado:
+            d = self.disponibilidade()
+            logger.error("Busca no YouTube indisponivel: %s", d["motivo"])
+            raise BuscaIndisponivel(d["motivo"])
+        return await buscar(query, chave=self.api_key, http=self._cliente(),
+                            limite=limit)
 
 
 class VideoDiscoveryService:

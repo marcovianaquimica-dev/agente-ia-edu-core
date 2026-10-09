@@ -192,10 +192,48 @@ def pdf_available() -> bool:
         return False
 
 
-def render_pdf(payload: dict[str, Any]) -> bytes:
-    import pymupdf as fitz
+# WHAT THE BASE-14 FONT CANNOT DRAW, AND SILENTLY REPLACED.
+#
+# `insert_text` with "helv"/"hebo" swaps any glyph the font lacks for a
+# middle dot, without a word. Measured on 2026-10-08: the em dash, the en
+# dash, curly quotes, the ellipsis and the arrow all came out as "·" - the
+# student's report read "Apoio à aprendizagem · Aluno", and a quotation lost
+# its quotes. Accented Latin-1 letters are fine; this punctuation is not.
+#
+# So it is transliterated DELIBERATELY, to characters the font does have. A
+# hyphen is not the typography anyone wanted, but it reads; a dot in the
+# middle of a sentence does not.
+_FORA_DA_FONTE = {
+    "—": "-",      # travessão
+    "–": "-",      # meia-risca
+    "‒": "-",
+    "−": "-",      # menos matemático
+    "“": '"', "”": '"', "„": '"',
+    "‘": "'", "’": "'", "‚": "'",
+    "…": "...",
+    "→": "->", "←": "<-",
+    "≥": ">=", "≤": "<=", "≠": "!=",
+    " ": " ",      # espaço inquebrável
+    " ": " ", " ": " ", "​": "",
+    "•": "-",      # bullet
+    "×": "x",
+}
 
-    doc = fitz.open()
+_TRADUCAO = str.maketrans(_FORA_DA_FONTE)
+
+
+def _desenhavel(texto: str) -> str:
+    """O mesmo texto, com o que a fonte não tem trocado por algo que ela tem."""
+    return (texto or "").translate(_TRADUCAO)
+
+
+def _writer(doc, fitz):
+    """Pagination and line wrapping, in ONE place.
+
+    Every PDF this codebase produces goes through here. A second copy of this
+    machinery would drift: one format would start breaking lines differently
+    from the other, and nobody would notice until a page came out wrong.
+    """
     state: dict[str, Any] = {"page": None, "y": 0.0}
 
     def new_page():
@@ -224,7 +262,10 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
         state["y"] += gap
         font = "helv" if not bold else "hebo"
         max_w = _A4[0] - 2 * _MARGIN - indent
-        for line in _wrap(text, max_w, size, font):
+        # A TRADUÇÃO VEM ANTES DA QUEBRA, e não depois: "..." é mais largo
+        # que "…", e medir o texto original daria uma linha mais curta do
+        # que a que vai ser desenhada.
+        for line in _wrap(_desenhavel(text), max_w, size, font):
             if state["y"] > _A4[1] - _MARGIN:
                 new_page()
             state["page"].insert_text((_MARGIN + indent, state["y"]), line,
@@ -232,6 +273,52 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
             state["y"] += _LINE
 
     new_page()
+    return write
+
+
+def _numerar(doc):
+    for i, pg in enumerate(doc, start=1):
+        pg.insert_text((_A4[0] - _MARGIN - 70, _A4[1] - 30),
+                        f"Página {i} de {len(doc)}", fontsize=7, color=(0.4, 0.4, 0.4))
+
+
+def render_simple_pdf(*, title: str, subtitle: str = "", note: str = "",
+                      sections: list[dict[str, Any]] | None = None) -> bytes:
+    """A PDF of titled sections of plain lines - nothing else.
+
+    Deliberately format-agnostic and caller-agnostic: it takes a title, an
+    optional subtitle, an optional note and a list of ``{title, items}``. It
+    does not know who reads it, does not know where it goes, and has no
+    notion of a recipient - it returns bytes to whoever asked.
+    """
+    import pymupdf as fitz
+
+    doc = fitz.open()
+    write = _writer(doc, fitz)
+
+    write(title or "Relatório", size=16, bold=True, gap=4)
+    if subtitle:
+        write(subtitle, size=9, color=(0.35, 0.35, 0.35), gap=2)
+    if note:
+        write(note, size=8, color=(0.35, 0.35, 0.35), gap=8)
+
+    for section in sections or []:
+        write(str(section.get("title") or ""), size=12, bold=True, gap=16)
+        for item in section.get("items") or []:
+            write(f"- {item}", size=10, indent=10, gap=2)
+
+    _numerar(doc)
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+def render_pdf(payload: dict[str, Any]) -> bytes:
+    import pymupdf as fitz
+
+    doc = fitz.open()
+    write = _writer(doc, fitz)
+
     write(payload.get("title") or "Relatório", size=16, bold=True, gap=4)
     generated_at = payload.get("generated_at") or ""
     write(f"Gerado em {generated_at}", size=8, color=(0.4, 0.4, 0.4), gap=2)
@@ -251,10 +338,7 @@ def render_pdf(payload: dict[str, Any]) -> bytes:
                 line = "; ".join(f"{c}: {v}" for c, v in zip(cols, row))
                 write(f"{i}. {line}", size=9, indent=10, gap=3)
 
-    for i, pg in enumerate(doc, start=1):
-        pg.insert_text((_A4[0] - _MARGIN - 70, _A4[1] - 30),
-                        f"Página {i} de {len(doc)}", fontsize=7, color=(0.4, 0.4, 0.4))
-
+    _numerar(doc)
     out = doc.tobytes()
     doc.close()
     return out

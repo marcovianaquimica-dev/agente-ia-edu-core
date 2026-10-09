@@ -259,10 +259,15 @@ class Phase17Tests(unittest.TestCase):
         qv = self._start(aid).json()["questions"][0]["question_version_id"]
         # a student in another class
         self._student("stu_bad4")
-        self.assertEqual(self._start(aid).status_code, 403)
-        self.assertEqual(self._state(aid).status_code, 403)
-        self.assertEqual(self._answer(aid, qv, "A").status_code, 403)
-        self.assertEqual(self._complete(aid).status_code, 403)
+        # 404, nao 403, desde 2026-10-04: as rotas do ALUNO passaram a
+        # responder igual para "nao existe" e "nao e seu", porque a
+        # diferenca entre as duas revelava quais ids existem. A
+        # propriedade medida aqui - quem nao e destinatario NAO entra -
+        # nao mudou. Ver tests/test_anti_enumeracao.py.
+        self.assertEqual(self._start(aid).status_code, 404)
+        self.assertEqual(self._state(aid).status_code, 404)
+        self.assertEqual(self._answer(aid, qv, "A").status_code, 404)
+        self.assertEqual(self._complete(aid).status_code, 404)
         # a teacher from another tenant
         self._as(_ctx("prof_z", "school-Z"))
         self.assertIn(self._state(aid).status_code, (403, 404))

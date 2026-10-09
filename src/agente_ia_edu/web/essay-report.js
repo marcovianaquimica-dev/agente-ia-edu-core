@@ -128,7 +128,10 @@
       : '';
 
     const alertsHtml = alerts.length
-      ? `<div class="essay-alerts">${alerts.map((a) => `<span class="badge badge-accent">${esc(a.code)}</span>`).join(' ')}</div>`
+      // O CODIGO continua no dado; o que a pessoa le e a frase. Ver
+      // essay-rotulos.js - "OCR_DUVIDOSO" projetado numa reuniao parece erro
+      // de sistema. O `title` guarda o identificador para quem precisar dele.
+      ? `<div class="essay-alerts">${alerts.map((a) => `<span class="badge badge-accent" title="${esc(a.code)}">${esc(EssayRotulos.alerta(a.code))}</span>`).join(' ')}</div>`
       : '';
 
     const competencyBarsHtml = hasScores
@@ -185,7 +188,7 @@
     const mechanicalReviewSectionHtml = mechanicalReview.length
       ? `<h4>Revisão de domínio da norma padrão (C1)</h4>${mechanicalReview.map((m) => `
           <div class="essay-mechanical-occurrence">
-            <strong>${esc(m.category)}</strong>
+            <strong>${esc(EssayRotulos.categoria(m.category))}</strong>
             <blockquote>"${esc(m.excerpt)}"</blockquote>
             <p>Forma sugerida: ${esc(m.suggested_form)}</p>
             <p class="empty-text">${esc(m.rule_explanation)}</p>

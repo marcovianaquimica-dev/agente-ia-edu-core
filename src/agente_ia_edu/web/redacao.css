@@ -7,14 +7,20 @@ body {
   background: var(--bg-app);
 }
 
+/* HEADER CLARO, como o do Portal e o do Assessor.
+   Era escuro (`--bg-sidebar`), e a arte oficial da marca vem com fundo
+   branco: sobre o escuro ela desenhava um retangulo. Recortar o fundo dela
+   seria mexer na marca; clarear o cabecalho alinha os tres modulos na mesma
+   linguagem, que e o que faz o Nucleo Edu 360 parecer um produto so. */
 .redacao-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 24px;
-  background: var(--bg-sidebar);
-  color: var(--text-white);
+  padding: 12px 24px;
+  background: #ffffff;
+  color: #1e293b;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .redacao-brand {
@@ -23,7 +29,7 @@ body {
   gap: 10px;
   font-size: 17px;
   font-weight: 800;
-  color: var(--text-white);
+  color: #1e293b;
 }
 
 .redacao-brand .brand-logo {
@@ -50,4 +56,25 @@ body {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+
+/* ---------------------------------------------- marca Nucleo Edu 360 ---
+   A arte oficial substituiu o emoji e o texto "AGENTE IA EDU". Ela vem com
+   fundo branco, e o header da Redacao ja e claro - nao foi preciso recortar
+   nada da marca. */
+.redacao-brand { text-decoration: none; gap: .75rem; }
+.redacao-brand img { height: 44px; width: auto; display: block; }
+.redacao-brand .brand-modulo {
+  font-weight: 700;
+  font-size: 1.0625rem;
+  color: #1e293b;
+  /* a barra separa o modulo da marca sem precisar de outra palavra */
+  padding-left: .75rem;
+  border-left: 1px solid #e2e8f0;
+}
+
+@media (max-width: 480px) {
+  .redacao-brand img { height: 34px; }
+  .redacao-brand .brand-modulo { font-size: .9375rem; }
 }

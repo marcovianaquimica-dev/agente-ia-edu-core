@@ -97,16 +97,32 @@
     return data;
   }
 
+  // A ORDEM, OS ROTULOS E O QUE E SECUNDARIO ficam em `RedacaoNav`, que tem
+  // teste proprio. Aqui so se desenha o que ela decidiu.
+  //
+  // As CHAVES continuam as mesmas (`prompts`, `queue`, ...): elas sao o
+  // contrato com `wireTabs` logo abaixo, e renomea-las seria risco cosmetico.
   function renderTabs(activeTab) {
+    const nav = window.RedacaoNav;
+    const area = (a) => `
+        <button class="er-aba${a.ativa ? ' er-aba-ativa' : ''}" type="button"
+                data-tab="${a.aba}"
+                ${a.ativa ? 'aria-current="page"' : ''}>${tmEsc(a.rotulo)}</button>`;
+    const secundario = (s) => `
+          <button class="er-secundario${s.ativa ? ' er-aba-ativa' : ''}"
+                  type="button" data-tab="${s.aba}"
+                  ${s.ativa ? 'aria-current="page"' : ''}>${tmEsc(s.rotulo)}</button>`;
     return `
-      <div class="essay-review-tabs">
-        <button class="btn ${activeTab === 'prompts' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="prompts">Propostas</button>
-        <button class="btn ${activeTab === 'batch' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="batch">Enviar em lote</button>
-        <button class="btn ${activeTab === 'queue' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="queue">Fila de Revisão</button>
-        <button class="btn ${activeTab === 'evolution' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="evolution">Evolução</button>
-        <button class="btn ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="dashboard">Dashboard</button>
-        <button class="btn ${activeTab === 'trash' ? 'btn-primary' : 'btn-secondary'}" type="button" data-tab="trash">🗑️ Lixeira</button>
-      </div>`;
+      <nav class="essay-review-tabs" aria-label="Áreas da Redação">
+        <div class="er-abas">${nav.areas(activeTab).map(area).join('')}</div>
+        <details class="er-mais"${nav.secundarios(activeTab)
+          .some((s) => s.ativa) ? ' open' : ''}>
+          <summary aria-label="Mais opções">⋯</summary>
+          <div class="er-mais-itens">
+            ${nav.secundarios(activeTab).map(secundario).join('')}
+          </div>
+        </details>
+      </nav>`;
   }
 
   function wireTabs() {
@@ -1132,21 +1148,17 @@
     const dashboardPrompts = prompts.filter((p) => !isUnmaterializedPlatformPrompt(p));
     const tabsEl = container.querySelector('.essay-review-tabs');
     if (tabsEl.nextElementSibling) tabsEl.nextElementSibling.remove();
+    // O CONTEXTO ANTES DO FORMULARIO. A tela comecava por um `<select>`: o
+    // professor tinha de configurar antes de saber do que se tratava.
+    //
+    // A "Proposta" deixou de ter linha propria. Ela e um FILTRO como os
+    // outros tres, e estar sozinha acima deles fazia parecer navegacao - dois
+    // blocos de filtro empilhados, com Turma aparecendo so no segundo.
+    // `renderDashboardBody` desenha os quatro na mesma linha.
     tabsEl.insertAdjacentHTML('afterend', `
-      <div class="tm-form-row" style="margin: 12px 0;">
-        <div class="form-group">
-          <label for="er-dash-prompt">Proposta</label>
-          <select id="er-dash-prompt" class="text-input">
-            ${dashboardPrompts.map((p) => `<option value="${tmEsc(p.id)}">${tmEsc(p.title)} (${p.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
-          </select>
-        </div>
-      </div>
+      <p class="er-contexto">Acompanhe a produção textual das suas turmas.</p>
       <div id="er-dash-body"></div>`);
 
-    const promptSelect = container.querySelector('#er-dash-prompt');
-    promptSelect.addEventListener('change', () => {
-      if (promptSelect.value) renderDashboardBody(promptSelect.value);
-    });
     if (dashboardPrompts.length) {
       renderDashboardBody(dashboardPrompts[0].id);
     } else {
@@ -1178,8 +1190,18 @@
     // grade_level_id. Only Turma/Aluno actually filter the server response.
     const gradeLevels = Array.from(new Set(assignableClassrooms.map((c) => c.grade_level).filter(Boolean)));
 
+    // Props de plataforma ainda nao adotadas pela escola nao entram aqui -
+    // selecionar uma bateria em GET .../dashboard com 403 "This proposal is
+    // not yours." (ver isUnmaterializedPlatformPrompt).
+    const dashboardPrompts = prompts.filter((p) => !isUnmaterializedPlatformPrompt(p));
     body.innerHTML = `
-      <div class="tm-form-row" style="margin: 12px 0;">
+      <div class="tm-form-row er-filtros" style="margin: 12px 0;">
+        <div class="form-group">
+          <label for="er-dash-prompt">Proposta</label>
+          <select id="er-dash-prompt" class="text-input">
+            ${dashboardPrompts.map((pr) => `<option value="${tmEsc(pr.id)}"${pr.id === promptId ? ' selected' : ''}>${tmEsc(pr.title)} (${pr.year})</option>`).join('') || '<option value="">Nenhuma proposta</option>'}
+          </select>
+        </div>
         <div class="form-group">
           <label for="er-dash-grade">Série</label>
           <select id="er-dash-grade" class="text-input">
@@ -1201,6 +1223,12 @@
       </div>
       <div id="er-dash-results"><p class="empty-text">Carregando dashboard...</p></div>`;
 
+    const promptSelect = body.querySelector('#er-dash-prompt');
+    if (promptSelect) {
+      promptSelect.addEventListener('change', () => {
+        if (promptSelect.value) renderDashboardBody(promptSelect.value);
+      });
+    }
     const gradeSelect = body.querySelector('#er-dash-grade');
     const classSelect = body.querySelector('#er-dash-class');
     const studentSelect = body.querySelector('#er-dash-student');
@@ -1722,7 +1750,13 @@
     schoolId = currentSchoolId || '';
     teacherId = currentTeacherId || '';
     if (!container) return;
-    renderPromptsList();
+    // A ENTRADA E A VISAO GERAL. "Como estao meus alunos?" vem antes de "o
+    // que eu quero cadastrar?" - e a resposta estava na quarta aba.
+    if (window.RedacaoNav && window.RedacaoNav.ABA_INICIAL === 'dashboard') {
+      renderDashboardTab();
+    } else {
+      renderPromptsList();
+    }
   }
 
   return { init };

@@ -388,11 +388,79 @@ class ActivityCorrectionStore:
                     "is_correct": r.is_correct,
                     "selected_option_key": r.selected_option_key,
                     "correct_option_key": r.correct_option_key,   # released ONLY here, post-correction
-                    "resolution": resolution_by_qv.get(r.question_version_id, NO_RESOLUTION_TEXT),
+                    # SEM TEXTO DE DIVIDA TECNICA PARA O ALUNO.
+                    #
+                    # Ate 2026-10-06 a ausencia de resolucao curada virava, na
+                    # tela do aluno, "a geracao de resolucao por IA e uma fase
+                    # futura e nao e usada aqui" - e, medido, NENHUMA das 595
+                    # questoes do acervo tem resolucao curada. Todo aluno que
+                    # errava lia sobre a divida tecnica do produto.
+                    #
+                    # Agora a ausencia e `null`, honesta e silenciosa, e quem
+                    # ensina e `POST .../result/explanation`. A constante
+                    # continua existindo para o lado do PROFESSOR, onde dizer
+                    # "nao ha resolucao armazenada" e informacao util.
+                    "resolution": resolution_by_qv.get(r.question_version_id),
                 }
                 for r in rows
             ],
             "answer_key_visible": True,
+        }
+
+    async def contexto_do_erro(self, assignment_id: UUID, question_version_id: UUID,
+                               *, requester: Requester) -> dict:
+        """Tudo o que explicar UM erro exige, para UMA questão já corrigida.
+
+        Existe aqui, e não no serviço que explica, por duas razões. A
+        autorização é esta - a mesma da PHASE 16, sem porta nova: um aluno só
+        alcança a própria tentativa. E o serviço de explicação não recebe
+        sessão de propósito, então quem lê o banco tem de ser quem já lia.
+
+        Levanta ``CorrectionNotFound`` quando a questão não pertence ao
+        resultado: pedir explicação de uma questão que o aluno não respondeu
+        seria contar sobre uma questão que ele talvez ainda vá ver.
+        """
+        assignment, _assessment, _version = await self._resolve(
+            assignment_id, requester=requester)
+        attempt = await self._load_attempt(assignment.id, requester.external_user_id)
+        if attempt is None:
+            raise CorrectionNotFound(str(assignment_id))
+        result = await self._load_result(attempt.id)
+        if result is None:
+            raise CorrectionNotFound(str(assignment_id))
+
+        item = (await self._session.execute(
+            select(ActivityResultItem).where(
+                ActivityResultItem.result_id == result.id,
+                ActivityResultItem.question_version_id == question_version_id)
+        )).scalars().first()
+        if item is None:
+            raise CorrectionNotFound(str(question_version_id))
+
+        from agente_ia_edu.services.question_bank import QuestionBankService
+
+        banco = await QuestionBankService(self._session).get_questions_by_version_ids(
+            [question_version_id])
+        questao = banco[0] if banco else None
+        textos = {o.key: o.text for o in (questao.options if questao else [])}
+        classificacao = getattr(questao, "classification", None) if questao else None
+
+        def alternativa(chave: str | None) -> str | None:
+            if not chave:
+                return None
+            texto = textos.get(chave)
+            return f"{chave}) {texto}" if texto else chave
+
+        resolucoes = await self._resolution_texts([question_version_id])
+        return {
+            "enunciado": ((questao.statement or questao.canonical_text)
+                          if questao else None),
+            "alternativa_escolhida": alternativa(item.selected_option_key),
+            "alternativa_correta": alternativa(item.correct_option_key),
+            "conteudo": getattr(classificacao, "content_code", None),
+            "habilidade": getattr(classificacao, "subcontent_code", None),
+            "resolucao_curada": resolucoes.get(question_version_id),
+            "is_correct": bool(item.is_correct),
         }
 
     async def _resolution_texts(self, version_ids: list[UUID]) -> dict[UUID, str]:

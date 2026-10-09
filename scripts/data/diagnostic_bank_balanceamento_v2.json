@@ -1,0 +1,1066 @@
+[
+  {
+    "item": {
+      "diagnostic_skill": "CONSERVACAO_DE_ATOMOS",
+      "diagnostic_objective": "O aluno reconhece que o numero de atomos de cada elemento se conserva numa reacao?",
+      "difficulty": "EASY",
+      "stem": "Qual das equações está balanceada, ou seja, conserva o número de átomos de cada elemento nos reagentes e nos produtos?",
+      "options": {
+        "A": "2 H2 + 1 O2 → 2 H2O",
+        "B": "1 H2 + 1 O2 → 1 H2O",
+        "C": "1 CH4 + 1 O2 → 1 CO2 + 1 H2O",
+        "D": "1 Na + 1 Cl2 → 1 NaCl",
+        "E": "2 CaCO3 → 2 CaO + 1 CO2"
+      },
+      "correct_answer": "A",
+      "rationale": "Na alternativa B, há 4 átomos de hidrogênio e 2 de oxigênio em ambos os lados da equação. Assim, o número de átomos de cada elemento é conservado.",
+      "equacoes": [
+        "1 H2 + 1 O2 → 1 H2O",
+        "2 H2 + 1 O2 → 2 H2O",
+        "1 CH4 + 1 O2 → 1 CO2 + 1 H2O",
+        "1 Na + 1 Cl2 → 1 NaCl",
+        "2 CaCO3 → 2 CaO + 1 CO2"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "1 H2 + 1 O2 → 1 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 H2 + 1 O2 → 2 H2O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "1 CH4 + 1 O2 → 1 CO2 + 1 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 Na + 1 Cl2 → 1 NaCl": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 CaCO3 → 2 CaO + 1 CO2": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "Na alternativa B, há 4 átomos de hidrogênio e 2 de oxigênio em ambos os lados da equação. As demais alternativas não conservam a quantidade de pelo menos um dos elementos.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "CONSERVACAO_DE_ATOMOS",
+      "diagnostic_objective": "O aluno reconhece que o numero de atomos de cada elemento se conserva numa reacao?",
+      "difficulty": "MEDIUM",
+      "stem": "Considere a combustão do metano (CH₄) com gás oxigênio (O₂), formando dióxido de carbono (CO₂) e água (H₂O). Qual alternativa apresenta a equação com conservação do número de átomos?",
+      "options": {
+        "A": "CH₄ + O₂ → CO₂ + H₂O",
+        "B": "CH₄ + 2 O₂ → CO₂ + 2 H₂O",
+        "C": "2 CH₄ + 2 O₂ → 2 CO₂ + 2 H₂O",
+        "D": "2 CH₄ + 3 O₂ → 2 CO₂ + 4 H₂O",
+        "E": "CH₄ + 2 O₂ → 2 CO₂ + 2 H₂O"
+      },
+      "correct_answer": "B",
+      "rationale": "Na alternativa B, há 1 átomo de carbono, 4 de hidrogênio e 4 de oxigênio em cada lado da reação. Portanto, o número de átomos de cada elemento é conservado.",
+      "equacoes": [
+        "CH₄ + O₂ → CO₂ + H₂O",
+        "CH₄ + 2 O₂ → CO₂ + 2 H₂O",
+        "2 CH₄ + 2 O₂ → 2 CO₂ + 2 H₂O",
+        "2 CH₄ + 3 O₂ → 2 CO₂ + 4 H₂O",
+        "CH₄ + 2 O₂ → 2 CO₂ + 2 H₂O"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "CH₄ + O₂ → CO₂ + H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "CH₄ + 2 O₂ → CO₂ + 2 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "2 CH₄ + 2 O₂ → 2 CO₂ + 2 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 CH₄ + 3 O₂ → 2 CO₂ + 4 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "CH₄ + 2 O₂ → 2 CO₂ + 2 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "A equação CH₄ + 2 O₂ → CO₂ + 2 H₂O apresenta 1 átomo de carbono, 4 de hidrogênio e 4 de oxigênio em ambos os lados. Portanto, ela conserva o número de átomos de cada elemento.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "CONSERVACAO_DE_ATOMOS",
+      "diagnostic_objective": "O aluno reconhece que o numero de atomos de cada elemento se conserva numa reacao?",
+      "difficulty": "MEDIUM",
+      "stem": "Considere as equações químicas abaixo. Qual alternativa apresenta uma equação balanceada, isto é, com o mesmo número de átomos de cada elemento nos dois lados?",
+      "options": {
+        "A": "1 H₂ + 1 O₂ → 1 H₂O",
+        "B": "1 N₂ + 2 H₂ → 2 NH₃",
+        "C": "2 H₂ + 1 O₂ → 2 H₂O",
+        "D": "2 Na + 1 Cl₂ → 1 NaCl",
+        "E": "1 Fe + 1 O₂ → 1 Fe₂O₃"
+      },
+      "correct_answer": "C",
+      "rationale": "Na alternativa B, há quatro átomos de hidrogênio e dois de oxigênio em cada lado da equação. Nas demais, pelo menos um elemento apresenta números diferentes de átomos nos reagentes e nos produtos.",
+      "equacoes": [
+        "1 H₂ + 1 O₂ → 1 H₂O",
+        "2 H₂ + 1 O₂ → 2 H₂O",
+        "1 N₂ + 2 H₂ → 2 NH₃",
+        "2 Na + 1 Cl₂ → 1 NaCl",
+        "1 Fe + 1 O₂ → 1 Fe₂O₃"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "1 H₂ + 1 O₂ → 1 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 H₂ + 1 O₂ → 2 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "1 N₂ + 2 H₂ → 2 NH₃": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 Na + 1 Cl₂ → 1 NaCl": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 Fe + 1 O₂ → 1 Fe₂O₃": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "Na alternativa B, há 4 átomos de hidrogênio e 2 de oxigênio em ambos os lados da equação. As demais alternativas apresentam quantidades diferentes de pelo menos um elemento entre reagentes e produtos.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RECONHECER_BALANCEADA",
+      "diagnostic_objective": "O aluno distingue uma equacao corretamente balanceada de uma que nao esta?",
+      "difficulty": "EASY",
+      "stem": "Qual das equações químicas a seguir está corretamente balanceada?",
+      "options": {
+        "A": "H2 + O2 → H2O",
+        "B": "2KClO3 → 2KCl + 2O2",
+        "C": "N2 + 2H2 → 2NH3",
+        "D": "2H2 + O2 → 2H2O",
+        "E": "CaCO3 → CaO + 2CO2"
+      },
+      "correct_answer": "D",
+      "rationale": "Na alternativa B, há quatro átomos de hidrogênio e dois de oxigênio em ambos os lados da equação. Nas demais alternativas, pelo menos um elemento apresenta quantidades diferentes nos reagentes e nos produtos.",
+      "equacoes": [
+        "H2 + O2 → H2O",
+        "2H2 + O2 → 2H2O",
+        "N2 + 2H2 → 2NH3",
+        "2KClO3 → 2KCl + 2O2",
+        "CaCO3 → CaO + 2CO2"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "H2 + O2 → H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2H2 + O2 → 2H2O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "N2 + 2H2 → 2NH3": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2KClO3 → 2KCl + 2O2": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "CaCO3 → CaO + 2CO2": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "A equação 2H2 + O2 → 2H2O apresenta 4 átomos de hidrogênio e 2 de oxigênio em ambos os lados. As demais alternativas não conservam a quantidade de pelo menos um elemento.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RECONHECER_BALANCEADA",
+      "diagnostic_objective": "O aluno distingue uma equacao corretamente balanceada de uma que nao esta?",
+      "difficulty": "MEDIUM",
+      "stem": "Identifique a alternativa que apresenta uma equação química corretamente balanceada, considerando a conservação do número de átomos de cada elemento.",
+      "options": {
+        "A": "2 Fe + O₂ → Fe₂O₃",
+        "B": "2 Mg + O₂ → MgO",
+        "C": "C₃H₈ + 4 O₂ → 3 CO₂ + 4 H₂O",
+        "D": "2 Na + Cl₂ → NaCl",
+        "E": "2 Al + 3 Cl₂ → 2 AlCl₃"
+      },
+      "correct_answer": "E",
+      "rationale": "Na alternativa B, há 2 átomos de alumínio e 6 átomos de cloro em ambos os lados da equação. Nas demais alternativas, pelo menos um elemento apresenta quantidades diferentes nos reagentes e nos produtos.",
+      "equacoes": [
+        "2 Fe + O₂ → Fe₂O₃",
+        "2 Al + 3 Cl₂ → 2 AlCl₃",
+        "C₃H₈ + 4 O₂ → 3 CO₂ + 4 H₂O",
+        "2 Na + Cl₂ → NaCl",
+        "2 Mg + O₂ → MgO"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "2 Fe + O₂ → Fe₂O₃": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 Al + 3 Cl₂ → 2 AlCl₃": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "C₃H₈ + 4 O₂ → 3 CO₂ + 4 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 Na + Cl₂ → NaCl": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 Mg + O₂ → MgO": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "Na alternativa B, há 2 átomos de alumínio e 6 átomos de cloro em ambos os lados da equação. As demais alternativas não conservam o número de átomos de pelo menos um elemento.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "RECONHECER_BALANCEADA",
+      "diagnostic_objective": "O aluno distingue uma equacao corretamente balanceada de uma que nao esta?",
+      "difficulty": "MEDIUM",
+      "stem": "Qual das equações químicas a seguir está corretamente balanceada, considerando a conservação do número de átomos de cada elemento?",
+      "options": {
+        "A": "2 H₂ + 1 O₂ → 2 H₂O",
+        "B": "1 H₂ + 1 O₂ → 1 H₂O",
+        "C": "2 Na + 1 Cl₂ → 1 NaCl",
+        "D": "1 Fe + 1 O₂ → 1 Fe₂O₃",
+        "E": "1 KClO₃ → 1 KCl + 1 O₂"
+      },
+      "correct_answer": "A",
+      "rationale": "Na alternativa B, há quatro átomos de hidrogênio e dois de oxigênio em ambos os lados da equação. Nas demais alternativas, a quantidade de pelo menos um elemento é diferente entre reagentes e produtos.",
+      "equacoes": [
+        "1 H₂ + 1 O₂ → 1 H₂O",
+        "2 H₂ + 1 O₂ → 2 H₂O",
+        "2 Na + 1 Cl₂ → 1 NaCl",
+        "1 Fe + 1 O₂ → 1 Fe₂O₃",
+        "1 KClO₃ → 1 KCl + 1 O₂"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "1 H₂ + 1 O₂ → 1 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 H₂ + 1 O₂ → 2 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "2 Na + 1 Cl₂ → 1 NaCl": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 Fe + 1 O₂ → 1 Fe₂O₃": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 KClO₃ → 1 KCl + 1 O₂": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "Na alternativa B, há 4 átomos de hidrogênio e 2 de oxigênio em ambos os lados da equação. As demais alternativas apresentam quantidades diferentes de pelo menos um elemento entre reagentes e produtos.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "COEFICIENTE_AUSENTE",
+      "diagnostic_objective": "O aluno determina um coeficiente faltante numa equacao quase balanceada?",
+      "difficulty": "EASY",
+      "stem": "Na combustão completa do metano, a equação é CH₄ + ___ O₂ → CO₂ + 2 H₂O. Qual coeficiente deve preencher a lacuna para balanceá-la?",
+      "options": {
+        "A": "1",
+        "B": "2",
+        "C": "3",
+        "D": "4",
+        "E": "5"
+      },
+      "correct_answer": "B",
+      "rationale": "Nos produtos há quatro átomos de oxigênio: dois em CO₂ e dois em 2 H₂O. Portanto, são necessárias duas moléculas de O₂ nos reagentes.",
+      "equacoes": [
+        "CH₄ + 2 O₂ → CO₂ + 2 H₂O"
+      ],
+      "equacoes_balanceadas": [
+        true
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "CH₄ + 2 O₂ → CO₂ + 2 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "Há 1 átomo de carbono e 4 de hidrogênio em CH₄, correspondendo a 1 CO₂ e 2 H₂O. Esses produtos contêm 4 átomos de oxigênio, portanto são necessários 2 O₂.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "COEFICIENTE_AUSENTE",
+      "diagnostic_objective": "O aluno determina um coeficiente faltante numa equacao quase balanceada?",
+      "difficulty": "MEDIUM",
+      "stem": "Na combustão completa do propano, determine o coeficiente que deve acompanhar o O₂: C₃H₈ + ___ O₂ → 3 CO₂ + 4 H₂O.",
+      "options": {
+        "A": "3",
+        "B": "4",
+        "C": "5",
+        "D": "6",
+        "E": "7"
+      },
+      "correct_answer": "C",
+      "rationale": "Os produtos contêm 6 átomos de oxigênio no CO₂ e 4 na H₂O, totalizando 10 átomos de oxigênio. Portanto, são necessárias 5 moléculas de O₂ para fornecer esses 10 átomos.",
+      "equacoes": [
+        "C₃H₈ + 5 O₂ → 3 CO₂ + 4 H₂O"
+      ],
+      "equacoes_balanceadas": [
+        true
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "C₃H₈ + 5 O₂ → 3 CO₂ + 4 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "No lado dos produtos há 6 átomos de oxigênio em 3 CO₂ e 4 em 4 H₂O, totalizando 10 átomos. Como cada O₂ fornece 2 átomos de oxigênio, são necessários 5 O₂.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "COEFICIENTE_AUSENTE",
+      "diagnostic_objective": "O aluno determina um coeficiente faltante numa equacao quase balanceada?",
+      "difficulty": "MEDIUM",
+      "stem": "Na combustão completa do propano, a equação é C₃H₈ + ___ O₂ → 3 CO₂ + 4 H₂O. Qual coeficiente deve ocupar a lacuna?",
+      "options": {
+        "A": "3",
+        "B": "7",
+        "C": "6",
+        "D": "5",
+        "E": "8"
+      },
+      "correct_answer": "D",
+      "rationale": "Nos produtos há 6 átomos de oxigênio no CO₂ e 4 na água, totalizando 10 átomos. Portanto, são necessárias 5 moléculas de O₂ para fornecer esses 10 átomos de oxigênio.",
+      "equacoes": [
+        "C₃H₈ + 5 O₂ → 3 CO₂ + 4 H₂O"
+      ],
+      "equacoes_balanceadas": [
+        true
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "C₃H₈ + 5 O₂ → 3 CO₂ + 4 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "Nos produtos, há 6 átomos de oxigênio em 3 CO₂ e 4 átomos em 4 H₂O, totalizando 10 átomos. Portanto, são necessários 5 O₂, pois cada molécula fornece 2 átomos de oxigênio.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "BALANCEAR_SIMPLES",
+      "diagnostic_objective": "O aluno balanceia uma equacao simples do zero?",
+      "difficulty": "EASY",
+      "stem": "Ao balancear a reação de formação da água, qual alternativa apresenta a equação com os menores coeficientes inteiros possíveis?",
+      "options": {
+        "A": "1 H₂ + 1 O₂ → 1 H₂O",
+        "B": "3 H₂ + 1 O₂ → 3 H₂O",
+        "C": "1 H₂ + 2 O₂ → 2 H₂O",
+        "D": "2 H₂ + 2 O₂ → 2 H₂O",
+        "E": "2 H₂ + 1 O₂ → 2 H₂O"
+      },
+      "correct_answer": "E",
+      "rationale": "Na alternativa B, há quatro átomos de hidrogênio e dois de oxigênio em ambos os lados da equação. Além disso, os coeficientes estão na menor proporção inteira possível.",
+      "equacoes": [
+        "1 H₂ + 1 O₂ → 1 H₂O",
+        "2 H₂ + 1 O₂ → 2 H₂O",
+        "1 H₂ + 2 O₂ → 2 H₂O",
+        "2 H₂ + 2 O₂ → 2 H₂O",
+        "3 H₂ + 1 O₂ → 3 H₂O"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "1 H₂ + 1 O₂ → 1 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 H₂ + 1 O₂ → 2 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "1 H₂ + 2 O₂ → 2 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 H₂ + 2 O₂ → 2 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "3 H₂ + 1 O₂ → 3 H₂O": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "B",
+        "resolucao": "A molécula O₂ fornece dois átomos de oxigênio, portanto são necessários 2 H₂O para conservar o oxigênio. Isso exige 2 H₂, conservando também quatro átomos de hidrogênio, resultando em 2 H₂ + 1 O₂ → 2 H₂O.",
+        "unica_resposta": true,
+        "outras_defensiveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "BALANCEAR_SIMPLES",
+      "diagnostic_objective": "O aluno balanceia uma equacao simples do zero?",
+      "difficulty": "MEDIUM",
+      "stem": "Considere a combustão completa do propano, C3H8, em O2, formando CO2 e H2O. Qual alternativa apresenta a equação corretamente balanceada?",
+      "options": {
+        "A": "C3H8 + 5 O2 → 3 CO2 + 4 H2O",
+        "B": "2 C3H8 + 5 O2 → 6 CO2 + 4 H2O",
+        "C": "C3H8 + 4 O2 → 3 CO2 + 4 H2O",
+        "D": "2 C3H8 + 7 O2 → 6 CO2 + 8 H2O",
+        "E": "3 C3H8 + 5 O2 → 9 CO2 + 12 H2O"
+      },
+      "correct_answer": "A",
+      "rationale": "Na alternativa C, há 3 átomos de carbono, 8 de hidrogênio e 10 de oxigênio em cada lado da equação. Portanto, todos os elementos estão presentes na mesma quantidade nos reagentes e nos produtos.",
+      "equacoes": [
+        "C3H8 + 4 O2 → 3 CO2 + 4 H2O",
+        "2 C3H8 + 5 O2 → 6 CO2 + 4 H2O",
+        "C3H8 + 5 O2 → 3 CO2 + 4 H2O",
+        "2 C3H8 + 7 O2 → 6 CO2 + 8 H2O",
+        "3 C3H8 + 5 O2 → 9 CO2 + 12 H2O"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "C3H8 + 4 O2 → 3 CO2 + 4 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 C3H8 + 5 O2 → 6 CO2 + 4 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "C3H8 + 5 O2 → 3 CO2 + 4 H2O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "2 C3H8 + 7 O2 → 6 CO2 + 8 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "3 C3H8 + 5 O2 → 9 CO2 + 12 H2O": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "A combustão do propano forma 3 CO2 para conservar os três átomos de carbono e 4 H2O para conservar os oito átomos de hidrogênio. Esses produtos contêm 10 átomos de oxigênio, exigindo 5 O2: C3H8 + 5 O2 → 3 CO2 + 4 H2O.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "BALANCEAR_SIMPLES",
+      "diagnostic_objective": "O aluno balanceia uma equacao simples do zero?",
+      "difficulty": "MEDIUM",
+      "stem": "Na combustão completa do propano, ocorre a reação 1 C3H8 + 1 O2 -> 1 CO2 + 1 H2O. Qual alternativa apresenta essa equação corretamente balanceada?",
+      "options": {
+        "A": "1 C3H8 + 4 O2 -> 3 CO2 + 4 H2O",
+        "B": "1 C3H8 + 5 O2 -> 3 CO2 + 4 H2O",
+        "C": "2 C3H8 + 7 O2 -> 6 CO2 + 8 H2O",
+        "D": "2 C3H8 + 5 O2 -> 6 CO2 + 8 H2O",
+        "E": "1 C3H8 + 3 O2 -> 3 CO2 + 4 H2O"
+      },
+      "correct_answer": "B",
+      "rationale": "Na alternativa C, há 3 átomos de carbono, 8 de hidrogênio e 10 de oxigênio em cada lado da equação. Portanto, os coeficientes 1, 5, 3 e 4 balanceiam corretamente a reação.",
+      "equacoes": [
+        "1 C3H8 + 1 O2 -> 1 CO2 + 1 H2O",
+        "1 C3H8 + 4 O2 -> 3 CO2 + 4 H2O",
+        "2 C3H8 + 7 O2 -> 6 CO2 + 8 H2O",
+        "1 C3H8 + 5 O2 -> 3 CO2 + 4 H2O",
+        "2 C3H8 + 5 O2 -> 6 CO2 + 8 H2O",
+        "1 C3H8 + 3 O2 -> 3 CO2 + 4 H2O"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "1 C3H8 + 1 O2 -> 1 CO2 + 1 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 C3H8 + 4 O2 -> 3 CO2 + 4 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 C3H8 + 7 O2 -> 6 CO2 + 8 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 C3H8 + 5 O2 -> 3 CO2 + 4 H2O": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "2 C3H8 + 5 O2 -> 6 CO2 + 8 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "1 C3H8 + 3 O2 -> 3 CO2 + 4 H2O": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "Igualando carbono e hidrogênio, obtêm-se 3 CO2 e 4 H2O para cada 1 C3H8. Esses produtos contêm 10 átomos de oxigênio, exigindo 5 O2, portanto a alternativa correta é C.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "BALANCEAR_MULTIPLAS_ESPECIES",
+      "diagnostic_objective": "O aluno balanceia uma equacao com varias especies?",
+      "difficulty": "EASY",
+      "stem": "Considere a combustão completa do propano (C3H8) em oxigênio (O2), formando dióxido de carbono (CO2) e água (H2O). Qual alternativa apresenta a equação corretamente balanceada?",
+      "options": {
+        "A": "C3H8 + 4 O2 → 3 CO2 + 4 H2O",
+        "B": "2 C3H8 + 5 O2 → 6 CO2 + 8 H2O",
+        "C": "C3H8 + 5 O2 → 3 CO2 + 3 H2O",
+        "D": "2 C3H8 + 10 O2 → 6 CO2 + 7 H2O",
+        "E": "3 C3H8 + 14 O2 → 9 CO2 + 12 H2O"
+      },
+      "correct_answer": "B",
+      "rationale": "Na alternativa B, há 6 átomos de carbono, 16 de hidrogênio e 10 moléculas de O2, totalizando 20 átomos de oxigênio em ambos os lados. Portanto, todos os elementos estão balanceados nessa proporção.",
+      "equacoes": [
+        "C3H8 + 4 O2 → 3 CO2 + 4 H2O",
+        "2 C3H8 + 5 O2 → 6 CO2 + 8 H2O",
+        "C3H8 + 5 O2 → 3 CO2 + 3 H2O",
+        "2 C3H8 + 10 O2 → 6 CO2 + 7 H2O",
+        "3 C3H8 + 14 O2 → 9 CO2 + 12 H2O"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "REQUIRES_REVIEW",
+      "motivos": [
+        "quimica: '2 C3H8 + 5 O2 → 6 CO2 + 8 H2O': o item diz balanceada=True, a contagem de atomos diz False (difere em {'O': (10, 20)})",
+        "o verificador resolveu e chegou em 'nenhuma', o gerador afirma 'B'",
+        "o verificador nao viu uma unica resposta correta",
+        "o verificador apontou quimica incorreta",
+        "verificador: Não há alternativa correta; a equação balanceada seria C3H8 + 5 O2 → 3 CO2 + 4 H2O."
+      ],
+      "verificacao_quimica": {
+        "conferiu": false,
+        "problemas": [
+          "'2 C3H8 + 5 O2 → 6 CO2 + 8 H2O': o item diz balanceada=True, a contagem de atomos diz False (difere em {'O': (10, 20)})"
+        ],
+        "detalhes": {
+          "C3H8 + 4 O2 → 3 CO2 + 4 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 C3H8 + 5 O2 → 6 CO2 + 8 H2O": {
+            "declarado": true,
+            "de_fato": false,
+            "diferenca": {
+              "O": [
+                10,
+                20
+              ]
+            }
+          },
+          "C3H8 + 5 O2 → 3 CO2 + 3 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 C3H8 + 10 O2 → 6 CO2 + 7 H2O": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "3 C3H8 + 14 O2 → 9 CO2 + 12 H2O": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "nenhuma",
+        "resolucao": "Balanceando o carbono e o hidrogênio, obtém-se C3H8 + 5 O2 → 3 CO2 + 4 H2O. Nenhuma alternativa apresenta simultaneamente esses coeficientes e conserva corretamente os átomos de oxigênio.",
+        "unica_resposta": false,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": false,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": [
+          "Não há alternativa correta; a equação balanceada seria C3H8 + 5 O2 → 3 CO2 + 4 H2O."
+        ]
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "BALANCEAR_MULTIPLAS_ESPECIES",
+      "diagnostic_objective": "O aluno balanceia uma equacao com varias especies?",
+      "difficulty": "MEDIUM",
+      "stem": "Considere a reação KMnO₄ + HCl → KCl + MnCl₂ + Cl₂ + H₂O. Na ordem em que aparecem as espécies, qual sequência de menores coeficientes inteiros positivos balanceia a equação?",
+      "options": {
+        "A": "1, 8, 1, 1, 2, 4",
+        "B": "2, 16, 2, 2, 4, 8",
+        "C": "2, 16, 2, 2, 5, 8",
+        "D": "2, 16, 2, 2, 5, 7",
+        "E": "2, 14, 2, 2, 5, 8"
+      },
+      "correct_answer": "C",
+      "rationale": "A sequência correta conserva potássio, manganês, oxigênio, hidrogênio e cloro nos dois lados da equação. Assim, a equação balanceada é 2 KMnO₄ + 16 HCl → 2 KCl + 2 MnCl₂ + 5 Cl₂ + 8 H₂O.",
+      "equacoes": [
+        "2 KMnO₄ + 16 HCl → 2 KCl + 2 MnCl₂ + 5 Cl₂ + 8 H₂O"
+      ],
+      "equacoes_balanceadas": [
+        true
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "2 KMnO₄ + 16 HCl → 2 KCl + 2 MnCl₂ + 5 Cl₂ + 8 H₂O": {
+            "declarado": true,
+            "de_fato": true
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "E",
+        "resolucao": "Igualando K e Mn, os coeficientes de KCl e MnCl₂ são iguais aos de KMnO₄; para 2 KMnO₄, obtêm-se 16 HCl, 2 KCl, 2 MnCl₂ e 8 H₂O. A conservação de cloro então exige 5 Cl₂, resultando em 2, 16, 2, 2, 5, 8.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  },
+  {
+    "item": {
+      "diagnostic_skill": "BALANCEAR_MULTIPLAS_ESPECIES",
+      "diagnostic_objective": "O aluno balanceia uma equacao com varias especies?",
+      "difficulty": "MEDIUM",
+      "stem": "Considere a reação de ustulação da pirita: FeS₂ + O₂ → Fe₂O₃ + SO₂. Qual alternativa apresenta a equação corretamente balanceada?",
+      "options": {
+        "A": "2 FeS₂ + 5 O₂ → Fe₂O₃ + 4 SO₂",
+        "B": "4 FeS₂ + 10 O₂ → 2 Fe₂O₃ + 8 SO₂",
+        "C": "4 FeS₂ + 9 O₂ → 2 Fe₂O₃ + 8 SO₂",
+        "D": "4 FeS₂ + 11 O₂ → 2 Fe₂O₃ + 8 SO₂",
+        "E": "2 FeS₂ + 11 O₂ → Fe₂O₃ + 8 SO₂"
+      },
+      "correct_answer": "D",
+      "rationale": "Na alternativa C, há 4 átomos de ferro, 8 de enxofre e 22 de oxigênio em cada lado da equação. Portanto, todos os elementos estão igualmente representados nos reagentes e nos produtos.",
+      "equacoes": [
+        "2 FeS₂ + 5 O₂ → Fe₂O₃ + 4 SO₂",
+        "4 FeS₂ + 10 O₂ → 2 Fe₂O₃ + 8 SO₂",
+        "4 FeS₂ + 11 O₂ → 2 Fe₂O₃ + 8 SO₂",
+        "4 FeS₂ + 9 O₂ → 2 Fe₂O₃ + 8 SO₂",
+        "2 FeS₂ + 11 O₂ → Fe₂O₃ + 8 SO₂"
+      ],
+      "equacoes_balanceadas": [
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "generator_version": "balanceamento-gerador@2026-10-04-v2"
+    },
+    "decisao": {
+      "status": "AI_VERIFIED",
+      "motivos": [
+        "estrutura ok, quimica conferida por contagem de atomos, verificador resolveu e chegou na mesma resposta, mede balanceamento"
+      ],
+      "verificacao_quimica": {
+        "conferiu": true,
+        "problemas": [],
+        "detalhes": {
+          "2 FeS₂ + 5 O₂ → Fe₂O₃ + 4 SO₂": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "4 FeS₂ + 10 O₂ → 2 Fe₂O₃ + 8 SO₂": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "4 FeS₂ + 11 O₂ → 2 Fe₂O₃ + 8 SO₂": {
+            "declarado": true,
+            "de_fato": true
+          },
+          "4 FeS₂ + 9 O₂ → 2 Fe₂O₃ + 8 SO₂": {
+            "declarado": false,
+            "de_fato": false
+          },
+          "2 FeS₂ + 11 O₂ → Fe₂O₃ + 8 SO₂": {
+            "declarado": false,
+            "de_fato": false
+          }
+        }
+      },
+      "verificador": {
+        "resposta": "C",
+        "resolucao": "Igualando ferro e enxofre, 4 FeS₂ produzem 2 Fe₂O₃ e 8 SO₂. Os produtos têm 22 átomos de oxigênio, exigindo 11 O₂ nos reagentes.",
+        "unica_resposta": true,
+        "outras_defensaveis": [],
+        "falta_informacao": false,
+        "depende_de_visual": false,
+        "quimica_correta": true,
+        "mede_balanceamento": true,
+        "da_para_acertar_sem_saber_balanceamento": false,
+        "problemas": []
+      }
+    }
+  }
+]

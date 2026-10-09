@@ -11,6 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const API = '/api/v1/question-bank';
   const state = {
+    // {codigo canonico -> nome em portugues}, vindo do backend. Nunca um
+    // dicionario escrito aqui: ver `rotulo()`.
+    labels: { taxonomy: {}, difficulty: {} },
+    // Os nos do catalogo, carregados uma vez: e deles que saem as opcoes de
+    // Disciplina, Conteudo e Subconteudo.
+    taxonomia: null,
     // reused auth pattern (Bearer <subject>); host replaces the provider in prod
     teacherId: 'user:prof_mendes',
     view: 'bank',
@@ -118,6 +124,16 @@ document.addEventListener('DOMContentLoaded', () => {
         total: data.pagination.total,
         totalPages: data.pagination.total_pages || 1,
       };
+      // OS ROTULOS SAO ACUMULADOS, NAO SUBSTITUIDOS.
+      //
+      // O detalhe de uma questao e a lista de uma pagina trazem conjuntos
+      // diferentes de codigos; trocar o mapa a cada carga faria o rotulo
+      // sumir de uma tela aberta ao abrir a outra - e ela cairia no codigo.
+      const vindos = (data.labels || {});
+      state.labels = {
+        taxonomy: Object.assign({}, state.labels.taxonomy, vindos.taxonomy),
+        difficulty: Object.assign({}, state.labels.difficulty, vindos.difficulty),
+      };
       renderList();
     } catch (err) {
       $('qb-list').innerHTML = '';
@@ -128,13 +144,122 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // ============================================ quem esta aqui ===========
+  // O CABECALHO MOSTRAVA `user:prof_mendes`.
+  //
+  // O nome existe no banco e e servido pela MESMA rota que o Portal e a tela
+  // do professor ja usam - nao ha endpoint novo nem segunda fonte de verdade,
+  // e nenhum nome escrito a mao no codigo.
+  //
+  // Falhar aqui nao bloqueia nada: sem resposta a linha fica vazia e a tela
+  // segue. Identidade humana e acabamento, nao pre-requisito.
+  async function contextoHumano() {
+    const alvo = document.getElementById('qb-contexto-humano');
+    if (!alvo) return;
+    try {
+      const r = await fetch('/api/v1/portal/overview', { headers: authHeaders() });
+      if (!r.ok) return;
+      const d = await r.json();
+      const partes = [(d.user && d.user.name) || '',
+                      (d.institution && d.institution.name) || ''].filter(Boolean);
+      if (partes.length) alvo.textContent = partes.join(' · ');
+    } catch (_) { /* sem nome, a tela segue sem a linha */ }
+  }
+
+  // ====================================== os filtros de taxonomia ========
+  // O CAMPO DE CONTEUDO SO FUNCIONAVA COM O CODIGO CANONICO.
+  //
+  // Medido em 2026-10-06: `content=CHEMISTRY-PHYSICAL-STOICHIOMETRY` achava
+  // 21 questoes; `content=Estequiometria` achava zero. O placeholder dizia
+  // "codigo curriculum-v2" - verdade, e a versao do esquema interno na cara
+  // de quem da aula.
+  //
+  // Agora o professor escolhe numa lista com os nomes do catalogo, e a
+  // requisicao continua mandando o codigo. Uma consulta, no inicio.
+  //
+  // Falhar aqui nao apaga o resto: as listas ficam so com "Todos" e os
+  // demais filtros seguem funcionando. Melhor um filtro indisponivel que um
+  // campo que promete o nome e devolve nada.
+  async function carregarTaxonomia() {
+    try {
+      // `/catalog/nodes` devolve so as RAIZES (as disciplinas) - medido: 4.
+      // A arvore de cada uma vem inteira pelo endpoint de arvore, entao sao
+      // 1 + N chamadas, e nao uma lista paginada que truncaria em silencio
+      // e deixaria um conteudo de fora do filtro sem ninguem perceber.
+      const res = await fetch('/api/v1/catalog/nodes?limit=100',
+                              { headers: authHeaders() });
+      if (!res.ok) return;
+      const raizes = await res.json();
+      const arvores = await Promise.all(raizes.map(async (r) => {
+        try {
+          const t = await fetch(`/api/v1/catalog/nodes/${r.id}/tree`,
+                                { headers: authHeaders() });
+          if (!t.ok) return [];
+          const d = await t.json();
+          return d.nodes || [];
+        } catch (_) { return []; }
+      }));
+      state.taxonomia = raizes.concat(...arvores);
+      montarFiltrosDaTaxonomia();
+    } catch (_) { /* sem catalogo, as listas ficam so com "Todos" */ }
+  }
+
+  function _encher(id, opcoes, rotuloVazio) {
+    const sel = $(id);
+    if (!sel) return;
+    const atual = sel.value;
+    const vale = window.QBankTaxonomia.aindaVale(atual, opcoes);
+    sel.innerHTML = `<option value="">${rotuloVazio}</option>`
+      + opcoes.map((o) => `<option value="${esc(o.value)}">${esc(o.rotulo)}</option>`).join('');
+    sel.value = vale ? atual : '';
+  }
+
+  function montarFiltrosDaTaxonomia() {
+    const nos = state.taxonomia;
+    if (!nos) return;
+    const T = window.QBankTaxonomia;
+    _encher('qb-filter-discipline', T.opcoes(nos, 'DISCIPLINE'), 'Todas');
+    // O conteudo segue a disciplina escolhida, e o subconteudo segue o
+    // conteudo: oferecer os 37 conteudos de todas as disciplinas numa lista
+    // so seria o inventario do catalogo, nao uma escolha.
+    const disc = $('qb-filter-discipline').value;
+    _encher('qb-filter-content', T.opcoes(nos, 'CONTENT', disc), 'Todos');
+    const cont = $('qb-filter-content').value;
+    _encher('qb-filter-subcontent',
+            T.opcoes(nos, 'SUBCONTENT', cont || disc), 'Todos');
+  }
+
   // ---------- rendering: list (light rows, no full body) ----------
+
+  // ============================================== o nome, nao o codigo ====
+  // O PROFESSOR LIA O CONTRATO INTERNO DO SISTEMA.
+  //
+  //     CHEMISTRY > CHEMISTRY-PHYSICAL > CHEMISTRY-PHYSICAL-STOICHIOMETRY
+  //     EASY
+  //
+  // Os rotulos vem do backend (`labels`), que os le de `catalog_nodes.name` -
+  // escrito por gente. Nao ha dicionario aqui: um mapa no JavaScript
+  // divergiria do catalogo no primeiro conteudo novo.
+  //
+  // Codigo sem rotulo volta como ele mesmo. Mostrar o codigo e honesto;
+  // inventar um nome nao.
+  function rotulo(codigo) {
+    if (!codigo) return '';
+    const mapa = (state.labels && state.labels.taxonomy) || {};
+    return mapa[codigo] || codigo;
+  }
+
+  function rotuloDaDificuldade(codigo) {
+    if (!codigo) return '';
+    const mapa = (state.labels && state.labels.difficulty) || {};
+    return mapa[codigo] || codigo;
+  }
 
   function classificationSummary(q) {
     const c = q.classification;
     if (!c) return '<span class="qb-tag qb-tag-muted">Não classificada</span>';
     const parts = [c.discipline_code, c.area_code, c.content_code, c.subcontent_code].filter(Boolean);
-    const chain = parts.map(esc).join(' › ');
+    const chain = parts.map((x) => esc(rotulo(x))).join(' › ');
     let badge = '<span class="qb-tag qb-tag-ok">Classificada</span>';
     if (q.classification_state === 'FORCED_CLOSURE') badge = '<span class="qb-tag qb-tag-warn">Provisória · fechamento forçado</span>';
     else if (q.classification_state === 'NEEDS_REVIEW') badge = '<span class="qb-tag qb-tag-warn">Provisória · em revisão</span>';
@@ -153,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       $('qb-list').innerHTML = items.map((q) => {
         const selected = rowIsSelected(q);
-        const diff = q.recommended_difficulty ? `<span class="qb-tag">${esc(q.recommended_difficulty)}</span>` : '';
+        const diff = q.recommended_difficulty ? `<span class="qb-tag">${esc(rotuloDaDificuldade(q.recommended_difficulty))}</span>` : '';
         const visual = q.has_visual_dependency ? '<span class="qb-tag qb-tag-visual" title="Depende de material visual">🖼️ visual</span>' : '';
         const prot = q.is_protected ? '<span class="qb-tag qb-tag-muted">protegida</span>' : '';
         return `
@@ -194,6 +319,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const q = await res.json();
       state.preview = q;
+      const vindos = (q.labels || {});
+      state.labels = {
+        taxonomy: Object.assign({}, state.labels.taxonomy, vindos.taxonomy),
+        difficulty: Object.assign({}, state.labels.difficulty, vindos.difficulty),
+      };
       renderPreview(q);
     } catch (err) {
       $('qb-preview-body').innerHTML = '';
@@ -208,17 +338,30 @@ document.addEventListener('DOMContentLoaded', () => {
     let classificationBlock = '<p class="qb-tag qb-tag-muted">Questão não classificada.</p>';
     if (c) {
       const chain = [
-        ['Disciplina', c.discipline_code], ['Área', c.area_code],
-        ['Conteúdo', c.content_code], ['Subconteúdo', c.subcontent_code],
+        ['Disciplina', rotulo(c.discipline_code)], ['Área', rotulo(c.area_code)],
+        ['Conteúdo', rotulo(c.content_code)],
+        ['Subconteúdo', rotulo(c.subcontent_code)],
       ].filter(([, v]) => v).map(([k, v]) => `<li><span>${k}</span><strong>${esc(v)}</strong></li>`).join('');
       const meta = [
         c.confidence ? `Confiança: ${esc(c.confidence)}` : null,
         c.classification_mode ? `Modo: ${esc(c.classification_mode)}` : null,
         c.review_reason ? `Motivo de revisão: ${esc(c.review_reason)}` : null,
-        c.taxonomy_version ? `Taxonomia: ${esc(c.taxonomy_version)}` : null,
+        // `taxonomy_version` ("curriculum-v2") SAIU DAQUI.
+        //
+        // E a versao do ESQUEMA de taxonomia: existe para o sistema saber
+        // qual contrato esta lendo, e nao diz nada acionavel a quem da aula.
+        // O campo continua na resposta da API, onde ele serve.
       ].filter(Boolean).map((m) => `<span class="qb-tag">${m}</span>`).join(' ');
+      // O AVISO FICA; O ENUM SAI.
+      //
+      // "(NEEDS_REVIEW)" nao acrescenta nada a "classificação provisória" -
+      // e a frase seguinte ja diz o que fazer. Mas o aviso em si e
+      // indispensavel: uma classificacao provisoria precisa ser sinalizada
+      // antes de virar prova.
       const provisional = (q.classification_state === 'NEEDS_REVIEW' || q.classification_state === 'FORCED_CLOSURE')
-        ? `<div class="qb-provisional-banner">⚠️ Classificação provisória (${esc(q.classification_state)}). Revise antes de usar.</div>`
+        ? `<div class="qb-provisional-banner">⚠️ ${q.classification_state === 'FORCED_CLOSURE'
+             ? 'Classificação provisória, por fechamento forçado'
+             : 'Classificação provisória, em revisão'}. Revise antes de usar.</div>`
         : '';
       classificationBlock = `${provisional}<ul class="qb-class-chain">${chain}</ul><div class="qb-class-meta">${meta}</div>`;
     }
@@ -713,7 +856,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const questions = d.items.map((it) => `
       <article class="qb-preview-question">
         <h4>${it.position}. ${esc(it.year || '')} — Q${esc(it.official_number)} <span class="qb-tag">${esc(it.enem_area || '—')}</span>
-          ${it.content_code ? `<span class="qb-tag">${esc(it.content_code)}</span>` : ''}</h4>
+          ${it.content_code ? `<span class="qb-tag">${esc(rotulo(it.content_code))}</span>` : ''}</h4>
         <p class="qb-preview-statement-text">${esc(it.statement)}</p>
         ${it.has_visual_dependency
           ? '<div class="qb-visual-note">Esta questão depende de material visual. <em>Material visual não disponível.</em></div>'
@@ -845,6 +988,8 @@ document.addEventListener('DOMContentLoaded', () => {
     populateYears();
     $('qb-identity-id').addEventListener('change', (e) => {
       state.teacherId = e.target.value.trim() || 'user:prof_mendes';
+      // Trocar de identidade troca tambem de quem e o nome no cabecalho.
+      contextoHumano();
       if (state.view === 'bank') loadList();
       if (state.view === 'mylists') loadMyLists();
     });
@@ -856,12 +1001,18 @@ document.addEventListener('DOMContentLoaded', () => {
       loadList();
     });
     $('qb-search-text').addEventListener('input', (e) => { state.search = e.target.value; debouncedReload(); });
-    ['qb-filter-year', 'qb-filter-day', 'qb-filter-area', 'qb-filter-discipline', 'qb-filter-status',
+    ['qb-filter-content', 'qb-filter-subcontent',
+     'qb-filter-year', 'qb-filter-day', 'qb-filter-area', 'qb-filter-discipline', 'qb-filter-status',
      'qb-filter-difficulty', 'qb-filter-source', 'qb-filter-provisional', 'qb-filter-visual',
      'qb-filter-protected'].forEach((id) => {
-      $(id).addEventListener('change', () => { readFiltersFromForm(); state.page = 1; loadList(); });
+      $(id).addEventListener('change', () => {
+        if (id === 'qb-filter-discipline' || id === 'qb-filter-content') {
+          montarFiltrosDaTaxonomia();
+        }
+        readFiltersFromForm(); state.page = 1; loadList();
+      });
     });
-    ['qb-filter-content', 'qb-filter-subcontent', 'qb-filter-mode'].forEach((id) => {
+    ['qb-filter-mode'].forEach((id) => {
       $(id).addEventListener('input', () => { readFiltersFromForm(); debouncedReload(); });
     });
     $('qb-clear-filters').addEventListener('click', () => {
@@ -1051,6 +1202,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('qb-preview').hidden) closePreview(); });
 
+    contextoHumano();
+    carregarTaxonomia();
     loadList();
   }
 

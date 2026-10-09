@@ -1,0 +1,231 @@
+/* PORTAL — a Home do Núcleo Edu 360.
+ *
+ * Linguagem visual comum do ecossistema: os mesmos tokens que o Assessor já
+ * usa (aluno.css), para que entrar num módulo e voltar ao Portal pareça o
+ * mesmo produto — e não três sites colados.
+ *
+ * Software educacional profissional: sem gradiente decorativo, sem card
+ * ornamentado, sem emoji como sistema de ícones. */
+
+:root {
+  --fonte: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+
+  --fundo: #f4f6fb;
+  --papel: #ffffff;
+  --tinta: #1e293b;
+  /* Medido: 5,02 sobre o papel e 4,67 sobre o fundo. O #64748b usual
+     reprova em AA para texto normal. */
+  --tinta-fraca: #5b6b82;
+
+  --primaria: #4f46e5;
+  --primaria-escura: #4338ca;
+  --primaria-clara: #eef2ff;
+
+  --borda: #e2e8f0;
+  --r-m: 14px;
+  --r-g: 20px;
+  --sombra: 0 1px 3px rgba(15, 23, 42, .06);
+  --toque: 44px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--fonte);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--tinta);
+  background: var(--fundo);
+}
+
+h1, h2, h3 { line-height: 1.25; margin: 0; font-weight: 700; }
+
+.pular {
+  position: absolute; left: -9999px;
+  background: var(--primaria); color: #fff;
+  padding: .6rem 1rem; border-radius: 0 0 var(--r-m) 0; z-index: 50;
+}
+.pular:focus { left: 0; top: 0; }
+
+/* ------------------------------------------------------------ topo ---- */
+
+.portal-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem 1.5rem;
+  padding: .75rem 1.25rem;
+  padding-top: calc(.75rem + env(safe-area-inset-top, 0px));
+  background: var(--papel);
+  border-bottom: 1px solid var(--borda);
+}
+
+/* A arte oficial vem com fundo branco - por isso o header e branco, em vez
+   de recortar a marca. A altura e que da tamanho ao texto dela (a arte e
+   quase quadrada, 1,78:1): a 34px a assinatura fica ilegivel. */
+.portal-marca { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.portal-marca img { height: 52px; width: auto; display: block; }
+
+.portal-contexto { text-align: right; min-width: 0; }
+.portal-instituicao {
+  margin: 0; font-weight: 700; color: var(--tinta);
+  overflow-wrap: anywhere;
+}
+.portal-pessoa { margin: 0; font-size: .875rem; color: var(--tinta-fraca); }
+
+/* ----------------------------------------------------------- palco ---- */
+
+.portal-palco {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.portal-abertura { margin-bottom: 2rem; }
+.portal-abertura h1 { font-size: 1.75rem; }
+.portal-chamada {
+  margin: .35rem 0 0;
+  font-size: 1.0625rem;
+  color: var(--tinta-fraca);
+}
+
+.portal-secao { margin-bottom: 2.5rem; }
+.portal-secao h2 { font-size: 1.125rem; margin-bottom: .25rem; }
+.portal-nota { margin: 0 0 1rem; color: var(--tinta-fraca); font-size: .9375rem; }
+.portal-vazio { color: var(--tinta-fraca); }
+
+/* ----------------------------------------------------------- grade ---- */
+
+.portal-grade {
+  list-style: none; margin: .75rem 0 0; padding: 0;
+  display: grid; gap: 1rem;
+  /* `auto-fit` acompanha o numero de modulos: nenhuma largura depende de
+     quantos cards existem hoje. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+.modulo {
+  display: flex; flex-direction: column; gap: .5rem;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-g);
+  padding: 1.25rem;
+  box-shadow: var(--sombra);
+}
+
+.modulo-topo { display: flex; align-items: center; gap: .6rem; }
+.modulo-titulo { font-size: 1.0625rem; }
+.modulo-descricao { margin: 0; color: var(--tinta-fraca); font-size: .9375rem; }
+
+.modulo-icone {
+  width: 26px; height: 26px; flex: 0 0 auto;
+  fill: none; stroke: var(--primaria);
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* DISPONIVEL: borda viva e acao de verdade. */
+.modulo-acessivel { border-color: #c7d2fe; }
+
+.modulo-acao {
+  margin-top: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: .4rem;
+  min-height: var(--toque);
+  padding: 0 1.1rem;
+  border-radius: var(--r-m);
+  background: var(--primaria); color: #fff;
+  font-weight: 600; text-decoration: none;
+}
+.modulo-acao:hover { background: var(--primaria-escura); }
+.modulo-acao:focus-visible { outline: 3px solid #1e293b; outline-offset: 2px; }
+
+/* EM BREVE e os demais estados sem acao.
+   ======================================
+   ANTES: `background: transparent` + borda tracejada + sem sombra. O card de
+   um modulo futuro parecia um rascunho ao lado dos outros - e ele nao e um
+   rascunho, e parte do mesmo produto. Num Portal apresentado a quem avalia
+   comprar, quatro dos seis modulos pareciam provisorios.
+
+   AGORA o card e o MESMO: mesmo papel, mesma borda, mesma sombra, mesmo
+   tamanho. O que muda e o selo no lugar do botao, e o icone e o titulo em
+   tom de apoio - hierarquia, nao degradacao.
+
+   NAO HA BOTAO `disabled` aqui. Um botao desabilitado finge que existia uma
+   acao; o selo informa um ESTADO, e nao e clicavel por construcao: sem href,
+   sem tabindex, sem role. */
+.modulo-em_breve .modulo-icone,
+.modulo-nao_contratado .modulo-icone,
+.modulo-sem_permissao .modulo-icone { stroke: var(--tinta-fraca); }
+
+.modulo-em_breve .modulo-titulo,
+.modulo-nao_contratado .modulo-titulo,
+.modulo-sem_permissao .modulo-titulo { color: var(--tinta-fraca); }
+
+/* O selo ocupa a posicao e a altura do botao "Acessar": o card nao fica
+   torto ao lado de um modulo disponivel. */
+.modulo-selo {
+  align-self: stretch;
+  margin-top: auto;
+  padding: .7rem 1rem;
+  border-radius: var(--r-m);
+  background: var(--fundo);
+  border: 1px solid var(--borda);
+  color: var(--tinta-fraca);
+  font-size: .9375rem; font-weight: 700;
+  letter-spacing: .02em;
+  text-align: center;
+}
+
+/* Os tres estados SEM acao nao sao a mesma coisa, e o selo diz qual e. */
+.modulo-nao_contratado .modulo-selo,
+.modulo-sem_permissao .modulo-selo { display: none; }
+
+.modulo-nota {
+  margin: 0; margin-top: auto;
+  font-size: .875rem; color: var(--tinta-fraca);
+}
+
+.portal-erro { border-color: #fecaca; color: var(--tinta); }
+
+/* Os futuros ocupam menos espaco que os disponiveis: a hierarquia diz, sem
+   texto, o que esta pronto. */
+.portal-secao-futura .modulo { padding: 1rem; }
+.portal-grade-futura {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+@media (min-width: 768px) {
+  .portal-marca img { height: 64px; }
+  .portal-palco { padding: 2.5rem 2rem 4rem; }
+  .portal-abertura h1 { font-size: 2rem; }
+}
+
+/* ------------------------------------------ as telas grandes -----------
+   Medido na auditoria do ensaio executivo: a 1920x1080 o Portal ocupava 55%
+   da largura e sobravam 342px abaixo. Projetado, parecia um prototipo
+   pequeno no meio do telao.
+
+   A correcao NAO e esticar tudo ate as bordas. O palco cresce por degraus,
+   os cards ganham largura minima maior (e o `auto-fit` acomoda mais por
+   linha), e o TEXTO de apoio continua com largura de leitura - alargar
+   paragrafo e piorar, nao melhorar. */
+@media (min-width: 1400px) {
+  .portal-palco { max-width: 1320px; padding: 3rem 2.5rem 4.5rem; }
+  .portal-abertura h1 { font-size: 2.25rem; }
+  .portal-chamada { font-size: 1.125rem; }
+  .portal-grade {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  }
+}
+
+@media (min-width: 1700px) {
+  .portal-palco { max-width: 1480px; }
+}
+
+/* A linha mais longa do Portal tinha ~141 caracteres a 1920 - quase o dobro
+   do confortavel. Texto de apoio para de crescer com a caixa. */
+.portal-chamada,
+.portal-nota { max-width: 62ch; }

@@ -231,6 +231,21 @@ class PedagogicalClassification(Base):
             "lifecycle IN ('ACTIVE', 'SUPERSEDED')",
             name="ck_pedagogical_classifications_lifecycle",
         ),
+        # migration 065 - quem aprovou esta classificacao, e com que direito.
+        CheckConstraint(
+            "provenance IN ('AI_SUGGESTED', 'AI_VERIFIED', 'HUMAN_VALIDATED')",
+            name="ck_pedagogical_classifications_provenance",
+        ),
+        # A trava: HUMAN_VALIDATED exige uma pessoa. Sem ela, um backfill
+        # distraido carimbaria validacao humana em material que ninguem olhou.
+        # Mesma forma que curriculum_bncc_links ja usa para status='VALIDATED'.
+        CheckConstraint(
+            "provenance <> 'HUMAN_VALIDATED' "
+            "OR validated_by_external_identity IS NOT NULL",
+            name="ck_pedagogical_classifications_human_needs_identity",
+        ),
+        Index("ix_pedagogical_classifications_provenance_status",
+              "provenance", "status", "lifecycle"),
         Index(
             "ix_pedagogical_classifications_question_version_id",
             "question_version_id",
@@ -275,6 +290,14 @@ class PedagogicalClassification(Base):
     total_tokens: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="DRAFT")
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="ai")
+    # --- migration 065: proveniencia da aprovacao -------------------------
+    # AI_SUGGESTED     a IA propos; nao e utilizavel sozinha
+    # AI_VERIFIED      verificacao INDEPENDENTE concordou, sob contrato
+    # HUMAN_VALIDATED  uma pessoa conferiu (exige identidade, por CHECK)
+    provenance: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="AI_SUGGESTED",
+        server_default="AI_SUGGESTED")
+    validated_by_external_identity: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -205,6 +205,12 @@ class ActivityPlayerState(BaseModel):
     current_position: int | None = None
     questions: list[ActivityPlayerQuestion] = Field(default_factory=list)
     answer_key_visible: bool = False
+    # A INTERVENCAO QUE FICOU PENDENTE, para a retomada depois de um F5.
+    #
+    # Sem este campo o servico calculava a decisao e o `response_model` a
+    # descartava em silencio - medido no navegador em 2026-10-08, com o
+    # servico devolvendo a decisao certa e o HTTP devolvendo null.
+    pending_intervention: dict | None = None
 
 
 class ActivityAnswerSaveResponse(BaseModel):
@@ -217,6 +223,14 @@ class ActivityAnswerSaveResponse(BaseModel):
     pending_count: int
     total_questions: int
     status: str
+    # A DECISAO PEDAGOGICA DESTA RESPOSTA, quando ha uma.
+    #
+    # Ate 2026-10-08 esta resposta era so um recibo, e o cliente avancava
+    # sozinho: o aluno errava e recebia a proxima questao, e a proxima. Quem
+    # decide o proximo passo e o backend; `may_advance` e o que o cliente
+    # obedece, e `intervention` e o que ele desenha.
+    may_advance: bool = True
+    intervention: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -252,13 +266,12 @@ class ActivityResultItemView(BaseModel):
     is_correct: bool
     selected_option_key: str | None = None
     correct_option_key: str | None = None  # released only after correction
-    # real QuestionVersion.resolution_text when recorded; otherwise the same
-    # honest fallback list_generator.py's ResolutionView uses - never an
-    # invented resolution, and never the old fixed "em breve" placeholder.
-    resolution: str = (
-        "Não há resolução oficial passo a passo armazenada para esta questão. "
-        "A geração de resolução por IA é uma fase futura e não é usada aqui."
-    )
+    # QuestionVersion.resolution_text de verdade quando existe; `null` quando
+    # não existe. Até 2026-10-06 a ausência virava duas frases sobre a dívida
+    # técnica do produto NA TELA DO ALUNO - e nenhuma das 595 questões do
+    # acervo tem resolução curada, então todo aluno que errava as lia. Quem
+    # ensina agora é `POST .../attempt/result/explanation`.
+    resolution: str | None = None
 
 
 class ActivityResultActivity(BaseModel):

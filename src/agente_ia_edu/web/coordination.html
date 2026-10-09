@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENTE IA EDU — Portal da Coordenação</title>
+  <title>Núcleo Edu 360 — Coordenação</title>
   <!-- served at /coordination but its static assets are mounted at
        /coordination/assets/ - resolve every relative asset there. -->
   <base href="/coordination/assets/">
+  <link rel="stylesheet" href="nucleo.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="teacher.css">
   <link rel="stylesheet" href="coordination.css">
@@ -18,53 +19,43 @@
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">🏛️</div>
-        <div class="brand-text">AGENTE IA <span>EDU</span></div>
+        <div class="brand-logo">
+          <img src="assets/nucleo-edu-360-simbolo.png" alt="" aria-hidden="true"
+               width="128" height="108">
+        </div>
+        <div class="brand-text">Núcleo <span>Edu 360</span></div>
       </div>
 
-      <nav class="nav-menu">
-        <button class="nav-item active" data-view="dashboard">
-          <span class="icon">🏠</span> Dashboard
-        </button>
-        <button class="nav-item" data-view="hierarchy">
-          <span class="icon">🌴</span> Hierarquia
-        </button>
-        <button class="nav-item" data-view="classrooms">
-          <span class="icon">🏫</span> Turmas
-        </button>
-        <button class="nav-item" data-view="teachers">
-          <span class="icon">👩‍🏫</span> Professores
-        </button>
-        <button class="nav-item" data-view="students">
-          <span class="icon">👨‍🎓</span> Alunos
-        </button>
-        <button class="nav-item" data-view="contents">
-          <span class="icon">📚</span> Conteúdos
-        </button>
-        <button class="nav-item" data-view="contexts">
-          <span class="icon">📝</span> Contexto Pedagógico
-        </button>
-        <button class="nav-item" data-view="materials">
-          <span class="icon">📘</span> Materiais
-        </button>
-        <button class="nav-item" data-view="essay-sheet">
-          <span class="icon">✍️</span> Redação
-        </button>
-        <a class="nav-item" href="/question-bank" title="Criar listas de exercícios e distribuir para turmas ou alunos">
-          <span class="icon">🗂️</span> Banco de Questões
-        </a>
-        <button class="nav-item" data-view="study-sessions">
-          <span class="icon">⏱️</span> Momento de Aprendizado
-        </button>
-        <button class="nav-item" data-view="action-plan">
-          <span class="icon">🎯</span> Plano de Ação
-        </button>
-        <button class="nav-item" data-view="reports">
-          <span class="icon">📤</span> Relatórios
-        </button>
-        <button class="nav-item" data-view="profile">
-          <span class="icon">👤</span> Meu Perfil
-        </button>
+      <nav class="nav-menu" aria-label="Navegação da coordenação">
+        <button class="nav-item active" data-view="dashboard">Início</button>
+
+        <p class="nav-grupo">Rede</p>
+        <button class="nav-item" data-view="hierarchy">Hierarquia</button>
+        <button class="nav-item" data-view="classrooms">Turmas</button>
+        <button class="nav-item" data-view="teachers">Professores</button>
+        <button class="nav-item" data-view="students">Alunos</button>
+
+        <p class="nav-grupo">Ensino</p>
+        <button class="nav-item" data-view="contents">Conteúdos</button>
+        <button class="nav-item" data-view="contexts">Contexto pedagógico</button>
+        <button class="nav-item" data-view="essay-sheet">Redação</button>
+        <button class="nav-item" data-view="study-sessions">Momentos de aprendizado</button>
+
+        <p class="nav-grupo">Recursos</p>
+        <a class="nav-item" href="/question-bank"
+           title="Criar listas de exercícios e distribuir para turmas ou alunos">Banco de Questões</a>
+        <button class="nav-item" data-view="materials">Materiais</button>
+
+        <p class="nav-grupo">Acompanhamento</p>
+        <button class="nav-item" data-view="action-plan">Plano de ação</button>
+        <button class="nav-item" data-view="reports">Relatórios</button>
+
+        <p class="nav-grupo">Módulos</p>
+        <!-- A saída para o ecossistema, igual à do professor. -->
+        <a class="nav-item nav-item-portal" href="/portal">Núcleo Edu 360</a>
+
+        <p class="nav-grupo">Conta</p>
+        <button class="nav-item" data-view="profile">Meu perfil</button>
       </nav>
 
       <div class="user-badge">
@@ -513,5 +504,6 @@
   </div>
 
   <script src="coordination.js"></script>
+  <footer class="nucleo-rodape">© 2026 Núcleo Edu 360 · Alfa 1.0</footer>
 </body>
 </html>

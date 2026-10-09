@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from .contracts import (
     DocumentPageTranscriptionProvider,
+    EmbeddingProvider,
     EssayImageCorrectionProvider,
     EssayTranscriptionProvider,
     TextGenerationProvider,
@@ -75,6 +76,9 @@ def build_text_provider(name: str | None = None) -> ProviderRouter:
             f"Unsupported AI_PROVIDER {selected!r}; supported: {list(supported_providers())}"
         )
     provider = builder()
+    # Embedding fica DE FORA aqui de proposito: um embedder so pode ser
+    # construido sabendo o modelo do espaco, e espaco e dado de tabela, nao
+    # variavel de ambiente. Ver ``build_embedding_provider`` no fim do modulo.
     return ProviderRouter(text_providers=[provider], embedding_providers=[])
 
 
@@ -203,3 +207,55 @@ def build_document_page_transcriber(name: str | None = None) -> DocumentPageTran
             f"supported: {sorted(_DOCUMENT_TRANSCRIBER_BUILDERS)}"
         )
     return builder()
+
+
+def _build_openai_embedder(model: str) -> EmbeddingProvider:
+    from .adapters.openai import OpenAIProvider
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ProviderConfigurationError(
+            "AI_PROVIDER=openai but OPENAI_API_KEY is not configured"
+        )
+    return OpenAIProvider(api_key=api_key, embedding_model=model)
+
+
+# name -> builder returning a single EmbeddingProvider. Same extension story
+# as the builders above.
+_EMBEDDING_BUILDERS: dict[str, Callable[[str], EmbeddingProvider]] = {
+    "openai": _build_openai_embedder,
+}
+
+
+def supported_embedding_providers() -> tuple[str, ...]:
+    return tuple(sorted(_EMBEDDING_BUILDERS))
+
+
+def build_embedding_provider(name: str, *, model: str) -> ProviderRouter:
+    """Build the embedding provider for ONE embedding space.
+
+    Unlike every other builder here, ``name`` and ``model`` are REQUIRED and
+    are never read from the environment. They are DATA: they come from the
+    ``knowledge_embedding_spaces`` row the caller is backfilling. That is what
+    lets the Knowledge Engine reach a real vendor without ever naming one - it
+    forwards two strings it read from its own table.
+
+    Wrapped in a ``ProviderRouter`` so fallback across embedding backends is a
+    list change here, not a call-site change. One caveat that is NOT generic:
+    the router falls back on transport failures, and a different backend would
+    produce vectors in a DIFFERENT space. A real fallback list may therefore
+    only hold adapters serving the same ``(provider, model, dimensions)``
+    identity - otherwise the corpus silently mixes geometries.
+    """
+    selected = (name or "").strip().lower()
+    builder = _EMBEDDING_BUILDERS.get(selected)
+    if builder is None:
+        raise ProviderConfigurationError(
+            f"Unsupported embedding provider {selected!r}; "
+            f"supported: {list(supported_embedding_providers())}"
+        )
+    if not model:
+        raise ProviderConfigurationError(
+            "An embedding space must declare its model; none was given"
+        )
+    return ProviderRouter(text_providers=[], embedding_providers=[builder(model)])

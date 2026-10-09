@@ -784,6 +784,15 @@ async def list_essay_prompts_for_student(
                         PromptAssignment.student_id == enrollment.student_id,
                     ),
                     PromptAssignment.status == "OPEN",
+                    # A LIXEIRA DO TEMA VALE PARA O ALUNO.
+                    #
+                    # Encontrado no ensaio da apresentacao, em dados reais:
+                    # dois temas chamados "teste" apareciam na lista do aluno
+                    # com `deleted_at` preenchido ha dias. A consulta so olhava
+                    # o status da DISTRIBUICAO - o professor excluia o tema, a
+                    # distribuicao continuava OPEN, e o aluno continuava vendo,
+                    # sem o professor ter como perceber.
+                    EssayPrompt.deleted_at.is_(None),
                 )
             )
         ).all()
