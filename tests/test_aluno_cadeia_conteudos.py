@@ -45,13 +45,38 @@ class ArvoreCorretaTests(unittest.TestCase):
     """Guarda contra o erro silencioso descrito na docstring."""
 
     def test_o_codigo_sob_teste_e_o_deste_worktree(self):
+        """Nao fixa um NOME de worktree (ex. "cerebro-fase1") - um nome
+        hardcoded quebra sempre que o mesmo teste roda de outro worktree
+        (ex. durante uma reconciliacao/integracao), mesmo quando o pacote
+        carregado esta correto. O que precisa ser verdade e mais simples e
+        mais robusto: o pacote importado tem que vir de DENTRO do mesmo
+        checkout onde este arquivo de teste vive - nunca do checkout
+        principal (onde o editable install do .venv aponta por padrao),
+        nem de qualquer outro worktree."""
+        import pathlib
+
         import agente_ia_edu
 
-        caminho = agente_ia_edu.__file__
-        self.assertIn(
-            "worktrees/cerebro-fase1", caminho,
-            f"pytest carregou o pacote de {caminho} - os testes abaixo nao "
-            "estariam provando nada sobre o codigo deste worktree",
+        def _raiz_do_checkout(caminho: pathlib.Path) -> pathlib.Path:
+            """Sobe de `caminho` até achar o `.git` do checkout (diretorio
+            no checkout principal, arquivo-ponteiro num worktree) - esse e
+            o limite real do checkout, independente do nome dele."""
+            atual = caminho if caminho.is_dir() else caminho.parent
+            for ancestral in (atual, *atual.parents):
+                if (ancestral / ".git").exists():
+                    return ancestral
+            raise AssertionError(f"nenhum .git encontrado subindo de {caminho}")
+
+        raiz_esperada = _raiz_do_checkout(pathlib.Path(__file__).resolve())
+        caminho_pacote = pathlib.Path(agente_ia_edu.__file__).resolve()
+        raiz_do_pacote = _raiz_do_checkout(caminho_pacote)
+
+        self.assertEqual(
+            raiz_do_pacote, raiz_esperada,
+            f"pytest carregou o pacote de {caminho_pacote} (checkout "
+            f"{raiz_do_pacote}), mas este arquivo de teste vive no checkout "
+            f"{raiz_esperada} - os testes abaixo nao estariam provando nada "
+            "sobre o codigo deste worktree.",
         )
 
     def test_o_metodo_novo_existe_na_arvore_carregada(self):
